@@ -60,8 +60,6 @@ def run_kafka():
         consumer = qx.get_consumer()
         consumer.subscribe([topic_name])
 
-        deserializer = topic.value_deserializer
-
         while True:
             msg = consumer.poll(1.0)
             if msg is None:
@@ -70,7 +68,7 @@ def run_kafka():
                 logger.error("Consumer error: %s", msg.error())
                 continue
 
-            value = deserializer(msg.value(), ctx=None)
+            value = json.loads(msg.value())
             push_to_clients(value)
 
     except Exception:
