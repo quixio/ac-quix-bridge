@@ -47,17 +47,32 @@ async def _broadcast(data: str):
 
 
 def run_kafka():
-    """Run QuixStreams consumer in a background thread."""
+    """Run a raw Kafka consumer in a background thread (no signal handlers needed)."""
     try:
         from quixstreams import Application as QuixApp
 
         qx = QuixApp(consumer_group="telemetry-dashboard")
         topic_name = os.environ.get("input", "ac-telemetry-raw")
         topic = qx.topic(topic_name)
-        sdf = qx.dataframe(topic=topic)
-        sdf = sdf.update(push_to_clients)
+
         logger.info("Starting Kafka consumer on topic '%s'", topic_name)
-        qx.run()
+
+        consumer = qx.get_consumer()
+        consumer.subscribe([topic_name])
+
+        deserializer = topic.value_deserializer
+
+        while True:
+            msg = consumer.poll(1.0)
+            if msg is None:
+                continue
+            if msg.error():
+                logger.error("Consumer error: %s", msg.error())
+                continue
+
+            value = deserializer(msg.value(), ctx=None)
+            push_to_clients(value)
+
     except Exception:
         logger.exception("Kafka consumer failed")
 
