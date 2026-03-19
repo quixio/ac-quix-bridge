@@ -2,6 +2,7 @@
 Custom QuixStreams Source that reads Assetto Corsa telemetry from shared memory.
 """
 
+import json
 import logging
 import os
 import time
@@ -52,7 +53,7 @@ class AssettoCorsaSource(Source):
                     key=msg.key,
                     value=msg.value,
                 )
-                logger.debug("Produced: %s", data)
+                logger.debug("Produced:\n%s", json.dumps(data, indent=2))
             except Exception:
                 logger.exception("Error reading telemetry, reconnecting...")
                 reader.close()
