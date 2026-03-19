@@ -7,131 +7,206 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   :root {
-    --bg: #0f0f1a;
-    --card: #1a1a2e;
-    --border: #2a2a4a;
+    --bg: #0b0b15;
+    --card: #151525;
+    --border: #252545;
     --text: #e0e0e0;
-    --dim: #888;
+    --dim: #666;
     --cyan: #00d4ff;
     --green: #00ff88;
     --amber: #ffaa00;
     --red: #ff3355;
+    --purple: #aa55ff;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
   body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
-    min-height: 100vh;
-    padding: 16px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 6px;
   }
-  h1 {
-    text-align: center;
-    font-size: 1.1rem;
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-shrink: 0;
+    height: 24px;
+  }
+  .header h1 {
+    font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 3px;
     color: var(--dim);
-    margin-bottom: 16px;
   }
-  h1 span { color: var(--cyan); }
-  .status {
-    text-align: center;
-    font-size: 0.75rem;
-    color: var(--dim);
-    margin-bottom: 12px;
-  }
-  .status .dot {
-    display: inline-block;
-    width: 8px; height: 8px;
+  .header h1 span { color: var(--cyan); }
+  .dot {
+    width: 7px; height: 7px;
     border-radius: 50%;
     background: var(--red);
-    margin-right: 6px;
-    vertical-align: middle;
     transition: background 0.3s;
   }
-  .status .dot.live { background: var(--green); }
+  .dot.live { background: var(--green); }
 
-  .grid {
+  /* Main grid */
+  .dash {
+    flex: 1;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    max-width: 900px;
-    margin: 0 auto;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    grid-template-rows: auto 1fr 1fr;
+    gap: 6px;
+    min-height: 0;
   }
 
   .card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
+    border-radius: 8px;
+    padding: 10px;
+    min-height: 0;
+    overflow: hidden;
   }
   .card-title {
-    font-size: 0.7rem;
+    font-size: 0.6rem;
     text-transform: uppercase;
     letter-spacing: 2px;
     color: var(--dim);
-    margin-bottom: 10px;
+    margin-bottom: 6px;
   }
 
-  /* Hero numbers */
-  .hero { text-align: center; }
+  /* Row 1: Speed, RPM, Gear, Pedals */
+  .hero { text-align: center; display: flex; flex-direction: column; justify-content: center; }
   .hero .value {
-    font-size: 4rem;
+    font-size: 2.8rem;
     font-weight: 700;
     line-height: 1;
-    transition: color 0.2s;
+    transition: color 0.15s;
   }
   .hero .unit {
-    font-size: 0.9rem;
+    font-size: 0.7rem;
     color: var(--dim);
-    margin-top: 4px;
-  }
-  #speed-val { color: var(--cyan); }
-  #gear-val { color: var(--amber); }
-
-  /* Speed sparkline */
-  .sparkline-wrap {
-    height: 50px;
-    margin-top: 8px;
+    margin-top: 2px;
   }
 
-  /* G-force */
-  .gforce-wrap {
+  /* Speed card with sparkline */
+  .speed-card { grid-column: 1 / 2; }
+  .sparkline-wrap { height: 32px; margin-top: 4px; }
+
+  /* RPM card */
+  .rpm-card { grid-column: 2 / 3; }
+  .rpm-bar-wrap {
+    height: 6px;
+    background: #222;
+    border-radius: 3px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .rpm-bar {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--cyan);
+    transition: width 0.1s, background 0.2s;
+    width: 0%;
+  }
+
+  /* Gear */
+  .gear-card { grid-column: 3 / 4; }
+  .gear-card .value { font-size: 3.5rem; }
+
+  /* Pedals */
+  .pedals-card {
+    grid-column: 4 / 5;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .pedal-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 6px;
+    margin-bottom: 6px;
   }
-  .gforce-chart { flex: 1; aspect-ratio: 1; max-height: 220px; }
-  .gforce-vals {
-    font-size: 0.8rem;
+  .pedal-row:last-child { margin-bottom: 0; }
+  .pedal-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
     color: var(--dim);
-    line-height: 1.8;
+    width: 42px;
+    text-align: right;
+  }
+  .pedal-track {
+    flex: 1;
+    height: 14px;
+    background: #1a1a2a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .pedal-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.08s;
+    width: 0%;
+  }
+  .pedal-fill.gas { background: var(--green); }
+  .pedal-fill.brake { background: var(--red); }
+  .pedal-fill.clutch { background: var(--purple); }
+  .pedal-pct {
+    font-size: 0.7rem;
+    font-weight: 600;
+    width: 32px;
+    text-align: right;
+  }
+
+  /* Row 2: G-force, Tyre temps, Stats */
+  .gforce-card { grid-column: 1 / 3; grid-row: 2; }
+  .gforce-inner {
+    display: flex;
+    gap: 10px;
+    height: calc(100% - 20px);
+    align-items: center;
+  }
+  .gforce-chart { flex: 1; height: 100%; max-height: 100%; }
+  .gforce-vals {
+    font-size: 0.75rem;
+    color: var(--dim);
+    line-height: 2;
   }
   .gforce-vals span { color: var(--green); font-weight: 600; }
 
-  /* Quad layout (tyre / brake temps) */
-  .quad-full { grid-column: 1 / -1; }
+  .tyre-card { grid-column: 3 / 5; grid-row: 2; }
   .quad {
     display: grid;
-    grid-template-columns: 1fr 80px 1fr;
-    grid-template-rows: 1fr 40px 1fr;
-    gap: 6px;
-    justify-items: center;
+    grid-template-columns: 1fr 40px 1fr;
+    grid-template-rows: 1fr 20px 1fr;
+    gap: 4px;
+    height: calc(100% - 20px);
     align-items: center;
+    justify-items: center;
   }
   .quad .cell {
     width: 100%;
-    padding: 14px 8px;
-    border-radius: 8px;
-    text-align: center;
-    font-size: 1.4rem;
+    height: 100%;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
     font-weight: 700;
-    transition: background 0.3s, color 0.2s;
+    transition: background 0.3s;
     background: #222;
+    color: #fff;
   }
   .quad .car-icon {
     grid-column: 2; grid-row: 2;
-    font-size: 0.7rem;
+    font-size: 0.55rem;
     text-transform: uppercase;
     letter-spacing: 1px;
     color: var(--dim);
@@ -141,56 +216,109 @@
   .quad .rl { grid-column: 1; grid-row: 3; }
   .quad .rr { grid-column: 3; grid-row: 3; }
 
-  @media (max-width: 600px) {
-    .grid { grid-template-columns: 1fr; }
-    .quad-full { grid-column: 1; }
-    .hero .value { font-size: 3rem; }
+  /* Row 3: Brake temps, Speed chart, Car info */
+  .brake-card { grid-column: 1 / 2; grid-row: 3; }
+  .brake-card .quad {
+    grid-template-columns: 1fr 24px 1fr;
+    grid-template-rows: 1fr 16px 1fr;
+  }
+
+  .speed-chart-card { grid-column: 2 / 4; grid-row: 3; }
+  .speed-chart-wrap { height: calc(100% - 20px); }
+
+  .info-card { grid-column: 4 / 5; grid-row: 3; }
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    height: calc(100% - 20px);
+    align-content: center;
+  }
+  .info-item {
+    text-align: center;
+    padding: 4px;
+    background: #1a1a2a;
+    border-radius: 6px;
+  }
+  .info-item .label {
+    font-size: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--dim);
+    margin-bottom: 2px;
+  }
+  .info-item .val {
+    font-size: 1rem;
+    font-weight: 700;
   }
 </style>
 </head>
 <body>
 
-<h1><span>AC</span> Telemetry</h1>
-<div class="status"><span class="dot" id="status-dot"></span><span id="status-text">Connecting...</span></div>
+<div class="header">
+  <h1><span>AC</span> Telemetry</h1>
+  <div class="dot" id="status-dot"></div>
+</div>
 
-<div class="grid">
-  <!-- Speed -->
-  <div class="card hero">
+<div class="dash">
+  <!-- Row 1: Speed / RPM / Gear / Pedals -->
+  <div class="card hero speed-card">
     <div class="card-title">Speed</div>
     <div class="value" id="speed-val">---</div>
     <div class="unit">km/h</div>
-    <div class="sparkline-wrap"><canvas id="speed-spark"></canvas></div>
   </div>
 
-  <!-- Gear -->
-  <div class="card hero">
+  <div class="card hero rpm-card">
+    <div class="card-title">RPM</div>
+    <div class="value" id="rpm-val" style="color:var(--cyan)">---</div>
+    <div class="rpm-bar-wrap"><div class="rpm-bar" id="rpm-bar"></div></div>
+  </div>
+
+  <div class="card hero gear-card">
     <div class="card-title">Gear</div>
     <div class="value" id="gear-val">-</div>
-    <div class="unit">&nbsp;</div>
   </div>
 
-  <!-- G-Force -->
-  <div class="card quad-full">
+  <div class="card pedals-card">
+    <div class="card-title">Pedals</div>
+    <div class="pedal-row">
+      <div class="pedal-label">Gas</div>
+      <div class="pedal-track"><div class="pedal-fill gas" id="pedal-gas"></div></div>
+      <div class="pedal-pct" id="gas-pct" style="color:var(--green)">0%</div>
+    </div>
+    <div class="pedal-row">
+      <div class="pedal-label">Brake</div>
+      <div class="pedal-track"><div class="pedal-fill brake" id="pedal-brake"></div></div>
+      <div class="pedal-pct" id="brake-pct" style="color:var(--red)">0%</div>
+    </div>
+    <div class="pedal-row">
+      <div class="pedal-label">Clutch</div>
+      <div class="pedal-track"><div class="pedal-fill clutch" id="pedal-clutch"></div></div>
+      <div class="pedal-pct" id="clutch-pct" style="color:var(--purple)">0%</div>
+    </div>
+  </div>
+
+  <!-- Row 2: G-Force / Tyre Temps -->
+  <div class="card gforce-card">
     <div class="card-title">G-Force</div>
-    <div class="gforce-wrap">
+    <div class="gforce-inner">
       <div class="gforce-chart"><canvas id="gforce-chart"></canvas></div>
       <div class="gforce-vals">
-        Lat: <span id="gf-x">0.00</span> g<br>
-        Lon: <span id="gf-y">0.00</span> g<br>
-        Vert: <span id="gf-z">0.00</span> g
+        Lat<br><span id="gf-x">0.00</span>g<br><br>
+        Lon<br><span id="gf-y">0.00</span>g<br><br>
+        Vert<br><span id="gf-z">0.00</span>g
       </div>
     </div>
   </div>
 
-  <!-- Tyre Temps -->
-  <div class="card quad-full">
+  <div class="card tyre-card">
     <div class="card-title">Tyre Temperature</div>
     <div class="quad">
       <div class="cell fl" id="tt-fl">--</div>
       <div></div>
       <div class="cell fr" id="tt-fr">--</div>
       <div></div>
-      <div class="car-icon">front ↑</div>
+      <div class="car-icon">front</div>
       <div></div>
       <div class="cell rl" id="tt-rl">--</div>
       <div></div>
@@ -198,38 +326,71 @@
     </div>
   </div>
 
-  <!-- Brake Temps -->
-  <div class="card quad-full">
-    <div class="card-title">Brake Temperature</div>
+  <!-- Row 3: Brake Temps / Speed History / Info -->
+  <div class="card brake-card">
+    <div class="card-title">Brake Temp</div>
     <div class="quad">
       <div class="cell fl" id="bt-fl">--</div>
       <div></div>
       <div class="cell fr" id="bt-fr">--</div>
       <div></div>
-      <div class="car-icon">front ↑</div>
+      <div class="car-icon">F</div>
       <div></div>
       <div class="cell rl" id="bt-rl">--</div>
       <div></div>
       <div class="cell rr" id="bt-rr">--</div>
     </div>
   </div>
+
+  <div class="card speed-chart-card">
+    <div class="card-title">Speed History</div>
+    <div class="speed-chart-wrap"><canvas id="speed-spark"></canvas></div>
+  </div>
+
+  <div class="card info-card">
+    <div class="card-title">Car Info</div>
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="label">Turbo</div>
+        <div class="val" id="turbo-val" style="color:var(--amber)">0.0</div>
+      </div>
+      <div class="info-item">
+        <div class="label">Steer</div>
+        <div class="val" id="steer-val" style="color:var(--cyan)">0°</div>
+      </div>
+      <div class="info-item">
+        <div class="label">Air</div>
+        <div class="val" id="air-val">--°</div>
+      </div>
+      <div class="info-item">
+        <div class="label">Road</div>
+        <div class="val" id="road-val">--°</div>
+      </div>
+      <div class="info-item">
+        <div class="label">Fuel</div>
+        <div class="val" id="fuel-val" style="color:var(--amber)">--</div>
+      </div>
+      <div class="info-item">
+        <div class="label">DRS</div>
+        <div class="val" id="drs-val">OFF</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
-// --- Config ---
-const TRAIL_LEN = 60;
-const SPARK_LEN = 100;
+const TRAIL_LEN = 80;
+const SPARK_LEN = 150;
+const RPM_MAX = 9000;
 
-// --- State ---
 let latest = null;
 let speedHistory = [];
 let gforceTrail = [];
 
-// --- Chart.js setup ---
-Chart.defaults.color = '#888';
-Chart.defaults.borderColor = '#2a2a4a';
+Chart.defaults.color = '#666';
+Chart.defaults.borderColor = '#252545';
 
-// Speed sparkline
+// Speed history chart
 const speedCtx = document.getElementById('speed-spark').getContext('2d');
 const speedChart = new Chart(speedCtx, {
   type: 'line',
@@ -241,7 +402,7 @@ const speedChart = new Chart(speedCtx, {
       borderWidth: 1.5,
       pointRadius: 0,
       fill: true,
-      backgroundColor: 'rgba(0,212,255,0.08)',
+      backgroundColor: 'rgba(0,212,255,0.06)',
       tension: 0.3
     }]
   },
@@ -250,7 +411,7 @@ const speedChart = new Chart(speedCtx, {
     plugins: { legend: { display: false } },
     scales: {
       x: { display: false },
-      y: { display: false, min: 0 }
+      y: { display: true, min: 0, grid: { color: '#1a1a2a' }, ticks: { font: { size: 9 }, maxTicksLimit: 4 } }
     },
     animation: false
   }
@@ -265,60 +426,64 @@ const gforceChart = new Chart(gfCtx, {
       {
         label: 'Trail',
         data: [],
-        pointRadius: 2,
-        pointBackgroundColor: 'rgba(0,255,136,0.3)',
+        pointRadius: 1.5,
+        pointBackgroundColor: 'rgba(0,255,136,0.25)',
         pointBorderColor: 'transparent'
       },
       {
         label: 'Current',
         data: [{ x: 0, y: 0 }],
-        pointRadius: 6,
+        pointRadius: 5,
         pointBackgroundColor: '#00ff88',
         pointBorderColor: '#fff',
-        pointBorderWidth: 2
+        pointBorderWidth: 1.5
       }
     ]
   },
   options: {
-    responsive: true, maintainAspectRatio: true,
+    responsive: true, maintainAspectRatio: false,
     plugins: { legend: { display: false } },
     scales: {
       x: {
         min: -3, max: 3,
-        title: { display: true, text: 'Lateral (g)', font: { size: 10 } },
-        grid: { color: '#2a2a4a' },
-        ticks: { stepSize: 1, font: { size: 9 } }
+        grid: { color: '#1a1a2a' },
+        ticks: { stepSize: 1, font: { size: 8 } }
       },
       y: {
         min: -3, max: 3,
-        title: { display: true, text: 'Longitudinal (g)', font: { size: 10 } },
-        grid: { color: '#2a2a4a' },
-        ticks: { stepSize: 1, font: { size: 9 } }
+        grid: { color: '#1a1a2a' },
+        ticks: { stepSize: 1, font: { size: 8 } }
       }
     },
     animation: false
   }
 });
 
-// --- Color helpers ---
+// Color helpers
 function tyreTempColor(t) {
-  if (t < 60) return 'rgba(0,140,255,0.7)';
-  if (t < 80) return 'rgba(0,200,100,0.7)';
-  if (t < 100) return 'rgba(0,255,136,0.7)';
-  if (t < 110) return 'rgba(255,170,0,0.7)';
-  return 'rgba(255,51,85,0.7)';
+  if (t < 60) return 'rgba(0,100,220,0.8)';
+  if (t < 80) return 'rgba(0,180,100,0.8)';
+  if (t < 100) return 'rgba(0,230,120,0.8)';
+  if (t < 110) return 'rgba(240,160,0,0.8)';
+  return 'rgba(240,40,70,0.85)';
 }
 
 function brakeTempColor(t) {
-  if (t < 200) return 'rgba(0,140,255,0.7)';
-  if (t < 400) return 'rgba(255,170,0,0.6)';
-  if (t < 600) return 'rgba(255,100,0,0.7)';
-  return 'rgba(255,51,85,0.8)';
+  if (t < 200) return 'rgba(0,100,220,0.8)';
+  if (t < 400) return 'rgba(240,160,0,0.7)';
+  if (t < 600) return 'rgba(240,100,0,0.8)';
+  return 'rgba(240,40,70,0.85)';
 }
 
 function speedColor(s) {
   if (s < 100) return '#00ff88';
   if (s < 200) return '#ffaa00';
+  return '#ff3355';
+}
+
+function rpmColor(pct) {
+  if (pct < 0.7) return '#00d4ff';
+  if (pct < 0.85) return '#ffaa00';
   return '#ff3355';
 }
 
@@ -330,9 +495,17 @@ function gearDisplay(g) {
 
 const gearColors = ['#ff3355','#888','#00d4ff','#00ff88','#ffaa00','#ff8800','#ff5555','#ff3355','#cc00ff'];
 
-// --- DOM refs ---
+// DOM refs
 const speedVal = document.getElementById('speed-val');
+const rpmVal = document.getElementById('rpm-val');
+const rpmBar = document.getElementById('rpm-bar');
 const gearVal = document.getElementById('gear-val');
+const pedalGas = document.getElementById('pedal-gas');
+const pedalBrake = document.getElementById('pedal-brake');
+const pedalClutch = document.getElementById('pedal-clutch');
+const gasPct = document.getElementById('gas-pct');
+const brakePct = document.getElementById('brake-pct');
+const clutchPct = document.getElementById('clutch-pct');
 const gfX = document.getElementById('gf-x');
 const gfY = document.getElementById('gf-y');
 const gfZ = document.getElementById('gf-z');
@@ -344,10 +517,14 @@ const btFL = document.getElementById('bt-fl');
 const btFR = document.getElementById('bt-fr');
 const btRL = document.getElementById('bt-rl');
 const btRR = document.getElementById('bt-rr');
+const turboVal = document.getElementById('turbo-val');
+const steerVal = document.getElementById('steer-val');
+const airVal = document.getElementById('air-val');
+const roadVal = document.getElementById('road-val');
+const fuelVal = document.getElementById('fuel-val');
+const drsVal = document.getElementById('drs-val');
 const statusDot = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
 
-// --- Render loop ---
 function render() {
   if (!latest) { requestAnimationFrame(render); return; }
   const d = latest;
@@ -363,10 +540,29 @@ function render() {
   speedChart.data.labels = speedHistory.map(() => '');
   speedChart.update();
 
+  // RPM
+  const rpm = d.rpms || 0;
+  const rpmPct = Math.min(rpm / RPM_MAX, 1);
+  rpmVal.textContent = rpm.toLocaleString();
+  rpmVal.style.color = rpmColor(rpmPct);
+  rpmBar.style.width = (rpmPct * 100) + '%';
+  rpmBar.style.background = rpmColor(rpmPct);
+
   // Gear
   const gear = d.gear ?? 1;
   gearVal.textContent = gearDisplay(gear);
   gearVal.style.color = gearColors[Math.min(gear, gearColors.length - 1)];
+
+  // Pedals
+  const gas = (d.gas || 0) * 100;
+  const brake = (d.brake || 0) * 100;
+  const clutch = (1 - (d.clutch || 0)) * 100;
+  pedalGas.style.width = gas + '%';
+  pedalBrake.style.width = brake + '%';
+  pedalClutch.style.width = clutch + '%';
+  gasPct.textContent = Math.round(gas) + '%';
+  brakePct.textContent = Math.round(brake) + '%';
+  clutchPct.textContent = Math.round(clutch) + '%';
 
   // G-force
   const gx = d.accG_x || 0;
@@ -386,7 +582,6 @@ function render() {
   function setTemp(el, val, colorFn) {
     el.textContent = Math.round(val) + '°';
     el.style.background = colorFn(val);
-    el.style.color = '#fff';
   }
   setTemp(ttFL, d.tyreTempFL || 0, tyreTempColor);
   setTemp(ttFR, d.tyreTempFR || 0, tyreTempColor);
@@ -399,30 +594,31 @@ function render() {
   setTemp(btRL, d.brakeTempRL || 0, brakeTempColor);
   setTemp(btRR, d.brakeTempRR || 0, brakeTempColor);
 
+  // Car info
+  turboVal.textContent = (d.turboBoost || 0).toFixed(2);
+  steerVal.textContent = Math.round((d.steerAngle || 0) * (180 / Math.PI)) + '°';
+  airVal.textContent = Math.round(d.airTemp || 0) + '°';
+  roadVal.textContent = Math.round(d.roadTemp || 0) + '°';
+  fuelVal.textContent = (d.fuel || 0).toFixed(1);
+  const drsOn = d.drsEnabled === 1;
+  drsVal.textContent = drsOn ? 'ON' : 'OFF';
+  drsVal.style.color = drsOn ? 'var(--green)' : 'var(--dim)';
+
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
 
-// --- WebSocket ---
+// WebSocket
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(proto + '//' + location.host + '/ws');
 
-  ws.onopen = () => {
-    statusDot.classList.add('live');
-    statusText.textContent = 'Connected';
-  };
-
-  ws.onmessage = (e) => {
-    try { latest = JSON.parse(e.data); } catch {}
-  };
-
+  ws.onopen = () => { statusDot.classList.add('live'); };
+  ws.onmessage = (e) => { try { latest = JSON.parse(e.data); } catch {} };
   ws.onclose = () => {
     statusDot.classList.remove('live');
-    statusText.textContent = 'Disconnected — reconnecting...';
     setTimeout(connect, 2000);
   };
-
   ws.onerror = () => ws.close();
 }
 connect();
