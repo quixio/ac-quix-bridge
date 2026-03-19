@@ -91,8 +91,8 @@ api = FastAPI(lifespan=lifespan)
 api.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-@api.get("/")
-async def root():
+@api.get("/{full_path:path}")
+async def root(full_path: str = ""):
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
