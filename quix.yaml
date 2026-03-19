@@ -34,10 +34,11 @@ deployments:
       replicas: 1
     publicAccess:
       enabled: true
-      urlPrefix: telemetrydashboard-b9f7a93
+      urlPrefix: telemetrydashboard
     network:
       ports:
-        - port: 8000
+        - port: 80
+          targetPort: 80
     variables:
       - name: input
         inputType: InputTopic
