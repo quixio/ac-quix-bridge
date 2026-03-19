@@ -52,7 +52,7 @@ class AssettoCorsaSource(Source):
                     key=msg.key,
                     value=msg.value,
                 )
-                logger.debug("Produced: speed=%.1f gear=%d", data["speedKmh"], data["gear"])
+                logger.debug("Produced: %s", data)
             except Exception:
                 logger.exception("Error reading telemetry, reconnecting...")
                 reader.close()
