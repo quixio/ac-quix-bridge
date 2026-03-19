@@ -24,6 +24,25 @@ deployments:
         description: Telemetry sample rate in Hz
         value: 50
 
+  - name: Telemetry Dashboard
+    application: telemetry-dashboard
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 500
+      replicas: 1
+    network:
+      ports:
+        - port: 8000
+          public: true
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Kafka topic to consume telemetry from
+        required: true
+        value: ac-telemetry-raw
+
 topics:
   - name: ac-telemetry-raw
     configuration:

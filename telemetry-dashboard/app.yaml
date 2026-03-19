@@ -1,0 +1,11 @@
+name: Telemetry Dashboard
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: Kafka topic to consume telemetry from
+    defaultValue: ac-telemetry-raw
+    required: true
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

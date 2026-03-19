@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AC Telemetry Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --card: #1a1a2e;
+    --border: #2a2a4a;
+    --text: #e0e0e0;
+    --dim: #888;
+    --cyan: #00d4ff;
+    --green: #00ff88;
+    --amber: #ffaa00;
+    --red: #ff3355;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--dim);
+    margin-bottom: 16px;
+  }
+  h1 span { color: var(--cyan); }
+  .status {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--dim);
+    margin-bottom: 12px;
+  }
+  .status .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    margin-right: 6px;
+    vertical-align: middle;
+    transition: background 0.3s;
+  }
+  .status .dot.live { background: var(--green); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--dim);
+    margin-bottom: 10px;
+  }
+
+  /* Hero numbers */
+  .hero { text-align: center; }
+  .hero .value {
+    font-size: 4rem;
+    font-weight: 700;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+  .hero .unit {
+    font-size: 0.9rem;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+  #speed-val { color: var(--cyan); }
+  #gear-val { color: var(--amber); }
+
+  /* Speed sparkline */
+  .sparkline-wrap {
+    height: 50px;
+    margin-top: 8px;
+  }
+
+  /* G-force */
+  .gforce-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .gforce-chart { flex: 1; aspect-ratio: 1; max-height: 220px; }
+  .gforce-vals {
+    font-size: 0.8rem;
+    color: var(--dim);
+    line-height: 1.8;
+  }
+  .gforce-vals span { color: var(--green); font-weight: 600; }
+
+  /* Quad layout (tyre / brake temps) */
+  .quad-full { grid-column: 1 / -1; }
+  .quad {
+    display: grid;
+    grid-template-columns: 1fr 80px 1fr;
+    grid-template-rows: 1fr 40px 1fr;
+    gap: 6px;
+    justify-items: center;
+    align-items: center;
+  }
+  .quad .cell {
+    width: 100%;
+    padding: 14px 8px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 1.4rem;
+    font-weight: 700;
+    transition: background 0.3s, color 0.2s;
+    background: #222;
+  }
+  .quad .car-icon {
+    grid-column: 2; grid-row: 2;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--dim);
+  }
+  .quad .fl { grid-column: 1; grid-row: 1; }
+  .quad .fr { grid-column: 3; grid-row: 1; }
+  .quad .rl { grid-column: 1; grid-row: 3; }
+  .quad .rr { grid-column: 3; grid-row: 3; }
+
+  @media (max-width: 600px) {
+    .grid { grid-template-columns: 1fr; }
+    .quad-full { grid-column: 1; }
+    .hero .value { font-size: 3rem; }
+  }
+</style>
+</head>
+<body>
+
+<h1><span>AC</span> Telemetry</h1>
+<div class="status"><span class="dot" id="status-dot"></span><span id="status-text">Connecting...</span></div>
+
+<div class="grid">
+  <!-- Speed -->
+  <div class="card hero">
+    <div class="card-title">Speed</div>
+    <div class="value" id="speed-val">---</div>
+    <div class="unit">km/h</div>
+    <div class="sparkline-wrap"><canvas id="speed-spark"></canvas></div>
+  </div>
+
+  <!-- Gear -->
+  <div class="card hero">
+    <div class="card-title">Gear</div>
+    <div class="value" id="gear-val">-</div>
+    <div class="unit">&nbsp;</div>
+  </div>
+
+  <!-- G-Force -->
+  <div class="card quad-full">
+    <div class="card-title">G-Force</div>
+    <div class="gforce-wrap">
+      <div class="gforce-chart"><canvas id="gforce-chart"></canvas></div>
+      <div class="gforce-vals">
+        Lat: <span id="gf-x">0.00</span> g<br>
+        Lon: <span id="gf-y">0.00</span> g<br>
+        Vert: <span id="gf-z">0.00</span> g
+      </div>
+    </div>
+  </div>
+
+  <!-- Tyre Temps -->
+  <div class="card quad-full">
+    <div class="card-title">Tyre Temperature</div>
+    <div class="quad">
+      <div class="cell fl" id="tt-fl">--</div>
+      <div></div>
+      <div class="cell fr" id="tt-fr">--</div>
+      <div></div>
+      <div class="car-icon">front ↑</div>
+      <div></div>
+      <div class="cell rl" id="tt-rl">--</div>
+      <div></div>
+      <div class="cell rr" id="tt-rr">--</div>
+    </div>
+  </div>
+
+  <!-- Brake Temps -->
+  <div class="card quad-full">
+    <div class="card-title">Brake Temperature</div>
+    <div class="quad">
+      <div class="cell fl" id="bt-fl">--</div>
+      <div></div>
+      <div class="cell fr" id="bt-fr">--</div>
+      <div></div>
+      <div class="car-icon">front ↑</div>
+      <div></div>
+      <div class="cell rl" id="bt-rl">--</div>
+      <div></div>
+      <div class="cell rr" id="bt-rr">--</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- Config ---
+const TRAIL_LEN = 60;
+const SPARK_LEN = 100;
+
+// --- State ---
+let latest = null;
+let speedHistory = [];
+let gforceTrail = [];
+
+// --- Chart.js setup ---
+Chart.defaults.color = '#888';
+Chart.defaults.borderColor = '#2a2a4a';
+
+// Speed sparkline
+const speedCtx = document.getElementById('speed-spark').getContext('2d');
+const speedChart = new Chart(speedCtx, {
+  type: 'line',
+  data: {
+    labels: Array(SPARK_LEN).fill(''),
+    datasets: [{
+      data: Array(SPARK_LEN).fill(null),
+      borderColor: '#00d4ff',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: true,
+      backgroundColor: 'rgba(0,212,255,0.08)',
+      tension: 0.3
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { display: false },
+      y: { display: false, min: 0 }
+    },
+    animation: false
+  }
+});
+
+// G-force scatter
+const gfCtx = document.getElementById('gforce-chart').getContext('2d');
+const gforceChart = new Chart(gfCtx, {
+  type: 'scatter',
+  data: {
+    datasets: [
+      {
+        label: 'Trail',
+        data: [],
+        pointRadius: 2,
+        pointBackgroundColor: 'rgba(0,255,136,0.3)',
+        pointBorderColor: 'transparent'
+      },
+      {
+        label: 'Current',
+        data: [{ x: 0, y: 0 }],
+        pointRadius: 6,
+        pointBackgroundColor: '#00ff88',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: {
+        min: -3, max: 3,
+        title: { display: true, text: 'Lateral (g)', font: { size: 10 } },
+        grid: { color: '#2a2a4a' },
+        ticks: { stepSize: 1, font: { size: 9 } }
+      },
+      y: {
+        min: -3, max: 3,
+        title: { display: true, text: 'Longitudinal (g)', font: { size: 10 } },
+        grid: { color: '#2a2a4a' },
+        ticks: { stepSize: 1, font: { size: 9 } }
+      }
+    },
+    animation: false
+  }
+});
+
+// --- Color helpers ---
+function tyreTempColor(t) {
+  if (t < 60) return 'rgba(0,140,255,0.7)';
+  if (t < 80) return 'rgba(0,200,100,0.7)';
+  if (t < 100) return 'rgba(0,255,136,0.7)';
+  if (t < 110) return 'rgba(255,170,0,0.7)';
+  return 'rgba(255,51,85,0.7)';
+}
+
+function brakeTempColor(t) {
+  if (t < 200) return 'rgba(0,140,255,0.7)';
+  if (t < 400) return 'rgba(255,170,0,0.6)';
+  if (t < 600) return 'rgba(255,100,0,0.7)';
+  return 'rgba(255,51,85,0.8)';
+}
+
+function speedColor(s) {
+  if (s < 100) return '#00ff88';
+  if (s < 200) return '#ffaa00';
+  return '#ff3355';
+}
+
+function gearDisplay(g) {
+  if (g === 0) return 'R';
+  if (g === 1) return 'N';
+  return String(g - 1);
+}
+
+const gearColors = ['#ff3355','#888','#00d4ff','#00ff88','#ffaa00','#ff8800','#ff5555','#ff3355','#cc00ff'];
+
+// --- DOM refs ---
+const speedVal = document.getElementById('speed-val');
+const gearVal = document.getElementById('gear-val');
+const gfX = document.getElementById('gf-x');
+const gfY = document.getElementById('gf-y');
+const gfZ = document.getElementById('gf-z');
+const ttFL = document.getElementById('tt-fl');
+const ttFR = document.getElementById('tt-fr');
+const ttRL = document.getElementById('tt-rl');
+const ttRR = document.getElementById('tt-rr');
+const btFL = document.getElementById('bt-fl');
+const btFR = document.getElementById('bt-fr');
+const btRL = document.getElementById('bt-rl');
+const btRR = document.getElementById('bt-rr');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+
+// --- Render loop ---
+function render() {
+  if (!latest) { requestAnimationFrame(render); return; }
+  const d = latest;
+
+  // Speed
+  const spd = d.speedKmh || 0;
+  speedVal.textContent = Math.round(spd);
+  speedVal.style.color = speedColor(spd);
+
+  speedHistory.push(spd);
+  if (speedHistory.length > SPARK_LEN) speedHistory.shift();
+  speedChart.data.datasets[0].data = [...speedHistory];
+  speedChart.data.labels = speedHistory.map(() => '');
+  speedChart.update();
+
+  // Gear
+  const gear = d.gear ?? 1;
+  gearVal.textContent = gearDisplay(gear);
+  gearVal.style.color = gearColors[Math.min(gear, gearColors.length - 1)];
+
+  // G-force
+  const gx = d.accG_x || 0;
+  const gy = d.accG_y || 0;
+  const gz = d.accG_z || 0;
+  gfX.textContent = gx.toFixed(2);
+  gfY.textContent = gy.toFixed(2);
+  gfZ.textContent = gz.toFixed(2);
+
+  gforceTrail.push({ x: gx, y: gy });
+  if (gforceTrail.length > TRAIL_LEN) gforceTrail.shift();
+  gforceChart.data.datasets[0].data = [...gforceTrail];
+  gforceChart.data.datasets[1].data = [{ x: gx, y: gy }];
+  gforceChart.update();
+
+  // Tyre temps
+  function setTemp(el, val, colorFn) {
+    el.textContent = Math.round(val) + '°';
+    el.style.background = colorFn(val);
+    el.style.color = '#fff';
+  }
+  setTemp(ttFL, d.tyreTempFL || 0, tyreTempColor);
+  setTemp(ttFR, d.tyreTempFR || 0, tyreTempColor);
+  setTemp(ttRL, d.tyreTempRL || 0, tyreTempColor);
+  setTemp(ttRR, d.tyreTempRR || 0, tyreTempColor);
+
+  // Brake temps
+  setTemp(btFL, d.brakeTempFL || 0, brakeTempColor);
+  setTemp(btFR, d.brakeTempFR || 0, brakeTempColor);
+  setTemp(btRL, d.brakeTempRL || 0, brakeTempColor);
+  setTemp(btRR, d.brakeTempRR || 0, brakeTempColor);
+
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+// --- WebSocket ---
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onopen = () => {
+    statusDot.classList.add('live');
+    statusText.textContent = 'Connected';
+  };
+
+  ws.onmessage = (e) => {
+    try { latest = JSON.parse(e.data); } catch {}
+  };
+
+  ws.onclose = () => {
+    statusDot.classList.remove('live');
+    statusText.textContent = 'Disconnected — reconnecting...';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>

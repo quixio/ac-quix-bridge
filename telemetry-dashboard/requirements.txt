@@ -1,0 +1,4 @@
+quixstreams
+fastapi
+uvicorn[standard]
+python-dotenv
