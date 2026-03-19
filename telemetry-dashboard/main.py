@@ -55,10 +55,11 @@ def run_kafka():
         topic_name = os.environ.get("input", "ac-telemetry-raw")
         topic = qx.topic(topic_name)
 
-        logger.info("Starting Kafka consumer on topic '%s'", topic_name)
+        real_topic_name = topic.name
+        logger.info("Starting Kafka consumer on topic '%s' (real: '%s')", topic_name, real_topic_name)
 
         consumer = qx.get_consumer()
-        consumer.subscribe([topic_name])
+        consumer.subscribe([real_topic_name])
 
         while True:
             msg = consumer.poll(1.0)
