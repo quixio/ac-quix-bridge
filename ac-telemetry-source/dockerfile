@@ -1,0 +1,7 @@
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONIOENCODING=UTF-8
+WORKDIR /app
+COPY --from=git /project .
+RUN pip install -r ac-telemetry-source/requirements.txt
+ENTRYPOINT ["python", "ac-telemetry-source/main.py"]

@@ -1,0 +1,16 @@
+name: AC Telemetry Source
+language: python
+variables:
+  - name: output
+    inputType: OutputTopic
+    description: Name of the output topic to write telemetry into
+    defaultValue: ac-telemetry-raw
+    required: true
+  - name: SAMPLE_RATE_HZ
+    inputType: FreeText
+    description: Telemetry sample rate in Hz
+    defaultValue: 50
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
