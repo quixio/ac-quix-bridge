@@ -46,32 +46,103 @@ class ACReader:
 
     def read(self) -> dict:
         """
-        Read current physics state and return a flat dict of telemetry values.
+        Read current physics state and return a flat dict of all telemetry values.
 
-        Returns dict with keys:
-            speedKmh, gear, accG_x, accG_y, accG_z,
-            tyreTempFL, tyreTempFR, tyreTempRL, tyreTempRR,
-            brakeTempFL, brakeTempFR, brakeTempRL, brakeTempRR
+        Arrays are unpacked into individual named keys (e.g. velocity_x/y/z,
+        wheelSlipFL/FR/RL/RR) for easier downstream processing.
         """
         if self._mmap is None:
             raise RuntimeError("Shared memory not open. Call open() first.")
 
         self._mmap.seek(0)
         buf = self._mmap.read(SHM_SIZE)
-        physics = ACPhysics.from_buffer_copy(buf)
+        p = ACPhysics.from_buffer_copy(buf)
+
+        WHEELS = ("FL", "FR", "RL", "RR")
+        DAMAGE = ("front", "rear", "left", "right", "top")
 
         return {
-            "speedKmh": physics.speedKmh,
-            "gear": physics.gear,
-            "accG_x": physics.accG[0],
-            "accG_y": physics.accG[1],
-            "accG_z": physics.accG[2],
-            "tyreTempFL": physics.tyreCoreTemperature[0],
-            "tyreTempFR": physics.tyreCoreTemperature[1],
-            "tyreTempRL": physics.tyreCoreTemperature[2],
-            "tyreTempRR": physics.tyreCoreTemperature[3],
-            "brakeTempFL": physics.brakeTemp[0],
-            "brakeTempFR": physics.brakeTemp[1],
-            "brakeTempRL": physics.brakeTemp[2],
-            "brakeTempRR": physics.brakeTemp[3],
+            # Scalars
+            "packetId": p.packetId,
+            "gas": p.gas,
+            "brake": p.brake,
+            "fuel": p.fuel,
+            "gear": p.gear,
+            "rpms": p.rpms,
+            "steerAngle": p.steerAngle,
+            "speedKmh": p.speedKmh,
+            "drs": p.drs,
+            "tc": p.tc,
+            "heading": p.heading,
+            "pitch": p.pitch,
+            "roll": p.roll,
+            "cgHeight": p.cgHeight,
+            "numberOfTyresOut": p.numberOfTyresOut,
+            "pitLimiterOn": p.pitLimiterOn,
+            "abs": p.abs,
+            "kersCharge": p.kersCharge,
+            "kersInput": p.kersInput,
+            "autoShifterOn": p.autoShifterOn,
+            "turboBoost": p.turboBoost,
+            "ballast": p.ballast,
+            "airDensity": p.airDensity,
+            "airTemp": p.airTemp,
+            "roadTemp": p.roadTemp,
+            "finalFF": p.finalFF,
+            "performanceMeter": p.performanceMeter,
+            "engineBrake": p.engineBrake,
+            "ersRecoveryLevel": p.ersRecoveryLevel,
+            "ersPowerLevel": p.ersPowerLevel,
+            "ersHeatCharging": p.ersHeatCharging,
+            "ersIsCharging": p.ersIsCharging,
+            "kersCurrentKJ": p.kersCurrentKJ,
+            "drsAvailable": p.drsAvailable,
+            "drsEnabled": p.drsEnabled,
+            "clutch": p.clutch,
+            "isAIControlled": p.isAIControlled,
+            "brakeBias": p.brakeBias,
+
+            # Vec3 arrays
+            "velocity_x": p.velocity[0],
+            "velocity_y": p.velocity[1],
+            "velocity_z": p.velocity[2],
+            "accG_x": p.accG[0],
+            "accG_y": p.accG[1],
+            "accG_z": p.accG[2],
+            "localAngularVel_x": p.localAngularVel[0],
+            "localAngularVel_y": p.localAngularVel[1],
+            "localAngularVel_z": p.localAngularVel[2],
+            "localVelocity_x": p.localVelocity[0],
+            "localVelocity_y": p.localVelocity[1],
+            "localVelocity_z": p.localVelocity[2],
+
+            # Per-wheel arrays (FL, FR, RL, RR)
+            **{f"wheelSlip{w}": p.wheelSlip[i] for i, w in enumerate(WHEELS)},
+            **{f"wheelLoad{w}": p.wheelLoad[i] for i, w in enumerate(WHEELS)},
+            **{f"wheelsPressure{w}": p.wheelsPressure[i] for i, w in enumerate(WHEELS)},
+            **{f"wheelAngularSpeed{w}": p.wheelAngularSpeed[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreWear{w}": p.tyreWear[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreDirtyLevel{w}": p.tyreDirtyLevel[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreTemp{w}": p.tyreCoreTemperature[i] for i, w in enumerate(WHEELS)},
+            **{f"camberRAD{w}": p.camberRAD[i] for i, w in enumerate(WHEELS)},
+            **{f"suspensionTravel{w}": p.suspensionTravel[i] for i, w in enumerate(WHEELS)},
+            **{f"brakeTemp{w}": p.brakeTemp[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreTempI{w}": p.tyreTempI[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreTempM{w}": p.tyreTempM[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreTempO{w}": p.tyreTempO[i] for i, w in enumerate(WHEELS)},
+
+            # Per-wheel vec3 arrays (FL, FR, RL, RR × x, y, z)
+            **{f"tyreContactPoint{w}_{a}": p.tyreContactPoint[i][j]
+               for i, w in enumerate(WHEELS) for j, a in enumerate("xyz")},
+            **{f"tyreContactNormal{w}_{a}": p.tyreContactNormal[i][j]
+               for i, w in enumerate(WHEELS) for j, a in enumerate("xyz")},
+            **{f"tyreContactHeading{w}_{a}": p.tyreContactHeading[i][j]
+               for i, w in enumerate(WHEELS) for j, a in enumerate("xyz")},
+
+            # Ride height (front, rear)
+            "rideHeightFront": p.rideHeight[0],
+            "rideHeightRear": p.rideHeight[1],
+
+            # Car damage (5 zones)
+            **{f"carDamage_{z}": p.carDamage[i] for i, z in enumerate(DAMAGE)},
         }
