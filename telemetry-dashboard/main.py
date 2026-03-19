@@ -88,12 +88,23 @@ async def lifespan(app: FastAPI):
 
 
 api = FastAPI(lifespan=lifespan)
-api.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @api.get("/{full_path:path}")
 async def root(full_path: str = ""):
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    index = STATIC_DIR / "index.html"
+    logger.info("Request for '/%s' — serving %s (exists: %s)", full_path, index, index.exists())
+    if not index.exists():
+        # Fallback: try /app/static directly
+        fallback = Path("/app/static/index.html")
+        logger.info("Trying fallback %s (exists: %s)", fallback, fallback.exists())
+        if fallback.exists():
+            return FileResponse(str(fallback))
+        # List what's actually in /app for debugging
+        app_contents = list(Path("/app").rglob("*"))
+        logger.info("Contents of /app: %s", app_contents)
+        return {"error": "index.html not found", "static_dir": str(STATIC_DIR), "app_contents": [str(p) for p in app_contents]}
+    return FileResponse(str(index))
 
 
 @api.websocket("/ws")
