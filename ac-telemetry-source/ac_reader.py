@@ -1,68 +1,92 @@
 """
-Windows shared memory reader for Assetto Corsa physics telemetry.
+Windows shared memory reader for Assetto Corsa telemetry.
 
-Opens the `Local\\acpmf_physics` memory-mapped file and reads it into
-the ACPhysics ctypes struct.
+Opens all three AC shared memory blocks (physics, graphics, static)
+and provides methods to read each into flat dicts.
 """
 
 import ctypes
 import mmap
 import logging
 
-from models import ACPhysics
+from models import ACPhysics, ACGraphics, ACStatic
 
 logger = logging.getLogger(__name__)
 
-SHM_NAME = "Local\\acpmf_physics"
-SHM_SIZE = ctypes.sizeof(ACPhysics)
+SHM_PHYSICS = "Local\\acpmf_physics"
+SHM_GRAPHICS = "Local\\acpmf_graphics"
+SHM_STATIC = "Local\\acpmf_static"
+
+SESSION_TYPES = {
+    -1: "unknown", 0: "practice", 1: "qualify", 2: "race",
+    3: "hotlap", 4: "time_attack", 5: "drift", 6: "drag",
+}
+FLAG_TYPES = {
+    0: "none", 1: "blue", 2: "yellow", 3: "black",
+    4: "white", 5: "checkered", 6: "penalty",
+}
+STATUS_TYPES = {0: "off", 1: "replay", 2: "live", 3: "pause"}
+
+
+def _open_shm(name: str, size: int) -> mmap.mmap:
+    """Open a named shared memory region. Raises FileNotFoundError on failure."""
+    try:
+        m = mmap.mmap(-1, size, name, access=mmap.ACCESS_READ)
+        logger.info("Opened shared memory '%s' (%d bytes)", name, size)
+        return m
+    except Exception as e:
+        raise FileNotFoundError(
+            f"Could not open shared memory '{name}': {e}"
+        ) from e
 
 
 class ACReader:
-    """Reads Assetto Corsa physics data from Windows shared memory."""
+    """Reads Assetto Corsa data from all three Windows shared memory blocks."""
 
     def __init__(self):
-        self._mmap = None
+        self._physics_mmap = None
+        self._graphics_mmap = None
+        self._static_mmap = None
 
     def open(self):
-        """Open the shared memory region. Raises FileNotFoundError if AC is not running."""
-        try:
-            self._mmap = mmap.mmap(-1, SHM_SIZE, SHM_NAME, access=mmap.ACCESS_READ)
-            logger.info("Opened AC shared memory (%d bytes)", SHM_SIZE)
-        except Exception as e:
-            self._mmap = None
-            raise FileNotFoundError(
-                f"Could not open AC shared memory '{SHM_NAME}': {e}"
-            ) from e
+        """Open all shared memory regions."""
+        self._physics_mmap = _open_shm(SHM_PHYSICS, ctypes.sizeof(ACPhysics))
+        self._graphics_mmap = _open_shm(SHM_GRAPHICS, ctypes.sizeof(ACGraphics))
+        self._static_mmap = _open_shm(SHM_STATIC, ctypes.sizeof(ACStatic))
 
     def close(self):
-        """Close the shared memory region."""
-        if self._mmap is not None:
-            self._mmap.close()
-            self._mmap = None
+        """Close all shared memory regions."""
+        for attr in ("_physics_mmap", "_graphics_mmap", "_static_mmap"):
+            m = getattr(self, attr)
+            if m is not None:
+                m.close()
+                setattr(self, attr, None)
 
     @property
     def is_open(self) -> bool:
-        return self._mmap is not None
+        return self._physics_mmap is not None
 
-    def read(self) -> dict:
-        """
-        Read current physics state and return a flat dict of all telemetry values.
+    def _read_struct(self, m: mmap.mmap, struct_cls):
+        m.seek(0)
+        buf = m.read(ctypes.sizeof(struct_cls))
+        return struct_cls.from_buffer_copy(buf)
 
-        Arrays are unpacked into individual named keys (e.g. velocity_x/y/z,
-        wheelSlipFL/FR/RL/RR) for easier downstream processing.
+    def read_physics_and_graphics(self) -> dict:
         """
-        if self._mmap is None:
+        Read physics + graphics and return a merged flat dict.
+        This is the high-frequency data produced every tick.
+        """
+        if not self.is_open:
             raise RuntimeError("Shared memory not open. Call open() first.")
 
-        self._mmap.seek(0)
-        buf = self._mmap.read(SHM_SIZE)
-        p = ACPhysics.from_buffer_copy(buf)
+        p = self._read_struct(self._physics_mmap, ACPhysics)
+        g = self._read_struct(self._graphics_mmap, ACGraphics)
 
         WHEELS = ("FL", "FR", "RL", "RR")
         DAMAGE = ("front", "rear", "left", "right", "top")
 
-        return {
-            # Scalars
+        data = {
+            # --- Physics scalars ---
             "packetId": p.packetId,
             "gas": p.gas,
             "brake": p.brake,
@@ -102,7 +126,7 @@ class ACReader:
             "isAIControlled": p.isAIControlled,
             "brakeBias": p.brakeBias,
 
-            # Vec3 arrays
+            # Physics vec3
             "velocity_x": p.velocity[0],
             "velocity_y": p.velocity[1],
             "velocity_z": p.velocity[2],
@@ -116,7 +140,7 @@ class ACReader:
             "localVelocity_y": p.localVelocity[1],
             "localVelocity_z": p.localVelocity[2],
 
-            # Per-wheel arrays (FL, FR, RL, RR)
+            # Physics per-wheel
             **{f"wheelSlip{w}": p.wheelSlip[i] for i, w in enumerate(WHEELS)},
             **{f"wheelLoad{w}": p.wheelLoad[i] for i, w in enumerate(WHEELS)},
             **{f"wheelsPressure{w}": p.wheelsPressure[i] for i, w in enumerate(WHEELS)},
@@ -131,7 +155,7 @@ class ACReader:
             **{f"tyreTempM{w}": p.tyreTempM[i] for i, w in enumerate(WHEELS)},
             **{f"tyreTempO{w}": p.tyreTempO[i] for i, w in enumerate(WHEELS)},
 
-            # Per-wheel vec3 arrays (FL, FR, RL, RR × x, y, z)
+            # Physics per-wheel vec3
             **{f"tyreContactPoint{w}_{a}": p.tyreContactPoint[i][j]
                for i, w in enumerate(WHEELS) for j, a in enumerate("xyz")},
             **{f"tyreContactNormal{w}_{a}": p.tyreContactNormal[i][j]
@@ -139,10 +163,103 @@ class ACReader:
             **{f"tyreContactHeading{w}_{a}": p.tyreContactHeading[i][j]
                for i, w in enumerate(WHEELS) for j, a in enumerate("xyz")},
 
-            # Ride height (front, rear)
+            # Physics ride height & damage
             "rideHeightFront": p.rideHeight[0],
             "rideHeightRear": p.rideHeight[1],
-
-            # Car damage (5 zones)
             **{f"carDamage_{z}": p.carDamage[i] for i, z in enumerate(DAMAGE)},
+
+            # --- Graphics ---
+            "status": STATUS_TYPES.get(g.status, str(g.status)),
+            "sessionType": SESSION_TYPES.get(g.session, str(g.session)),
+            "currentTime": g.currentTime.rstrip("\x00"),
+            "lastTime": g.lastTime.rstrip("\x00"),
+            "bestTime": g.bestTime.rstrip("\x00"),
+            "split": g.split.rstrip("\x00"),
+            "completedLaps": g.completedLaps,
+            "position": g.position,
+            "iCurrentTime": g.iCurrentTime,
+            "iLastTime": g.iLastTime,
+            "iBestTime": g.iBestTime,
+            "sessionTimeLeft": g.sessionTimeLeft,
+            "distanceTraveled": g.distanceTraveled,
+            "isInPit": g.isInPit,
+            "currentSectorIndex": g.currentSectorIndex,
+            "lastSectorTime": g.lastSectorTime,
+            "numberOfLaps": g.numberOfLaps,
+            "tyreCompound": g.tyreCompound.rstrip("\x00"),
+            "replayTimeMultiplier": g.replayTimeMultiplier,
+            "normalizedCarPosition": g.normalizedCarPosition,
+            "carCoordinates_x": g.carCoordinates[0],
+            "carCoordinates_y": g.carCoordinates[1],
+            "carCoordinates_z": g.carCoordinates[2],
+            "penaltyTime": g.penaltyTime,
+            "flag": FLAG_TYPES.get(g.flag, str(g.flag)),
+            "idealLineOn": g.idealLineOn,
+            "isInPitLane": g.isInPitLane,
+            "surfaceGrip": g.surfaceGrip,
+            "mandatoryPitDone": g.mandatoryPitDone,
         }
+
+        return data
+
+    def read_static(self) -> dict:
+        """
+        Read the static block and return a flat dict.
+        This data changes only on session load.
+        """
+        if not self.is_open:
+            raise RuntimeError("Shared memory not open. Call open() first.")
+
+        s = self._read_struct(self._static_mmap, ACStatic)
+
+        WHEELS = ("FL", "FR", "RL", "RR")
+
+        return {
+            "smVersion": s.smVersion.rstrip("\x00"),
+            "acVersion": s.acVersion.rstrip("\x00"),
+            "numberOfSessions": s.numberOfSessions,
+            "numCars": s.numCars,
+            "carModel": s.carModel.rstrip("\x00"),
+            "track": s.track.rstrip("\x00"),
+            "playerName": s.playerName.rstrip("\x00"),
+            "playerSurname": s.playerSurname.rstrip("\x00"),
+            "playerNick": s.playerNick.rstrip("\x00"),
+            "sectorCount": s.sectorCount,
+            "maxTorque": s.maxTorque,
+            "maxPower": s.maxPower,
+            "maxRpm": s.maxRpm,
+            "maxFuel": s.maxFuel,
+            **{f"suspensionMaxTravel{w}": s.suspensionMaxTravel[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreRadius{w}": s.tyreRadius[i] for i, w in enumerate(WHEELS)},
+            "maxTurboBoost": s.maxTurboBoost,
+            "penaltiesEnabled": s.penaltiesEnabled,
+            "aidFuelRate": s.aidFuelRate,
+            "aidTireRate": s.aidTireRate,
+            "aidMechanicalDamage": s.aidMechanicalDamage,
+            "aidAllowTyreBlankets": s.aidAllowTyreBlankets,
+            "aidStability": s.aidStability,
+            "aidAutoClutch": s.aidAutoClutch,
+            "aidAutoBlip": s.aidAutoBlip,
+            "hasDRS": s.hasDRS,
+            "hasERS": s.hasERS,
+            "hasKERS": s.hasKERS,
+            "kersMaxJoules": s.kersMaxJoules,
+            "engineBrakeSettingsCount": s.engineBrakeSettingsCount,
+            "ersPowerControllerCount": s.ersPowerControllerCount,
+            "trackSplineLength": s.trackSplineLength,
+            "trackConfiguration": s.trackConfiguration.rstrip("\x00"),
+            "ersMaxJ": s.ersMaxJ,
+            "isTimedRace": s.isTimedRace,
+            "hasExtraLap": s.hasExtraLap,
+            "carSkin": s.carSkin.rstrip("\x00"),
+            "reversedGridPositions": s.reversedGridPositions,
+            "pitWindowStart": s.pitWindowStart,
+            "pitWindowEnd": s.pitWindowEnd,
+        }
+
+    def get_session_key(self) -> str:
+        """Return a string that uniquely identifies the current AC session (car + track)."""
+        if not self.is_open:
+            return ""
+        s = self._read_struct(self._static_mmap, ACStatic)
+        return f"{s.carModel.rstrip(chr(0))}|{s.track.rstrip(chr(0))}"
