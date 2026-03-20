@@ -3,5 +3,5 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=UTF-8
 WORKDIR /app
 COPY --from=git /project .
-RUN pip install -r ac-telemetry-source/requirements.txt
-ENTRYPOINT ["python", "ac-telemetry-source/main.py"]
+RUN pip install -r requirements.txt
+ENTRYPOINT ["python", "main.py"]

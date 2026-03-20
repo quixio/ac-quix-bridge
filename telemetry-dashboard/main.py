@@ -47,17 +47,31 @@ async def _broadcast(data: str):
 
 
 def run_kafka():
-    """Run QuixStreams consumer in a background thread."""
+    """Run a raw Kafka consumer in a background thread (no signal handlers needed)."""
     try:
         from quixstreams import Application as QuixApp
 
         qx = QuixApp(consumer_group="telemetry-dashboard")
         topic_name = os.environ.get("input", "ac-telemetry-raw")
         topic = qx.topic(topic_name)
-        sdf = qx.dataframe(topic=topic)
-        sdf = sdf.update(push_to_clients)
-        logger.info("Starting Kafka consumer on topic '%s'", topic_name)
-        qx.run()
+
+        real_topic_name = topic.name
+        logger.info("Starting Kafka consumer on topic '%s' (real: '%s')", topic_name, real_topic_name)
+
+        consumer = qx.get_consumer()
+        consumer.subscribe([real_topic_name])
+
+        while True:
+            msg = consumer.poll(1.0)
+            if msg is None:
+                continue
+            if msg.error():
+                logger.error("Consumer error: %s", msg.error())
+                continue
+
+            value = json.loads(msg.value())
+            push_to_clients(value)
+
     except Exception:
         logger.exception("Kafka consumer failed")
 
@@ -74,12 +88,23 @@ async def lifespan(app: FastAPI):
 
 
 api = FastAPI(lifespan=lifespan)
-api.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-@api.get("/")
-async def root():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+@api.get("/{full_path:path}")
+async def root(full_path: str = ""):
+    index = STATIC_DIR / "index.html"
+    logger.info("Request for '/%s' — serving %s (exists: %s)", full_path, index, index.exists())
+    if not index.exists():
+        # Fallback: try /app/static directly
+        fallback = Path("/app/static/index.html")
+        logger.info("Trying fallback %s (exists: %s)", fallback, fallback.exists())
+        if fallback.exists():
+            return FileResponse(str(fallback))
+        # List what's actually in /app for debugging
+        app_contents = list(Path("/app").rglob("*"))
+        logger.info("Contents of /app: %s", app_contents)
+        return {"error": "index.html not found", "static_dir": str(STATIC_DIR), "app_contents": [str(p) for p in app_contents]}
+    return FileResponse(str(index))
 
 
 @api.websocket("/ws")
