@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m venv .venv)",
+      "Bash(sudo apt update)",
+      "Bash(sudo apt install -y python3.12-venv)",
+      "Bash(python3 -m venv .venv --without-pip)",
+      "Bash(curl -sSL https://bootstrap.pypa.io/get-pip.py)",
+      "Bash(.venv/bin/python3)",
+      "Bash(.venv/bin/pip install -r ac-telemetry-source/requirements.txt)",
+      "Bash(cp .env.example .env)",
+      "Bash(../.venv/bin/python main.py)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

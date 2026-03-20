@@ -4,3 +4,14 @@ __pycache__/
 .venv/
 *.egg-info/
 dist/
+.env
+compose.local.yaml
+.secrets
+.venv/
+certificates/
+.quix.yaml.variables
+
+compose.local.yaml
+.secrets
+certificates/
+.quix.yaml.variables
