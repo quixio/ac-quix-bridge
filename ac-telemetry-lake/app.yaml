@@ -1,0 +1,72 @@
+name: ac-telemetry-lake
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: Name of the Kafka input topic to consume from
+    defaultValue: ac-telemetry-raw
+    required: true
+  - name: TABLE_NAME
+    inputType: FreeText
+    description: Table name for data organization and registration, else defaults to topic name
+    defaultValue: ac_telemetry
+  - name: HIVE_COLUMNS
+    inputType: FreeText
+    description: Comma-separated list of columns for Hive partitioning. Include year/month/day/hour to extract from TIMESTAMP_COLUMN (e.g., location,year,month,day,sensor_type)
+    defaultValue: session_id
+  - name: TIMESTAMP_COLUMN
+    inputType: FreeText
+    description: Column containing timestamp values to extract year/month/day/hour from
+    defaultValue: timestamp_ms
+  - name: CATALOG_URL
+    inputType: FreeText
+    description: REST Catalog URL for optional table registration (leave empty to skip)
+    defaultValue: https://iceberg-catalog-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io
+  - name: CATALOG_AUTH_TOKEN
+    inputType: Secret
+    description: If using a catalog, the respective auth token to access it
+    defaultValue: pat
+  - name: AUTO_DISCOVER
+    inputType: Options
+    description: Automatically register table in REST Catalog on first write
+    defaultValue: true
+  - name: CATALOG_NAMESPACE
+    inputType: FreeText
+    description: Catalog namespace for table registration
+    defaultValue: default
+  - name: BATCH_SIZE
+    inputType: FreeText
+    description: Number of messages to batch before writing to storage
+    defaultValue: 1000
+  - name: COMMIT_INTERVAL
+    inputType: FreeText
+    description: Kafka commit interval in seconds
+    defaultValue: 30
+  - name: KAFKA_KEY_DESERIALIZER
+    inputType: FreeText
+    description: The key deserializer to use
+    defaultValue: str
+  - name: KAFKA_VALUE_DESERIALIZER
+    inputType: FreeText
+    description: the value deserializer to use
+    defaultValue: json
+  - name: CONSUMER_GROUP
+    inputType: FreeText
+    description: Kafka consumer group name
+    defaultValue: s3_direct_sink_v1.0
+  - name: AUTO_OFFSET_RESET
+    inputType: Options
+    description: Where to start consuming if no offset exists
+    defaultValue: earliest
+  - name: LOGLEVEL
+    inputType: Options
+    description: Application logging level
+    defaultValue: INFO
+  - name: MAX_WRITE_WORKERS
+    inputType: FreeText
+    description: How many files can be written in parallel to storage at once (based on partitioning + batch size)
+    defaultValue: 10
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
+libraryItemId: quixlake-timeseries-destination
