@@ -9,6 +9,7 @@ Produces two message types:
 import json
 import logging
 import os
+import socket
 import time
 from datetime import datetime, timezone
 
@@ -28,6 +29,7 @@ class AssettoCorsaSource(Source):
         self._session_topic = session_topic
         self._session_id = None
         self._last_session_key = None
+        self._hostname = socket.gethostname()
 
     def _new_session_id(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -48,7 +50,7 @@ class AssettoCorsaSource(Source):
         # Use the session topic's serializer and produce via the low-level producer,
         # since Source.serialize()/produce() only support the main topic.
         msg = self._session_topic.serialize(
-            key=self._session_id,
+            key=self._hostname,
             value=static_data,
         )
         self.producer.produce(
@@ -96,7 +98,7 @@ class AssettoCorsaSource(Source):
                 data["timestamp_ms"] = int(time.time() * 1000)
 
                 msg = self.serialize(
-                    key=self._session_id,
+                    key=self._hostname,
                     value=data,
                 )
                 self.produce(

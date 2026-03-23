@@ -9,7 +9,8 @@
       "Bash(.venv/bin/python3)",
       "Bash(.venv/bin/pip install -r ac-telemetry-source/requirements.txt)",
       "Bash(cp .env.example .env)",
-      "Bash(../.venv/bin/python main.py)"
+      "Bash(../.venv/bin/python main.py)",
+      "WebFetch(domain:quix.io)"
     ],
     "deny": [],
     "ask": []
