@@ -25,8 +25,15 @@ CONFIG_MANAGER_URL = os.environ.get("CONFIG_MANAGER_URL", "https://config-api-sv
 CONFIG_TYPE = os.environ.get("CONFIG_TYPE", "experiment")
 TARGET_KEY = os.environ.get("TARGET_KEY", "*")
 API_BASE = f"{CONFIG_MANAGER_URL}/api/v1"
+AUTH_TOKEN = os.environ.get("Quix__Sdk__Token", "")
 
 api = FastAPI()
+
+
+def _auth_headers() -> dict:
+    if AUTH_TOKEN:
+        return {"Authorization": f"Bearer {AUTH_TOKEN}"}
+    return {}
 
 
 async def _find_config_id() -> str | None:
@@ -35,6 +42,7 @@ async def _find_config_id() -> str | None:
         resp = await client.get(
             f"{API_BASE}/configurations",
             params={"configType": CONFIG_TYPE, "targetKey": TARGET_KEY},
+            headers=_auth_headers(),
             timeout=5.0,
         )
         if resp.status_code == 200:
@@ -62,6 +70,7 @@ async def get_current_config():
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{API_BASE}/configurations/{config_id}/content",
+                headers=_auth_headers(),
                 timeout=5.0,
             )
             if resp.status_code == 200:
@@ -110,6 +119,7 @@ async def submit_config(request: Request):
                         "targetKey": TARGET_KEY,
                         "content": config_content,
                     },
+                    headers=_auth_headers(),
                     timeout=10.0,
                 )
             else:
@@ -121,6 +131,7 @@ async def submit_config(request: Request):
                         "targetKey": TARGET_KEY,
                         "content": config_content,
                     },
+                    headers=_auth_headers(),
                     timeout=10.0,
                 )
 
