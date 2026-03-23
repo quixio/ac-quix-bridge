@@ -6,6 +6,11 @@ variables:
     description: Name of the Kafka input topic to consume from
     defaultValue: ac-telemetry-raw
     required: true
+  - name: config_topic
+    inputType: InputTopic
+    description: Dynamic Configuration Manager topic for enrichment
+    defaultValue: ac-telemetry-config
+    required: true
   - name: TABLE_NAME
     inputType: FreeText
     description: Table name for data organization and registration, else defaults to topic name

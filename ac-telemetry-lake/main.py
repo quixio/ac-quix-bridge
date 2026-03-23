@@ -15,6 +15,7 @@ import os
 import logging
 
 from quixstreams import Application
+from quixstreams.dataframe.joins.lookups import QuixConfigurationService
 from quixstreams.sinks.core.quix_ts_datalake_sink import QuixTSDataLakeSink
 
 # Configure logging
@@ -78,8 +79,36 @@ blob_sink = QuixTSDataLakeSink(
     on_client_connect_failure=lambda e: print(f"ERROR! {e}"),
 )
 
-# Create streaming dataframe and attach sink
+# Create streaming dataframe
 sdf = app.dataframe(topic=app.topic(os.environ["input"]))
+
+# --- Enrich with Dynamic Configuration Manager ---
+config_topic_name = os.getenv("config_topic", "ac-telemetry-config")
+config_topic = app.topic(config_topic_name)
+
+config_lookup = QuixConfigurationService(
+    topic=config_topic,
+    app_config=app.config,
+)
+
+# Enrich with experiment config (from form)
+sdf = sdf.join_lookup(
+    lookup=config_lookup,
+    on=lambda value, key: key,
+    fields={
+        "test_id": config_lookup.json_field(jsonpath="$.test_id", type="experiment"),
+        "environment": config_lookup.json_field(jsonpath="$.environment", type="experiment"),
+        "test_rig": config_lookup.json_field(jsonpath="$.test_rig", type="experiment"),
+        "experiment_id": config_lookup.json_field(jsonpath="$.experiment_id", type="experiment"),
+        "driver": config_lookup.json_field(jsonpath="$.driver", type="experiment"),
+        "beers": config_lookup.json_field(jsonpath="$.beers", type="experiment"),
+        "carModel": config_lookup.json_field(jsonpath="$.carModel", type="session"),
+        "track": config_lookup.json_field(jsonpath="$.track", type="session"),
+    },
+)
+
+# Add lap number (completedLaps=0 means lap 1 in progress)
+sdf = sdf.apply(lambda v: {**v, "lap_number": v.get("completedLaps", 0) + 1})
 
 # Attach sink (batching is handled by BatchingSink)
 sdf.sink(blob_sink)
