@@ -17,8 +17,9 @@ variables:
     defaultValue: ac_telemetry
   - name: HIVE_COLUMNS
     inputType: FreeText
+    multiline: false
     description: Comma-separated list of columns for Hive partitioning. Include year/month/day/hour to extract from TIMESTAMP_COLUMN (e.g., location,year,month,day,sensor_type)
-    defaultValue: session_id
+    defaultValue: environment,test_rig,experiment_id,driver,track,carModel,beers,session_id,lap
   - name: TIMESTAMP_COLUMN
     inputType: FreeText
     description: Column containing timestamp values to extract year/month/day/hour from
