@@ -126,6 +126,30 @@ deployments:
         value: 10
     blobStorage:
       bind: true
+  - name: MongoDB
+    application: mongodb
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 800
+      replicas: 1
+    network:
+      serviceName: mongodb
+      ports:
+        - port: 27017
+          targetPort: 27017
+    variables:
+      - name: MONGO_INITDB_ROOT_USERNAME
+        inputType: FreeText
+        description: The root username to initialize MongoDB with
+        required: true
+        value: admin
+      - name: MONGO_INITDB_ROOT_PASSWORD
+        inputType: Secret
+        description: The root password to initialize MongoDB with
+        required: true
+        secretKey: MONGO_ROOT_PASSWORD
 
 # This section describes the Topics of the data pipeline
 topics:
