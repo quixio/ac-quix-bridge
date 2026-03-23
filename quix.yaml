@@ -77,7 +77,7 @@ deployments:
       - name: BATCH_SIZE
         inputType: FreeText
         description: Number of messages to batch before writing to storage
-        value: 1000
+        value: 10000
       - name: COMMIT_INTERVAL
         inputType: FreeText
         description: Kafka commit interval in seconds
