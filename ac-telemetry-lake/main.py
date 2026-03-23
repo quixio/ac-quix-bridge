@@ -96,14 +96,14 @@ sdf = sdf.join_lookup(
     lookup=config_lookup,
     on=lambda value, key: key,
     fields={
-        "test_id": config_lookup.json_field(jsonpath="$.test_id", type="experiment"),
-        "environment": config_lookup.json_field(jsonpath="$.environment", type="experiment"),
-        "test_rig": config_lookup.json_field(jsonpath="$.test_rig", type="experiment"),
-        "experiment_id": config_lookup.json_field(jsonpath="$.experiment_id", type="experiment"),
-        "driver": config_lookup.json_field(jsonpath="$.driver", type="experiment"),
-        "beers": config_lookup.json_field(jsonpath="$.beers", type="experiment"),
-        "carModel": config_lookup.json_field(jsonpath="$.carModel", type="session"),
-        "track": config_lookup.json_field(jsonpath="$.track", type="session"),
+        "test_id": config_lookup.json_field(jsonpath="$.test_id", type="experiment", default="NA"),
+        "environment": config_lookup.json_field(jsonpath="$.environment", type="experiment", default="NA"),
+        "test_rig": config_lookup.json_field(jsonpath="$.test_rig", type="experiment", default="NA"),
+        "experiment_id": config_lookup.json_field(jsonpath="$.experiment_id", type="experiment", default="NA"),
+        "driver": config_lookup.json_field(jsonpath="$.driver", type="experiment", default="NA"),
+        "beers": config_lookup.json_field(jsonpath="$.beers", type="experiment", default=-1),
+        "carModel": config_lookup.json_field(jsonpath="$.carModel", type="session", default="NA"),
+        "track": config_lookup.json_field(jsonpath="$.track", type="session", default="NA"),
     },
 )
 
