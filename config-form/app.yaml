@@ -1,11 +1,6 @@
 name: Config Form
 language: python
 variables:
-  - name: Quix__Sdk__Token
-    inputType: Secret
-    description: Quix SDK token for authenticating with the Config Manager API
-    required: true
-    secretKey: Quix__Sdk__Token
   - name: CONFIG_MANAGER_URL
     inputType: FreeText
     description: URL of the Dynamic Configuration Manager API
@@ -19,7 +14,7 @@ variables:
   - name: TARGET_KEY
     inputType: FreeText
     description: Target key for the config
-    defaultValue: "*"
+    defaultValue: '*'
     required: true
 dockerfile: dockerfile
 runEntryPoint: main.py
