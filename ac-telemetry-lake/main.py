@@ -92,16 +92,9 @@ config_lookup = QuixConfigurationService(
     app_config=app.config,
 )
 
-def join_on(value, key):
-    print(key)
-
-    return key
-
-
 # Enrich with experiment config (from form)
 sdf = sdf.join_lookup(
     lookup=config_lookup,
-    on=join_on,
     fields={
         "test_id": config_lookup.json_field(jsonpath="$.test_id", type="experiment", default="NA"),
         "environment": config_lookup.json_field(jsonpath="$.environment", type="experiment", default="NA"),
