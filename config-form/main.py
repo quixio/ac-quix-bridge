@@ -32,7 +32,7 @@ api = FastAPI()
 
 def _auth_headers() -> dict:
     if AUTH_TOKEN:
-        return {"Authorization": f"Bearer {AUTH_TOKEN}"}
+        return {"authorization": AUTH_TOKEN}
     return {}
 
 
@@ -41,16 +41,16 @@ async def _find_config_id() -> str | None:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{API_BASE}/configurations",
-            params={"configType": CONFIG_TYPE, "targetKey": TARGET_KEY},
+            params={"type": CONFIG_TYPE, "target_key": TARGET_KEY},
             headers=_auth_headers(),
             timeout=5.0,
         )
+        logger.info("Search configs: %d %s", resp.status_code, resp.text[:200])
         if resp.status_code == 200:
-            configs = resp.json()
-            if isinstance(configs, list) and len(configs) > 0:
+            data = resp.json()
+            configs = data if isinstance(data, list) else data.get("items", [])
+            if configs:
                 return configs[0].get("id") or configs[0].get("_id")
-            if isinstance(configs, dict) and configs.get("items"):
-                return configs["items"][0].get("id") or configs["items"][0].get("_id")
     return None
 
 
@@ -115,9 +115,13 @@ async def submit_config(request: Request):
                 resp = await client.put(
                     f"{API_BASE}/configurations/{config_id}",
                     json={
-                        "configType": CONFIG_TYPE,
-                        "targetKey": TARGET_KEY,
+                        "metadata": {
+                            "type": CONFIG_TYPE,
+                            "target_key": TARGET_KEY,
+                            "category": "ac-telemetry",
+                        },
                         "content": config_content,
+                        "replace": True,
                     },
                     headers=_auth_headers(),
                     timeout=10.0,
@@ -127,13 +131,19 @@ async def submit_config(request: Request):
                 resp = await client.post(
                     f"{API_BASE}/configurations",
                     json={
-                        "configType": CONFIG_TYPE,
-                        "targetKey": TARGET_KEY,
+                        "metadata": {
+                            "type": CONFIG_TYPE,
+                            "target_key": TARGET_KEY,
+                            "category": "ac-telemetry",
+                        },
                         "content": config_content,
+                        "replace": False,
                     },
                     headers=_auth_headers(),
                     timeout=10.0,
                 )
+
+            logger.info("Config API response: %d %s", resp.status_code, resp.text[:300])
 
             if resp.status_code in (200, 201):
                 logger.info("Config submitted: %s (id=%s)", test_id, config_id or "new")
