@@ -48,7 +48,7 @@ async def _find_config_id() -> str | None:
         logger.info("Search configs: %d %s", resp.status_code, resp.text[:500])
         if resp.status_code == 200:
             data = resp.json()
-            configs = data if isinstance(data, list) else data.get("items", [])
+            configs = data if isinstance(data, list) else data.get("data", data.get("items", []))
             for cfg in configs:
                 meta = cfg.get("metadata", {})
                 cfg_type = meta.get("type", cfg.get("configType", cfg.get("type", "")))
