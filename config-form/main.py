@@ -122,12 +122,9 @@ async def submit_config(request: Request):
                     f"{API_BASE}/configurations/{config_id}",
                     json={
                         "metadata": {
-                            "type": CONFIG_TYPE,
-                            "target_key": TARGET_KEY,
                             "category": "ac-telemetry",
                         },
                         "content": config_content,
-                        "replace": True,
                     },
                     headers=_auth_headers(),
                     timeout=10.0,
