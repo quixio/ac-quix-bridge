@@ -81,7 +81,7 @@ blob_sink = QuixTSDataLakeSink(
 )
 
 # Create streaming dataframe
-sdf = app.dataframe(topic=app.topic(os.environ["input"]))
+sdf = app.dataframe(topic=app.topic(os.environ["input"], key_deserializer="str"))
 
 # --- Enrich with Dynamic Configuration Manager ---
 config_topic_name = os.getenv("config_topic", "ac-telemetry-config")
