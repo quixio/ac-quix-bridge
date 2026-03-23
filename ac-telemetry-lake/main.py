@@ -108,7 +108,7 @@ sdf = sdf.join_lookup(
 )
 
 # Add lap number (completedLaps=0 means lap 1 in progress)
-sdf["lap"] = sdf["completedLaps"] + 1
+sdf = sdf.apply(lambda v: {**v, "lap": v.get("completedLaps", 0) + 1})
 
 # Attach sink (batching is handled by BatchingSink)
 sdf.sink(blob_sink)
