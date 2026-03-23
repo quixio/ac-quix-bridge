@@ -174,6 +174,13 @@
 
   <div class="card">
     <div class="card-title">Setup</div>
+    <div class="field">
+      <label>Rig (hostname)</label>
+      <select id="rig_hostname">
+        <option value="praguepc">praguepc</option>
+        <option value="patrickpc">patrickpc</option>
+      </select>
+    </div>
     <div class="row">
       <div class="field">
         <label>Environment</label>
@@ -228,16 +235,6 @@
         <input type="number" id="beers" value="0" min="0" max="99" />
       </div>
     </div>
-    <div class="row">
-      <div class="field">
-        <label>Car</label>
-        <input type="text" id="car" placeholder="e.g. gt3, ferrari_488" />
-      </div>
-      <div class="field">
-        <label>Track</label>
-        <input type="text" id="track" placeholder="e.g. monza, spa" />
-      </div>
-    </div>
   </div>
 
   <div class="card">
@@ -253,7 +250,7 @@
 </div>
 
 <script>
-const fields = ['environment', 'test_rig', 'experiment_id', 'driver', 'car', 'track', 'beers'];
+const fields = ['rig_hostname', 'environment', 'test_rig', 'experiment_id', 'driver', 'beers'];
 const els = {};
 fields.forEach(f => { els[f] = document.getElementById(f); });
 const preview = document.getElementById('preview');
@@ -270,21 +267,20 @@ function getFormData() {
 
 function generateTestId(d) {
   const ts = new Date().toISOString().replace(/\.\d{3}Z$/, ms => ms);
-  return `run_${ts}_${d.driver}_${d.car || 'unknown'}_${d.track || 'unknown'}_${d.beers}beers`;
+  return `run_${ts}_${d.driver}_${d.beers}beers`;
 }
 
 function updatePreview() {
   const d = getFormData();
   const testId = generateTestId(d);
   const lines = [
+    `<span class="dim">target_key: ${d.rig_hostname}</span>`,
     '{',
     `  <span class="key">"test_id"</span>: <span class="val">"${testId}"</span>,`,
     `  <span class="key">"environment"</span>: <span class="val">"${d.environment}"</span>,`,
     `  <span class="key">"test_rig"</span>: <span class="val">"${d.test_rig}"</span>,`,
     `  <span class="key">"experiment_id"</span>: <span class="val">"${d.experiment_id}"</span>,`,
     `  <span class="key">"driver"</span>: <span class="val">"${d.driver}"</span>,`,
-    `  <span class="key">"car"</span>: <span class="val">"${d.car}"</span>,`,
-    `  <span class="key">"track"</span>: <span class="val">"${d.track}"</span>,`,
     `  <span class="key">"beers"</span>: <span class="num">${d.beers}</span>`,
     '}',
   ];
@@ -293,9 +289,9 @@ function updatePreview() {
 
 async function submitConfig() {
   const d = getFormData();
-  if (!d.experiment_id || !d.car || !d.track) {
+  if (!d.experiment_id) {
     status.className = 'status err';
-    status.textContent = 'Please fill in experiment ID, car, and track.';
+    status.textContent = 'Please fill in experiment ID.';
     return;
   }
 
@@ -312,7 +308,7 @@ async function submitConfig() {
     const result = await resp.json();
     if (result.ok) {
       status.className = 'status ok';
-      status.textContent = `Config saved: ${result.test_id}`;
+      status.textContent = `Config saved for ${result.target_key}: ${result.test_id}`;
       loadCurrent();
     } else {
       status.className = 'status err';
@@ -329,13 +325,13 @@ async function loadCurrent() {
   try {
     const resp = await fetch('/api/current');
     const data = await resp.json();
-    if (data.content && data.content.test_id) {
-      const c = data.content;
-      currentInfo.innerHTML = `Active: <span>${c.test_id}</span>`;
-    } else if (data.test_id) {
-      currentInfo.innerHTML = `Active: <span>${data.test_id}</span>`;
+    if (data.configs && Object.keys(data.configs).length > 0) {
+      const parts = Object.entries(data.configs).map(([key, cfg]) =>
+        `<span>${key}</span>: ${cfg.test_id || 'no test_id'}`
+      );
+      currentInfo.innerHTML = parts.join(' | ');
     } else {
-      currentInfo.textContent = 'No active config';
+      currentInfo.textContent = 'No active configs';
     }
   } catch {
     currentInfo.textContent = 'Could not load current config';

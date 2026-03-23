@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 CONFIG_MANAGER_URL = os.environ.get("CONFIG_MANAGER_URL", "https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io")
 CONFIG_TYPE = os.environ.get("CONFIG_TYPE", "experiment")
-TARGET_KEY = os.environ.get("TARGET_KEY", "*")
 API_BASE = f"{CONFIG_MANAGER_URL}/api/v1"
 AUTH_TOKEN = os.environ.get("Quix__Sdk__Token", "")
 
@@ -36,10 +35,9 @@ def _auth_headers() -> dict:
     return {}
 
 
-async def _find_config_id() -> str | None:
+async def _find_config_id(target_key: str) -> str | None:
     """Search for the existing config by type and target key, return its ID or None."""
     async with httpx.AsyncClient() as client:
-        # Try search with query params
         resp = await client.get(
             f"{API_BASE}/configurations",
             headers=_auth_headers(),
@@ -51,11 +49,11 @@ async def _find_config_id() -> str | None:
             configs = data if isinstance(data, list) else data.get("data", data.get("items", []))
             for cfg in configs:
                 meta = cfg.get("metadata", {})
-                cfg_type = meta.get("type", cfg.get("configType", cfg.get("type", "")))
-                cfg_key = meta.get("target_key", cfg.get("targetKey", cfg.get("target_key", "")))
-                if cfg_type == CONFIG_TYPE and cfg_key == TARGET_KEY:
+                cfg_type = meta.get("type", "")
+                cfg_key = meta.get("target_key", "")
+                if cfg_type == CONFIG_TYPE and cfg_key == target_key:
                     config_id = cfg.get("id") or cfg.get("_id")
-                    logger.info("Found existing config: %s", config_id)
+                    logger.info("Found existing config: %s (target_key=%s)", config_id, target_key)
                     return config_id
     return None
 
@@ -67,21 +65,36 @@ async def root():
 
 @api.get("/api/current")
 async def get_current_config():
-    """Fetch the current active config from the Dynamic Configuration Manager."""
+    """Fetch current configs for all rigs."""
     try:
-        config_id = await _find_config_id()
-        if not config_id:
-            return {"error": "No config found"}
-
         async with httpx.AsyncClient() as client:
             resp = await client.get(
-                f"{API_BASE}/configurations/{config_id}/content",
+                f"{API_BASE}/configurations",
                 headers=_auth_headers(),
                 timeout=5.0,
             )
-            if resp.status_code == 200:
-                return {"content": resp.json(), "config_id": config_id}
-            return {"error": "Could not fetch content", "status": resp.status_code}
+            if resp.status_code != 200:
+                return {"error": "Could not fetch configs", "status": resp.status_code}
+
+            data = resp.json()
+            configs = data if isinstance(data, list) else data.get("data", data.get("items", []))
+
+            results = {}
+            for cfg in configs:
+                meta = cfg.get("metadata", {})
+                if meta.get("type") == CONFIG_TYPE:
+                    config_id = cfg.get("id") or cfg.get("_id")
+                    target_key = meta.get("target_key", "")
+                    # Fetch content
+                    content_resp = await client.get(
+                        f"{API_BASE}/configurations/{config_id}/content",
+                        headers=_auth_headers(),
+                        timeout=5.0,
+                    )
+                    if content_resp.status_code == 200:
+                        results[target_key] = content_resp.json()
+
+            return {"configs": results}
     except Exception as e:
         logger.exception("Failed to fetch current config")
         return {"error": str(e)}
@@ -92,13 +105,13 @@ async def submit_config(request: Request):
     """Create or update the experiment config in the Dynamic Configuration Manager."""
     form_data = await request.json()
 
+    target_key = form_data.get("rig_hostname", "*")
+
     # Auto-generate test_id
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     driver = form_data.get("driver", "unknown")
-    car = form_data.get("car", "unknown")
-    track = form_data.get("track", "unknown")
     beers = form_data.get("beers", 0)
-    test_id = f"run_{ts}_{driver}_{car}_{track}_{beers}beers"
+    test_id = f"run_{ts}_{driver}_{beers}beers"
 
     config_content = {
         "test_id": test_id,
@@ -107,13 +120,11 @@ async def submit_config(request: Request):
         "test_rig": form_data.get("test_rig", ""),
         "experiment_id": form_data.get("experiment_id", ""),
         "driver": driver,
-        "car": car,
-        "track": track,
         "beers": int(beers),
     }
 
     try:
-        config_id = await _find_config_id()
+        config_id = await _find_config_id(target_key)
 
         async with httpx.AsyncClient() as client:
             if config_id:
@@ -123,6 +134,7 @@ async def submit_config(request: Request):
                     json={
                         "metadata": {
                             "category": "ac-telemetry",
+                            "valid_from": ts,
                         },
                         "content": config_content,
                     },
@@ -130,17 +142,17 @@ async def submit_config(request: Request):
                     timeout=10.0,
                 )
             else:
-                # Create new config
+                # Create new config for this rig
                 resp = await client.post(
                     f"{API_BASE}/configurations",
                     json={
                         "metadata": {
                             "type": CONFIG_TYPE,
-                            "target_key": TARGET_KEY,
+                            "target_key": target_key,
                             "category": "ac-telemetry",
+                            "valid_from": ts,
                         },
                         "content": config_content,
-                        "replace": False,
                     },
                     headers=_auth_headers(),
                     timeout=10.0,
@@ -149,8 +161,8 @@ async def submit_config(request: Request):
             logger.info("Config API response: %d %s", resp.status_code, resp.text[:300])
 
             if resp.status_code in (200, 201):
-                logger.info("Config submitted: %s (id=%s)", test_id, config_id or "new")
-                return {"ok": True, "test_id": test_id, "config": config_content}
+                logger.info("Config submitted: %s (target_key=%s, id=%s)", test_id, target_key, config_id or "new")
+                return {"ok": True, "test_id": test_id, "target_key": target_key, "config": config_content}
             else:
                 logger.error("Config Manager returned %d: %s", resp.status_code, resp.text)
                 return JSONResponse(
