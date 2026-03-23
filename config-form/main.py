@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
-CONFIG_MANAGER_URL = os.environ.get("CONFIG_MANAGER_URL", "http://dynamicconfigurationmanager:80")
+CONFIG_MANAGER_URL = os.environ.get("CONFIG_MANAGER_URL", "https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io")
 CONFIG_TYPE = os.environ.get("CONFIG_TYPE", "experiment")
 TARGET_KEY = os.environ.get("TARGET_KEY", "*")
 API_BASE = f"{CONFIG_MANAGER_URL}/api/v1"
@@ -48,14 +48,6 @@ async def _find_config_id() -> str | None:
 
 @api.get("/")
 async def root():
-    return FileResponse(str(STATIC_DIR / "index.html"))
-
-
-@api.get("/{full_path:path}")
-async def fallback(full_path: str = ""):
-    """Catch-all for Quix proxy paths."""
-    if full_path.startswith("api/"):
-        return JSONResponse(status_code=404, content={"error": "not found"})
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
@@ -144,3 +136,9 @@ async def submit_config(request: Request):
     except Exception as e:
         logger.exception("Failed to submit config")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@api.get("/{full_path:path}")
+async def fallback(full_path: str = ""):
+    """Catch-all for Quix proxy paths — must be last."""
+    return FileResponse(str(STATIC_DIR / "index.html"))

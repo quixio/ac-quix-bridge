@@ -169,7 +169,7 @@ deployments:
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
-        value: http://dynamicconfigurationmanager:80
+        value: https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io
       - name: CONFIG_TYPE
         inputType: FreeText
         description: Config type in the Dynamic Configuration Manager
