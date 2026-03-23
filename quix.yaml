@@ -156,7 +156,7 @@ deployments:
     deploymentType: Service
     resources:
       cpu: 200
-      memory: 300
+      memory: 2000
       replicas: 1
     publicAccess:
       enabled: true
@@ -174,15 +174,18 @@ deployments:
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
+        required: true
         value: https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io
       - name: CONFIG_TYPE
         inputType: FreeText
         description: Config type in the Dynamic Configuration Manager
+        required: true
         value: experiment
       - name: TARGET_KEY
         inputType: FreeText
         description: Target key for the config
-        value: "*"
+        required: true
+        value: '*'
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
     version: latest
