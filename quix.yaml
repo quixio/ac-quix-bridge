@@ -166,3 +166,4 @@ topics:
       retentionInMinutes: -1
       cleanupPolicy: Compact
   - name: tsbs_data_transformed
+  - name: ac-telemetry-config
