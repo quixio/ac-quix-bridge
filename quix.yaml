@@ -216,10 +216,5 @@ topics:
       replicationFactor: 1
       retentionInMinutes: -1
       cleanupPolicy: Compact
-  - name: ac-telemetry-enriched
-    configuration:
-      partitions: 1
-      replicationFactor: 1
-      retentionInMinutes: -1
   - name: tsbs_data_transformed
   - name: ac-telemetry-config
