@@ -1,0 +1,21 @@
+name: Session Config Bridge
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: Topic to consume AC session data from
+    defaultValue: ac-telemetry-session
+    required: true
+  - name: CONFIG_MANAGER_URL
+    inputType: FreeText
+    description: URL of the Dynamic Configuration Manager API
+    defaultValue: https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io
+    required: true
+  - name: CONFIG_TYPE
+    inputType: FreeText
+    description: Config type for session data
+    defaultValue: session
+    required: true
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

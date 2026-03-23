@@ -158,6 +158,28 @@ deployments:
         description: Target key for the config
         required: true
         value: '*'
+  - name: Session Config Bridge
+    application: session-config-bridge
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 300
+      replicas: 1
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Topic to consume AC session data from
+        required: true
+        value: ac-telemetry-session
+      - name: CONFIG_MANAGER_URL
+        inputType: FreeText
+        description: URL of the Dynamic Configuration Manager API
+        value: https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io
+      - name: CONFIG_TYPE
+        inputType: FreeText
+        description: Config type for session data
+        value: session
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
     version: latest
