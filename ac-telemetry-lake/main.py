@@ -93,7 +93,6 @@ config_lookup = QuixConfigurationService(
 )
 
 def join_on(value, key):
-    print(value)
     print(key)
 
     return key
