@@ -39,18 +39,24 @@ def _auth_headers() -> dict:
 async def _find_config_id() -> str | None:
     """Search for the existing config by type and target key, return its ID or None."""
     async with httpx.AsyncClient() as client:
+        # Try search with query params
         resp = await client.get(
             f"{API_BASE}/configurations",
-            params={"type": CONFIG_TYPE, "target_key": TARGET_KEY},
             headers=_auth_headers(),
             timeout=5.0,
         )
-        logger.info("Search configs: %d %s", resp.status_code, resp.text[:200])
+        logger.info("Search configs: %d %s", resp.status_code, resp.text[:500])
         if resp.status_code == 200:
             data = resp.json()
             configs = data if isinstance(data, list) else data.get("items", [])
-            if configs:
-                return configs[0].get("id") or configs[0].get("_id")
+            for cfg in configs:
+                meta = cfg.get("metadata", {})
+                cfg_type = meta.get("type", cfg.get("configType", cfg.get("type", "")))
+                cfg_key = meta.get("target_key", cfg.get("targetKey", cfg.get("target_key", "")))
+                if cfg_type == CONFIG_TYPE and cfg_key == TARGET_KEY:
+                    config_id = cfg.get("id") or cfg.get("_id")
+                    logger.info("Found existing config: %s", config_id)
+                    return config_id
     return None
 
 
