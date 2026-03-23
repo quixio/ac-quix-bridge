@@ -24,7 +24,7 @@ class AssettoCorsaSource(Source):
 
     def __init__(self, name: str, session_topic):
         super().__init__(name=name)
-        self._sample_rate_hz = int(os.environ.get("SAMPLE_RATE_HZ", "50"))
+        self._sample_rate_hz = int(os.environ.get("SAMPLE_RATE_HZ", "60"))
         self._session_topic = session_topic
         self._session_id = None
         self._last_session_key = None
@@ -65,6 +65,7 @@ class AssettoCorsaSource(Source):
     def run(self):
         reader = ACReader()
         interval = 1.0 / self._sample_rate_hz
+        next_tick = None
 
         while self.running:
             if not reader.is_open:
@@ -76,7 +77,14 @@ class AssettoCorsaSource(Source):
                         "Retrying in 5 seconds..."
                     )
                     time.sleep(5)
+                    next_tick = None  # reset schedule after reconnect
                     continue
+
+            # Initialize or reset the fixed-rate schedule
+            if next_tick is None:
+                next_tick = time.perf_counter()
+
+            next_tick += interval
 
             try:
                 # Check for session change and publish static data
@@ -95,14 +103,19 @@ class AssettoCorsaSource(Source):
                     key=msg.key,
                     value=msg.value,
                 )
-                logger.debug("Produced:\n%s", json.dumps(data, indent=2))
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Produced:\n%s", json.dumps(data, indent=2))
             except Exception:
                 logger.exception("Error reading telemetry, reconnecting...")
                 reader.close()
                 self._last_session_key = None
+                next_tick = None
                 time.sleep(5)
                 continue
 
-            time.sleep(interval)
+            # Fixed-rate sleep: wait until next scheduled tick
+            now = time.perf_counter()
+            if next_tick > now:
+                time.sleep(next_tick - now)
 
         reader.close()
