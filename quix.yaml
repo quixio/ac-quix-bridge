@@ -150,6 +150,22 @@ deployments:
         description: The root password to initialize MongoDB with
         required: true
         secretKey: MONGO_ROOT_PASSWORD
+  - name: Dynamic Configuration Manager
+    application: DynamicConfiguration
+    version: latest
+    deploymentType: Managed
+    resources:
+      cpu: 500
+      memory: 1000
+      replicas: 1
+    configuration:
+      topic: ac-telemetry-config
+      mongoHost: mongodb
+      mongoPort: 27017
+      mongoUser: admin
+      mongoPasswordSecret: MONGO_ROOT_PASSWORD
+      mongoDatabase: ac_telemetry
+      mongoCollection: experiment_configs
 
 # This section describes the Topics of the data pipeline
 topics:
