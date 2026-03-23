@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AC Experiment Config</title>
+<style>
+  :root {
+    --bg: #0b0b15;
+    --card: #151525;
+    --border: #252545;
+    --text: #e0e0e0;
+    --dim: #666;
+    --cyan: #00d4ff;
+    --green: #00ff88;
+    --amber: #ffaa00;
+    --red: #ff3355;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 24px;
+  }
+  .container {
+    width: 100%;
+    max-width: 560px;
+  }
+  h1 {
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--dim);
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  h1 span { color: var(--cyan); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--dim);
+    margin-bottom: 16px;
+  }
+
+  .field {
+    margin-bottom: 14px;
+  }
+  .field label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--dim);
+    margin-bottom: 4px;
+  }
+  .field input, .field select {
+    width: 100%;
+    padding: 10px 12px;
+    background: #0f0f1a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field input:focus, .field select:focus {
+    border-color: var(--cyan);
+  }
+  .field input::placeholder {
+    color: #444;
+  }
+  .field select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+  .field select option {
+    background: #151525;
+    color: var(--text);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary {
+    background: var(--cyan);
+    color: #000;
+  }
+  .btn-primary:hover { background: #33ddff; }
+  .btn-primary:disabled {
+    background: #333;
+    color: #666;
+    cursor: not-allowed;
+  }
+
+  /* Preview */
+  .preview {
+    background: #0a0a12;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 0.8rem;
+    color: var(--dim);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    min-height: 40px;
+  }
+  .preview .key { color: var(--cyan); }
+  .preview .val { color: var(--green); }
+  .preview .num { color: var(--amber); }
+
+  /* Status */
+  .status {
+    text-align: center;
+    margin-top: 16px;
+    font-size: 0.8rem;
+    min-height: 20px;
+  }
+  .status.ok { color: var(--green); }
+  .status.err { color: var(--red); }
+  .status.loading { color: var(--amber); }
+
+  /* Current config */
+  .current {
+    font-size: 0.75rem;
+    color: var(--dim);
+    text-align: center;
+    margin-bottom: 16px;
+    min-height: 18px;
+  }
+  .current span { color: var(--amber); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span>AC</span> Experiment Config</h1>
+
+  <div class="current" id="current-info">Loading current config...</div>
+
+  <div class="card">
+    <div class="card-title">Setup</div>
+    <div class="row">
+      <div class="field">
+        <label>Environment</label>
+        <select id="environment">
+          <option value="prague_office">Prague Office</option>
+          <option value="patricks_office">Patrick's Office</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Test Rig</label>
+        <select id="test_rig">
+          <option value="g29">Logitech G29</option>
+          <option value="g923">Logitech G923</option>
+          <option value="dd_pro">Fanatec DD Pro</option>
+          <option value="simucube">Simucube</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label>Experiment ID</label>
+      <input type="text" id="experiment_id" placeholder="e.g. influence_of_beers_on_laptime" />
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Session</div>
+    <div class="row">
+      <div class="field">
+        <label>Driver</label>
+        <select id="driver">
+          <option value="ludvik">Ludvik</option>
+          <option value="peter">Peter</option>
+          <option value="mike">Mike</option>
+          <option value="tomas">Tomas</option>
+          <option value="steve">Steve</option>
+          <option value="luis">Luis</option>
+          <option value="chris">Chris</option>
+          <option value="richard">Richard</option>
+          <option value="javi">Javi</option>
+          <option value="patrick">Patrick</option>
+          <option value="daniel">Daniel</option>
+          <option value="lajos">Lajos</option>
+          <option value="merlin">Merlin</option>
+          <option value="quique">Quique</option>
+          <option value="emanuel">Emanuel</option>
+          <option value="matt">Matt</option>
+          <option value="ricki">Ricki</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Beers</label>
+        <input type="number" id="beers" value="0" min="0" max="99" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Car</label>
+        <input type="text" id="car" placeholder="e.g. gt3, ferrari_488" />
+      </div>
+      <div class="field">
+        <label>Track</label>
+        <input type="text" id="track" placeholder="e.g. monza, spa" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Preview</div>
+    <div class="preview" id="preview"></div>
+  </div>
+
+  <button class="btn btn-primary" id="submit-btn" onclick="submitConfig()">
+    Submit Config
+  </button>
+
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+const fields = ['environment', 'test_rig', 'experiment_id', 'driver', 'car', 'track', 'beers'];
+const els = {};
+fields.forEach(f => { els[f] = document.getElementById(f); });
+const preview = document.getElementById('preview');
+const status = document.getElementById('status');
+const submitBtn = document.getElementById('submit-btn');
+const currentInfo = document.getElementById('current-info');
+
+function getFormData() {
+  const d = {};
+  fields.forEach(f => { d[f] = els[f].value.trim(); });
+  d.beers = parseInt(d.beers) || 0;
+  return d;
+}
+
+function generateTestId(d) {
+  const ts = new Date().toISOString().replace(/\.\d{3}Z$/, ms => ms);
+  return `run_${ts}_${d.driver}_${d.car || 'unknown'}_${d.track || 'unknown'}_${d.beers}beers`;
+}
+
+function updatePreview() {
+  const d = getFormData();
+  const testId = generateTestId(d);
+  const lines = [
+    '{',
+    `  <span class="key">"test_id"</span>: <span class="val">"${testId}"</span>,`,
+    `  <span class="key">"environment"</span>: <span class="val">"${d.environment}"</span>,`,
+    `  <span class="key">"test_rig"</span>: <span class="val">"${d.test_rig}"</span>,`,
+    `  <span class="key">"experiment_id"</span>: <span class="val">"${d.experiment_id}"</span>,`,
+    `  <span class="key">"driver"</span>: <span class="val">"${d.driver}"</span>,`,
+    `  <span class="key">"car"</span>: <span class="val">"${d.car}"</span>,`,
+    `  <span class="key">"track"</span>: <span class="val">"${d.track}"</span>,`,
+    `  <span class="key">"beers"</span>: <span class="num">${d.beers}</span>`,
+    '}',
+  ];
+  preview.innerHTML = lines.join('\n');
+}
+
+async function submitConfig() {
+  const d = getFormData();
+  if (!d.experiment_id || !d.car || !d.track) {
+    status.className = 'status err';
+    status.textContent = 'Please fill in experiment ID, car, and track.';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  status.className = 'status loading';
+  status.textContent = 'Submitting...';
+
+  try {
+    const resp = await fetch('/api/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(d),
+    });
+    const result = await resp.json();
+    if (result.ok) {
+      status.className = 'status ok';
+      status.textContent = `Config saved: ${result.test_id}`;
+      loadCurrent();
+    } else {
+      status.className = 'status err';
+      status.textContent = `Error: ${result.error || 'Unknown error'}`;
+    }
+  } catch (e) {
+    status.className = 'status err';
+    status.textContent = `Error: ${e.message}`;
+  }
+  submitBtn.disabled = false;
+}
+
+async function loadCurrent() {
+  try {
+    const resp = await fetch('/api/current');
+    const data = await resp.json();
+    if (data.content && data.content.test_id) {
+      const c = data.content;
+      currentInfo.innerHTML = `Active: <span>${c.test_id}</span>`;
+    } else if (data.test_id) {
+      currentInfo.innerHTML = `Active: <span>${data.test_id}</span>`;
+    } else {
+      currentInfo.textContent = 'No active config';
+    }
+  } catch {
+    currentInfo.textContent = 'Could not load current config';
+  }
+}
+
+// Live preview
+fields.forEach(f => { els[f].addEventListener('input', updatePreview); });
+updatePreview();
+loadCurrent();
+</script>
+</body>
+</html>

@@ -150,6 +150,34 @@ deployments:
         description: The root password to initialize MongoDB with
         required: true
         secretKey: MONGO_ROOT_PASSWORD
+  - name: Config Form
+    application: config-form
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 300
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: configform
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: CONFIG_MANAGER_URL
+        inputType: FreeText
+        description: URL of the Dynamic Configuration Manager API
+        value: http://dynamicconfigurationmanager:80
+      - name: CONFIG_TYPE
+        inputType: FreeText
+        description: Config type in the Dynamic Configuration Manager
+        value: experiment
+      - name: TARGET_KEY
+        inputType: FreeText
+        description: Target key for the config
+        value: "*"
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
     version: latest

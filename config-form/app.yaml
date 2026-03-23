@@ -1,0 +1,21 @@
+name: Config Form
+language: python
+variables:
+  - name: CONFIG_MANAGER_URL
+    inputType: FreeText
+    description: URL of the Dynamic Configuration Manager API
+    defaultValue: http://dynamicconfigurationmanager:80
+    required: true
+  - name: CONFIG_TYPE
+    inputType: FreeText
+    description: Config type in the Dynamic Configuration Manager
+    defaultValue: experiment
+    required: true
+  - name: TARGET_KEY
+    inputType: FreeText
+    description: Target key for the config
+    defaultValue: "*"
+    required: true
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
