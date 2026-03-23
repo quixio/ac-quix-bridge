@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 def main():
     app = Application(
-        consumer_group="telemetry_enrichment",
-        auto_offset_reset="earliest",
+        consumer_group="telemetry_enrichment_v2",
+        auto_offset_reset="latest",
     )
 
     input_topic = app.topic(name=os.environ.get("input", "ac-telemetry-raw"))
