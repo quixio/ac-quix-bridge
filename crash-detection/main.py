@@ -34,11 +34,11 @@ def main():
     sdf = app.dataframe(topic=input_topic)
 
     # Do StreamingDataFrame operations/transformations here
-    sdf = sdf.apply(lambda row: row).filter(lambda row: True)
+    sdf = sdf[sdf["accG_x"] > 1]
     sdf = sdf.print(metadata=True)
 
     # Finish off by writing to the final result to the output topic
-    sdf.to_topic(output_topic)
+    #sdf.to_topic(output_topic)
 
     # With our pipeline defined, now run the Application
     app.run()
