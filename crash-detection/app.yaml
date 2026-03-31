@@ -3,8 +3,9 @@ language: python
 variables:
   - name: input
     inputType: InputTopic
+    multiline: false
     description: Name of the input topic to listen to.
-    defaultValue: csv-data
+    defaultValue: ac-telemetry-raw
   - name: output
     inputType: OutputTopic
     description: Name of the output topic to write to.
