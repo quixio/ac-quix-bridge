@@ -6,7 +6,14 @@ Matches the official AC shared memory layout for all three blocks:
   - acpmf_graphics (Graphics)
   - acpmf_static   (Static)
 
-Reference: https://assettocorsa.club/forum/index.php?threads/shared-memory-documentation.3352/
+Primary reference: github.com/mdjarv/assettocorsasharedmemory (C# structs)
+  - Field order, array sizes, and struct inclusion follow this library.
+  - Graphics is missing windSpeed/windDirection which only appear in the official docs.
+
+Official docs: assettocorsa.net/forum/index.php?threads/shared-memory-reference-25-05-2017.3352/
+  - Some field names follow the official naming (e.g. ersPowerControllerCount)
+    where the C# lib uses a shorter variant (ErsControllerCount).
+
 Field order is critical — ctypes reads sequentially from the memory-mapped region.
 """
 
