@@ -272,7 +272,7 @@ const PLOTLY_LAYOUT = {
   margin: { t: 10, r: 20, b: 40, l: 55 },
   height: 350,
   xaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047' },
-  yaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047' },
+  yaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047', autorange: true },
 };
 
 let sessions = [];   // all partition combos, loaded once
@@ -615,7 +615,7 @@ async function plot() {
           title: si === signals.length - 1 ? 'Track Position [-]' : undefined,
         },
         yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
-      }, { responsive: true });
+      }, { responsive: true, scrollZoom: false });
     }
 
     linkXAxes(plotDivs);
@@ -650,24 +650,18 @@ function linkXAxes(divs) {
   divs.forEach((div, i) => {
     div.on('plotly_relayout', evData => {
       if (syncing) return;
-      syncing = true;
       const update = {};
-      if (evData['xaxis.range[0]'] !== undefined) {
-        update['xaxis.range[0]'] = evData['xaxis.range[0]'];
-        update['xaxis.range[1]'] = evData['xaxis.range[1]'];
+      if (evData['xaxis.range[0]'] !== undefined && evData['xaxis.range[1]'] !== undefined) {
+        update['xaxis.range'] = [evData['xaxis.range[0]'], evData['xaxis.range[1]']];
       } else if (evData['xaxis.autorange']) {
         update['xaxis.autorange'] = true;
-      }
-      if (Object.keys(update).length) {
-        requestAnimationFrame(() => {
-          divs.forEach((other, j) => {
-            if (j !== i) Plotly.relayout(other, update);
-          });
-          syncing = false;
-        });
+        update['yaxis.autorange'] = true;
       } else {
-        syncing = false;
+        return;
       }
+      syncing = true;
+      const others = divs.filter((_, j) => j !== i);
+      Promise.all(others.map(o => Plotly.relayout(o, update))).then(() => { syncing = false; });
     });
   });
 }
