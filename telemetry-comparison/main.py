@@ -170,6 +170,47 @@ async def get_telemetry(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+PARTITION_COLS = ["environment", "test_rig", "experiment", "driver", "track", "carModel", "session_id"]
+
+
+@app.get("/api/partition-values")
+async def partition_values(
+    column: str,
+    environment: str = "", test_rig: str = "", experiment: str = "",
+    driver: str = "", track: str = "", carModel: str = "", session_id: str = "",
+):
+    """Return distinct values for a partition column, filtered by upstream selections."""
+    if column not in PARTITION_COLS:
+        raise HTTPException(status_code=400, detail=f"Invalid partition column: {column}")
+
+    # Only filter by columns that come BEFORE the requested one in the hierarchy
+    col_idx = PARTITION_COLS.index(column)
+    upstream = {c: v for c, v in {
+        "environment": environment, "test_rig": test_rig, "experiment": experiment,
+        "driver": driver, "track": track, "carModel": carModel, "session_id": session_id,
+    }.items() if PARTITION_COLS.index(c) < col_idx}
+
+    where = _build_partition_filter(**upstream)
+    try:
+        client = get_client()
+        if column == "session_id":
+            select = f"CAST(session_id AS VARCHAR) as {column}"
+        else:
+            select = column
+        df = client.query(f"""
+            SELECT DISTINCT {select}
+            FROM {TABLE_NAME}
+            {where}
+            ORDER BY {column}
+        """)
+        df = df.fillna("")
+        values = df[column].tolist()
+        return JSONResponse(content={"values": values})
+    except Exception as e:
+        logger.exception("Failed to get partition values")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/channels")
 async def list_channels():
     """Return channel metadata grouped by category."""
