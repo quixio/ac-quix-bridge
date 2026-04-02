@@ -9,17 +9,16 @@ __generated_with = "0.22.0"
 app = marimo.App(width="full")
 
 
-app._unparsable_cell(
-    r"""
-     import os
-      import marimo as mo
-      import pandas as pd
-      import plotly.graph_objects as go
-      import numpy as np
+@app.cell
+def _():
+    import os
+    import marimo as mo
+    import pandas as pd
+    import plotly.graph_objects as go
+    import numpy as np
   
-    """,
-    name="_"
-)
+
+    return (mo,)
 
 
 @app.cell
@@ -77,9 +76,9 @@ app._unparsable_cell(
 app._unparsable_cell(
     """
     # TODO: Modify the SQL query for your data
-     mo.stop(not load_btn.value, mo.md(\"*Click **Load Data** to fetch telemetry.*\"))
+    mo.stop(not load_btn.value, mo.md(\"*Click **Load Data** to fetch telemetry.*\"))
 
-      query = f\"\"\"
+    query = f\"\"\"
       SELECT
           packetId,
           timestamp_ms,
@@ -103,26 +102,26 @@ app._unparsable_cell(
       ORDER BY packetId
       \"\"\"
 
-      df = client.query(query)
+    df = client.query(query)
 
       # Car center = average of 4 tyre contact points
-      for axis in [\"x\", \"y\", \"z\"]:
-          cols = [f\"tyreContactPoint{c}_{axis}\" for c in [\"FL\", \"FR\", \"RL\", \"RR\"]]
-          df[f\"car_{axis}\"] = df[cols].mean(axis=1)
+    for axis in [\"x\", \"y\", \"z\"]:
+      cols = [f\"tyreContactPoint{c}_{axis}\" for c in [\"FL\", \"FR\", \"RL\", \"RR\"]]
+      df[f\"car_{axis}\"] = df[cols].mean(axis=1)
 
-      # Time in seconds from lap start
-      df[\"time_s\"] = (df[\"timestamp_ms\"] - df[\"timestamp_ms\"].iloc[0]) / 1000.0
+    # Time in seconds from lap start
+    df[\"time_s\"] = (df[\"timestamp_ms\"] - df[\"timestamp_ms\"].iloc[0]) / 1000.0
 
-      # Distance: use distanceTraveled or compute from positions
-      if df[\"distanceTraveled\"].max() == 0:
-          dx = df[\"car_x\"].diff().fillna(0)
-          dz = df[\"car_z\"].diff().fillna(0)
-          df[\"distance_m\"] = np.sqrt(dx**2 + dz**2).cumsum()
-      else:
-          df[\"distance_m\"] = df[\"distanceTraveled\"]
+    # Distance: use distanceTraveled or compute from positions
+    if df[\"distanceTraveled\"].max() == 0:
+      dx = df[\"car_x\"].diff().fillna(0)
+      dz = df[\"car_z\"].diff().fillna(0)
+      df[\"distance_m\"] = np.sqrt(dx**2 + dz**2).cumsum()
+    else:
+      df[\"distance_m\"] = df[\"distanceTraveled\"]
 
-      mo.md(f\"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance:
-      **{df['distance_m'].iloc[-1]:.0f}m**\")
+    mo.md(f\"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance:
+    **{df['distance_m'].iloc[-1]:.0f}m**\")
     """,
     name="_"
 )
@@ -153,6 +152,49 @@ app._unparsable_cell(
           margin=dict(l=0, r=0, t=40, b=0),
       )
       mo.ui.plotly(track_fig)
+    """,
+    name="_"
+)
+
+
+app._unparsable_cell(
+    r"""
+    x_col = "distance_m" if x_axis.value else "time_s"
+    x_label = "Distance (m)" if x_axis.value else "Time (s)"
+
+    speed_fig = go.Figure()
+    speed_fig.add_trace(go.Scatter(
+      x=df[x_col], y=df["speedKmh"],
+      mode="lines", name="Speed",
+      line=dict(color="#2196F3", width=1.5),
+    ))
+    speed_fig.update_layout(
+      title="Speed", xaxis_title=x_label, yaxis_title="Speed (km/h)",
+      height=400, hovermode="x unified",
+    )
+    mo.ui.plotly(speed_fig)
+
+    Cell 8 — G-forces plot
+    x_col = "distance_m" if x_axis.value else "time_s"
+    x_label = "Distance (m)" if x_axis.value else "Time (s)"
+
+    acc_fig = go.Figure()
+    for col, color, name in [
+      ("accG_x", "#F44336", "Lateral (X)"),
+      ("accG_y", "#4CAF50", "Vertical (Y)"),
+      ("accG_z", "#FF9800", "Longitudinal (Z)"),
+    ]:
+      acc_fig.add_trace(go.Scatter(
+          x=df[x_col], y=df[col],
+          mode="lines", name=name,
+          line=dict(color=color, width=1.2),
+      ))
+    acc_fig.update_layout(
+      title="G-Forces", xaxis_title=x_label, yaxis_title="G",
+      height=400, hovermode="x unified",
+      legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    mo.ui.plotly(acc_fig)
     """,
     name="_"
 )
