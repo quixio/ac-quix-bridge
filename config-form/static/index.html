@@ -66,6 +66,27 @@
     color: var(--dim);
     margin-bottom: 4px;
   }
+  .field textarea {
+    width: 100%;
+    padding: 10px 12px;
+    background: #0f0f1a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+    resize: vertical;
+    min-height: 80px;
+    line-height: 1.5;
+  }
+  .field textarea:focus {
+    border-color: var(--cyan);
+  }
+  .field textarea::placeholder {
+    color: #444;
+  }
   .field input, .field select {
     width: 100%;
     padding: 10px 12px;
@@ -207,33 +228,31 @@
 
   <div class="card">
     <div class="card-title">Session</div>
-    <div class="row">
-      <div class="field">
-        <label>Driver</label>
-        <select id="driver">
-          <option value="ludvik">Ludvik</option>
-          <option value="peter">Peter</option>
-          <option value="mike">Mike</option>
-          <option value="tomas">Tomas</option>
-          <option value="steve">Steve</option>
-          <option value="luis">Luis</option>
-          <option value="chris">Chris</option>
-          <option value="richard">Richard</option>
-          <option value="javi">Javi</option>
-          <option value="patrick">Patrick</option>
-          <option value="daniel">Daniel</option>
-          <option value="lajos">Lajos</option>
-          <option value="merlin">Merlin</option>
-          <option value="quique">Quique</option>
-          <option value="emanuel">Emanuel</option>
-          <option value="matt">Matt</option>
-          <option value="ricki">Ricki</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Beers</label>
-        <input type="number" id="beers" value="0" min="0" max="99" />
-      </div>
+    <div class="field">
+      <label>Driver</label>
+      <select id="driver">
+        <option value="ludvik">Ludvik</option>
+        <option value="peter">Peter</option>
+        <option value="mike">Mike</option>
+        <option value="tomas">Tomas</option>
+        <option value="steve">Steve</option>
+        <option value="luis">Luis</option>
+        <option value="chris">Chris</option>
+        <option value="richard">Richard</option>
+        <option value="javi">Javi</option>
+        <option value="patrick">Patrick</option>
+        <option value="daniel">Daniel</option>
+        <option value="lajos">Lajos</option>
+        <option value="merlin">Merlin</option>
+        <option value="quique">Quique</option>
+        <option value="emanuel">Emanuel</option>
+        <option value="matt">Matt</option>
+        <option value="ricki">Ricki</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Requirements</label>
+      <textarea id="requirements" placeholder="e.g. The system shall complete a lap in under 2 minutes. Tyre temperature shall not exceed 100°C."></textarea>
     </div>
   </div>
 
@@ -250,7 +269,7 @@
 </div>
 
 <script>
-const fields = ['rig_hostname', 'environment', 'test_rig', 'experiment_id', 'driver', 'beers'];
+const fields = ['rig_hostname', 'environment', 'test_rig', 'experiment_id', 'driver', 'requirements'];
 const els = {};
 fields.forEach(f => { els[f] = document.getElementById(f); });
 const preview = document.getElementById('preview');
@@ -261,13 +280,12 @@ const currentInfo = document.getElementById('current-info');
 function getFormData() {
   const d = {};
   fields.forEach(f => { d[f] = els[f].value.trim(); });
-  d.beers = parseInt(d.beers) || 0;
   return d;
 }
 
 function generateTestId(d) {
   const ts = new Date().toISOString().replace(/\.\d{3}Z$/, ms => ms);
-  return `run_${ts}_${d.driver}_${d.beers}beers`;
+  return `run_${ts}_${d.driver}`;
 }
 
 function updatePreview() {
@@ -281,7 +299,7 @@ function updatePreview() {
     `  <span class="key">"test_rig"</span>: <span class="val">"${d.test_rig}"</span>,`,
     `  <span class="key">"experiment_id"</span>: <span class="val">"${d.experiment_id}"</span>,`,
     `  <span class="key">"driver"</span>: <span class="val">"${d.driver}"</span>,`,
-    `  <span class="key">"beers"</span>: <span class="num">${d.beers}</span>`,
+    `  <span class="key">"requirements"</span>: <span class="val">"${d.requirements ? d.requirements.substring(0, 60) + (d.requirements.length > 60 ? '...' : '') : ''}"</span>`,
     '}',
   ];
   preview.innerHTML = lines.join('\n');

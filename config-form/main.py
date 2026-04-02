@@ -110,8 +110,7 @@ async def submit_config(request: Request):
     # Auto-generate test_id
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     driver = form_data.get("driver", "unknown")
-    beers = form_data.get("beers", 0)
-    test_id = f"run_{ts}_{driver}_{beers}beers"
+    test_id = f"run_{ts}_{driver}"
 
     config_content = {
         "test_id": test_id,
@@ -120,7 +119,7 @@ async def submit_config(request: Request):
         "test_rig": form_data.get("test_rig", ""),
         "experiment_id": form_data.get("experiment_id", ""),
         "driver": driver,
-        "beers": int(beers),
+        "requirements": form_data.get("requirements", ""),
     }
 
     try:
