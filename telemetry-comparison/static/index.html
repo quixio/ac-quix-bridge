@@ -46,7 +46,7 @@
     .selections { display: flex; flex-direction: column; gap: 0.75rem; }
     .selection-row {
       display: flex;
-      align-items: center;
+      align-items: last baseline;
       gap: 0.5rem;
       flex-wrap: wrap;
       padding-bottom: 0.5rem;
@@ -365,7 +365,7 @@ function addRow(defaults) {
         <span class="lap-info">...</span>
       </div>
     </div>
-    <button class="btn btn-xs btn-danger" onclick="removeRow(${idx})" style="align-self:center;">x</button>`;
+    <button class="btn btn-xs btn-danger" onclick="removeRow(${idx})">x</button>`;
 
   row.innerHTML = html;
   document.getElementById('selections').appendChild(row);
