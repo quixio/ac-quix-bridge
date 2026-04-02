@@ -207,49 +207,58 @@ def _(df, go, mo, x_axis):
 @app.cell
 def _(df, go, mo, x_axis):
     #Cell 8a — Lateral G (accG_x)
-    x_colAcc = "distance_m" if x_axis.value else "time_s"
-    x_labelAcc = "Distance (m)" if x_axis.value else "Time (s)"
+    x_colAccX = "distance_m" if x_axis.value else "time_s"
+    x_labelAccX = "Distance (m)" if x_axis.value else "Time (s)"
 
     fig_gx = go.Figure()
     fig_gx.add_trace(go.Scatter(
-      x=df[x_colAcc], y=df["accG_x"],
+      x=df[x_colAccX], y=df["accG_x"],
       mode="lines", name="Lateral (X)",
       line=dict(color="#F44336", width=1.2),
     ))
     fig_gx.update_layout(
-      title="Lateral G (X)", xaxis_title=x_colAcc, yaxis_title="G",
+      title="Lateral G (X)", xaxis_title=x_colAccX, yaxis_title="G",
       height=350, hovermode="x unified",
     )
     mo.ui.plotly(fig_gx)
+    return
 
+
+@app.cell
+def _(df, go, mo, x_axis):
     #Cell 8b — Vertical G (accG_y)
-    x_colAcc = "distance_m" if x_axis.value else "time_s"
-    x_labelAcc = "Distance (m)" if x_axis.value else "Time (s)"
+    x_colAccY = "distance_m" if x_axis.value else "time_s"
+    x_labelAccY = "Distance (m)" if x_axis.value else "Time (s)"
 
     fig_gy = go.Figure()
     fig_gy.add_trace(go.Scatter(
-      x=df[x_colAcc], y=df["accG_y"],
+      x=df[x_colAccY], y=df["accG_y"],
       mode="lines", name="Vertical (Y)",
       line=dict(color="#4CAF50", width=1.2),
     ))
     fig_gy.update_layout(
-      title="Vertical G (Y)", xaxis_title=x_labelAcc, yaxis_title="G",
+      title="Vertical G (Y)", xaxis_title=x_labelAccY, yaxis_title="G",
       height=350, hovermode="x unified",
     )
     mo.ui.plotly(fig_gy)
 
+    return
+
+
+@app.cell
+def _(df, go, mo, x_axis):
     #Cell 8c — Longitudinal G (accG_z)
-    x_colAcc = "distance_m" if x_axis.value else "time_s"
-    x_labelAcc = "Distance (m)" if x_axis.value else "Time (s)"
+    x_colAccZ = "distance_m" if x_axis.value else "time_s"
+    x_labelAccZ = "Distance (m)" if x_axis.value else "Time (s)"
 
     fig_gz = go.Figure()
     fig_gz.add_trace(go.Scatter(
-      x=df[x_colAcc], y=df["accG_z"],
+      x=df[x_colAccZ], y=df["accG_z"],
       mode="lines", name="Longitudinal (Z)",
       line=dict(color="#FF9800", width=1.2),
     ))
     fig_gz.update_layout(
-      title="Longitudinal G (Z)", xaxis_title=x_labelAcc, yaxis_title="G",
+      title="Longitudinal G (Z)", xaxis_title=x_labelAccZ, yaxis_title="G",
       height=350, hovermode="x unified",
     )
     mo.ui.plotly(fig_gz)
