@@ -128,17 +128,34 @@ app._unparsable_cell(
 )
 
 
-@app.cell
-def _(df, mo):
-    import plotly.express as px
-    fig = px.line(
-        df,
-        x="time",
-        y="value",
-        title="Waveform",
-    )
-    mo.ui.plotly(fig)
-    return
+app._unparsable_cell(
+    r"""
+    track_fig = go.Figure()
+      track_fig.add_trace(go.Scatter3d(
+          x=df["car_x"],
+          y=df["car_z"],
+          z=df["car_y"],
+          mode="lines",
+          line=dict(
+              color=df["speedKmh"],
+              colorscale="Turbo",
+              width=4,
+              colorbar=dict(title="km/h"),
+          ),
+      ))
+      track_fig.update_layout(
+          title="Track Map (colored by speed)",
+          scene=dict(
+              xaxis_title="X", yaxis_title="Z (forward)", zaxis_title="Y (height)",
+              aspectmode="data",
+          ),
+          height=700,
+          margin=dict(l=0, r=0, t=40, b=0),
+      )
+      mo.ui.plotly(track_fig)
+    """,
+    name="_"
+)
 
 
 if __name__ == "__main__":
