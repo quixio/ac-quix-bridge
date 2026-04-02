@@ -5,6 +5,7 @@ Queries Hive-partitioned Parquet data in QuixLake via SQL (DuckDB) and serves
 an interactive Plotly.js UI for overlaying telemetry from different sessions/laps.
 """
 
+import json
 import os
 import logging
 from pathlib import Path
@@ -28,6 +29,12 @@ QUIXLAKE_URL = os.getenv("QUIXLAKE_URL")
 QUIX_LAKE_TOKEN = os.getenv("QUIX_LAKE_TOKEN")
 
 STATIC_DIR = Path(__file__).parent / "static"
+CHANNELS_FILE = Path(__file__).parent / "channels.json"
+
+# Load channel metadata at startup
+with open(CHANNELS_FILE) as f:
+    _raw = json.load(f)
+CHANNELS = {k: v for k, v in _raw.items() if not k.startswith("_")}
 
 
 def get_client() -> QuixLakeClient:
@@ -163,21 +170,10 @@ async def get_telemetry(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/signals")
-async def list_signals():
-    """List available signal/column names from the table."""
-    try:
-        client = get_client()
-        df = client.query(f"SELECT * FROM {TABLE_NAME} LIMIT 1")
-        skip = {"session_id", "lap", "timestamp_ms", "normalizedCarPosition",
-                "track", "carModel", "driver", "experiment", "test_id",
-                "environment", "test_rig", "beers", "completedLaps",
-                "status", "sessionType", "ts_ms"}
-        signals = [c for c in df.columns if c not in skip]
-        return JSONResponse(content={"signals": sorted(signals)})
-    except Exception as e:
-        logger.exception("Failed to list signals")
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/channels")
+async def list_channels():
+    """Return channel metadata grouped by category."""
+    return JSONResponse(content=CHANNELS)
 
 
 @app.get("/health")

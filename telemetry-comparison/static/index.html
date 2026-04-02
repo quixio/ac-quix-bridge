@@ -129,7 +129,8 @@
       display: flex;
       flex-wrap: wrap;
       gap: 0.4rem;
-      margin-top: 0.5rem;
+      margin-top: 0.35rem;
+      margin-bottom: 0.5rem;
     }
     .chip {
       padding: 0.25rem 0.6rem;
@@ -147,6 +148,33 @@
       color: var(--accent);
     }
     .chip:hover { border-color: var(--accent); }
+    .cat-section { margin-bottom: 0.25rem; }
+    .cat-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      margin-bottom: 0.25rem;
+    }
+    .cat-header:first-child { margin-top: 0; }
+    .cat-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      opacity: 0.6;
+    }
+    .cat-toggle {
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      opacity: 0.5;
+      cursor: pointer;
+      border: none;
+      background: none;
+      padding: 0;
+      text-decoration: underline;
+    }
+    .cat-toggle:hover { opacity: 1; color: var(--accent); }
 
     .charts { display: flex; flex-direction: column; gap: 0.25rem; }
     .chart-container {
@@ -185,31 +213,14 @@
   <div class="selections" id="selections"></div>
   <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
     <button class="btn btn-sm btn-add" onclick="addRow()">+ Add Session</button>
-    <button class="btn btn-sm" onclick="overlay()" id="btn-overlay">Overlay</button>
+    <button class="btn btn-sm" onclick="overlay()" id="btn-overlay">Plot</button>
   </div>
 </div>
 
 <!-- Signal picker -->
 <div class="panel">
   <div class="panel-title">Signals</div>
-  <div class="signal-chips" id="signal-chips">
-    <span class="chip active" data-signal="speedKmh">speedKmh</span>
-    <span class="chip active" data-signal="gas">gas</span>
-    <span class="chip active" data-signal="brake">brake</span>
-    <span class="chip" data-signal="steerAngle">steerAngle</span>
-    <span class="chip" data-signal="rpms">rpms</span>
-    <span class="chip" data-signal="gear">gear</span>
-    <span class="chip" data-signal="turboBoost">turboBoost</span>
-    <span class="chip" data-signal="tyreTempFL">tyreTempFL</span>
-    <span class="chip" data-signal="tyreTempFR">tyreTempFR</span>
-    <span class="chip" data-signal="tyreTempRL">tyreTempRL</span>
-    <span class="chip" data-signal="tyreTempRR">tyreTempRR</span>
-    <span class="chip" data-signal="brakeTempFL">brakeTempFL</span>
-    <span class="chip" data-signal="fuel">fuel</span>
-  </div>
-  <div style="margin-top: 0.5rem;">
-    <button class="btn btn-sm btn-outline" onclick="loadSignals()">Load all signals from data</button>
-  </div>
+  <div id="signal-container">Loading channels...</div>
 </div>
 
 <!-- Charts -->
@@ -248,8 +259,15 @@ const PLOTLY_LAYOUT = {
 };
 
 let sessions = [];
+let channels = {};  // column -> { label, unit, cat }
 let rowCount = 0;
 let plotDivs = [];
+
+// Default active signals on load
+const DEFAULT_ACTIVE = new Set(['speedKmh', 'gas', 'brake', 'rpms']);
+
+// Category display order
+const CAT_ORDER = ['Inputs', 'Motion', 'Engine', 'Tyres', 'Suspension & Brakes', 'Environment', 'Car State', 'Session'];
 
 // ---- Data fetching ----
 
@@ -386,28 +404,77 @@ function getSelections() {
   return result;
 }
 
-// ---- Signals ----
+// ---- Channels / Signals ----
 
 function getActiveSignals() {
   return Array.from(document.querySelectorAll('.chip.active')).map(c => c.dataset.signal);
 }
 
-document.getElementById('signal-chips').addEventListener('click', e => {
-  if (e.target.classList.contains('chip')) e.target.classList.toggle('active');
-});
+function channelLabel(col) {
+  const ch = channels[col];
+  if (!ch) return col;
+  return `${ch.label} ${ch.unit}`;
+}
 
-async function loadSignals() {
-  try {
-    const res = await fetch('/api/signals');
-    const json = await res.json();
-    const container = document.getElementById('signal-chips');
-    const active = new Set(getActiveSignals());
-    container.innerHTML = json.signals.map(sig =>
-      `<span class="chip${active.has(sig) ? ' active' : ''}" data-signal="${sig}">${sig}</span>`
-    ).join('');
-  } catch (e) {
-    setStatus('Failed to load signals: ' + e.message, true);
+function chartTitle(col) {
+  const ch = channels[col];
+  if (!ch) return col;
+  return `${ch.label} ${ch.unit}`;
+}
+
+async function loadChannels() {
+  const res = await fetch('/api/channels');
+  channels = await res.json();
+  renderChannelChips();
+}
+
+const MAX_VISIBLE = 8; // chips visible per category before collapsing
+
+function renderChannelChips() {
+  const container = document.getElementById('signal-container');
+  const groups = {};
+  for (const [col, meta] of Object.entries(channels)) {
+    const cat = meta.cat || 'Other';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(col);
   }
+
+  let html = '';
+  for (const cat of CAT_ORDER) {
+    const cols = groups[cat];
+    if (!cols) continue;
+    const collapsed = cols.length > MAX_VISIBLE;
+    const catId = cat.replace(/[^a-zA-Z]/g, '');
+
+    html += `<div class="cat-section">`;
+    html += `<div class="cat-header">`;
+    html += `<span class="cat-label">${cat}</span>`;
+    if (collapsed) {
+      html += `<button class="cat-toggle" onclick="toggleCat('${catId}', this)">show all ${cols.length}</button>`;
+    }
+    html += `</div>`;
+    html += `<div class="signal-chips" id="cat-${catId}">`;
+    for (let i = 0; i < cols.length; i++) {
+      const col = cols[i];
+      const m = channels[col];
+      const active = DEFAULT_ACTIVE.has(col) ? ' active' : '';
+      const hidden = collapsed && i >= MAX_VISIBLE ? ' style="display:none" data-extra' : '';
+      html += `<span class="chip${active}" data-signal="${col}"${hidden}>${m.label}</span>`;
+    }
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+
+  container.addEventListener('click', e => {
+    if (e.target.classList.contains('chip')) e.target.classList.toggle('active');
+  });
+}
+
+function toggleCat(catId, btn) {
+  const chips = document.querySelectorAll(`#cat-${catId} [data-extra]`);
+  const showing = chips[0]?.style.display !== 'none';
+  chips.forEach(c => c.style.display = showing ? 'none' : '');
+  btn.textContent = showing ? `show all` : 'show less';
 }
 
 // ---- Overlay (load + plot) ----
@@ -461,12 +528,12 @@ async function overlay() {
 
       Plotly.newPlot(plotDiv, traces, {
         ...PLOTLY_LAYOUT,
-        title: { text: signal, font: { color: '#8892a4', size: 13 } },
+        title: { text: chartTitle(signal), font: { color: '#8892a4', size: 13 } },
         xaxis: {
           ...PLOTLY_LAYOUT.xaxis,
-          title: si === signals.length - 1 ? 'Track Position (0-1)' : undefined,
+          title: si === signals.length - 1 ? 'Track Position [-]' : undefined,
         },
-        yaxis: { ...PLOTLY_LAYOUT.yaxis, title: signal },
+        yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
       }, { responsive: true });
     }
 
@@ -531,13 +598,13 @@ function setStatus(msg, isError = false) {
 
 // ---- Init ----
 (async () => {
-  setStatus('<span class="loading-spinner"></span> Loading sessions...');
+  setStatus('<span class="loading-spinner"></span> Loading...');
   try {
-    await fetchSessions();
+    await Promise.all([fetchSessions(), loadChannels()]);
     addRow();
-    setStatus(`${sessions.length} sessions available. Select a session, check laps, then click Overlay.`);
+    setStatus(`${sessions.length} sessions available. Select a session, check laps, then click Plot.`);
   } catch (e) {
-    setStatus('Failed to load sessions: ' + e.message, true);
+    setStatus('Failed to initialize: ' + e.message, true);
   }
 })();
 </script>
