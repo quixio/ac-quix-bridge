@@ -1,0 +1,281 @@
+{
+  "_comment": "Telemetry channel metadata. column = name in Parquet/Kafka, label = display name, unit = unit in brackets.",
+
+  "speedKmh": { "label": "Speed", "unit": "[km/h]" },
+  "gas": { "label": "Throttle", "unit": "[-]" },
+  "brake": { "label": "Brake", "unit": "[-]" },
+  "clutch": { "label": "Clutch", "unit": "[-]" },
+  "gear": { "label": "Gear", "unit": "[-]" },
+  "rpms": { "label": "Engine Speed", "unit": "[rpm]" },
+  "steerAngle": { "label": "Steering Angle", "unit": "[rad]" },
+  "fuel": { "label": "Fuel", "unit": "[L]" },
+  "turboBoost": { "label": "Turbo Boost", "unit": "[-]" },
+  "ballast": { "label": "Ballast", "unit": "[kg]" },
+  "brakeBias": { "label": "Brake Bias", "unit": "[-]" },
+  "engineBrake": { "label": "Engine Brake", "unit": "[-]" },
+
+  "heading": { "label": "Heading", "unit": "[rad]" },
+  "pitch": { "label": "Pitch", "unit": "[rad]" },
+  "roll": { "label": "Roll", "unit": "[rad]" },
+  "cgHeight": { "label": "CoG Height", "unit": "[m]" },
+
+  "velocity_x": { "label": "Velocity X", "unit": "[m/s]" },
+  "velocity_y": { "label": "Velocity Y", "unit": "[m/s]" },
+  "velocity_z": { "label": "Velocity Z", "unit": "[m/s]" },
+  "localVelocity_x": { "label": "Local Velocity X", "unit": "[m/s]" },
+  "localVelocity_y": { "label": "Local Velocity Y", "unit": "[m/s]" },
+  "localVelocity_z": { "label": "Local Velocity Z", "unit": "[m/s]" },
+
+  "accG_x": { "label": "G-Force Lateral", "unit": "[g]" },
+  "accG_y": { "label": "G-Force Vertical", "unit": "[g]" },
+  "accG_z": { "label": "G-Force Longitudinal", "unit": "[g]" },
+
+  "localAngularVel_x": { "label": "Angular Velocity X", "unit": "[rad/s]" },
+  "localAngularVel_y": { "label": "Angular Velocity Y", "unit": "[rad/s]" },
+  "localAngularVel_z": { "label": "Angular Velocity Z", "unit": "[rad/s]" },
+
+  "drs": { "label": "DRS Active", "unit": "[-]" },
+  "drsAvailable": { "label": "DRS Available", "unit": "[-]" },
+  "drsEnabled": { "label": "DRS Enabled", "unit": "[-]" },
+  "tc": { "label": "TC Slip Limit", "unit": "[-]" },
+  "abs": { "label": "ABS Slip Limit", "unit": "[-]" },
+  "pitLimiterOn": { "label": "Pit Limiter", "unit": "[-]" },
+  "autoShifterOn": { "label": "Auto Shifter", "unit": "[-]" },
+  "isAIControlled": { "label": "AI Controlled", "unit": "[-]" },
+
+  "kersCharge": { "label": "KERS/ERS Charge", "unit": "[-]" },
+  "kersInput": { "label": "KERS/ERS Input", "unit": "[-]" },
+  "kersCurrentKJ": { "label": "KERS Energy Spent", "unit": "[kJ]" },
+  "ersRecoveryLevel": { "label": "ERS Recovery Level", "unit": "[-]" },
+  "ersPowerLevel": { "label": "ERS Power Level", "unit": "[-]" },
+  "ersHeatCharging": { "label": "ERS Heat Charging", "unit": "[-]" },
+  "ersIsCharging": { "label": "ERS Charging", "unit": "[-]" },
+
+  "airTemp": { "label": "Air Temperature", "unit": "[°C]" },
+  "roadTemp": { "label": "Road Temperature", "unit": "[°C]" },
+  "airDensity": { "label": "Air Density", "unit": "[kg/m³]" },
+
+  "finalFF": { "label": "Force Feedback", "unit": "[-]" },
+  "performanceMeter": { "label": "Performance Delta", "unit": "[-]" },
+  "numberOfTyresOut": { "label": "Tyres Out of Track", "unit": "[-]" },
+
+  "rideHeightFront": { "label": "Ride Height Front", "unit": "[m]" },
+  "rideHeightRear": { "label": "Ride Height Rear", "unit": "[m]" },
+
+  "carDamage_front": { "label": "Damage Front", "unit": "[-]" },
+  "carDamage_rear": { "label": "Damage Rear", "unit": "[-]" },
+  "carDamage_left": { "label": "Damage Left", "unit": "[-]" },
+  "carDamage_right": { "label": "Damage Right", "unit": "[-]" },
+  "carDamage_top": { "label": "Damage Top", "unit": "[-]" },
+
+  "wheelSlipFL": { "label": "Wheel Slip FL", "unit": "[-]" },
+  "wheelSlipFR": { "label": "Wheel Slip FR", "unit": "[-]" },
+  "wheelSlipRL": { "label": "Wheel Slip RL", "unit": "[-]" },
+  "wheelSlipRR": { "label": "Wheel Slip RR", "unit": "[-]" },
+
+  "wheelLoadFL": { "label": "Wheel Load FL", "unit": "[N]" },
+  "wheelLoadFR": { "label": "Wheel Load FR", "unit": "[N]" },
+  "wheelLoadRL": { "label": "Wheel Load RL", "unit": "[N]" },
+  "wheelLoadRR": { "label": "Wheel Load RR", "unit": "[N]" },
+
+  "wheelsPressureFL": { "label": "Tyre Pressure FL", "unit": "[psi]" },
+  "wheelsPressureFR": { "label": "Tyre Pressure FR", "unit": "[psi]" },
+  "wheelsPressureRL": { "label": "Tyre Pressure RL", "unit": "[psi]" },
+  "wheelsPressureRR": { "label": "Tyre Pressure RR", "unit": "[psi]" },
+
+  "wheelAngularSpeedFL": {
+    "label": "Wheel Angular Speed FL",
+    "unit": "[rad/s]"
+  },
+  "wheelAngularSpeedFR": {
+    "label": "Wheel Angular Speed FR",
+    "unit": "[rad/s]"
+  },
+  "wheelAngularSpeedRL": {
+    "label": "Wheel Angular Speed RL",
+    "unit": "[rad/s]"
+  },
+  "wheelAngularSpeedRR": {
+    "label": "Wheel Angular Speed RR",
+    "unit": "[rad/s]"
+  },
+
+  "tyreWearFL": { "label": "Tyre Wear FL", "unit": "[-]" },
+  "tyreWearFR": { "label": "Tyre Wear FR", "unit": "[-]" },
+  "tyreWearRL": { "label": "Tyre Wear RL", "unit": "[-]" },
+  "tyreWearRR": { "label": "Tyre Wear RR", "unit": "[-]" },
+
+  "tyreDirtyLevelFL": { "label": "Tyre Dirty Level FL", "unit": "[-]" },
+  "tyreDirtyLevelFR": { "label": "Tyre Dirty Level FR", "unit": "[-]" },
+  "tyreDirtyLevelRL": { "label": "Tyre Dirty Level RL", "unit": "[-]" },
+  "tyreDirtyLevelRR": { "label": "Tyre Dirty Level RR", "unit": "[-]" },
+
+  "tyreTempFL": { "label": "Tyre Temp Core FL", "unit": "[°C]" },
+  "tyreTempFR": { "label": "Tyre Temp Core FR", "unit": "[°C]" },
+  "tyreTempRL": { "label": "Tyre Temp Core RL", "unit": "[°C]" },
+  "tyreTempRR": { "label": "Tyre Temp Core RR", "unit": "[°C]" },
+
+  "tyreTempIFL": { "label": "Tyre Temp Inner FL", "unit": "[°C]" },
+  "tyreTempIFR": { "label": "Tyre Temp Inner FR", "unit": "[°C]" },
+  "tyreTempIRL": { "label": "Tyre Temp Inner RL", "unit": "[°C]" },
+  "tyreTempIRR": { "label": "Tyre Temp Inner RR", "unit": "[°C]" },
+
+  "tyreTempMFL": { "label": "Tyre Temp Middle FL", "unit": "[°C]" },
+  "tyreTempMFR": { "label": "Tyre Temp Middle FR", "unit": "[°C]" },
+  "tyreTempMRL": { "label": "Tyre Temp Middle RL", "unit": "[°C]" },
+  "tyreTempMRR": { "label": "Tyre Temp Middle RR", "unit": "[°C]" },
+
+  "tyreTempOFL": { "label": "Tyre Temp Outer FL", "unit": "[°C]" },
+  "tyreTempOFR": { "label": "Tyre Temp Outer FR", "unit": "[°C]" },
+  "tyreTempORL": { "label": "Tyre Temp Outer RL", "unit": "[°C]" },
+  "tyreTempORR": { "label": "Tyre Temp Outer RR", "unit": "[°C]" },
+
+  "brakeTempFL": { "label": "Brake Temp FL", "unit": "[°C]" },
+  "brakeTempFR": { "label": "Brake Temp FR", "unit": "[°C]" },
+  "brakeTempRL": { "label": "Brake Temp RL", "unit": "[°C]" },
+  "brakeTempRR": { "label": "Brake Temp RR", "unit": "[°C]" },
+
+  "camberRADFL": { "label": "Camber FL", "unit": "[rad]" },
+  "camberRADFR": { "label": "Camber FR", "unit": "[rad]" },
+  "camberRADRL": { "label": "Camber RL", "unit": "[rad]" },
+  "camberRADRR": { "label": "Camber RR", "unit": "[rad]" },
+
+  "suspensionTravelFL": { "label": "Suspension Travel FL", "unit": "[m]" },
+  "suspensionTravelFR": { "label": "Suspension Travel FR", "unit": "[m]" },
+  "suspensionTravelRL": { "label": "Suspension Travel RL", "unit": "[m]" },
+  "suspensionTravelRR": { "label": "Suspension Travel RR", "unit": "[m]" },
+
+  "tyreContactPointFL_x": { "label": "Tyre Contact Point FL X", "unit": "[m]" },
+  "tyreContactPointFL_y": { "label": "Tyre Contact Point FL Y", "unit": "[m]" },
+  "tyreContactPointFL_z": { "label": "Tyre Contact Point FL Z", "unit": "[m]" },
+  "tyreContactPointFR_x": { "label": "Tyre Contact Point FR X", "unit": "[m]" },
+  "tyreContactPointFR_y": { "label": "Tyre Contact Point FR Y", "unit": "[m]" },
+  "tyreContactPointFR_z": { "label": "Tyre Contact Point FR Z", "unit": "[m]" },
+  "tyreContactPointRL_x": { "label": "Tyre Contact Point RL X", "unit": "[m]" },
+  "tyreContactPointRL_y": { "label": "Tyre Contact Point RL Y", "unit": "[m]" },
+  "tyreContactPointRL_z": { "label": "Tyre Contact Point RL Z", "unit": "[m]" },
+  "tyreContactPointRR_x": { "label": "Tyre Contact Point RR X", "unit": "[m]" },
+  "tyreContactPointRR_y": { "label": "Tyre Contact Point RR Y", "unit": "[m]" },
+  "tyreContactPointRR_z": { "label": "Tyre Contact Point RR Z", "unit": "[m]" },
+
+  "tyreContactNormalFL_x": {
+    "label": "Tyre Contact Normal FL X",
+    "unit": "[-]"
+  },
+  "tyreContactNormalFL_y": {
+    "label": "Tyre Contact Normal FL Y",
+    "unit": "[-]"
+  },
+  "tyreContactNormalFL_z": {
+    "label": "Tyre Contact Normal FL Z",
+    "unit": "[-]"
+  },
+  "tyreContactNormalFR_x": {
+    "label": "Tyre Contact Normal FR X",
+    "unit": "[-]"
+  },
+  "tyreContactNormalFR_y": {
+    "label": "Tyre Contact Normal FR Y",
+    "unit": "[-]"
+  },
+  "tyreContactNormalFR_z": {
+    "label": "Tyre Contact Normal FR Z",
+    "unit": "[-]"
+  },
+  "tyreContactNormalRL_x": {
+    "label": "Tyre Contact Normal RL X",
+    "unit": "[-]"
+  },
+  "tyreContactNormalRL_y": {
+    "label": "Tyre Contact Normal RL Y",
+    "unit": "[-]"
+  },
+  "tyreContactNormalRL_z": {
+    "label": "Tyre Contact Normal RL Z",
+    "unit": "[-]"
+  },
+  "tyreContactNormalRR_x": {
+    "label": "Tyre Contact Normal RR X",
+    "unit": "[-]"
+  },
+  "tyreContactNormalRR_y": {
+    "label": "Tyre Contact Normal RR Y",
+    "unit": "[-]"
+  },
+  "tyreContactNormalRR_z": {
+    "label": "Tyre Contact Normal RR Z",
+    "unit": "[-]"
+  },
+
+  "tyreContactHeadingFL_x": {
+    "label": "Tyre Contact Heading FL X",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingFL_y": {
+    "label": "Tyre Contact Heading FL Y",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingFL_z": {
+    "label": "Tyre Contact Heading FL Z",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingFR_x": {
+    "label": "Tyre Contact Heading FR X",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingFR_y": {
+    "label": "Tyre Contact Heading FR Y",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingFR_z": {
+    "label": "Tyre Contact Heading FR Z",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingRL_x": {
+    "label": "Tyre Contact Heading RL X",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingRL_y": {
+    "label": "Tyre Contact Heading RL Y",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingRL_z": {
+    "label": "Tyre Contact Heading RL Z",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingRR_x": {
+    "label": "Tyre Contact Heading RR X",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingRR_y": {
+    "label": "Tyre Contact Heading RR Y",
+    "unit": "[-]"
+  },
+  "tyreContactHeadingRR_z": {
+    "label": "Tyre Contact Heading RR Z",
+    "unit": "[-]"
+  },
+
+  "normalizedCarPosition": { "label": "Track Position", "unit": "[-]" },
+  "completedLaps": { "label": "Completed Laps", "unit": "[-]" },
+  "position": { "label": "Position", "unit": "[-]" },
+  "iCurrentTime": { "label": "Current Lap Time", "unit": "[ms]" },
+  "iLastTime": { "label": "Last Lap Time", "unit": "[ms]" },
+  "iBestTime": { "label": "Best Lap Time", "unit": "[ms]" },
+  "sessionTimeLeft": { "label": "Session Time Left", "unit": "[s]" },
+  "distanceTraveled": { "label": "Distance Traveled", "unit": "[m]" },
+  "isInPit": { "label": "In Pit", "unit": "[-]" },
+  "isInPitLane": { "label": "In Pit Lane", "unit": "[-]" },
+  "currentSectorIndex": { "label": "Current Sector", "unit": "[-]" },
+  "lastSectorTime": { "label": "Last Sector Time", "unit": "[ms]" },
+  "numberOfLaps": { "label": "Number of Laps", "unit": "[-]" },
+  "replayTimeMultiplier": { "label": "Replay Speed", "unit": "[-]" },
+  "carCoordinates_x": { "label": "Car Position X", "unit": "[m]" },
+  "carCoordinates_y": { "label": "Car Position Y", "unit": "[m]" },
+  "carCoordinates_z": { "label": "Car Position Z", "unit": "[m]" },
+  "penaltyTime": { "label": "Penalty Time", "unit": "[s]" },
+  "surfaceGrip": { "label": "Surface Grip", "unit": "[-]" },
+  "mandatoryPitDone": { "label": "Mandatory Pit Done", "unit": "[-]" },
+
+  "packetId": { "label": "Packet ID", "unit": "[-]" }
+}
