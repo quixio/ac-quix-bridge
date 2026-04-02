@@ -252,8 +252,8 @@ const PLOTLY_LAYOUT = {
   plot_bgcolor: '#1a1d27',
   font: { color: '#e2e8f0', size: 11 },
   legend: { orientation: 'h', y: -0.25, font: { size: 10 } },
-  margin: { t: 30, r: 20, b: 40, l: 55 },
-  height: 250,
+  margin: { t: 10, r: 20, b: 40, l: 55 },
+  height: 350,
   xaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047' },
   yaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047' },
 };
@@ -365,13 +365,23 @@ async function onSessionPick(idx, val) {
     return;
   }
 
-  container.innerHTML = laps.map(l => `
-    <label class="lap-cb" onclick="this.classList.toggle('checked')">
-      <input type="checkbox" value="${l.lap}" data-avg="${l.avg_speed}" data-max="${l.max_speed}">
+  container.innerHTML = `
+    <button class="btn btn-sm btn-outline" style="padding:0.15rem 0.4rem;font-size:0.7rem;" onclick="toggleAllLaps(${idx})">all</button>
+  ` + laps.map(l => `
+    <label class="lap-cb" onclick="event.preventDefault(); this.classList.toggle('checked'); this.querySelector('input').checked = this.classList.contains('checked');">
+      <input type="checkbox" value="${l.lap}">
       L${l.lap}
-      <span class="lap-info">${l.avg_speed} avg</span>
     </label>
   `).join('');
+}
+
+function toggleAllLaps(idx) {
+  const labels = document.querySelectorAll(`#laps-${idx} .lap-cb`);
+  const anyUnchecked = Array.from(labels).some(l => !l.classList.contains('checked'));
+  labels.forEach(l => {
+    l.classList.toggle('checked', anyUnchecked);
+    l.querySelector('input').checked = anyUnchecked;
+  });
 }
 
 // ---- Gather all selected session+lap combos ----
@@ -528,7 +538,7 @@ async function overlay() {
 
       Plotly.newPlot(plotDiv, traces, {
         ...PLOTLY_LAYOUT,
-        title: { text: chartTitle(signal), font: { color: '#8892a4', size: 13 } },
+        title: null,
         xaxis: {
           ...PLOTLY_LAYOUT.xaxis,
           title: si === signals.length - 1 ? 'Track Position [-]' : undefined,
