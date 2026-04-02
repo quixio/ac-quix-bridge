@@ -320,7 +320,6 @@ deployments:
         icon: note_alt
         order: 0
         badge: BETA
-
   - name: Telemetry Explorer
     application: telemetry-comparison
     version: latest
@@ -341,7 +340,7 @@ deployments:
         inputType: Secret
         description: Token to authenticate against QuixLake
         required: true
-        secretKey: pat
+        secretKey: Quix__Sdk__Token
       - name: QUIXLAKE_URL
         inputType: FreeText
         description: Base URL of the QuixLake instance
