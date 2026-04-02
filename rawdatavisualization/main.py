@@ -175,8 +175,8 @@ def _(df, go, mo):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(df, go, mo, x_axis):
     x_col = "distance_m" if x_axis.value else "time_s"
     x_label = "Distance (m)" if x_axis.value else "Time (s)"
 
@@ -192,10 +192,12 @@ app._unparsable_cell(
     )
     mo.ui.plotly(speed_fig)
 
-    Cell 8 — G-forces plot
-    x_col = "distance_m" if x_axis.value else "time_s"
-    x_label = "Distance (m)" if x_axis.value else "Time (s)"
 
+    return x_col, x_label
+
+
+@app.cell
+def _(df, go, mo, x_col, x_label):
     acc_fig = go.Figure()
     for col, color, name in [
       ("accG_x", "#F44336", "Lateral (X)"),
@@ -213,9 +215,7 @@ app._unparsable_cell(
       legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
     mo.ui.plotly(acc_fig)
-    """,
-    name="_"
-)
+    return
 
 
 if __name__ == "__main__":
