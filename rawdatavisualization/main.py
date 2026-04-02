@@ -16,9 +16,9 @@ def _():
     import pandas as pd
     import plotly.graph_objects as go
     import numpy as np
-  
 
-    return go, mo, np
+
+    return go, mo, np, pd
 
 
 @app.cell
@@ -49,42 +49,104 @@ def _(QuixLakeClient):
 
 
 @app.cell
-def _(mo):
-    environment = mo.ui.text(value="prague_office", label="Environment")
-    test_rig = mo.ui.text(value="g29", label="Test Rig")
-    experiment = mo.ui.text(value="Initial run", label="Experiment")
-    driver = mo.ui.text(value="tomas", label="Driver")
-    track = mo.ui.text(value="ks_nurburgring", label="Track")
-    car_model = mo.ui.text(value="bmw_1m", label="Car Model")
-    beers = mo.ui.number(value=0, label="Beers", start=0, stop=20)
-    session_id = mo.ui.text(value="2026-03-23T16:08:43.243Z", label="Session ID", full_width=True)
-    lap = mo.ui.number(value=1, label="Lap", start=0, stop=999)
-    load_btn = mo.ui.run_button(label="Load Data")
+def _(client, pd):
+    #Cell 3a — Base data (all combos)
+    all_combos = client.query("""
+        SELECT DISTINCT environment, test_rig, experiment, driver, track, carModel, session_id, lap
+        FROM ac_telemetry
+        WHERE environment IS NOT NULL
+          AND track IS NOT NULL
+          AND driver IS NOT NULL
+        """)
+    all_combos["session_id"] = pd.to_datetime(all_combos["session_id"]).dt.strftime("%Y-%m-%dT%H:%M:%S.%f").str[:-3] + "Z"
+    return (all_combos,)
 
-    mo.vstack([
-      mo.md("## Query Parameters"),
-      mo.hstack([environment, test_rig, experiment, driver], justify="start", gap=1),
-      mo.hstack([track, car_model, beers, lap], justify="start", gap=1),
-      session_id,
-      load_btn,
-      ])
-    return (
-        beers,
-        car_model,
-        driver,
-        environment,
-        experiment,
-        lap,
-        load_btn,
-        session_id,
-        test_rig,
-        track,
-    )
+
+@app.cell
+def _(all_combos, mo):
+    #Cell 3b — Environment
+    environment = mo.ui.dropdown(options=sorted(all_combos["environment"].dropna().unique().tolist()), label="Environment")
+    environment
+    return (environment,)
+
+
+@app.cell
+def _(all_combos, environment, mo):
+    #Cell 3c — Test Rig
+    _f = all_combos[all_combos["environment"] == environment.value] if environment.value else all_combos
+    test_rig = mo.ui.dropdown(options=sorted(_f["test_rig"].dropna().unique().tolist()), label="Test Rig")
+    test_rig
+    return (test_rig,)
+
+
+@app.cell
+def _(all_combos, environment, mo, test_rig):
+    #Cell 3d — Experiment
+    _f = all_combos[(all_combos["environment"] == environment.value) & (all_combos["test_rig"] == test_rig.value)] if environment.value and test_rig.value else all_combos
+    experiment = mo.ui.dropdown(options=sorted(_f["experiment"].dropna().unique().tolist()), label="Experiment")
+    experiment
+    return (experiment,)
+
+
+@app.cell
+def _(all_combos, environment, experiment, mo, test_rig):
+    #Cell 3e — Driver
+    _f = all_combos.copy()
+    if environment.value: _f = _f[_f["environment"] == environment.value]
+    if test_rig.value: _f = _f[_f["test_rig"] == test_rig.value]
+    if experiment.value: _f = _f[_f["experiment"] == experiment.value]
+    driver = mo.ui.dropdown(options=sorted(_f["driver"].dropna().unique().tolist()), label="Driver")
+    driver
+    return (driver,)
+
+
+@app.cell
+def _(all_combos, driver, environment, experiment, mo, test_rig):
+    #Cell 3f — Track + Car Model
+    _f = all_combos.copy()
+    if environment.value: _f = _f[_f["environment"] == environment.value]
+    if test_rig.value: _f = _f[_f["test_rig"] == test_rig.value]
+    if experiment.value: _f = _f[_f["experiment"] == experiment.value]
+    if driver.value: _f = _f[_f["driver"] == driver.value]
+
+    track = mo.ui.dropdown(options=sorted(_f["track"].dropna().unique().tolist()), label="Track")
+    car_model = mo.ui.dropdown(options=sorted(_f["carModel"].dropna().unique().tolist()), label="Car Model")
+
+    mo.hstack([track, car_model], justify="start", gap=1)
+    return car_model, track
 
 
 @app.cell
 def _(
-    beers,
+    all_combos,
+    car_model,
+    driver,
+    environment,
+    experiment,
+    mo,
+    test_rig,
+    track,
+):
+    #Cell 3g — Session + Lap + Load
+    _f = all_combos.copy()
+    if environment.value: _f = _f[_f["environment"] == environment.value]
+    if test_rig.value: _f = _f[_f["test_rig"] == test_rig.value]
+    if experiment.value: _f = _f[_f["experiment"] == experiment.value]
+    if driver.value: _f = _f[_f["driver"] == driver.value]
+    if track.value: _f = _f[_f["track"] == track.value]
+    if car_model.value: _f = _f[_f["carModel"] == car_model.value]
+
+    session_id = mo.ui.dropdown(options=sorted(_f["session_id"].dropna().astype(str).unique().tolist()), label="Session ID")
+    lap_opts = [str(l) for l in sorted(_f["lap"].dropna().unique().tolist())]
+    lap = mo.ui.dropdown(options=lap_opts, label="Lap")
+    load_btn = mo.ui.run_button(label="Load Data")
+
+    mo.hstack([session_id, lap, load_btn], justify="start", gap=1)
+    return lap, load_btn, session_id
+
+
+@app.cell
+def _(
     car_model,
     client,
     driver,
@@ -102,16 +164,7 @@ def _(
     mo.stop(not load_btn.value, mo.md("*Click **Load Data** to fetch telemetry.*"))
 
     query = f"""
-      SELECT
-          packetId,
-          timestamp_ms,
-          distanceTraveled,
-          speedKmh,
-          accG_x, accG_y, accG_z,
-          tyreContactPointFL_x, tyreContactPointFL_y, tyreContactPointFL_z,
-          tyreContactPointFR_x, tyreContactPointFR_y, tyreContactPointFR_z,
-          tyreContactPointRL_x, tyreContactPointRL_y, tyreContactPointRL_z,
-          tyreContactPointRR_x, tyreContactPointRR_y, tyreContactPointRR_z
+      SELECT *
       FROM ac_telemetry
       WHERE environment = '{environment.value}'
         AND test_rig = '{test_rig.value}'
@@ -119,23 +172,29 @@ def _(
         AND driver = '{driver.value}'
         AND track = '{track.value}'
         AND carModel = '{car_model.value}'
-        AND beers = {int(beers.value)}
         AND session_id = '{session_id.value}'
         AND lap = {int(lap.value)}
       ORDER BY packetId
       """
 
-    df = client.query(query)
+    raw = client.query(query)
 
-      # Car center = average of 4 tyre contact points
+    keep = [
+      "packetId", "timestamp_ms", "distanceTraveled", "speedKmh",
+      "accG_x", "accG_y", "accG_z",
+      "tyreContactPointFL_x", "tyreContactPointFL_y", "tyreContactPointFL_z",
+      "tyreContactPointFR_x", "tyreContactPointFR_y", "tyreContactPointFR_z",
+      "tyreContactPointRL_x", "tyreContactPointRL_y", "tyreContactPointRL_z",
+      "tyreContactPointRR_x", "tyreContactPointRR_y", "tyreContactPointRR_z",
+    ]
+    df = raw[keep].copy()
+
     for axis in ["x", "y", "z"]:
       cols = [f"tyreContactPoint{c}_{axis}" for c in ["FL", "FR", "RL", "RR"]]
       df[f"car_{axis}"] = df[cols].mean(axis=1)
 
-    # Time in seconds from lap start
     df["time_s"] = (df["timestamp_ms"] - df["timestamp_ms"].iloc[0]) / 1000.0
 
-    # Distance: use distanceTraveled or compute from positions
     if df["distanceTraveled"].max() == 0:
       dx = df["car_x"].diff().fillna(0)
       dz = df["car_z"].diff().fillna(0)
@@ -144,7 +203,6 @@ def _(
       df["distance_m"] = df["distanceTraveled"]
 
     mo.md(f"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance: **{df['distance_m'].iloc[-1]:.0f}m**")
-
     return (df,)
 
 
@@ -159,8 +217,8 @@ def _(mo):
 def _(df, go, mo):
     track_fig = go.Figure()
     track_fig.add_trace(go.Scatter3d(
-      x=df["car_x"],
-      y=df["car_z"],
+      x=df["car_z"],
+      y=df["car_x"],
       z=df["car_y"],
       mode="lines",
       line=dict(
@@ -170,10 +228,21 @@ def _(df, go, mo):
           colorbar=dict(title="km/h"),
       ),
     ))
+
+    pad = 0.05
+    x_range = [df["car_z"].min(), df["car_z"].max()]
+    y_range = [df["car_x"].min(), df["car_x"].max()]
+    z_range = [df["car_y"].min(), df["car_y"].max()]
+    x_pad = (x_range[1] - x_range[0]) * pad
+    y_pad = (y_range[1] - y_range[0]) * pad
+    z_pad = (z_range[1] - z_range[0]) * pad
+
     track_fig.update_layout(
       title="Track Map (colored by speed)",
       scene=dict(
-          xaxis_title="X", yaxis_title="Z (forward)", zaxis_title="Y (height)",
+          xaxis=dict(title="X [m]", range=[x_range[0] - x_pad, x_range[1] + x_pad]),
+          yaxis=dict(title="Y [m]", range=[y_range[0] - y_pad, y_range[1] + y_pad]),
+          zaxis=dict(title="Z [m]", range=[z_range[0] - z_pad, z_range[1] + z_pad], showticklabels=False),
           aspectmode="data",
       ),
       height=700,
@@ -186,7 +255,7 @@ def _(df, go, mo):
 @app.cell
 def _(df, go, mo, x_axis):
     x_col = "distance_m" if x_axis.value else "time_s"
-    x_label = "Distance (m)" if x_axis.value else "Time (s)"
+    x_label = "Distance [m]" if x_axis.value else "Time [s]"
 
     speed_fig = go.Figure()
     speed_fig.add_trace(go.Scatter(
@@ -195,12 +264,10 @@ def _(df, go, mo, x_axis):
       line=dict(color="#2196F3", width=1.5),
     ))
     speed_fig.update_layout(
-      title="Speed", xaxis_title=x_label, yaxis_title="Speed (km/h)",
+      title="Speed", xaxis_title=x_label, yaxis_title="Speed [km/h]",
       height=400, hovermode="x unified",
     )
     mo.ui.plotly(speed_fig)
-
-
     return
 
 
@@ -208,7 +275,7 @@ def _(df, go, mo, x_axis):
 def _(df, go, mo, x_axis):
     #Cell 8a — Lateral G (accG_x)
     x_colAccX = "distance_m" if x_axis.value else "time_s"
-    x_labelAccX = "Distance (m)" if x_axis.value else "Time (s)"
+    x_labelAccX = "Distance [m]" if x_axis.value else "Time [s]"
 
     fig_gx = go.Figure()
     fig_gx.add_trace(go.Scatter(
@@ -217,7 +284,7 @@ def _(df, go, mo, x_axis):
       line=dict(color="#F44336", width=1.2),
     ))
     fig_gx.update_layout(
-      title="Lateral G (X)", xaxis_title=x_colAccX, yaxis_title="G",
+      title="Lateral G (X)", xaxis_title=x_labelAccX, yaxis_title="G",
       height=350, hovermode="x unified",
     )
     mo.ui.plotly(fig_gx)
@@ -228,7 +295,7 @@ def _(df, go, mo, x_axis):
 def _(df, go, mo, x_axis):
     #Cell 8b — Vertical G (accG_y)
     x_colAccY = "distance_m" if x_axis.value else "time_s"
-    x_labelAccY = "Distance (m)" if x_axis.value else "Time (s)"
+    x_labelAccY = "Distance [m]" if x_axis.value else "Time [s]"
 
     fig_gy = go.Figure()
     fig_gy.add_trace(go.Scatter(
@@ -241,7 +308,6 @@ def _(df, go, mo, x_axis):
       height=350, hovermode="x unified",
     )
     mo.ui.plotly(fig_gy)
-
     return
 
 
@@ -249,7 +315,7 @@ def _(df, go, mo, x_axis):
 def _(df, go, mo, x_axis):
     #Cell 8c — Longitudinal G (accG_z)
     x_colAccZ = "distance_m" if x_axis.value else "time_s"
-    x_labelAccZ = "Distance (m)" if x_axis.value else "Time (s)"
+    x_labelAccZ = "Distance [m]" if x_axis.value else "Time [s]"
 
     fig_gz = go.Figure()
     fig_gz.add_trace(go.Scatter(
