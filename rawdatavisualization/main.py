@@ -48,29 +48,27 @@ def _(QuixLakeClient):
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(mo):
     environment = mo.ui.text(value="prague_office", label="Environment")
-      test_rig = mo.ui.text(value="g29", label="Test Rig")
-      experiment = mo.ui.text(value="Initial run", label="Experiment")
-      driver = mo.ui.text(value="tomas", label="Driver")
-      track = mo.ui.text(value="ks_nurburgring", label="Track")
-      car_model = mo.ui.text(value="bmw_1m", label="Car Model")
-      beers = mo.ui.number(value=0, label="Beers", start=0, stop=20)
-      session_id = mo.ui.text(value="2026-03-23T16:08:43.243Z", label="Session ID", full_width=True)
-      lap = mo.ui.number(value=1, label="Lap", start=0, stop=999)
-      load_btn = mo.ui.run_button(label="Load Data")
+    test_rig = mo.ui.text(value="g29", label="Test Rig")
+    experiment = mo.ui.text(value="Initial run", label="Experiment")
+    driver = mo.ui.text(value="tomas", label="Driver")
+    track = mo.ui.text(value="ks_nurburgring", label="Track")
+    car_model = mo.ui.text(value="bmw_1m", label="Car Model")
+    beers = mo.ui.number(value=0, label="Beers", start=0, stop=20)
+    session_id = mo.ui.text(value="2026-03-23T16:08:43.243Z", label="Session ID", full_width=True)
+    lap = mo.ui.number(value=1, label="Lap", start=0, stop=999)
+    load_btn = mo.ui.run_button(label="Load Data")
 
-      mo.vstack([
-          mo.md("## Query Parameters"),
-          mo.hstack([environment, test_rig, experiment, driver], justify="start", gap=1),
-          mo.hstack([track, car_model, beers, lap], justify="start", gap=1),
-          session_id,
-          load_btn,
+    mo.vstack([
+      mo.md("## Query Parameters"),
+      mo.hstack([environment, test_rig, experiment, driver], justify="start", gap=1),
+      mo.hstack([track, car_model, beers, lap], justify="start", gap=1),
+      session_id,
+      load_btn,
       ])
-    """,
-    name="_"
-)
+    return
 
 
 app._unparsable_cell(
