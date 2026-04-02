@@ -5,26 +5,35 @@
 
 import marimo
 
-__generated_with = "0.16.4"
+__generated_with = "0.22.0"
 app = marimo.App(width="full")
 
 
-@app.cell
-def _():
-    import os
-    import marimo as mo
-    return mo, os
+app._unparsable_cell(
+    r"""
+     import os
+      import marimo as mo
+      import pandas as pd
+      import plotly.graph_objects as go
+      import numpy as np
+      from quixlake import QuixLakeClient
+    """,
+    name="_"
+)
 
 
 @app.cell
 def _():
     from quixlake import QuixLakeClient
+
     return (QuixLakeClient,)
 
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Query QuixLake Data""")
+    mo.md(r"""
+    ## Query QuixLake Data
+    """)
     return
 
 
@@ -37,20 +46,20 @@ def _(QuixLakeClient, os):
         base_url=QUIXLAKE_URL,
         token=os.environ["Quix__Sdk__Token"]
     )
-    return (client,)
+    return
 
 
 @app.cell
 def _(mo):
     # TODO: Modify the SQL query for your data
     default_query = """
-SELECT
+    SELECT
     Timestamp as time,
     value
-FROM your_table
-ORDER BY Timestamp
-LIMIT 1000
-""".strip()
+    FROM your_table
+    ORDER BY Timestamp
+    LIMIT 1000
+    """.strip()
 
     sql_form = mo.ui.code_editor(
         value=default_query,
@@ -60,14 +69,12 @@ LIMIT 1000
     ).form(submit_button_label="Run SQL")
 
     sql_form
-    return (sql_form,)
+    return
 
 
 @app.cell
-def _(client, sql_form):
-    df = client.query(sql_form.value)
-    df
-    return (df,)
+def _():
+    return
 
 
 @app.cell
