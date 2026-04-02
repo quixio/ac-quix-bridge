@@ -16,7 +16,7 @@ app._unparsable_cell(
       import pandas as pd
       import plotly.graph_objects as go
       import numpy as np
-      from quixlake import QuixLakeClient
+  
     """,
     name="_"
 )
@@ -38,13 +38,13 @@ def _(mo):
 
 
 @app.cell
-def _(QuixLakeClient, os):
+def _(QuixLakeClient):
     # TODO: Replace with your QuixLake URL
-    QUIXLAKE_URL = "https://your-quixlake-instance.quix.io"
+    QUIXLAKE_URL = "https://quixlake-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io"
 
     client = QuixLakeClient(
         base_url=QUIXLAKE_URL,
-        token=os.environ["Quix__Sdk__Token"]
+        token="pat-6c9b0c84327e40779473f36971c15930"
     )
     return
 
