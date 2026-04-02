@@ -49,32 +49,83 @@ def _(QuixLakeClient):
     return
 
 
-@app.cell
-def _(mo):
+app._unparsable_cell(
+    r"""
+    environment = mo.ui.text(value="prague_office", label="Environment")
+      test_rig = mo.ui.text(value="g29", label="Test Rig")
+      experiment = mo.ui.text(value="Initial run", label="Experiment")
+      driver = mo.ui.text(value="tomas", label="Driver")
+      track = mo.ui.text(value="ks_nurburgring", label="Track")
+      car_model = mo.ui.text(value="bmw_1m", label="Car Model")
+      beers = mo.ui.number(value=0, label="Beers", start=0, stop=20)
+      session_id = mo.ui.text(value="2026-03-23T16:08:43.243Z", label="Session ID", full_width=True)
+      lap = mo.ui.number(value=1, label="Lap", start=0, stop=999)
+      load_btn = mo.ui.run_button(label="Load Data")
+
+      mo.vstack([
+          mo.md("## Query Parameters"),
+          mo.hstack([environment, test_rig, experiment, driver], justify="start", gap=1),
+          mo.hstack([track, car_model, beers, lap], justify="start", gap=1),
+          session_id,
+          load_btn,
+      ])
+    """,
+    name="_"
+)
+
+
+app._unparsable_cell(
+    """
     # TODO: Modify the SQL query for your data
-    default_query = """
-    SELECT
-    Timestamp as time,
-    value
-    FROM your_table
-    ORDER BY Timestamp
-    LIMIT 1000
-    """.strip()
+     mo.stop(not load_btn.value, mo.md(\"*Click **Load Data** to fetch telemetry.*\"))
 
-    sql_form = mo.ui.code_editor(
-        value=default_query,
-        language="sql",
-        label="SQL query",
-        min_height=150,
-    ).form(submit_button_label="Run SQL")
+      query = f\"\"\"
+      SELECT
+          packetId,
+          timestamp_ms,
+          distanceTraveled,
+          speedKmh,
+          accG_x, accG_y, accG_z,
+          tyreContactPointFL_x, tyreContactPointFL_y, tyreContactPointFL_z,
+          tyreContactPointFR_x, tyreContactPointFR_y, tyreContactPointFR_z,
+          tyreContactPointRL_x, tyreContactPointRL_y, tyreContactPointRL_z,
+          tyreContactPointRR_x, tyreContactPointRR_y, tyreContactPointRR_z
+      FROM ac_telemetry
+      WHERE environment = '{environment.value}'
+        AND test_rig = '{test_rig.value}'
+        AND experiment = '{experiment.value}'
+        AND driver = '{driver.value}'
+        AND track = '{track.value}'
+        AND carModel = '{car_model.value}'
+        AND beers = {int(beers.value)}
+        AND session_id = '{session_id.value}'
+        AND lap = {int(lap.value)}
+      ORDER BY packetId
+      \"\"\"
 
-    sql_form
-    return
+      df = client.query(query)
 
+      # Car center = average of 4 tyre contact points
+      for axis in [\"x\", \"y\", \"z\"]:
+          cols = [f\"tyreContactPoint{c}_{axis}\" for c in [\"FL\", \"FR\", \"RL\", \"RR\"]]
+          df[f\"car_{axis}\"] = df[cols].mean(axis=1)
 
-@app.cell
-def _():
-    return
+      # Time in seconds from lap start
+      df[\"time_s\"] = (df[\"timestamp_ms\"] - df[\"timestamp_ms\"].iloc[0]) / 1000.0
+
+      # Distance: use distanceTraveled or compute from positions
+      if df[\"distanceTraveled\"].max() == 0:
+          dx = df[\"car_x\"].diff().fillna(0)
+          dz = df[\"car_z\"].diff().fillna(0)
+          df[\"distance_m\"] = np.sqrt(dx**2 + dz**2).cumsum()
+      else:
+          df[\"distance_m\"] = df[\"distanceTraveled\"]
+
+      mo.md(f\"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance:
+      **{df['distance_m'].iloc[-1]:.0f}m**\")
+    """,
+    name="_"
+)
 
 
 @app.cell
