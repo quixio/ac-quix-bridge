@@ -146,7 +146,7 @@ deployments:
       - name: HIVE_COLUMNS
         inputType: FreeText
         description: Comma-separated list of columns for Hive partitioning. Include year/month/day/hour to extract from TIMESTAMP_COLUMN (e.g., location,year,month,day,sensor_type)
-        value: environment,test_rig,experiment,driver,track,carModel,beers,session_id,lap
+        value: environment,test_rig,experiment,driver,track,carModel,session_id,lap
       - name: TIMESTAMP_COLUMN
         inputType: FreeText
         description: Column containing timestamp values to extract year/month/day/hour from

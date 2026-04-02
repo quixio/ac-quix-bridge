@@ -101,7 +101,6 @@ sdf = sdf.join_lookup(
         "test_rig": config_lookup.json_field(jsonpath="$.test_rig", type="experiment", default="NA"),
         "experiment": config_lookup.json_field(jsonpath="$.experiment_id", type="experiment", default="NA"),
         "driver": config_lookup.json_field(jsonpath="$.driver", type="experiment", default="NA"),
-        "beers": config_lookup.json_field(jsonpath="$.beers", type="experiment", default=-1),
         "carModel": config_lookup.json_field(jsonpath="$.carModel", type="session", default="NA"),
         "track": config_lookup.json_field(jsonpath="$.track", type="session", default="NA"),
     },
