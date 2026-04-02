@@ -280,6 +280,46 @@ deployments:
         icon: note_alt
         order: 0
         badge: BETA
+  - name: RawDataVisualizationApp
+    application: rawdatavisualization
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 2000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: app-rawdatavisualization
+    state:
+      enabled: true
+      size: 1
+    network:
+      ports:
+        - port: 80
+          targetPort: 8080
+    variables:
+      - name: MARIMO_MODE
+        inputType: Options
+        description: Mode to run Marimo in
+        value: run
+      - name: MARIMO_NOTEBOOK
+        inputType: FreeText
+        description: The notebook file to open (e.g., main.py)
+        value: main.py
+      - name: ANTHROPIC_API_KEY
+        inputType: Secret
+        description: Token generated from https://platform.claude.com/settings/keys.
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        icon: note_alt
+        order: 0
+        badge: BETA
 
 # This section describes the Topics of the data pipeline
 topics:
