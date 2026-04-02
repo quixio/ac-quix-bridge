@@ -5,7 +5,7 @@
 
 import marimo
 
-__generated_with = "0.16.4"
+__generated_with = "0.21.1"
 app = marimo.App(width="full")
 
 
@@ -13,29 +13,33 @@ app = marimo.App(width="full")
 def _():
     import os
     import marimo as mo
-    return mo, os
+
+    return (mo,)
 
 
 @app.cell
 def _():
     from quixlake import QuixLakeClient
+
     return (QuixLakeClient,)
 
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Query QuixLake Data""")
+    mo.md(r"""
+    ## Query QuixLake Data
+    """)
     return
 
 
 @app.cell
-def _(QuixLakeClient, os):
+def _(QuixLakeClient):
     # TODO: Replace with your QuixLake URL
-    QUIXLAKE_URL = "https://your-quixlake-instance.quix.io"
+    QUIXLAKE_URL = "https://quixlake-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io"
 
     client = QuixLakeClient(
         base_url=QUIXLAKE_URL,
-        token=os.environ["Quix__Sdk__Token"]
+        token="pat-6c9b0c84327e40779473f36971c15930"
     )
     return (client,)
 
@@ -44,13 +48,12 @@ def _(QuixLakeClient, os):
 def _(mo):
     # TODO: Modify the SQL query for your data
     default_query = """
-SELECT
-    Timestamp as time,
-    value
-FROM your_table
-ORDER BY Timestamp
-LIMIT 1000
-""".strip()
+    SELECT *
+    FROM ac_telemetry
+    WHERE environment = 'prague_office' AND test_rig = 'g29' AND experiment = 'Demo run' AND driver = 'tomas' AND track = 'ks_nurburgring' AND carModel = 'bmw_1m' AND beers = 0 AND session_id = '2026-03-23T17:30:06.604Z' AND lap = 2
+    ORDER BY timestamp_ms
+    LIMIT 10000
+    """.strip()
 
     sql_form = mo.ui.code_editor(
         value=default_query,
@@ -75,8 +78,8 @@ def _(df, mo):
     import plotly.express as px
     fig = px.line(
         df,
-        x="time",
-        y="value",
+        x="timestamp_ms",
+        y="speedKmh",
         title="Waveform",
     )
     mo.ui.plotly(fig)
