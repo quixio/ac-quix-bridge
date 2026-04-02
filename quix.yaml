@@ -355,6 +355,16 @@ deployments:
         inputType: FreeText
         description: QuixLake table name for telemetry data
         value: ac_telemetry
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      globalItem:
+        show: true
+        label: Telemetry Explorer
+        icon: data_usage
+        order: 0
 
 # This section describes the Topics of the data pipeline
 topics:
