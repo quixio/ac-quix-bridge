@@ -18,7 +18,7 @@ def _():
     import numpy as np
   
 
-    return (mo,)
+    return go, mo, np
 
 
 @app.cell
@@ -45,7 +45,7 @@ def _(QuixLakeClient):
         base_url=QUIXLAKE_URL,
         token="pat-6c9b0c84327e40779473f36971c15930"
     )
-    return
+    return (client,)
 
 
 @app.cell
@@ -68,15 +68,40 @@ def _(mo):
       session_id,
       load_btn,
       ])
-    return
+    return (
+        beers,
+        car_model,
+        driver,
+        environment,
+        experiment,
+        lap,
+        load_btn,
+        session_id,
+        test_rig,
+        track,
+    )
 
 
-app._unparsable_cell(
-    """
+@app.cell
+def _(
+    beers,
+    car_model,
+    client,
+    driver,
+    environment,
+    experiment,
+    lap,
+    load_btn,
+    mo,
+    np,
+    session_id,
+    test_rig,
+    track,
+):
     # TODO: Modify the SQL query for your data
-    mo.stop(not load_btn.value, mo.md(\"*Click **Load Data** to fetch telemetry.*\"))
+    mo.stop(not load_btn.value, mo.md("*Click **Load Data** to fetch telemetry.*"))
 
-    query = f\"\"\"
+    query = f"""
       SELECT
           packetId,
           timestamp_ms,
@@ -98,61 +123,56 @@ app._unparsable_cell(
         AND session_id = '{session_id.value}'
         AND lap = {int(lap.value)}
       ORDER BY packetId
-      \"\"\"
+      """
 
     df = client.query(query)
 
       # Car center = average of 4 tyre contact points
-    for axis in [\"x\", \"y\", \"z\"]:
-      cols = [f\"tyreContactPoint{c}_{axis}\" for c in [\"FL\", \"FR\", \"RL\", \"RR\"]]
-      df[f\"car_{axis}\"] = df[cols].mean(axis=1)
+    for axis in ["x", "y", "z"]:
+      cols = [f"tyreContactPoint{c}_{axis}" for c in ["FL", "FR", "RL", "RR"]]
+      df[f"car_{axis}"] = df[cols].mean(axis=1)
 
     # Time in seconds from lap start
-    df[\"time_s\"] = (df[\"timestamp_ms\"] - df[\"timestamp_ms\"].iloc[0]) / 1000.0
+    df["time_s"] = (df["timestamp_ms"] - df["timestamp_ms"].iloc[0]) / 1000.0
 
     # Distance: use distanceTraveled or compute from positions
-    if df[\"distanceTraveled\"].max() == 0:
-      dx = df[\"car_x\"].diff().fillna(0)
-      dz = df[\"car_z\"].diff().fillna(0)
-      df[\"distance_m\"] = np.sqrt(dx**2 + dz**2).cumsum()
+    if df["distanceTraveled"].max() == 0:
+      dx = df["car_x"].diff().fillna(0)
+      dz = df["car_z"].diff().fillna(0)
+      df["distance_m"] = np.sqrt(dx**2 + dz**2).cumsum()
     else:
-      df[\"distance_m\"] = df[\"distanceTraveled\"]
+      df["distance_m"] = df["distanceTraveled"]
 
-    mo.md(f\"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance:
-    **{df['distance_m'].iloc[-1]:.0f}m**\")
-    """,
-    name="_"
-)
+    mo.md(f"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance: **{df['distance_m'].iloc[-1]:.0f}m**")
+    return (df,)
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(df, go, mo):
     track_fig = go.Figure()
-      track_fig.add_trace(go.Scatter3d(
-          x=df["car_x"],
-          y=df["car_z"],
-          z=df["car_y"],
-          mode="lines",
-          line=dict(
-              color=df["speedKmh"],
-              colorscale="Turbo",
-              width=4,
-              colorbar=dict(title="km/h"),
-          ),
-      ))
-      track_fig.update_layout(
-          title="Track Map (colored by speed)",
-          scene=dict(
-              xaxis_title="X", yaxis_title="Z (forward)", zaxis_title="Y (height)",
-              aspectmode="data",
-          ),
-          height=700,
-          margin=dict(l=0, r=0, t=40, b=0),
-      )
-      mo.ui.plotly(track_fig)
-    """,
-    name="_"
-)
+    track_fig.add_trace(go.Scatter3d(
+      x=df["car_x"],
+      y=df["car_z"],
+      z=df["car_y"],
+      mode="lines",
+      line=dict(
+          color=df["speedKmh"],
+          colorscale="Turbo",
+          width=4,
+          colorbar=dict(title="km/h"),
+      ),
+    ))
+    track_fig.update_layout(
+      title="Track Map (colored by speed)",
+      scene=dict(
+          xaxis_title="X", yaxis_title="Z (forward)", zaxis_title="Y (height)",
+          aspectmode="data",
+      ),
+      height=700,
+      margin=dict(l=0, r=0, t=40, b=0),
+    )
+    mo.ui.plotly(track_fig)
+    return
 
 
 app._unparsable_cell(
