@@ -605,7 +605,7 @@ async function plot() {
         title: null,
         xaxis: {
           ...PLOTLY_LAYOUT.xaxis,
-          title: si === signals.length - 1 ? 'Track Position [-]' : undefined,
+          title: 'Track Position [-]',
         },
         yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
       }, { responsive: true, scrollZoom: false });
