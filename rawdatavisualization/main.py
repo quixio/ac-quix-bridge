@@ -150,7 +150,7 @@ def _(
 
 @app.cell
 def _(mo):
-    x_axis = mo.ui.switch(label="Distance (on) / Time (off)", value=False)
+    x_axis = mo.ui.switch(label="Time (off) / Distance (on)", value=False)
     mo.md(f"### X-axis mode: {x_axis}")
     return (x_axis,)
 
