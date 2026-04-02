@@ -144,7 +144,15 @@ def _(
       df["distance_m"] = df["distanceTraveled"]
 
     mo.md(f"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance: **{df['distance_m'].iloc[-1]:.0f}m**")
+
     return (df,)
+
+
+@app.cell
+def _(mo):
+    x_axis = mo.ui.switch(label="Distance (on) / Time (off)", value=False)
+    mo.md(f"### X-axis mode: {x_axis}")
+    return (x_axis,)
 
 
 @app.cell
