@@ -18,7 +18,7 @@ def _():
     import numpy as np
 
 
-    return go, mo, pd
+    return go, mo
 
 
 @app.cell
@@ -48,21 +48,20 @@ def _(QuixLakeClient):
     return (client,)
 
 
-@app.cell
-def _(client, pd):
-    #Cell 3a — Base data (all combos)
-    all_combos = client.query("""
-        SELECT DISTINCT environment, test_rig, experiment, driver, track, carModel, session_id, lap
-        FROM ac_telemetry
-        WHERE environment IS NOT NULL
-          AND track IS NOT NULL
-          AND driver IS NOT NULL
-        """)
-    all_combos["session_id"] = pd.to_datetime(all_combos["session_id"], format="mixed", utc=True).dt.strftime("%Y-%m-%dT%H:%M:%S.%f").str[:-3] + "Z"
-
-    all_combos = client.query("""SELECT DISTINCT session_id FROM ac_telemetry LIMIT 50  """)
-    all_combos
-    return (all_combos,)
+app._unparsable_cell(
+    """
+    all_combos = client.query(\"\"\"
+              SELECT DISTINCT environment, test_rig, experiment, driver, track, carModel, session_id, lap
+              FROM ac_telemetry
+              WHERE environment IS NOT NULL
+                AND track IS NOT NULL
+                AND driver IS NOT NULL
+              \"\"\")
+          # Keep raw session_id for querying, make display version for dropdown
+          all_combos[\"session_id_display\"] = pd.to_datetime(all_combos[\"session_id\"], format=\"mixed\", utc=True).dt.strftime(\"%Y-%m-%d %H:%M:%S\")
+    """,
+    name="_"
+)
 
 
 @app.cell
@@ -119,19 +118,10 @@ def _(all_combos, driver, environment, experiment, mo, test_rig):
     return car_model, track
 
 
-@app.cell
-def _(
-    all_combos,
-    car_model,
-    driver,
-    environment,
-    experiment,
-    mo,
-    test_rig,
-    track,
-):
+app._unparsable_cell(
+    r"""
     #Cell 3g — Session + Lap + Load
-    _f = all_combos.copy()
+     _f = all_combos.copy()
     if environment.value: _f = _f[_f["environment"] == environment.value]
     if test_rig.value: _f = _f[_f["test_rig"] == test_rig.value]
     if experiment.value: _f = _f[_f["experiment"] == experiment.value]
@@ -139,13 +129,17 @@ def _(
     if track.value: _f = _f[_f["track"] == track.value]
     if car_model.value: _f = _f[_f["carModel"] == car_model.value]
 
-    session_id = mo.ui.dropdown(options=sorted(_f["session_id"].dropna().astype(str).unique().tolist()), label="Session ID")
+    # Map display -> raw session_id
+    session_map = dict(zip(_f["session_id_display"].astype(str), _f["session_id"].astype(str)))
+    session_id = mo.ui.dropdown(options=sorted(session_map.keys()), label="Session ID")
     lap_opts = [str(l) for l in sorted(_f["lap"].dropna().unique().tolist())]
     lap = mo.ui.dropdown(options=lap_opts, label="Lap")
     load_btn = mo.ui.run_button(label="Load Data")
 
     mo.hstack([session_id, lap, load_btn], justify="start", gap=1)
-    return lap, load_btn, session_id
+    """,
+    name="_"
+)
 
 
 @app.cell
