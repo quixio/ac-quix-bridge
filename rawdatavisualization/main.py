@@ -18,7 +18,7 @@ def _():
     import numpy as np
 
 
-    return go, mo, np, pd
+    return go, mo, pd
 
 
 @app.cell
@@ -58,7 +58,10 @@ def _(client, pd):
           AND track IS NOT NULL
           AND driver IS NOT NULL
         """)
-    all_combos["session_id"] = pd.to_datetime(all_combos["session_id"]).dt.strftime("%Y-%m-%dT%H:%M:%S.%f").str[:-3] + "Z"
+    all_combos["session_id"] = pd.to_datetime(all_combos["session_id"], format="mixed", utc=True).dt.strftime("%Y-%m-%dT%H:%M:%S.%f").str[:-3] + "Z"
+
+    all_combos = client.query("""SELECT DISTINCT session_id FROM ac_telemetry LIMIT 50  """)
+    all_combos
     return (all_combos,)
 
 
@@ -155,7 +158,6 @@ def _(
     lap,
     load_btn,
     mo,
-    np,
     session_id,
     test_rig,
     track,
@@ -179,31 +181,11 @@ def _(
 
     raw = client.query(query)
 
-    keep = [
-      "packetId", "timestamp_ms", "distanceTraveled", "speedKmh",
-      "accG_x", "accG_y", "accG_z",
-      "tyreContactPointFL_x", "tyreContactPointFL_y", "tyreContactPointFL_z",
-      "tyreContactPointFR_x", "tyreContactPointFR_y", "tyreContactPointFR_z",
-      "tyreContactPointRL_x", "tyreContactPointRL_y", "tyreContactPointRL_z",
-      "tyreContactPointRR_x", "tyreContactPointRR_y", "tyreContactPointRR_z",
-    ]
-    df = raw[keep].copy()
+    mo.md(f"Columns: {raw.columns.tolist()}")
 
-    for axis in ["x", "y", "z"]:
-      cols = [f"tyreContactPoint{c}_{axis}" for c in ["FL", "FR", "RL", "RR"]]
-      df[f"car_{axis}"] = df[cols].mean(axis=1)
 
-    df["time_s"] = (df["timestamp_ms"] - df["timestamp_ms"].iloc[0]) / 1000.0
 
-    if df["distanceTraveled"].max() == 0:
-      dx = df["car_x"].diff().fillna(0)
-      dz = df["car_z"].diff().fillna(0)
-      df["distance_m"] = np.sqrt(dx**2 + dz**2).cumsum()
-    else:
-      df["distance_m"] = df["distanceTraveled"]
-
-    mo.md(f"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance: **{df['distance_m'].iloc[-1]:.0f}m**")
-    return (df,)
+    return
 
 
 @app.cell
