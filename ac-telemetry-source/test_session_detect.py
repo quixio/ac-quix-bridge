@@ -55,15 +55,7 @@ PHYSICS_FIELDS = [
     "gear",
 ]
 
-STATIC_FIELDS = [
-    "numberOfSessions",
-    "carModel",
-    "track",
-    "sectorCount",
-    "maxFuel",
-    "trackSplineLength",
-    "trackConfiguration",
-]
+STATIC_FIELDS = "ALL"  # Track every field from read_static()
 
 
 def main():
@@ -94,7 +86,7 @@ def main():
             # Extract tracked fields
             cur_graphics = {f: data.get(f) for f in GRAPHICS_FIELDS}
             cur_physics = {f: data.get(f) for f in PHYSICS_FIELDS}
-            cur_static = {f: static.get(f) for f in STATIC_FIELDS}
+            cur_static = static  # Track ALL static fields
 
             # Find changes
             changes = []
@@ -117,15 +109,31 @@ def main():
                             changes.append(f"  {name}.{field}: {old} -> {val}")
 
             # Log changes if any non-trivial ones exist
-            # Filter out noisy fields that change every tick during normal driving
+            # Filter out noisy fields that change every tick during normal driving,
+            # but detect significant drops (resets) in continuously-increasing fields
+            NOISY_FIELDS = {
+                "packetId", "iCurrentTime", "normalizedCarPosition",
+                "distanceTraveled", "speedKmh", "performanceMeter",
+                "currentSectorIndex", "gear",
+            }
+
+            # Detect resets in fields that normally increase
+            reset_changes = []
+            for field, threshold in [
+                ("iCurrentTime", 5000),      # lap time dropped by > 5s
+                ("distanceTraveled", 100),    # distance dropped by > 100m
+                ("iLastTime", 5000),          # last lap time changed significantly
+                ("iBestTime", 5000),          # best lap time changed significantly
+            ]:
+                old = prev_graphics.get(field)
+                new = cur_graphics.get(field)
+                if old is not None and new is not None and (old - new) > threshold:
+                    reset_changes.append(f"  RESET graphics.{field}: {old} -> {new}")
+
             significant_changes = [
                 c for c in changes
-                if not any(noisy in c for noisy in [
-                    "packetId", "iCurrentTime", "normalizedCarPosition",
-                    "distanceTraveled", "speedKmh", "performanceMeter",
-                    "currentSectorIndex", "gear",
-                ])
-            ]
+                if not any(noisy in c for noisy in NOISY_FIELDS)
+            ] + reset_changes
 
             if significant_changes:
                 logger.info("=" * 60)
