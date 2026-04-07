@@ -2,8 +2,13 @@
 Custom QuixStreams Source that reads Assetto Corsa telemetry from shared memory.
 
 Produces two message types:
-  - Physics + Graphics (high-frequency) → main output topic
-  - Static session metadata → session topic (on session change only)
+  - Physics + Graphics (high-frequency) → main output topic (only when AC status is LIVE)
+  - Static session metadata → session topic (on new session only)
+
+Session detection logic:
+  - off → live:   always new session (game started)
+  - pause → live: new session if iCurrentTime dropped (restart), otherwise resume
+  - Only produces telemetry data when status is "live"
 """
 
 import json
@@ -28,27 +33,19 @@ class AssettoCorsaSource(Source):
         self._sample_rate_hz = int(os.environ.get("SAMPLE_RATE_HZ", "60"))
         self._session_topic = session_topic
         self._session_id = None
-        self._last_session_key = None
         self._hostname = socket.gethostname()
+        self._prev_status = None
+        self._prev_current_time = None
 
     def _new_session_id(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-    def _check_session_change(self, reader: ACReader):
-        """Detect session change and publish static data to the session topic."""
-        current_key = reader.get_session_key()
-        if not current_key or current_key == self._last_session_key:
-            return
-
-        self._last_session_key = current_key
-        self._session_id = self._new_session_id()
-
+    def _publish_session_metadata(self, reader: ACReader):
+        """Publish static data to the session topic."""
         static_data = reader.read_static()
         static_data["session_id"] = self._session_id
         static_data["timestamp_ms"] = int(time.time() * 1000)
 
-        # Use the session topic's serializer and produce via the low-level producer,
-        # since Source.serialize()/produce() only support the main topic.
         msg = self._session_topic.serialize(
             key=self._hostname,
             value=static_data,
@@ -59,10 +56,40 @@ class AssettoCorsaSource(Source):
             value=msg.value,
             headers=msg.headers,
         )
-        logger.info(
-            "New session detected: %s | car=%s track=%s",
-            self._session_id, static_data["carModel"], static_data["track"],
-        )
+
+    def _check_session(self, status: str, current_time: int):
+        """Check if we need to create a new session based on status transitions.
+
+        Returns True if a new session was created."""
+        new_session = False
+
+        if self._prev_status is not None and self._prev_status != "live" and status == "live":
+            if self._prev_status == "off":
+                # off → live: always new session
+                new_session = True
+                logger.info("Session start detected (off -> live)")
+            elif self._prev_status == "pause":
+                # pause → live: new session only if iCurrentTime dropped (restart)
+                if self._prev_current_time is not None and current_time < self._prev_current_time:
+                    new_session = True
+                    logger.info(
+                        "Session restart detected (pause -> live, iCurrentTime %d -> %d)",
+                        self._prev_current_time, current_time,
+                    )
+                else:
+                    logger.info("Session resumed (pause -> live)")
+            else:
+                # replay → live or any other transition
+                new_session = True
+                logger.info("Session start detected (%s -> live)", self._prev_status)
+
+        if new_session:
+            self._session_id = self._new_session_id()
+
+        self._prev_status = status
+        self._prev_current_time = current_time
+
+        return new_session
 
     def run(self):
         reader = ACReader()
@@ -79,21 +106,32 @@ class AssettoCorsaSource(Source):
                         "Retrying in 5 seconds..."
                     )
                     time.sleep(5)
-                    next_tick = None  # reset schedule after reconnect
+                    next_tick = None
                     continue
 
-            # Initialize or reset the fixed-rate schedule
             if next_tick is None:
                 next_tick = time.perf_counter()
 
             next_tick += interval
 
             try:
-                # Check for session change and publish static data
-                self._check_session_change(reader)
-
-                # Read and publish physics + graphics
                 data = reader.read_physics_and_graphics()
+                status = data["status"]
+                current_time = data["iCurrentTime"]
+
+                # Check for session changes and publish metadata if new session
+                new_session = self._check_session(status, current_time)
+                if new_session:
+                    self._publish_session_metadata(reader)
+                    logger.info("New session: %s", self._session_id)
+
+                # Only produce telemetry when AC is live
+                if status != "live" or self._session_id is None:
+                    now = time.perf_counter()
+                    if next_tick > now:
+                        time.sleep(next_tick - now)
+                    continue
+
                 data["session_id"] = self._session_id
                 data["timestamp_ms"] = int(time.time() * 1000)
 
@@ -110,12 +148,12 @@ class AssettoCorsaSource(Source):
             except Exception:
                 logger.exception("Error reading telemetry, reconnecting...")
                 reader.close()
-                self._last_session_key = None
+                self._prev_status = None
+                self._prev_current_time = None
                 next_tick = None
                 time.sleep(5)
                 continue
 
-            # Fixed-rate sleep: wait until next scheduled tick
             now = time.perf_counter()
             if next_tick > now:
                 time.sleep(next_tick - now)
