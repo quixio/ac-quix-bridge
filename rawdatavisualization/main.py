@@ -45,7 +45,7 @@ def _(QuixLakeClient):
         base_url=QUIXLAKE_URL,
         token="pat-6c9b0c84327e40779473f36971c15930"
     )
-    return (client,)
+    return
 
 
 app._unparsable_cell(
@@ -115,7 +115,7 @@ def _(all_combos, driver, environment, experiment, mo, test_rig):
     car_model = mo.ui.dropdown(options=sorted(_f["carModel"].dropna().unique().tolist()), label="Car Model")
 
     mo.hstack([track, car_model], justify="start", gap=1)
-    return car_model, track
+    return
 
 
 app._unparsable_cell(
@@ -142,44 +142,59 @@ app._unparsable_cell(
 )
 
 
-@app.cell
-def _(
-    car_model,
-    client,
-    driver,
-    environment,
-    experiment,
-    lap,
-    load_btn,
-    mo,
-    session_id,
-    test_rig,
-    track,
-):
+app._unparsable_cell(
+    """
     # TODO: Modify the SQL query for your data
-    mo.stop(not load_btn.value, mo.md("*Click **Load Data** to fetch telemetry.*"))
+     mo.stop(not load_btn.value, mo.md(\"*Click **Load Data** to fetch telemetry.*\"))
 
-    query = f"""
-      SELECT *
-      FROM ac_telemetry
-      WHERE environment = '{environment.value}'
-        AND test_rig = '{test_rig.value}'
-        AND experiment = '{experiment.value}'
-        AND driver = '{driver.value}'
-        AND track = '{track.value}'
-        AND carModel = '{car_model.value}'
-        AND session_id = '{session_id.value}'
-        AND lap = {int(lap.value)}
-      ORDER BY packetId
-      """
+    raw_session_id = session_map.get(session_id.value, session_id.value)
+
+    query = f\"\"\"
+    SELECT *
+    FROM ac_telemetry
+    WHERE environment = '{environment.value}'
+      AND test_rig = '{test_rig.value}'
+      AND experiment = '{experiment.value}'
+      AND driver = '{driver.value}'
+      AND track = '{track.value}'
+      AND carModel = '{car_model.value}'
+      AND session_id = '{raw_session_id}'
+      AND lap = {int(lap.value)}
+    ORDER BY packetId
+    \"\"\"
 
     raw = client.query(query)
 
-    mo.md(f"Columns: {raw.columns.tolist()}")
+    keep = [
+    \"packetId\", \"timestamp_ms\", \"distanceTraveled\", \"speedKmh\",
+    \"accG_x\", \"accG_y\", \"accG_z\",
+    \"tyreContactPointFL_x\", \"tyreContactPointFL_y\", \"tyreContactPointFL_z\",
+    \"tyreContactPointFR_x\", \"tyreContactPointFR_y\", \"tyreContactPointFR_z\",
+    \"tyreContactPointRL_x\", \"tyreContactPointRL_y\", \"tyreContactPointRL_z\",
+    \"tyreContactPointRR_x\", \"tyreContactPointRR_y\", \"tyreContactPointRR_z\",
+    ]
+    df = raw[[c for c in keep if c in raw.columns]].copy()
+
+    for axis in [\"x\", \"y\", \"z\"]:
+    cols = [f\"tyreContactPoint{c}_{axis}\" for c in [\"FL\", \"FR\", \"RL\", \"RR\"]]
+    df[f\"car_{axis}\"] = df[cols].mean(axis=1)
+
+    df[\"time_s\"] = (df[\"timestamp_ms\"] - df[\"timestamp_ms\"].iloc[0]) / 1000.0
+
+    if df[\"distanceTraveled\"].max() == 0:
+    dx = df[\"car_x\"].diff().fillna(0)
+    dz = df[\"car_z\"].diff().fillna(0)
+    df[\"distance_m\"] = np.sqrt(dx**2 + dz**2).cumsum()
+    else:
+    df[\"distance_m\"] = df[\"distanceTraveled\"]
+
+    mo.md(f\"Loaded **{len(df)}** samples | Duration: **{df['time_s'].iloc[-1]:.1f}s** | Distance: **{df['distance_m'].iloc[-1]:.0f}m**\")
 
 
 
-    return
+    """,
+    name="_"
+)
 
 
 @app.cell
