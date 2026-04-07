@@ -2,14 +2,9 @@
 Test script for session restart detection in Assetto Corsa.
 
 Run on Windows with AC open. Reads shared memory at 1Hz and logs
-fields relevant to detecting session restarts:
-  - status (AC_OFF=0, AC_REPLAY=1, AC_LIVE=2, AC_PAUSE=3)
-  - completedLaps
-  - distanceTraveled
-  - packetId (physics + graphics)
-  - car|track key
+all fields that could change on session restart. Compares every tick
+with the previous tick and highlights any changes.
 
-When a potential restart is detected, logs the reason.
 No Kafka/Quix dependency — pure shared memory reading.
 
 Usage:
@@ -18,11 +13,10 @@ Usage:
     python test_session_detect.py
 """
 
-import ctypes
 import logging
 import time
 
-from ac_reader import ACReader, STATUS_TYPES
+from ac_reader import ACReader
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,21 +27,57 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 1.0  # seconds
 
+# Fields to track for changes — from physics, graphics, and static
+GRAPHICS_FIELDS = [
+    "status",
+    "sessionType",
+    "completedLaps",
+    "distanceTraveled",
+    "normalizedCarPosition",
+    "iCurrentTime",
+    "iLastTime",
+    "iBestTime",
+    "currentSectorIndex",
+    "lastSectorTime",
+    "numberOfLaps",
+    "isInPit",
+    "isInPitLane",
+    "penaltyTime",
+    "flag",
+    "tyreCompound",
+]
+
+PHYSICS_FIELDS = [
+    "packetId",
+    "speedKmh",
+    "fuel",
+    "performanceMeter",
+    "gear",
+]
+
+STATIC_FIELDS = [
+    "numberOfSessions",
+    "carModel",
+    "track",
+    "sectorCount",
+    "maxFuel",
+    "trackSplineLength",
+    "trackConfiguration",
+]
+
 
 def main():
     reader = ACReader()
 
-    # Previous state for change detection
-    prev_status = None
-    prev_completed_laps = None
-    prev_distance = None
-    prev_physics_packet_id = None
+    prev_graphics = {}
+    prev_physics = {}
+    prev_static = {}
     prev_session_key = None
+    tick = 0
 
     logger.info("Waiting for AC shared memory...")
 
     while True:
-        # Connect if not open
         if not reader.is_open:
             try:
                 reader.open()
@@ -58,58 +88,90 @@ def main():
 
         try:
             data = reader.read_physics_and_graphics()
+            static = reader.read_static()
             session_key = reader.get_session_key()
 
-            status = data["status"]
-            completed_laps = data["completedLaps"]
-            distance = data["distanceTraveled"]
-            physics_packet_id = data["packetId"]
+            # Extract tracked fields
+            cur_graphics = {f: data.get(f) for f in GRAPHICS_FIELDS}
+            cur_physics = {f: data.get(f) for f in PHYSICS_FIELDS}
+            cur_static = {f: static.get(f) for f in STATIC_FIELDS}
 
-            # --- Detect restart signals ---
-            reasons = []
+            # Find changes
+            changes = []
 
             if prev_session_key is not None and session_key != prev_session_key:
-                reasons.append(f"car|track changed: {prev_session_key} -> {session_key}")
+                changes.append(f"  car|track: {prev_session_key} -> {session_key}")
 
-            if prev_status is not None and prev_status != "live" and status == "live":
-                reasons.append(f"status went {prev_status} -> live")
+            for name, cur, prev in [
+                ("graphics", cur_graphics, prev_graphics),
+                ("physics", cur_physics, prev_physics),
+                ("static", cur_static, prev_static),
+            ]:
+                for field, val in cur.items():
+                    old = prev.get(field)
+                    if old is not None and old != val:
+                        # For floats, show with precision
+                        if isinstance(val, float):
+                            changes.append(f"  {name}.{field}: {old:.2f} -> {val:.2f}")
+                        else:
+                            changes.append(f"  {name}.{field}: {old} -> {val}")
 
-            if prev_completed_laps is not None and completed_laps < prev_completed_laps:
-                reasons.append(f"completedLaps dropped: {prev_completed_laps} -> {completed_laps}")
+            # Log changes if any non-trivial ones exist
+            # Filter out noisy fields that change every tick during normal driving
+            significant_changes = [
+                c for c in changes
+                if not any(noisy in c for noisy in [
+                    "packetId", "iCurrentTime", "normalizedCarPosition",
+                    "distanceTraveled", "speedKmh", "performanceMeter",
+                    "currentSectorIndex", "gear",
+                ])
+            ]
 
-            if prev_distance is not None and prev_distance > 100 and distance < 10:
-                reasons.append(f"distanceTraveled reset: {prev_distance:.0f} -> {distance:.0f}")
-
-            if prev_physics_packet_id is not None and physics_packet_id < prev_physics_packet_id:
-                reasons.append(f"packetId dropped: {prev_physics_packet_id} -> {physics_packet_id}")
-
-            if reasons:
+            if significant_changes:
                 logger.info("=" * 60)
-                logger.info(">>> NEW SESSION DETECTED <<<")
-                for r in reasons:
-                    logger.info("  reason: %s", r)
+                logger.info(">>> SIGNIFICANT CHANGES DETECTED <<<")
+                for c in significant_changes:
+                    logger.info(c)
                 logger.info("=" * 60)
 
-            # --- Log current state ---
+            # Always log a status line
             logger.info(
-                "status=%-7s  laps=%d  distance=%8.1f  packetId=%d  key=%s",
-                status, completed_laps, distance, physics_packet_id, session_key,
+                "tick=%04d  status=%-7s  laps=%d  dist=%8.1f  "
+                "iCur=%d  iLast=%d  iBest=%d  "
+                "fuel=%.1f  nSessions=%d  pos=%.4f  "
+                "key=%s",
+                tick,
+                cur_graphics["status"],
+                cur_graphics["completedLaps"],
+                cur_graphics["distanceTraveled"],
+                cur_graphics["iCurrentTime"],
+                cur_graphics["iLastTime"],
+                cur_graphics["iBestTime"],
+                cur_physics["fuel"],
+                cur_static["numberOfSessions"],
+                cur_graphics["normalizedCarPosition"],
+                session_key,
             )
 
+            # Also log ALL changes (including noisy ones) for full visibility
+            if changes:
+                logger.debug("All changes this tick:")
+                for c in changes:
+                    logger.debug(c)
+
             # Update previous state
-            prev_status = status
-            prev_completed_laps = completed_laps
-            prev_distance = distance
-            prev_physics_packet_id = physics_packet_id
+            prev_graphics = cur_graphics
+            prev_physics = cur_physics
+            prev_static = cur_static
             prev_session_key = session_key
+            tick += 1
 
         except Exception:
             logger.exception("Error reading shared memory, reconnecting...")
             reader.close()
-            prev_status = None
-            prev_completed_laps = None
-            prev_distance = None
-            prev_physics_packet_id = None
+            prev_graphics = {}
+            prev_physics = {}
+            prev_static = {}
             prev_session_key = None
             time.sleep(5)
             continue
