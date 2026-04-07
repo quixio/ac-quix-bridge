@@ -57,8 +57,14 @@ def _build_partition_filter(**kwargs) -> str:
         if isinstance(val, int):
             clauses.append(f"{col} = {val}")
         elif col == "session_id":
-            # Match both normalized and original formats
-            clauses.append(f"CAST(session_id AS VARCHAR) LIKE '{val[:23]}%'")
+            # Try exact match in both formats (raw ISO and normalized)
+            normalized = val.replace('T', ' ').rstrip('Z')
+            with_t = val if 'T' in val else val.replace(' ', 'T') + 'Z'
+            clauses.append(
+                f"(session_id = '{val}'"
+                f" OR session_id = '{normalized}'"
+                f" OR session_id = '{with_t}')"
+            )
         else:
             clauses.append(f"{col} = '{val}'")
     return ("WHERE " + " AND ".join(clauses)) if clauses else ""
@@ -193,10 +199,7 @@ async def partition_values(
     where = _build_partition_filter(**upstream)
     try:
         client = get_client()
-        if column == "session_id":
-            select = f"CAST(session_id AS VARCHAR) as {column}"
-        else:
-            select = column
+        select = column
         df = client.query(f"""
             SELECT DISTINCT {select}
             FROM {TABLE_NAME}
