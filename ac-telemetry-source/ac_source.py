@@ -63,11 +63,11 @@ class AssettoCorsaSource(Source):
         Returns True if a new session was created."""
         new_session = False
 
-        if self._prev_status is not None and self._prev_status != "live" and status == "live":
-            if self._prev_status == "off":
-                # off → live: always new session
+        if self._prev_status != "live" and status == "live":
+            if self._prev_status is None or self._prev_status == "off":
+                # First tick while live, or off → live: always new session
                 new_session = True
-                logger.info("Session start detected (off -> live)")
+                logger.info("Session start detected (%s -> live)", self._prev_status or "init")
             elif self._prev_status == "pause":
                 # pause → live: new session only if iCurrentTime dropped (restart)
                 if self._prev_current_time is not None and current_time < self._prev_current_time:
