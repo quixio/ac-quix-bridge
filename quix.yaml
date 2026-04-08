@@ -286,6 +286,11 @@ deployments:
       - name: NEXT_TELEMETRY_DISABLED
         inputType: FreeText
         value: 1
+      - name: NEXT_PUBLIC_CONFIG_FORM_URL
+        inputType: FreeText
+        description: Public URL of the Config Form service (for iframe embedding)
+        required: true
+        value: https://configform-quixers-acquixbridge-dev.az-france-0.app.quix.io
     plugin:
       embeddedView:
         enabled: true
