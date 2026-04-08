@@ -20,6 +20,7 @@ from .routes.portal import router as portal_router
 from .routes.tests import router as tests_router
 from .routes.user import router as user_router
 from .routes.settings import router as settings_router
+from .routes.experiment_config import router as experiment_config_router
 from .seed_data import seed_lookup_tables
 from .settings import get_settings
 
@@ -169,6 +170,7 @@ def create_app() -> FastAPI:
     application.include_router(integrations_router, tags=["integrations"], prefix="/api/v1")
     application.include_router(portal_router, tags=["portal"], prefix="/api/v1")
     application.include_router(settings_router, tags=["settings"], prefix="/api/v1")
+    application.include_router(experiment_config_router, tags=["experiment-config"], prefix="/api/v1")
 
     application.add_middleware(
         CORSMiddleware,
