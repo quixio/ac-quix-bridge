@@ -1,0 +1,305 @@
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Test Manager Core Services
+  # =============================================================================
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:8.0.5
+    container_name: testmanager-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=test-manager
+      - MONGO_INITDB_ROOT_PASSWORD=local-dev-password
+      - MONGO_INITDB_DATABASE=test_manager
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # InfluxDB v1.11.8 (Time-series database for logbook)
+  influxdb:
+    image: influxdb:1.11.8
+    container_name: testmanager-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=local-dev-password
+      - INFLUXDB_DB=test_manager
+    volumes:
+      - influxdb_data:/var/lib/influxdb
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Mock Configuration API
+  config-api:
+    build:
+      context: ./mock_config_api
+      dockerfile: Dockerfile
+    container_name: testmanager-config-api
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Backend API (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: dockerfile
+    container_name: testmanager-backend
+    ports:
+      - "8080:8080"
+    environment:
+      # Local development mode
+      - LOCAL_DEV_MODE=true
+      - API_AUTH_ACTIVE=false
+
+      # MongoDB settings
+      - MONGO_USER=test-manager
+      - MONGO_PASSWORD=local-dev-password
+      - MONGO_HOST=mongodb
+      - MONGO_PORT=27017
+      - MONGO_DATABASE=test_manager
+
+      # InfluxDB settings
+      - INFLUXDB_USER=admin
+      - INFLUXDB_PASSWORD=local-dev-password
+      - INFLUXDB_HOST=influxdb
+      - INFLUXDB_PORT=8086
+      - INFLUXDB_DATABASE=test_manager
+
+      # Config API settings
+      - CONFIG_API_URL=http://config-api:8001
+
+      # Integration services settings (linked to local Data Lake)
+      - MEASUREMENTS_URL=http://query-ui:80
+      - MEASUREMENTS_TOPIC_NAME=tsbs_data_transformed
+      - ANALYTICS_URL=
+
+      # Quix settings (mocked for local development)
+      - Quix__Workspace__Id=local-dev-workspace
+      - Quix__Sdk__Token=local-dev-token
+      - Quix__BlobStorage__Connection__Json={"provider":"local","local_storage":{"DirectoryPath":"/app/storage"}}
+    volumes:
+      - ./backend:/app
+      - backend_storage:/app/storage
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      config-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    command: uv run python -m main
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: testmanager-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - API_URL=http://backend:8080
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_LOCAL_DEV_MODE=true
+      - NEXT_PUBLIC_CONFIG_FORM_URL=http://localhost:8002
+      # Enable hot reload for WSL2 (file watching with polling)
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=1000
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_cache:/app/.next
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    command: sh -c "npm install && npm run dev"
+
+  # Config Form (Experiment Configuration UI - embedded via iframe in frontend)
+  config-form:
+    build:
+      context: ../config-form
+      dockerfile: Dockerfile.local
+    container_name: testmanager-config-form
+    ports:
+      - "8002:80"
+    environment:
+      - CONFIG_MANAGER_URL=http://config-api:8001
+      - CONFIG_TYPE=experiment
+      - Quix__Sdk__Token=local-dev-token
+    volumes:
+      - ../config-form:/app
+    depends_on:
+      config-api:
+        condition: service_healthy
+    restart: unless-stopped
+    entrypoint: []
+    command: ["uvicorn", "main:api", "--host", "0.0.0.0", "--port", "80", "--reload"]
+
+  # =============================================================================
+  # Data Lake Services (optional - use profile "datalake" to enable)
+  # These services require access to quixcontainerregistry.azurecr.io
+  # Run with: docker compose --profile datalake up -d
+  # =============================================================================
+
+  # PostgreSQL for Iceberg catalog
+  postgresql:
+    profiles: ["datalake"]
+    image: postgres:15
+    container_name: testmanager-postgresql
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=local-dev-password
+      - POSTGRES_DB=iceberg_catalog
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d iceberg_catalog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # MinIO S3-compatible storage
+  minio:
+    profiles: ["datalake"]
+    image: minio/minio:latest
+    container_name: testmanager-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=local-dev-password
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # MinIO bucket initialization
+  minio-init:
+    profiles: ["datalake"]
+    image: minio/mc:latest
+    container_name: testmanager-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin local-dev-password;
+      mc mb myminio/quixdatalake --ignore-existing;
+      mc mb myminio/quixdatalaketest --ignore-existing;
+      echo 'Buckets created successfully';
+      exit 0;
+      "
+
+  # Quix TS Datalake API
+  quixlake-api:
+    profiles: ["datalake"]
+    image: quixcontainerregistry.azurecr.io/quix-datalake-ts-api:20251119.1-master
+    container_name: testmanager-quixlake-api
+    ports:
+      - "8082:80"
+    environment:
+      - S3_BUCKET=quixdatalaketest
+      - S3_PREFIX=ts_test
+      - AWS_REGION=local
+      - CATALOG_URL=http://iceberg-catalog:5001
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=local-dev-password
+      - AWS_ENDPOINT_URL=http://minio:9000
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Quix TS Query UI
+  query-ui:
+    profiles: ["datalake"]
+    image: quixcontainerregistry.azurecr.io/quix-datalake-ts-ui:20251119.1-master
+    container_name: testmanager-query-ui
+    ports:
+      - "8083:80"
+    environment:
+      - QUERY_API_URL=http://quixlake-api:80
+      - DEBUG_LOG_LEVEL=DEBUG
+    depends_on:
+      - quixlake-api
+    restart: unless-stopped
+
+  # Iceberg Catalog
+  iceberg-catalog:
+    profiles: ["datalake"]
+    image: quixcontainerregistry.azurecr.io/quix-datalake-ts-catalog:20251119.1-master
+    container_name: testmanager-iceberg-catalog
+    ports:
+      - "5001:5001"
+    environment:
+      - S3_BUCKET=quixdatalaketest
+      - S3_PREFIX=ts_test
+      - CATALOG_PREFIX=catalog
+      - AWS_REGION=local
+      - PORT=5001
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=local-dev-password
+      - AWS_ENDPOINT_URL=http://minio:9000
+      - POSTGRES_HOST=postgresql
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=iceberg_catalog
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=local-dev-password
+      - CATALOG_BACKEND=postgres
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  influxdb_data:
+  backend_storage:
+  frontend_node_modules:
+  frontend_cache:
+  postgresql_data:
+  minio_data:

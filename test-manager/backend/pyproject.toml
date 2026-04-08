@@ -1,0 +1,55 @@
+[project]
+name = "test-manager-api"
+description = "FastAPI service for the Test Manager."
+requires-python = ">=3.13"
+version = "0.1.0"
+
+authors = [
+	{ name = "Quix Analytics Ltd", email = "devs@quix.io" },
+]
+
+dependencies = [
+	"fastapi",
+	"uvicorn[standard]",
+	"pymongo",
+	"pydantic",
+	"pydantic-settings",
+	"python-multipart",
+	"quixportal[s3]",
+	"influxdb",
+]
+
+[dependency-groups]
+dev = [
+	"pytest",
+	"pytest-cov",
+	"ruff",
+	"mypy",
+	"httpx",
+	"testcontainers[mongodb,kafka,influxdb]",
+]
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = "testcontainers.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "influxdb.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = "."
+filterwarnings = [
+    "ignore:datetime.datetime.utcfromtimestamp\\(\\) is deprecated:DeprecationWarning:influxdb.*",
+]
+
+[tool.uv.sources]
+quixportal = { index = "quix-public" }
+
+[[tool.uv.index]]
+name = "quix-public"
+url = "https://pkgs.dev.azure.com/quix-analytics/53f7fe95-59fe-4307-b479-2473b96de6d1/_packaging/public/pypi/simple/"
+explicit = true
