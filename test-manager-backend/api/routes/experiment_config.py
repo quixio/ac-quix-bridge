@@ -70,7 +70,7 @@ async def get_current_configs(settings: Settings = Depends(get_settings)):
     """Fetch current experiment configs for all rigs."""
     api_base = f"{settings.config_api_url}/api/v1"
     headers = _auth_headers(settings)
-    logger.info("Config API base URL: %s", api_base)
+    print(f"DEBUG Config API base URL: {api_base}", flush=True)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -115,7 +115,7 @@ async def submit_experiment_config(
     """Create or update an experiment config in the Dynamic Configuration Manager."""
     api_base = f"{settings.config_api_url}/api/v1"
     headers = _auth_headers(settings)
-    logger.info("Submitting config to: %s/configurations", api_base)
+    print(f"DEBUG Submitting config to: {api_base}/configurations", flush=True)
     target_key = form_data.rig_hostname
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -164,6 +164,7 @@ async def submit_experiment_config(
                     timeout=10.0,
                 )
 
+            print(f"DEBUG Config Manager response: {resp.status_code} {resp.text[:500]}", flush=True)
             if resp.status_code in (200, 201):
                 logger.info("Config submitted: %s (target_key=%s)", test_id, target_key)
                 return {"ok": True, "test_id": test_id, "target_key": target_key, "config": config_content}
