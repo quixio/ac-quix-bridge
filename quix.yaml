@@ -266,6 +266,7 @@ deployments:
         inputType: FreeText
         required: true
         value: https://marimo-analysis-quixers-advancedanalyticsnew-new.az-france-0.app.quix.io
+    disabled: true
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
