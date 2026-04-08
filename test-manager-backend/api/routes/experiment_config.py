@@ -44,7 +44,7 @@ class CurrentConfigsResponse(BaseModel):
 
 def _auth_headers(settings: Settings) -> dict:
     if settings.sdk_token:
-        return {"authorization": settings.sdk_token}
+        return {"Authorization": f"Bearer {settings.sdk_token}"}
     return {}
 
 
