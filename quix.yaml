@@ -219,9 +219,9 @@ deployments:
           targetPort: 8080
     variables:
       - name: MONGO_USER
-        inputType: FreeText
+        inputType: Secret
         required: true
-        value: admin
+        secretKey: MONGO_USER
       - name: MONGO_PASSWORD
         inputType: Secret
         required: true
@@ -230,14 +230,14 @@ deployments:
         inputType: FreeText
         required: true
         value: mongodb
-      - name: MONGO_DATABASE
-        inputType: FreeText
+      - name: Quix__BlobStorage__Connection__Json
+        inputType: Secret
         required: true
-        value: test_manager
+        secretKey: Quix__BlobStorage__Connection__Json
       - name: INFLUXDB_USER
-        inputType: FreeText
+        inputType: Secret
         required: true
-        value: admin
+        secretKey: INFLUXDB_USER
       - name: INFLUXDB_PASSWORD
         inputType: Secret
         required: true
@@ -252,11 +252,20 @@ deployments:
         value: 8086
       - name: CONFIG_API_URL
         inputType: FreeText
-        value: http://dynamic-configuration-manager
-      - name: Quix__BlobStorage__Connection__Json
-        inputType: Secret
         required: true
-        secretKey: Quix__BlobStorage__Connection__Json
+        value: https://config-api-svc-quixers-acquixbridge-testmanager.az-france-0.app.quix.io/
+      - name: MEASUREMENTS_URL
+        inputType: FreeText
+        required: true
+        value: https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io/
+      - name: DATA_LAKE_V2_TOPIC_NAME
+        inputType: FreeText
+        required: true
+        value: config-enriched-data
+      - name: ANALYTICS_URL
+        inputType: FreeText
+        required: true
+        value: https://marimo-analysis-quixers-advancedanalyticsnew-new.az-france-0.app.quix.io
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
