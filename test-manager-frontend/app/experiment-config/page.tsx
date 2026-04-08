@@ -62,7 +62,7 @@ export default function ExperimentConfigPage() {
 
   const loadCurrentConfigs = async () => {
     try {
-      const data = await apiGet("/api/v1/experiment-config/current")
+      const data = await apiGet("/api/v1/experiment-config/current") as { configs?: CurrentConfigs }
       setCurrentConfigs(data.configs || {})
     } catch {
       // Silently fail — configs display is not critical
@@ -92,7 +92,7 @@ export default function ExperimentConfigPage() {
         experiment_id: experimentId,
         driver,
         requirements,
-      })
+      }) as { ok: boolean; target_key: string; test_id: string }
 
       toast({
         title: "Config submitted",
