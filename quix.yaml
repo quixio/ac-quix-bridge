@@ -366,7 +366,7 @@ deployments:
     deploymentType: Service
     resources:
       cpu: 500
-      memory: 2000
+      memory: 200
       replicas: 1
     publicAccess:
       enabled: true
@@ -406,7 +406,7 @@ deployments:
     deploymentType: Service
     resources:
       cpu: 500
-      memory: 2000
+      memory: 200
       replicas: 1
     publicAccess:
       enabled: true
