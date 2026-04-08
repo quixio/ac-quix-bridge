@@ -201,6 +201,126 @@ deployments:
         value: 10
     blobStorage:
       bind: true
+  - name: Test Manager - Backend
+    application: test-manager-backend
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 500
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: test-manager-api
+    network:
+      serviceName: test-manager-backend
+      ports:
+        - port: 80
+          targetPort: 8080
+    variables:
+      - name: MONGO_USER
+        inputType: FreeText
+        required: true
+        value: admin
+      - name: MONGO_PASSWORD
+        inputType: Secret
+        required: true
+        secretKey: MONGO_ROOT_PASSWORD
+      - name: MONGO_HOST
+        inputType: FreeText
+        required: true
+        value: mongodb
+      - name: MONGO_DATABASE
+        inputType: FreeText
+        required: true
+        value: test_manager
+      - name: INFLUXDB_USER
+        inputType: FreeText
+        required: true
+        value: admin
+      - name: INFLUXDB_PASSWORD
+        inputType: Secret
+        required: true
+        secretKey: INFLUXDB_PASSWORD
+      - name: INFLUXDB_HOST
+        inputType: FreeText
+        required: true
+        value: influxdb
+      - name: INFLUXDB_PORT
+        inputType: FreeText
+        required: true
+        value: 8086
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        value: http://dynamic-configuration-manager
+      - name: Quix__BlobStorage__Connection__Json
+        inputType: Secret
+        required: true
+        secretKey: Quix__BlobStorage__Connection__Json
+  - name: Test Manager - Frontend
+    application: test-manager-frontend
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 500
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: test-manager
+    network:
+      serviceName: test-manager-frontend
+      ports:
+        - port: 80
+          targetPort: 3000
+    variables:
+      - name: API_URL
+        inputType: FreeText
+        description: Backend API URL for server-side requests
+        required: true
+        value: http://test-manager-backend
+      - name: NODE_ENV
+        inputType: FreeText
+        required: true
+        value: production
+      - name: NEXT_TELEMETRY_DISABLED
+        inputType: FreeText
+        value: 1
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: Test Manager
+        icon: data_thresholding
+        order: 1
+  - name: InfluxDB v1
+    image: influxdb:1.11.8
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 500
+      replicas: 1
+    network:
+      serviceName: influxdb
+      ports:
+        - port: 8086
+          targetPort: 8086
+    variables:
+      - name: INFLUXDB_ADMIN_USER
+        inputType: FreeText
+        required: true
+        value: admin
+      - name: INFLUXDB_ADMIN_PASSWORD
+        inputType: Secret
+        required: true
+        secretKey: INFLUXDB_PASSWORD
+      - name: INFLUXDB_DB
+        inputType: FreeText
+        required: true
+        value: test_manager
   - name: RaceTelemetryAnalysis
     application: racetelemetryanalysis
     version: latest

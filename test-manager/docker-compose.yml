@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # =============================================================================
   # Test Manager Core Services
@@ -61,7 +59,7 @@ services:
   # Backend API (FastAPI)
   backend:
     build:
-      context: ./backend
+      context: ../test-manager-backend
       dockerfile: dockerfile
     container_name: testmanager-backend
     ports:
@@ -98,7 +96,7 @@ services:
       - Quix__Sdk__Token=local-dev-token
       - Quix__BlobStorage__Connection__Json={"provider":"local","local_storage":{"DirectoryPath":"/app/storage"}}
     volumes:
-      - ./backend:/app
+      - ../test-manager-backend:/app
       - backend_storage:/app/storage
     depends_on:
       mongodb:
@@ -118,7 +116,7 @@ services:
   # Frontend (Next.js)
   frontend:
     build:
-      context: ./frontend
+      context: ../test-manager-frontend
       dockerfile: Dockerfile.dev
     container_name: testmanager-frontend
     ports:
@@ -134,7 +132,7 @@ services:
       - CHOKIDAR_INTERVAL=1000
       - WATCHPACK_POLLING=true
     volumes:
-      - ./frontend:/app
+      - ../test-manager-frontend:/app
       - frontend_node_modules:/app/node_modules
       - frontend_cache:/app/.next
     depends_on:
