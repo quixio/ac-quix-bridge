@@ -253,7 +253,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true
-        value: https://config-api-svc-quixers-acquixbridge-testmanager.az-france-0.app.quix.io/
+        value: https://config-api-svc-quixers-acquixbridge-testmanager.az-france-0.app.quix.io
       - name: MEASUREMENTS_URL
         inputType: FreeText
         required: true
