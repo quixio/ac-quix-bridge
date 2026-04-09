@@ -325,6 +325,27 @@ deployments:
         label: Telemetry Analysis
         icon: rocket_launch
         order: 0
+  - name: AC Video Viewer
+    application: ac-video-viewer
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 500
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: acvideoviewer
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Kafka topic to consume video frames from
+        required: true
+        value: ac-video-frames
   - name: Telemetry Explorer
     application: telemetry-comparison
     version: latest
@@ -380,5 +401,11 @@ topics:
       replicationFactor: 1
       retentionInMinutes: -1
       cleanupPolicy: Compact
+  - name: ac-video-frames
+    configuration:
+      partitions: 1
+      replicationFactor: 1
+      retentionInMinutes: 60
+      retentionInBytes: 5368709120
   - name: tsbs_data_transformed
   - name: ac-telemetry-config
