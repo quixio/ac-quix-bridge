@@ -571,6 +571,52 @@ class DriverQuery(PaginationParams):
     q: str | None = None
 
 
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+
+
+class EnvironmentStatus(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+
+class Environment(BaseModel):
+    """Represents a test environment (location)."""
+
+    environment_id: str = Field(..., alias="_id")
+    name: str
+    location: str | None = None
+    status: EnvironmentStatus = EnvironmentStatus.ACTIVE
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)
+
+
+class EnvironmentCreate(BaseModel):
+    """Request model for creating an Environment. ID is auto-generated."""
+
+    name: str = Field(..., min_length=1, description="Environment name")
+    location: str | None = None
+    status: EnvironmentStatus = EnvironmentStatus.ACTIVE
+
+
+class EnvironmentUpdate(BaseModel):
+    """Request model for updating an Environment."""
+
+    name: str | None = Field(default=None, min_length=1)
+    location: str | None = None
+    status: EnvironmentStatus | None = None
+
+
+class EnvironmentQuery(PaginationParams):
+    """Query parameters for filtering Environments."""
+
+    name: str | None = None
+    location: str | None = None
+    status: EnvironmentStatus | None = None
+    q: str | None = None
+
+
 class DeploymentReference(BaseModel):
     """Reference to a selected deployment stored in settings."""
 

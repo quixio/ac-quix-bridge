@@ -44,6 +44,7 @@ import { integrationsApi as integrationsApiRaw } from "../api/integrations"
 import { settingsApi as settingsApiRaw } from "../api/settings"
 import { portalApi as portalApiRaw } from "../api/portal"
 import { driversApi as driversApiRaw } from "../api/drivers"
+import { environmentsApi as environmentsApiRaw } from "../api/environments"
 
 /**
  * Generic helper to create an authenticated API client hook
@@ -219,3 +220,8 @@ export const usePortalApi = createAuthenticatedApi(portalApiRaw)
  * ```
  */
 export const useDriversApi = createAuthenticatedApi(driversApiRaw)
+
+/**
+ * Authenticated Environments API Hook
+ */
+export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw)

@@ -1,24 +1,28 @@
+import { memo } from "react"
 import { Badge } from "@/components/ui/badge"
-
-type EnvironmentStatus = "Active" | "Maintenance" | "Inactive"
+import { EnvironmentStatus, EnvironmentStatusLabels } from "@/types/environment"
 
 interface EnvironmentStatusBadgeProps {
   status: EnvironmentStatus
 }
 
-export function EnvironmentStatusBadge({ status }: EnvironmentStatusBadgeProps) {
-  const getVariant = (status: EnvironmentStatus) => {
-    switch (status) {
-      case "Active":
-        return "success"
-      case "Maintenance":
-        return "warning"
-      case "Inactive":
-        return "secondary"
-      default:
-        return "secondary"
-    }
+export const EnvironmentStatusBadge = memo(function EnvironmentStatusBadge({ status }: EnvironmentStatusBadgeProps) {
+  const variants = {
+    [EnvironmentStatus.ACTIVE]: {
+      variant: "success" as const,
+      label: EnvironmentStatusLabels[EnvironmentStatus.ACTIVE],
+    },
+    [EnvironmentStatus.INACTIVE]: {
+      variant: "destructive" as const,
+      label: EnvironmentStatusLabels[EnvironmentStatus.INACTIVE],
+    },
   }
 
-  return <Badge variant={getVariant(status)}>{status}</Badge>
-}
+  const config = variants[status] || variants[EnvironmentStatus.ACTIVE]
+
+  return (
+    <Badge variant={config.variant} className="font-medium">
+      {config.label}
+    </Badge>
+  )
+})

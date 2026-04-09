@@ -1,85 +1,151 @@
 "use client"
 
+import { Suspense, useState, useCallback } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
+import { SortingState } from "@tanstack/react-table"
 import { MainLayout } from "@/components/layout/main-layout"
-import { EnvironmentsTable } from "@/components/environments/environments-table"
-import { EnvironmentsFilters } from "@/components/environments/environments-filters"
+import { NavigationButton } from "@/components/ui/navigation-button"
+import { EnvironmentsTableNew } from "@/components/environments/environments-table-new"
+import { EmptyState } from "@/components/shared/empty-state"
 import { Pagination } from "@/components/shared/pagination"
-import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Plus, AlertTriangle } from "lucide-react"
-import { mockEnvironments } from "@/lib/data/mock-environments"
-import { useToast } from "@/lib/hooks/use-toast"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useEnvironments } from "@/lib/hooks/use-environments"
+import { EnvironmentStatus } from "@/types/environment"
+import { Plus, Server } from "lucide-react"
 
-export default function EnvironmentsPage() {
-  const { toast } = useToast()
+function EnvironmentsPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
-  const handleAddEnvironment = () => {
-    toast({
-      title: "Feature under construction",
-      description: "Adding new environments will be available soon.",
+  const [filters, setFilters] = useState({
+    status: searchParams.get("status") as EnvironmentStatus | undefined,
+    q: searchParams.get("q") || undefined,
+  })
+
+  const [sorting, setSorting] = useState<SortingState>([{ id: "environment_id", desc: false }])
+
+  const {
+    environments,
+    loading,
+    error,
+    refetch,
+    page,
+    pageSize,
+    total,
+    totalPages,
+    goToPage,
+    changePageSize,
+  } = useEnvironments(filters)
+
+  const updateFilters = useCallback((newFilters: typeof filters) => {
+    setFilters(newFilters)
+    const params = new URLSearchParams()
+    Object.entries(newFilters).forEach(([k, v]) => {
+      if (v) params.set(k, v)
     })
-  }
+    router.push(`/environments?${params.toString()}`)
+  }, [router])
+
+  const handleSearch = useCallback((value: string) => {
+    updateFilters({ ...filters, q: value || undefined })
+  }, [filters, updateFilters])
+
+  const handleStatusChange = useCallback((value: string) => {
+    updateFilters({ ...filters, status: value === "all" ? undefined : value as EnvironmentStatus })
+  }, [filters, updateFilters])
+
+  const handleClearFilters = useCallback(() => {
+    updateFilters({ status: undefined, q: undefined })
+  }, [updateFilters])
 
   return (
     <MainLayout>
       <div className="max-w-7xl">
-        <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex items-center justify-between">
+        <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Environments</h1>
             <p className="text-muted-foreground">
-              Manage test benches and testing environments
+              Manage test environments and locations
             </p>
           </div>
-          <Button onClick={handleAddEnvironment}>
+          <NavigationButton href="/environments/add">
             <Plus className="mr-2 h-4 w-4" />
             Add Environment
-          </Button>
+          </NavigationButton>
         </div>
 
-        {/* Under Construction Alert */}
-        <Alert variant="default" className="border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-100">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            This feature is currently under development. The data shown below is for demonstration purposes only.
-          </AlertDescription>
-        </Alert>
+        <div className="space-y-4">
+          <div className="flex gap-4">
+            <Input
+              placeholder="Search environments..."
+              defaultValue={filters.q}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="max-w-sm"
+            />
+            <Select value={filters.status || "all"} onValueChange={handleStatusChange}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="All Statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value={EnvironmentStatus.ACTIVE}>Active</SelectItem>
+                <SelectItem value={EnvironmentStatus.INACTIVE}>Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-        {/* Filters */}
-        <EnvironmentsFilters />
-
-        {/* Table */}
-        <EnvironmentsTable data={mockEnvironments} />
-
-        {/* Pagination (Mock) */}
-        <Pagination
-          page={1}
-          pageSize={20}
-          total={7}
-          totalPages={1}
-          onPageChange={() => {
-            toast({
-              title: "Feature under construction",
-              description: "Pagination will be functional when this feature is complete.",
-            })
-          }}
-          onPageSizeChange={() => {
-            toast({
-              title: "Feature under construction",
-              description: "Pagination will be functional when this feature is complete.",
-            })
-          }}
-        />
-
-        {/* Footer Note */}
-        <div className="rounded-lg border border-border bg-muted/30 p-4">
-          <p className="text-sm text-muted-foreground text-center">
-            This is a preview of the Environments feature. Full functionality will be available in a future release.
-          </p>
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-64 w-full" />
+            </div>
+          ) : error ? (
+            <EmptyState
+              icon={<Server className="h-12 w-12" />}
+              title="Failed to load environments"
+              description={error.message}
+              action={{ label: "Retry", onClick: refetch }}
+            />
+          ) : environments.length === 0 ? (
+            <EmptyState
+              icon={<Server className="h-12 w-12" />}
+              title="No environments found"
+              description={filters.q || filters.status
+                ? "No environments match your filters. Try adjusting your criteria."
+                : "Get started by adding your first environment."
+              }
+              action={filters.q || filters.status
+                ? { label: "Clear Filters", onClick: handleClearFilters }
+                : { label: "Add Environment", onClick: () => router.push("/environments/add") }
+              }
+            />
+          ) : (
+            <>
+              <EnvironmentsTableNew data={environments} sorting={sorting} onSortingChange={setSorting} />
+              {total > 0 && (
+                <Pagination
+                  page={page}
+                  pageSize={pageSize}
+                  total={total}
+                  totalPages={totalPages}
+                  onPageChange={goToPage}
+                  onPageSizeChange={changePageSize}
+                />
+              )}
+            </>
+          )}
         </div>
-      </div>
       </div>
     </MainLayout>
+  )
+}
+
+export default function EnvironmentsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen"><div>Loading...</div></div>}>
+      <EnvironmentsPageContent />
+    </Suspense>
   )
 }
