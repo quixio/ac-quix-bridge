@@ -5,10 +5,8 @@ import Link from "next/link"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileText, Box, PlusCircle, CheckCircle, Clock, Database } from "lucide-react"
-import { useTestsApi, useDevicesApi } from "@/lib/hooks/use-api"
-import { TestStatusBadge } from "@/components/tests/test-status-badge"
-import { DeviceStatusBadge } from "@/components/devices/device-status-badge"
+import { FileText, Box, PlusCircle, Users, Server, Database } from "lucide-react"
+import { useTestsApi, useDevicesApi, useDriversApi, useEnvironmentsApi } from "@/lib/hooks/use-api"
 import { SeedDataDialog } from "@/components/admin/seed-data-dialog"
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter"
 import type { Test } from "@/types/test"
@@ -18,15 +16,13 @@ export default function Home() {
   const { formatDate } = useDateFormatter()
   const testsApi = useTestsApi()
   const devicesApi = useDevicesApi()
+  const driversApi = useDriversApi()
+  const environmentsApi = useEnvironmentsApi()
   const [stats, setStats] = useState({
     totalTests: 0,
-    draftTests: 0,
-    inProgressTests: 0,
-    finishedTests: 0,
     totalDevices: 0,
-    activeDevices: 0,
-    inactiveDevices: 0,
-    retiredDevices: 0,
+    totalDrivers: 0,
+    totalEnvironments: 0,
   })
   const [recentTests, setRecentTests] = useState<Test[]>([])
   const [recentDevices, setRecentDevices] = useState<Device[]>([])
@@ -38,30 +34,22 @@ export default function Home() {
       setLoading(true)
       // Fetch items with maximum page size to get accurate counts
       // Note: Backend allows page_size values: [10, 20, 50, 100, 200]
-      const [testsResponse, devicesResponse] = await Promise.all([
-        testsApi.list({ page_size: 200 }), // Fetch up to 200 items per request
+      const [testsResponse, devicesResponse, driversResponse, environmentsResponse] = await Promise.all([
+        testsApi.list({ page_size: 200 }),
         devicesApi.list({ page_size: 200 }),
+        driversApi.list({ page_size: 10 }),
+        environmentsApi.list({ page_size: 10 }),
       ])
 
       const tests = testsResponse.items
       const devices = devicesResponse.items
 
-      // Use total from API response for accurate count
-      const testStats = {
+      setStats({
         totalTests: testsResponse.total,
-        draftTests: tests.filter((t) => t.status === "draft").length,
-        inProgressTests: tests.filter((t) => t.status === "in_progress").length,
-        finishedTests: tests.filter((t) => t.status === "finished").length,
-      }
-
-      const deviceStats = {
         totalDevices: devicesResponse.total,
-        activeDevices: devices.filter((d) => d.status === "setup").length,
-        inactiveDevices: devices.filter((d) => d.status === "stored").length,
-        retiredDevices: devices.filter((d) => d.status === "scrapped").length,
-      }
-
-      setStats({ ...testStats, ...deviceStats })
+        totalDrivers: driversResponse.total,
+        totalEnvironments: environmentsResponse.total,
+      })
 
       // Sort by created_at descending and take the 5 most recent
       const sortedTests = [...tests].sort((a, b) =>
@@ -209,47 +197,41 @@ export default function Home() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Tests</CardTitle>
+              <CardTitle className="text-sm font-medium">Tests</CardTitle>
               <FileText className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{loading ? "..." : stats.totalTests}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {stats.inProgressTests} in progress
-              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Draft Tests</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{loading ? "..." : stats.draftTests}</div>
-              <p className="text-xs text-muted-foreground mt-1">Ready to start</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Finished Tests</CardTitle>
-              <CheckCircle className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{loading ? "..." : stats.finishedTests}</div>
-              <p className="text-xs text-muted-foreground mt-1">Completed</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Devices</CardTitle>
+              <CardTitle className="text-sm font-medium">Devices</CardTitle>
               <Box className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{loading ? "..." : stats.totalDevices}</div>
-              <p className="text-xs text-muted-foreground mt-1">{stats.activeDevices} active</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Drivers</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{loading ? "..." : stats.totalDrivers}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Environments</CardTitle>
+              <Server className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{loading ? "..." : stats.totalEnvironments}</div>
             </CardContent>
           </Card>
         </div>
@@ -337,7 +319,6 @@ export default function Home() {
                       <div className="rounded-lg border p-3 hover:bg-accent transition-colors">
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-medium text-sm">{device.device_id}</span>
-                          <DeviceStatusBadge status={device.status} />
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {device.name}
