@@ -140,27 +140,6 @@ services:
     restart: unless-stopped
     command: sh -c "npm install && npm run dev"
 
-  # Config Form (Experiment Configuration UI - embedded via iframe in frontend)
-  config-form:
-    build:
-      context: ../config-form
-      dockerfile: Dockerfile.local
-    container_name: testmanager-config-form
-    ports:
-      - "8002:80"
-    environment:
-      - CONFIG_MANAGER_URL=http://config-api:8001
-      - CONFIG_TYPE=experiment
-      - Quix__Sdk__Token=local-dev-token
-    volumes:
-      - ../config-form:/app
-    depends_on:
-      config-api:
-        condition: service_healthy
-    restart: unless-stopped
-    entrypoint: []
-    command: ["uvicorn", "main:api", "--host", "0.0.0.0", "--port", "80", "--reload"]
-
   # =============================================================================
   # Data Lake Services (optional - use profile "datalake" to enable)
   # These services require access to quixcontainerregistry.azurecr.io

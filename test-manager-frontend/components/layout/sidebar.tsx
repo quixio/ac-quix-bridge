@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, FileText, Box, Server, ChevronLeft, Settings, Sliders, BarChart3, LineChart, FlaskConical } from "lucide-react"
+import { Home, FileText, Box, Server, ChevronLeft, Settings, Sliders, BarChart3, LineChart } from "lucide-react"
 import { cn } from "@/lib/utils/cn"
 import { useSidebar } from "@/lib/contexts/sidebar-context"
 
@@ -20,7 +20,6 @@ const navItems: NavItem[] = [
 ]
 
 const integrationItems: NavItem[] = [
-  { href: "/experiment-config", icon: FlaskConical, label: "Experiment Config" },
   { href: "/config-manager", icon: Sliders, label: "Configurations" },
   { href: "/measurements", icon: BarChart3, label: "Measurements" },
   { href: "/analytics", icon: LineChart, label: "Analytics" },
