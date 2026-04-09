@@ -100,12 +100,16 @@ class Test(BaseModel):
     """Represents a test / experiment record."""
 
     test_id: str = Field(..., alias="_id")
-    experiment_id: str  # Was campaign_id
-    pc_device_id: str  # PC (hostname) device
-    test_rig_device_id: str  # Test rig (steering wheel) device
+    experiment_id: str
+    pc_device_id: str
+    test_rig_device_id: str
     environment_id: str
-    driver: str  # Was operator
+    driver: str
     requirements: str = ""
+    # Resolved display names (populated by API, not stored in DB)
+    pc_device_name: str | None = None
+    test_rig_device_name: str | None = None
+    environment_name: str | None = None
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
     config_id: str

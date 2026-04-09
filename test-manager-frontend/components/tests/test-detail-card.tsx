@@ -27,9 +27,10 @@ import { Save, X, ExternalLink, Sliders, Database, BarChart3, LineChart, Downloa
 interface TestDetailCardProps {
   test: Test
   onTestUpdated?: () => void
+  resolvedNames?: { pcName: string; rigName: string; envName: string }
 }
 
-export function TestDetailCard({ test, onTestUpdated }: TestDetailCardProps) {
+export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetailCardProps) {
   const testsApi = useTestsApi()
   const integrationsApi = useIntegrationsApi()
   const { formatDateTime } = useDateFormatter()
@@ -253,15 +254,16 @@ export function TestDetailCard({ test, onTestUpdated }: TestDetailCardProps) {
         </CardContent>
       </Card>
 
-      {/* General Information */}
+      {/* Test Setup */}
       <DataCard
-        title="General Information"
+        title="Test Setup"
         items={[
-          { label: "Test ID", value: test.test_id },
-          { label: "Status", value: <TestStatusBadge status={test.status} /> },
-          { label: "Experiment ID", value: test.experiment_id },
+          { label: "Experiment", value: test.experiment_id },
           { label: "Driver", value: test.driver },
-          { label: "Environment", value: test.environment_id },
+          { label: "PC (Hostname)", value: resolvedNames?.pcName || test.pc_device_id },
+          { label: "Test Rig", value: resolvedNames?.rigName || test.test_rig_device_id },
+          { label: "Environment", value: resolvedNames?.envName || test.environment_id },
+          ...(test.requirements ? [{ label: "Requirements", value: test.requirements }] : []),
         ]}
       />
 
@@ -312,52 +314,6 @@ export function TestDetailCard({ test, onTestUpdated }: TestDetailCardProps) {
             </div>
           </dl>
 
-          {/* Sensors Button */}
-          <div className="pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={handleToggleSensors}
-            >
-              View / Edit Sensors
-              <span className="ml-2 text-xs text-muted-foreground">
-                ({Object.keys(test.sensors || {}).length} sensor{Object.keys(test.sensors || {}).length !== 1 ? 's' : ''})
-              </span>
-            </Button>
-          </div>
-
-          {/* Expanded Sensors Editor */}
-          {showSensors && (
-            <div className="space-y-3 pt-2">
-              <JsonEditor
-                value={sensorsJson}
-                onChange={handleSensorsChange}
-                height="300px"
-                readOnly={false}
-              />
-
-              {hasChanges && isValidJson && (
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCancel}
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => setShowConfirmDialog(true)}
-                  >
-                    <Save className="mr-2 h-4 w-4" />
-                    Save Changes
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -372,14 +328,6 @@ export function TestDetailCard({ test, onTestUpdated }: TestDetailCardProps) {
           {
             label: "Updated",
             value: formatDateTime(test.updated_at),
-          },
-          {
-            label: "Start",
-            value: test.start ? formatDateTime(test.start) : "Not started",
-          },
-          {
-            label: "End",
-            value: test.end ? formatDateTime(test.end) : "Not finished",
           },
         ]}
       />

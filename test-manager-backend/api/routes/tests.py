@@ -41,6 +41,42 @@ def generate_test_id(mongo: Database[dict[str, Any]]) -> str:
     return "TST-0001"
 
 
+def resolve_test_names(test: Test, mongo: Database[dict[str, Any]]) -> Test:
+    """Populate resolved display names on a Test object."""
+    pc = mongo.devices.find_one({"_id": test.pc_device_id}, {"name": 1})
+    rig = mongo.devices.find_one({"_id": test.test_rig_device_id}, {"name": 1})
+    env = mongo.environments.find_one({"_id": test.environment_id}, {"name": 1})
+    test.pc_device_name = pc["name"] if pc else None
+    test.test_rig_device_name = rig["name"] if rig else None
+    test.environment_name = env["name"] if env else None
+    return test
+
+
+def resolve_tests_names(tests: list[Test], mongo: Database[dict[str, Any]]) -> list[Test]:
+    """Batch-resolve display names for a list of Tests."""
+    if not tests:
+        return tests
+
+    # Collect all unique IDs
+    device_ids = set()
+    env_ids = set()
+    for t in tests:
+        device_ids.add(t.pc_device_id)
+        device_ids.add(t.test_rig_device_id)
+        env_ids.add(t.environment_id)
+
+    # Batch fetch
+    device_map = {d["_id"]: d["name"] for d in mongo.devices.find({"_id": {"$in": list(device_ids)}}, {"name": 1})}
+    env_map = {e["_id"]: e["name"] for e in mongo.environments.find({"_id": {"$in": list(env_ids)}}, {"name": 1})}
+
+    for t in tests:
+        t.pc_device_name = device_map.get(t.pc_device_id)
+        t.test_rig_device_name = device_map.get(t.test_rig_device_id)
+        t.environment_name = env_map.get(t.environment_id)
+
+    return tests
+
+
 @router.get("/_internal/auth-test")
 def auth_test(_: None = Depends(read_permission)) -> dict[str, str]:
     return {"status": "success", "message": "Authentication is working!"}
@@ -116,7 +152,7 @@ def create_test(
         **test_data.model_dump(),
     )
     mongo.tests.insert_one(test.model_dump(by_alias=True))
-    return test
+    return resolve_test_names(test, mongo)
 
 
 @router.get("/tests", response_model=PaginatedResponse[Test], response_model_by_alias=False)
@@ -161,6 +197,7 @@ def list_tests(
         Test(**t)
         for t in mongo.tests.find(query).sort("_id", 1).skip(skip).limit(page_size)
     ]
+    resolve_tests_names(tests, mongo)
     return PaginatedResponse.create(items=tests, total=total, page=page, page_size=page_size)
 
 
@@ -172,7 +209,7 @@ def get_test(
 ) -> Test:
     if not (test := mongo.tests.find_one({"_id": test_id})):
         raise HTTPException(status_code=404, detail="Test not found")
-    return Test(**test)
+    return resolve_test_names(Test(**test), mongo)
 
 
 @router.get("/tests/{test_id}/full", response_model=TestFullData, response_model_by_alias=False)
@@ -184,7 +221,7 @@ def get_test_full(
     if not (test_doc := mongo.tests.find_one({"_id": test_id})):
         raise HTTPException(status_code=404, detail="Test not found")
 
-    test = Test(**test_doc)
+    test = resolve_test_names(Test(**test_doc), mongo)
     files_dict = test_doc.get("files", {})
     files = [File(**f) for f in files_dict.values()]
     logbook = [LogbookEntry(**e) for e in mongo.logbook.find({"test_id": test_id}).sort("timestamp", -1)]
@@ -273,7 +310,7 @@ def update_test(
         }}
     )
 
-    return Test(**mongo.tests.find_one({"_id": test_id}))
+    return resolve_test_names(Test(**mongo.tests.find_one({"_id": test_id})), mongo)
 
 
 @router.delete("/tests/{test_id}", status_code=204)

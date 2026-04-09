@@ -133,11 +133,6 @@ export const TestsTable = memo(function TestsTable({ data, sorting, onSortingCha
         cell: ({ row }) => row.getValue("experiment_id"),
       },
       {
-        accessorKey: "status",
-        header: "Status",
-        cell: ({ row }) => <TestStatusBadge status={row.getValue("status")} />,
-      },
-      {
         accessorKey: "environment_id",
         header: ({ column }) => {
           return (
@@ -147,12 +142,12 @@ export const TestsTable = memo(function TestsTable({ data, sorting, onSortingCha
               className="-ml-3 h-8"
               onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
             >
-              Environment ID
+              Environment
               <ArrowUpDown className="ml-2 h-4 w-4" />
             </Button>
           )
         },
-        cell: ({ row }) => row.getValue("environment_id"),
+        cell: ({ row }) => row.original.environment_name || row.getValue("environment_id"),
       },
       {
         accessorKey: "driver",

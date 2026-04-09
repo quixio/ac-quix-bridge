@@ -289,7 +289,6 @@ export default function Home() {
                       <div className="rounded-lg border p-3 hover:bg-accent transition-colors">
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-medium text-sm">{test.test_id}</span>
-                          <TestStatusBadge status={test.status} />
                         </div>
                         <div className="text-xs text-muted-foreground">
                           Experiment: {test.experiment_id}

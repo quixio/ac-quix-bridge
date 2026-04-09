@@ -14,7 +14,6 @@ import { useTest } from "@/lib/hooks/use-tests"
 import { useTestsApi, useDevicesApi, useDriversApi, useEnvironmentsApi } from "@/lib/hooks/use-api"
 import { useToast } from "@/lib/hooks/use-toast"
 import { DeviceCategory } from "@/types/device"
-import { TestStatus } from "@/types/test"
 import type { Device } from "@/types/device"
 import type { Driver } from "@/types/driver"
 import type { Environment } from "@/types/environment"
@@ -38,7 +37,6 @@ export default function EditTestPage() {
   const [environmentId, setEnvironmentId] = useState<string | null>(null)
   const [driver, setDriver] = useState<string | null>(null)
   const [requirements, setRequirements] = useState<string | null>(null)
-  const [status, setStatus] = useState<TestStatus | null>(null)
 
   // Dropdown data
   const [pcDevices, setPcDevices] = useState<Device[]>([])
@@ -72,7 +70,6 @@ export default function EditTestPage() {
   const formEnvironmentId = environmentId ?? test?.environment_id ?? ""
   const formDriver = driver ?? test?.driver ?? ""
   const formRequirements = requirements ?? test?.requirements ?? ""
-  const formStatus = status ?? test?.status ?? TestStatus.DRAFT
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -86,7 +83,6 @@ export default function EditTestPage() {
         environment_id: formEnvironmentId,
         driver: formDriver,
         requirements: formRequirements,
-        status: formStatus,
       })
 
       toast({
@@ -177,7 +173,7 @@ export default function EditTestPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="experiment_id">Experiment ID *</Label>
+                <Label htmlFor="experiment_id">Experiment *</Label>
                 <Input
                   id="experiment_id"
                   value={formExperimentId}
@@ -213,20 +209,6 @@ export default function EditTestPage() {
                   disabled={isSubmitting}
                   rows={3}
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select value={formStatus} onValueChange={(v) => setStatus(v as TestStatus)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={TestStatus.DRAFT}>Draft</SelectItem>
-                    <SelectItem value={TestStatus.IN_PROGRESS}>In Progress</SelectItem>
-                    <SelectItem value={TestStatus.FINISHED}>Finished</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               <div className="flex gap-3 pt-4">

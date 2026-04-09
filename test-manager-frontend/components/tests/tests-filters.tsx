@@ -3,20 +3,11 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { TestStatus } from "@/types/test"
 import { X } from "lucide-react"
 import { useDebouncedCallback } from "use-debounce"
 
 interface TestsFiltersProps {
   filters: {
-    status?: TestStatus
     environment_id?: string
     experiment_id?: string
     q?: string
@@ -36,8 +27,7 @@ export function TestsFilters({
     setSearchInput(filters.q || "")
   }, [filters.q])
 
-  const hasActiveFilters =
-    filters.status || filters.environment_id || filters.experiment_id || filters.q
+  const hasActiveFilters = filters.environment_id || filters.experiment_id || filters.q
 
   const debouncedFilterChange = useDebouncedCallback(
     (key: string, value: string | undefined) => {
@@ -47,36 +37,17 @@ export function TestsFilters({
   )
 
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-      <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Input
-          placeholder="Search tests..."
-          value={searchInput}
-          onChange={(e) => {
-            const value = e.target.value
-            setSearchInput(value)
-            debouncedFilterChange("q", value || undefined)
-          }}
-          className="w-full"
-        />
-
-        <Select
-          value={filters.status || "all"}
-          onValueChange={(value) =>
-            onFilterChange("status", value === "all" ? undefined : value)
-          }
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value={TestStatus.DRAFT}>Draft</SelectItem>
-            <SelectItem value={TestStatus.IN_PROGRESS}>In Progress</SelectItem>
-            <SelectItem value={TestStatus.FINISHED}>Finished</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+    <div className="flex gap-4 items-center">
+      <Input
+        placeholder="Search tests..."
+        value={searchInput}
+        onChange={(e) => {
+          const value = e.target.value
+          setSearchInput(value)
+          debouncedFilterChange("q", value || undefined)
+        }}
+        className="max-w-sm"
+      />
 
       {hasActiveFilters && (
         <Button

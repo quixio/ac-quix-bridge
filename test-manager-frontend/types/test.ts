@@ -49,6 +49,10 @@ export interface Test {
   environment_id: string
   driver: string
   requirements: string
+  // Resolved display names from backend
+  pc_device_name: string | null
+  test_rig_device_name: string | null
+  environment_name: string | null
   created_at: string
   updated_at: string
   config_id: string

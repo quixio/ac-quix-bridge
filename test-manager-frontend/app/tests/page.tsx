@@ -27,7 +27,6 @@ function TestsPageContent() {
 
   // Get filters from URL
   const [filters, setFilters] = useState({
-    status: searchParams.get("status") as TestStatus | undefined,
     environment_id: searchParams.get("environment_id") || undefined,
     experiment_id: searchParams.get("experiment_id") || undefined,
     q: searchParams.get("q") || undefined,
@@ -64,7 +63,6 @@ function TestsPageContent() {
 
   const handleClearFilters = useCallback(() => {
     setFilters({
-      status: undefined,
       environment_id: undefined,
       experiment_id: undefined,
       q: undefined,

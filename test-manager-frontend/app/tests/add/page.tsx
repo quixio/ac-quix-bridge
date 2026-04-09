@@ -51,6 +51,12 @@ export default function AddTestPage() {
         setTestRigDevices(rigRes.items)
         setDrivers(drvRes.items)
         setEnvironments(envRes.items)
+
+        // Auto-select first item in each dropdown
+        if (pcRes.items.length > 0) setPcDeviceId(pcRes.items[0].device_id)
+        if (rigRes.items.length > 0) setTestRigDeviceId(rigRes.items[0].device_id)
+        if (drvRes.items.length > 0) setDriver(drvRes.items[0].name)
+        if (envRes.items.length > 0) setEnvironmentId(envRes.items[0].environment_id)
       } catch (error) {
         console.error("Failed to fetch dropdown data:", error)
       }
@@ -152,7 +158,7 @@ export default function AddTestPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="experiment_id">Experiment ID *</Label>
+                <Label htmlFor="experiment_id">Experiment *</Label>
                 <Input
                   id="experiment_id"
                   value={experimentId}

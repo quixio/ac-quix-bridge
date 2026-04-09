@@ -18,13 +18,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { TestDetailCard } from "@/components/tests/test-detail-card"
 import { Badge } from "@/components/ui/badge"
-import { FileUploadManager } from "@/components/tests/file-upload-manager"
-import { FileList } from "@/components/tests/file-list"
+import { TestDetailCard } from "@/components/tests/test-detail-card"
 import { LogbookEntryList } from "@/components/tests/logbook-entry-list"
 import { LogbookEntryForm } from "@/components/tests/logbook-entry-form"
-import { LinkList } from "@/components/tests/link-list"
 import { EmptyState } from "@/components/shared/empty-state"
 import { useTestFull } from "@/lib/hooks/use-tests"
 import { useTestsApi, useLogbookApi } from "@/lib/hooks/use-api"
@@ -154,27 +151,6 @@ export default function TestDetailPage() {
     refetch()
   }
 
-  // File handlers
-  const handleFileUploadComplete = () => {
-    // Refresh test data
-    refetch()
-  }
-
-  const handleFileDeleted = () => {
-    // Refresh test data
-    refetch()
-  }
-
-  // Link handlers
-  const handleLinkAdded = () => {
-    // Refresh test data
-    refetch()
-  }
-
-  const handleLinkDeleted = () => {
-    // Refresh test data
-    refetch()
-  }
 
   return (
     <MainLayout backLink={{ href: "/tests", label: "Back to Tests" }}>
@@ -229,117 +205,45 @@ export default function TestDetailPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left column: Test details, External Links, Files, Logbook */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Test Details */}
-          <TestDetailCard test={test} onTestUpdated={refetch} />
+      {/* Content - single column */}
+      <div className="max-w-4xl space-y-6">
+        {/* Quick Access, Test Setup, Configuration, Timestamps */}
+        <TestDetailCard
+          test={test}
+          onTestUpdated={refetch}
+          resolvedNames={{
+            pcName: test.pc_device_name || test.pc_device_id,
+            rigName: test.test_rig_device_name || test.test_rig_device_id,
+            envName: test.environment_name || test.environment_id,
+          }}
+        />
 
-          {/* External Links Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">External Links ({links.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <LinkList
-                testId={testId}
-                links={links}
-                onLinkAdded={handleLinkAdded}
-                onLinkDeleted={handleLinkDeleted}
-                onLinkUpdated={handleLinkAdded}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Files Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Attachments ({files.length})</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <FileUploadManager
-                testId={testId}
-                onUploadComplete={handleFileUploadComplete}
-              />
-              <FileList
-                testId={testId}
-                files={files}
-                onFileDeleted={handleFileDeleted}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Logbook Section */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">
-                  Logbook ({logbook.length})
-                </CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCreateLogbookEntry}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Entry
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <LogbookEntryList
-                testId={testId}
-                entries={logbook}
-                onEntryDeleted={handleLogbookDeleted}
-                onEditEntry={handleEditLogbookEntry}
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right column: Test Info */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Test Setup</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <p className="text-sm text-muted-foreground">Experiment ID</p>
-                <p className="font-medium">{test.experiment_id}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Driver</p>
-                <p className="font-medium">{test.driver}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">PC (Hostname)</p>
-                <p className="font-medium">{test.pc_device_id}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Test Rig</p>
-                <p className="font-medium">{test.test_rig_device_id}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Environment</p>
-                <p className="font-medium">{test.environment_id}</p>
-              </div>
-              {test.requirements && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Requirements</p>
-                  <p className="text-sm">{test.requirements}</p>
-                </div>
-              )}
-              {test.target_key && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Config Target</p>
-                  <Badge variant="outline">{test.target_key}</Badge>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        {/* Logbook */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">
+                Logbook ({logbook.length})
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCreateLogbookEntry}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New Entry
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <LogbookEntryList
+              testId={testId}
+              entries={logbook}
+              onEntryDeleted={handleLogbookDeleted}
+              onEditEntry={handleEditLogbookEntry}
+            />
+          </CardContent>
+        </Card>
       </div>
 
       {/* Logbook Entry Dialog */}
