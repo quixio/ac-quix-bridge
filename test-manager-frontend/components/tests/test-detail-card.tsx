@@ -153,7 +153,7 @@ export function TestDetailCard({ test, onTestUpdated }: TestDetailCardProps) {
       // Call API to get test data (returns CSV text directly)
       const csvContent = await integrationsApi.downloadTestData(
         test.test_id,
-        test.campaign_id,
+        test.experiment_id,
         test.environment_id
       )
 
@@ -221,7 +221,7 @@ export function TestDetailCard({ test, onTestUpdated }: TestDetailCardProps) {
               <Database className="mr-2 h-4 w-4" />
               Data Lake
             </Button>
-            <Link href={`/measurements?test_id=${test.test_id}&campaign_id=${test.campaign_id}&environment_id=${test.environment_id}`}>
+            <Link href={`/measurements?test_id=${test.test_id}&experiment_id=${test.experiment_id}&environment_id=${test.environment_id}`}>
               <Button
                 variant="outline"
                 size="sm"
@@ -230,7 +230,7 @@ export function TestDetailCard({ test, onTestUpdated }: TestDetailCardProps) {
                 Query Data
               </Button>
             </Link>
-            <Link href={`/analytics?test_id=${test.test_id}&campaign_id=${test.campaign_id}&environment_id=${test.environment_id}`}>
+            <Link href={`/analytics?test_id=${test.test_id}&experiment_id=${test.experiment_id}&environment_id=${test.environment_id}`}>
               <Button
                 variant="outline"
                 size="sm"
@@ -259,13 +259,9 @@ export function TestDetailCard({ test, onTestUpdated }: TestDetailCardProps) {
         items={[
           { label: "Test ID", value: test.test_id },
           { label: "Status", value: <TestStatusBadge status={test.status} /> },
-          { label: "Campaign ID", value: test.campaign_id },
-          { label: "Operator", value: test.operator },
-          { label: "Environment ID", value: test.environment_id },
-          {
-            label: "Environment Version",
-            value: test.environment_version || "Not set (test not started)",
-          },
+          { label: "Experiment ID", value: test.experiment_id },
+          { label: "Driver", value: test.driver },
+          { label: "Environment", value: test.environment_id },
         ]}
       />
 

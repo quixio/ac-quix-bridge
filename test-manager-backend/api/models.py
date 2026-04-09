@@ -97,21 +97,21 @@ class LinkCreate(BaseModel):
 
 
 class Test(BaseModel):
-    """Represents a single test record in the database."""
+    """Represents a test / experiment record."""
 
     test_id: str = Field(..., alias="_id")
-    campaign_id: str
-    devices: list[DeviceReference]  # Array of Device references with versions (required, at least one)
-    environment_id: str  # Test environment identifier
-    environment_version: str | None = None  # UUID of environment journal entry, set when test starts
-    operator: str
+    experiment_id: str  # Was campaign_id
+    pc_device_id: str  # PC (hostname) device
+    test_rig_device_id: str  # Test rig (steering wheel) device
+    environment_id: str
+    driver: str  # Was operator
+    requirements: str = ""
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
-    sensors: dict[str, dict[str, Any]]
     config_id: str
-    config_type: str | None = None  # From Dynamic Configuration metadata.type
-    target_key: str | None = None  # From Dynamic Configuration metadata.target_key
-    config_version: int | None = None  # From Dynamic Configuration metadata.version
+    config_type: str | None = None
+    target_key: str | None = None
+    config_version: int | None = None
     links: list[Link] = Field(default_factory=list)
     files: dict[str, File] = Field(default_factory=dict)
     status: TestStatus = TestStatus.DRAFT
@@ -120,40 +120,39 @@ class Test(BaseModel):
 
 
 class TestCreate(BaseModel):
-    """Represents the data required to create a test."""
+    """Request model for creating a Test. ID is auto-generated."""
 
-    test_id: str
-    campaign_id: str
-    devices: list[DeviceReference]  # Required, at least one device
-    environment_id: str
-    operator: str
-    sensors: dict[str, dict[str, Any]]
+    experiment_id: str = Field(..., min_length=1)
+    pc_device_id: str = Field(..., min_length=1)
+    test_rig_device_id: str = Field(..., min_length=1)
+    environment_id: str = Field(..., min_length=1)
+    driver: str = Field(..., min_length=1)
+    requirements: str = ""
     status: TestStatus = TestStatus.DRAFT
     start: datetime | None = None
     end: datetime | None = None
 
 
 class TestUpdate(BaseModel):
-    """Represents the updatable fields of a test."""
+    """Request model for updating a Test."""
 
-    campaign_id: str | None = None
-    devices: list[DeviceReference] | None = None
+    experiment_id: str | None = None
+    pc_device_id: str | None = None
+    test_rig_device_id: str | None = None
     environment_id: str | None = None
-    operator: str | None = None
-    sensors: dict[str, dict[str, Any]] | None = None
+    driver: str | None = None
+    requirements: str | None = None
     status: TestStatus | None = None
     start: datetime | None = None
     end: datetime | None = None
 
 
 class TestQuery(PaginationParams):
-    """Defines the available query parameters for filtering tests with pagination."""
+    """Query parameters for filtering Tests."""
 
-    test_id: str | None = None
-    campaign_id: str | None = None
-    device_id: str | None = None  # Filter tests containing this device
+    experiment_id: str | None = None
     environment_id: str | None = None
-    operator: str | None = None
+    driver: str | None = None
     status: TestStatus | None = None
     q: str | None = None
 

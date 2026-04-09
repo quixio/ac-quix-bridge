@@ -292,7 +292,7 @@ export default function Home() {
                           <TestStatusBadge status={test.status} />
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Campaign: {test.campaign_id}
+                          Experiment: {test.experiment_id}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           Created: {formatDate(test.created_at)}

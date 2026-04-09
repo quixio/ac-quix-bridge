@@ -38,22 +38,13 @@ def connect(settings: MongoSettings) -> None:
     except Exception:
         pass
 
-    _mongo.tests.create_index("campaign_id")
+    _mongo.tests.create_index("experiment_id")
     _mongo.tests.create_index("environment_id")
-    _mongo.tests.create_index("operator")
+    _mongo.tests.create_index("driver")
     _mongo.tests.create_index("status")
-    _mongo.tests.create_index("devices.device_id")  # Index on array field for Device filtering
-    _mongo.tests.create_index("created_at")  # For sorting
-
-    # Create text index for full-text search across multiple fields
-    _mongo.tests.create_index(
-        [
-            ("test_id", "text"),
-            ("campaign_id", "text"),
-            ("operator", "text"),
-            ("description", "text"),
-        ]
-    )
+    _mongo.tests.create_index("pc_device_id")
+    _mongo.tests.create_index("test_rig_device_id")
+    _mongo.tests.create_index([("experiment_id", "text"), ("driver", "text")])
 
     # Devices collection
     _mongo.devices.create_index("category")

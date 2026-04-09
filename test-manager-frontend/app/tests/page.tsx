@@ -29,11 +29,11 @@ function TestsPageContent() {
   const [filters, setFilters] = useState({
     status: searchParams.get("status") as TestStatus | undefined,
     environment_id: searchParams.get("environment_id") || undefined,
-    campaign_id: searchParams.get("campaign_id") || undefined,
+    experiment_id: searchParams.get("experiment_id") || undefined,
     q: searchParams.get("q") || undefined,
   })
 
-  const [sorting, setSorting] = useState<SortingState>([{ id: "created_at", desc: true }])
+  const [sorting, setSorting] = useState<SortingState>([{ id: "test_id", desc: false }])
 
   // Fetch tests with filters and pagination
   const {
@@ -66,7 +66,7 @@ function TestsPageContent() {
     setFilters({
       status: undefined,
       environment_id: undefined,
-      campaign_id: undefined,
+      experiment_id: undefined,
       q: undefined,
     })
     router.push("/tests")

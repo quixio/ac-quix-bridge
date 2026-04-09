@@ -248,19 +248,13 @@ export const testsApi = {
   // Filters (Distinct Values for Autocomplete)
   // ========================================================================
 
-  /**
-   * Get distinct campaign IDs for filter autocomplete
-   */
-  getCampaignIds: (
+  getExperimentIds: (
     token?: string | null,
     refreshToken?: () => Promise<string | null>
   ) => {
-    return apiGet<string[]>("/tests/filters/campaign-ids", undefined, token, refreshToken)
+    return apiGet<string[]>("/tests/filters/experiment-ids", undefined, token, refreshToken)
   },
 
-  /**
-   * Get distinct Environment IDs for filter autocomplete
-   */
   getEnvironmentIds: (
     token?: string | null,
     refreshToken?: () => Promise<string | null>
@@ -268,13 +262,10 @@ export const testsApi = {
     return apiGet<string[]>("/tests/filters/environment-ids", undefined, token, refreshToken)
   },
 
-  /**
-   * Get distinct operators for filter autocomplete
-   */
-  getOperators: (
+  getDrivers: (
     token?: string | null,
     refreshToken?: () => Promise<string | null>
   ) => {
-    return apiGet<string[]>("/tests/filters/operators", undefined, token, refreshToken)
+    return apiGet<string[]>("/tests/filters/drivers", undefined, token, refreshToken)
   },
 }

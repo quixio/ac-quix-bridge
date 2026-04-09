@@ -19,8 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { TestDetailCard } from "@/components/tests/test-detail-card"
-import { DeviceListDisplay } from "@/components/tests/device-list-display"
-import { DevicePickerDialog } from "@/components/tests/device-picker-dialog"
+import { Badge } from "@/components/ui/badge"
 import { FileUploadManager } from "@/components/tests/file-upload-manager"
 import { FileList } from "@/components/tests/file-list"
 import { LogbookEntryList } from "@/components/tests/logbook-entry-list"
@@ -31,7 +30,7 @@ import { useTestFull } from "@/lib/hooks/use-tests"
 import { useTestsApi, useLogbookApi } from "@/lib/hooks/use-api"
 import { useToast } from "@/lib/hooks/use-toast"
 import { ArrowLeft, Edit, Trash2, FileText, Settings, Plus } from "lucide-react"
-import type { DeviceReference, File, LogbookEntry, Link, LogbookEntryCreate, LogbookEntryUpdate } from "@/types/test"
+import type { File, LogbookEntry, Link, LogbookEntryCreate, LogbookEntryUpdate } from "@/types/test"
 
 export default function TestDetailPage() {
   const params = useParams()
@@ -44,8 +43,6 @@ export default function TestDetailPage() {
   const { testFull, loading, error, refetch } = useTestFull(testId)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [showManageDevices, setShowManageDevices] = useState(false)
-  const [isSavingDevices, setIsSavingDevices] = useState(false)
 
   // Logbook state
   const [showLogbookDialog, setShowLogbookDialog] = useState(false)
@@ -102,33 +99,6 @@ export default function TestDetailPage() {
       })
       setIsDeleting(false)
       setShowDeleteDialog(false)
-    }
-  }
-
-  const handleSaveDevices = async (newDevices: DeviceReference[]) => {
-    setIsSavingDevices(true)
-    try {
-      // Update test with new devices
-      await testsApi.update(testId, { devices: newDevices })
-
-      toast({
-        title: "Devices updated",
-        description: "Test devices have been updated successfully.",
-      })
-
-      // Refresh test data
-      await refetch()
-
-      // Close dialog
-      setShowManageDevices(false)
-    } catch (error) {
-      toast({
-        title: "Error updating devices",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSavingDevices(false)
     }
   }
 
@@ -328,32 +298,49 @@ export default function TestDetailPage() {
           </Card>
         </div>
 
-        {/* Right column: Devices */}
-        <div>
-          <DeviceListDisplay
-            devices={test.devices}
-            testId={testId}
-            headerAction={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowManageDevices(true)}
-              >
-                <Settings className="mr-2 h-4 w-4" />
-                Manage
-              </Button>
-            }
-          />
+        {/* Right column: Test Info */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Test Setup</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Experiment ID</p>
+                <p className="font-medium">{test.experiment_id}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Driver</p>
+                <p className="font-medium">{test.driver}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">PC (Hostname)</p>
+                <p className="font-medium">{test.pc_device_id}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Test Rig</p>
+                <p className="font-medium">{test.test_rig_device_id}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Environment</p>
+                <p className="font-medium">{test.environment_id}</p>
+              </div>
+              {test.requirements && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Requirements</p>
+                  <p className="text-sm">{test.requirements}</p>
+                </div>
+              )}
+              {test.target_key && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Config Target</p>
+                  <Badge variant="outline">{test.target_key}</Badge>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
-
-      {/* Manage Devices Dialog */}
-      <DevicePickerDialog
-        open={showManageDevices}
-        onOpenChange={setShowManageDevices}
-        selectedDevices={test.devices}
-        onConfirm={handleSaveDevices}
-      />
 
       {/* Logbook Entry Dialog */}
       <Dialog open={showLogbookDialog} onOpenChange={setShowLogbookDialog}>
@@ -366,7 +353,7 @@ export default function TestDetailPage() {
           <LogbookEntryForm
             testId={testId}
             entry={editingEntry || undefined}
-            defaultOperator={test.operator}
+            defaultOperator={test.driver}
             onSubmit={handleLogbookSubmit}
             onCancel={() => {
               setShowLogbookDialog(false)
