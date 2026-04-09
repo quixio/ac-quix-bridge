@@ -35,9 +35,7 @@ import { useQuixAuth } from "../contexts/quix-auth-context"
 import { ApiError } from "../api/client"
 import { devicesApi as devicesApiRaw } from "../api/devices"
 import { testsApi as testsApiRaw } from "../api/tests"
-import { linksApi as linksApiRaw } from "../api/links"
 import { logbookApi as logbookApiRaw } from "../api/logbook"
-import { filesApi as filesApiRaw } from "../api/files"
 import { adminApi as adminApiRaw } from "../api/admin"
 import { integrationsApi as integrationsApiRaw } from "../api/integrations"
 import { settingsApi as settingsApiRaw } from "../api/settings"
@@ -113,18 +111,6 @@ export const useDevicesApi = createAuthenticatedApi(devicesApiRaw)
 export const useTestsApi = createAuthenticatedApi(testsApiRaw)
 
 /**
- * Authenticated Links API Hook
- *
- * @example
- * ```typescript
- * const linksApi = useLinksApi()
- * const links = await linksApi.list("test-123")
- * await linksApi.create("test-123", { title: "Spec", url: "..." })
- * ```
- */
-export const useLinksApi = createAuthenticatedApi(linksApiRaw)
-
-/**
  * Authenticated Logbook API Hook
  *
  * @example
@@ -135,18 +121,6 @@ export const useLinksApi = createAuthenticatedApi(linksApiRaw)
  * ```
  */
 export const useLogbookApi = createAuthenticatedApi(logbookApiRaw)
-
-/**
- * Authenticated Files API Hook
- *
- * @example
- * ```typescript
- * const filesApi = useFilesApi()
- * const files = await filesApi.list("test-123")
- * const { url } = await filesApi.getPresignedUploadUrl("test-123", "data.csv")
- * ```
- */
-export const useFilesApi = createAuthenticatedApi(filesApiRaw)
 
 /**
  * Authenticated Admin API Hook

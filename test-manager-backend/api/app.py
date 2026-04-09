@@ -13,9 +13,7 @@ from .routes.admin import router as admin_router
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
-from .routes.files import router as files_router
 from .routes.integrations import router as integrations_router
-from .routes.links import router as links_router
 from .routes.logbook import router as logbook_router
 from .routes.portal import router as portal_router
 from .routes.tests import router as tests_router
@@ -159,8 +157,6 @@ def create_app() -> FastAPI:
     application.include_router(drivers_router, tags=["drivers"], prefix="/api/v1")
     application.include_router(environments_router, tags=["environments"], prefix="/api/v1")
     application.include_router(logbook_router, tags=["logbook"], prefix="/api/v1")
-    application.include_router(files_router, tags=["files"], prefix="/api/v1")
-    application.include_router(links_router, tags=["links"], prefix="/api/v1")
     application.include_router(admin_router, tags=["admin"], prefix="/api/v1")
     application.include_router(user_router, tags=["user"], prefix="/api/v1")
     application.include_router(integrations_router, tags=["integrations"], prefix="/api/v1")

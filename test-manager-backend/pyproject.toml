@@ -15,8 +15,7 @@ dependencies = [
 	"pydantic",
 	"pydantic-settings",
 	"python-multipart",
-	"quixportal[s3]",
-	"influxdb",
+	"quixportal",
 ]
 
 [dependency-groups]
@@ -26,7 +25,7 @@ dev = [
 	"ruff",
 	"mypy",
 	"httpx",
-	"testcontainers[mongodb,kafka,influxdb]",
+	"testcontainers[mongodb,kafka]",
 ]
 
 [tool.mypy]
@@ -36,15 +35,8 @@ strict = true
 module = "testcontainers.*"
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-module = "influxdb.*"
-ignore_missing_imports = true
-
 [tool.pytest.ini_options]
 pythonpath = "."
-filterwarnings = [
-    "ignore:datetime.datetime.utcfromtimestamp\\(\\) is deprecated:DeprecationWarning:influxdb.*",
-]
 
 [tool.uv.sources]
 quixportal = { index = "quix-public" }

@@ -6,8 +6,6 @@ import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pymongo import ReturnDocument
 from pymongo.database import Database
-from quixportal import get_filesystem
-
 from ..auth import update_permission, read_permission
 from ..mongo import get_mongo
 from ..config_api import get_config_api_client
@@ -22,8 +20,6 @@ from ..models import (
     LogbookEntry,
     PaginatedResponse,
 )
-from ..settings import Settings, get_settings
-from ..utils import now as utcnow
 
 router = APIRouter()
 
@@ -313,8 +309,6 @@ def update_test(
 def delete_test(
     test_id: str,
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
-    fs: Any = Depends(get_filesystem),
-    settings: Settings = Depends(get_settings),
     config_api: httpx.Client = Depends(get_config_api_client),
     _: None = Depends(update_permission),
 ) -> None:
@@ -326,14 +320,6 @@ def delete_test(
         config_api.delete(f"/api/v1/configurations/{test['config_id']}").raise_for_status()
     except httpx.HTTPStatusError:
         pass  # Config may already be deleted
-
-    # Delete files from blob storage
-    for file in test.get("files", {}).values():
-        path = f"{settings.workspace_id}/test-manager/{test_id}/{file['name']}"
-        try:
-            fs.rm_file(path)
-        except FileNotFoundError:
-            pass
 
     mongo.logbook.delete_many({"test_id": test_id})
     mongo.tests.delete_one({"_id": test_id})
