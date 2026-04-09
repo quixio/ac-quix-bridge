@@ -10,7 +10,6 @@ from quixportal import get_filesystem
 
 from ..auth import update_permission, read_permission
 from ..mongo import get_mongo
-from ..influx import Influx, get_influx
 from ..config_api import get_config_api_client
 from ..models import (
     Test,
@@ -151,7 +150,7 @@ def create_test(
         config_version=config_metadata["version"],
         **test_data.model_dump(),
     )
-    mongo.tests.insert_one(test.model_dump(by_alias=True))
+    mongo.tests.insert_one(test.model_dump(by_alias=True, exclude={"pc_device_name", "test_rig_device_name", "environment_name"}))
     return resolve_test_names(test, mongo)
 
 
@@ -175,9 +174,6 @@ def list_tests(
 
     if query_params.driver:
         query["driver"] = {"$regex": re.escape(query_params.driver), "$options": "i"}
-
-    if query_params.status:
-        query["status"] = query_params.status.value
 
     if query_params.q:
         words = query_params.q.strip().split()
@@ -319,7 +315,6 @@ def delete_test(
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     fs: Any = Depends(get_filesystem),
     settings: Settings = Depends(get_settings),
-    influx: Influx = Depends(get_influx),
     config_api: httpx.Client = Depends(get_config_api_client),
     _: None = Depends(update_permission),
 ) -> None:
@@ -339,10 +334,6 @@ def delete_test(
             fs.rm_file(path)
         except FileNotFoundError:
             pass
-
-    # Delete logbook entries from InfluxDB
-    for entry in mongo.logbook.find({"test_id": test_id}):
-        influx.logbook.delete(entry["_id"])
 
     mongo.logbook.delete_many({"test_id": test_id})
     mongo.tests.delete_one({"_id": test_id})

@@ -58,7 +58,7 @@ usage() {
 Usage: ./scripts/dev.sh [COMMAND]
 
 Commands:
-    start       Start all services (MongoDB, InfluxDB, Config API, Backend, Frontend)
+    start       Start all services (MongoDB, Config API, Backend, Frontend)
     stop        Stop all services
     restart     Restart all services
     rebuild     Rebuild and restart all services
@@ -77,11 +77,9 @@ Examples:
 
 Services:
     - mongodb       MongoDB database
-    - influxdb      InfluxDB time-series database
     - config-api    Mock Configuration API
     - backend       FastAPI backend
     - frontend      Next.js frontend
-    - config-form   Experiment Config Form (iframe)
 
 EOF
 }
@@ -108,7 +106,6 @@ start() {
     print_info "Frontend:      http://localhost:3000"
     print_info "Backend:       http://localhost:8080"
     print_info "API Docs:      http://localhost:8080/"
-    print_info "Config Form:   http://localhost:8002"
     echo ""
 }
 
@@ -190,7 +187,7 @@ shell() {
     local service="$1"
     if [ -z "$service" ]; then
         print_error "Please specify a service name"
-        echo "Available services: mongodb, influxdb, config-api, backend, frontend"
+        echo "Available services: mongodb, config-api, backend, frontend"
         exit 1
     fi
 

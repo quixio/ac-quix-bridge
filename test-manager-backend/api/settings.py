@@ -20,17 +20,6 @@ class MongoSettings(BaseSettings):
         return f"mongodb://{self.user}:{self.password}@{self.host}:{self.port}"
 
 
-class InfluxSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="INFLUXDB_")
-
-    user: str = Field(..., description="InfluxDB username")
-    password: str = Field(..., description="InfluxDB password")
-    host: str = Field("localhost", description="InfluxDB host address")
-    port: int = Field(8086, description="InfluxDB port")
-    database: str = Field("test_manager", description="InfluxDB database name")
-    measurement: str = Field("logbook", description="InfluxDB measurement name")
-
-
 class Settings(BaseSettings):
     # API settings
     api_host: str = Field("0.0.0.0", description="Host address")
@@ -76,7 +65,6 @@ class Settings(BaseSettings):
 
     # Nested settings
     mongo: MongoSettings = Field(default_factory=MongoSettings)  # type: ignore[arg-type]
-    influx: InfluxSettings = Field(default_factory=InfluxSettings)  # type: ignore[arg-type]
 
 
 @lru_cache(maxsize=1)

@@ -17,7 +17,6 @@ import { TestsFilters } from "@/components/tests/tests-filters"
 import { EmptyState } from "@/components/shared/empty-state"
 import { Pagination } from "@/components/shared/pagination"
 import { useTests } from "@/lib/hooks/use-tests"
-import { TestStatus } from "@/types/test"
 import { Plus, FileText } from "lucide-react"
 
 // Inner component that uses useSearchParams

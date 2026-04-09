@@ -21,7 +21,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
-import { TestStatusBadge } from "./test-status-badge"
 import type { Test } from "@/types/test"
 import { ArrowUpDown, Loader2, Download, BarChart3, LineChart } from "lucide-react"
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter"

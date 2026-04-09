@@ -116,11 +116,6 @@ class Test(BaseModel):
     config_type: str | None = None
     target_key: str | None = None
     config_version: int | None = None
-    links: list[Link] = Field(default_factory=list)
-    files: dict[str, File] = Field(default_factory=dict)
-    status: TestStatus = TestStatus.DRAFT
-    start: datetime | None = None
-    end: datetime | None = None
 
 
 class TestCreate(BaseModel):
@@ -132,9 +127,6 @@ class TestCreate(BaseModel):
     environment_id: str = Field(..., min_length=1)
     driver: str = Field(..., min_length=1)
     requirements: str = ""
-    status: TestStatus = TestStatus.DRAFT
-    start: datetime | None = None
-    end: datetime | None = None
 
 
 class TestUpdate(BaseModel):
@@ -146,9 +138,6 @@ class TestUpdate(BaseModel):
     environment_id: str | None = None
     driver: str | None = None
     requirements: str | None = None
-    status: TestStatus | None = None
-    start: datetime | None = None
-    end: datetime | None = None
 
 
 class TestQuery(PaginationParams):
@@ -157,7 +146,6 @@ class TestQuery(PaginationParams):
     experiment_id: str | None = None
     environment_id: str | None = None
     driver: str | None = None
-    status: TestStatus | None = None
     q: str | None = None
 
 
@@ -176,27 +164,19 @@ class LogbookEntry(BaseModel):
     id: str = Field(..., alias="_id")
     test_id: str
     created_at: datetime = Field(default_factory=now)
-    timestamp: datetime = Field(default_factory=now)
-    operator: str
     content: str
-    sensor_ids: list[str] = []
 
 
 class LogbookEntryCreate(BaseModel):
-    """Represents the data required to create a logbook entry."""
+    """Request model for creating a logbook entry."""
 
-    operator: str
-    content: str
-    sensor_ids: list[str] = []
-    timestamp: datetime = Field(default_factory=now)
+    content: str = Field(..., min_length=1)
 
 
 class LogbookEntryUpdate(BaseModel):
-    """Represents the updatable fields of a logbook entry."""
+    """Request model for updating a logbook entry."""
 
-    operator: str | None = None
-    content: str | None = None
-    sensor_ids: list[str] | None = None
+    content: str | None = Field(default=None, min_length=1)
     timestamp: datetime | None = None
 
 

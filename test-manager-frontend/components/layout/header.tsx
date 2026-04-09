@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Bell, Search, User, X, ArrowLeft, LogOut } from "lucide-react"
+import { Search, User, X, ArrowLeft, LogOut } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context"
@@ -70,12 +70,6 @@ export function Header({ backLink }: HeaderProps) {
               Local Dev
             </div>
           )}
-
-          {/* Notifications */}
-          <button className="relative rounded-lg p-2 hover:bg-accent">
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
-          </button>
 
           {/* User menu */}
           <DropdownMenu>

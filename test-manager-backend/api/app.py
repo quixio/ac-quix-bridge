@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from . import mongo, influx
+from . import mongo
 from .routes.admin import router as admin_router
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
@@ -17,12 +17,10 @@ from .routes.files import router as files_router
 from .routes.integrations import router as integrations_router
 from .routes.links import router as links_router
 from .routes.logbook import router as logbook_router
-from .routes.lookups import router as lookups_router
 from .routes.portal import router as portal_router
 from .routes.tests import router as tests_router
 from .routes.user import router as user_router
 from .routes.settings import router as settings_router
-from .seed_data import seed_lookup_tables
 from .settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -42,7 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("=" * 60)
         logger.info("🐳 STARTING IN LOCAL DEVELOPMENT MODE")
         logger.info("=" * 60)
-        logger.info("✓ Using local MongoDB, InfluxDB, and Config API")
+        logger.info("✓ Using local MongoDB and Config API")
         logger.info("✓ Using mock authentication (all requests allowed)")
         logger.info(f"✓ API authentication: {'DISABLED' if not settings.api_auth_active else 'ENABLED'}")
         logger.info(f"✓ Config API: {settings.config_api_url}")
@@ -57,10 +55,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("=" * 60)
 
     mongo.connect(settings.mongo)
-    influx.connect(settings.influx)
-
-    # Seed lookup tables if they're empty
-    seed_lookup_tables(mongo.get_mongo())
 
     yield
     mongo.disconnect()
@@ -164,7 +158,6 @@ def create_app() -> FastAPI:
     application.include_router(devices_router, tags=["devices"], prefix="/api/v1")
     application.include_router(drivers_router, tags=["drivers"], prefix="/api/v1")
     application.include_router(environments_router, tags=["environments"], prefix="/api/v1")
-    application.include_router(lookups_router, tags=["lookups"], prefix="/api/v1")
     application.include_router(logbook_router, tags=["logbook"], prefix="/api/v1")
     application.include_router(files_router, tags=["files"], prefix="/api/v1")
     application.include_router(links_router, tags=["links"], prefix="/api/v1")

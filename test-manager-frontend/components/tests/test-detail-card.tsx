@@ -3,26 +3,14 @@
 import { useState } from "react"
 import Link from "next/link"
 import { DataCard } from "@/components/shared/data-card"
-import { TestStatusBadge } from "./test-status-badge"
-import { JsonEditor } from "@/components/shared/json-editor"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { useTestsApi, useIntegrationsApi } from "@/lib/hooks/use-api"
+import { useIntegrationsApi } from "@/lib/hooks/use-api"
 import { useToast } from "@/lib/hooks/use-toast"
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter"
 import { downloadCsv } from "@/lib/utils/csv"
 import type { Test } from "@/types/test"
-import { Save, X, ExternalLink, Sliders, Database, BarChart3, LineChart, Download } from "lucide-react"
+import { ExternalLink, Sliders, Database, BarChart3, LineChart, Download } from "lucide-react"
 
 interface TestDetailCardProps {
   test: Test
@@ -31,90 +19,12 @@ interface TestDetailCardProps {
 }
 
 export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetailCardProps) {
-  const testsApi = useTestsApi()
   const integrationsApi = useIntegrationsApi()
   const { formatDateTime } = useDateFormatter()
-  const [showSensors, setShowSensors] = useState(false)
-  const [sensorsJson, setSensorsJson] = useState<string>("")
-  const [originalSensors, setOriginalSensors] = useState<string>("")
-  const [isValidJson, setIsValidJson] = useState(true)
-  const [hasChanges, setHasChanges] = useState(false)
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
   const [isLoadingConfigUrl, setIsLoadingConfigUrl] = useState(false)
   const [isLoadingDataLakeUrl, setIsLoadingDataLakeUrl] = useState(false)
   const [isLoadingDownload, setIsLoadingDownload] = useState(false)
   const { toast } = useToast()
-
-  const handleToggleSensors = () => {
-    if (!showSensors) {
-      // Opening - initialize JSON
-      const jsonString = JSON.stringify(test.sensors || {}, null, 2)
-      setSensorsJson(jsonString)
-      setOriginalSensors(jsonString)
-      setIsValidJson(true)
-      setHasChanges(false)
-    }
-    setShowSensors(!showSensors)
-  }
-
-  const handleSensorsChange = (value: string) => {
-    setSensorsJson(value)
-
-    // Validate JSON
-    try {
-      if (value.trim()) {
-        JSON.parse(value)
-      }
-      setIsValidJson(true)
-    } catch {
-      setIsValidJson(false)
-    }
-
-    // Check if changed
-    setHasChanges(value !== originalSensors)
-  }
-
-  const handleSave = async () => {
-    setIsSaving(true)
-    try {
-      // Parse JSON (allow empty/null)
-      const parsedSensors = sensorsJson.trim()
-        ? JSON.parse(sensorsJson)
-        : {}
-
-      await testsApi.update(test.test_id, { sensors: parsedSensors })
-
-      toast({
-        title: "Sensors updated",
-        description: "Test sensors configuration has been updated successfully.",
-      })
-
-      // Update original to reflect saved state
-      setOriginalSensors(sensorsJson)
-      setHasChanges(false)
-      setShowConfirmDialog(false)
-
-      // Notify parent to refresh
-      if (onTestUpdated) {
-        onTestUpdated()
-      }
-    } catch (error) {
-      toast({
-        title: "Error updating sensors",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  const handleCancel = () => {
-    setSensorsJson(originalSensors)
-    setHasChanges(false)
-    setIsValidJson(true)
-  }
 
   const handleOpenConfigManager = async () => {
     setIsLoadingConfigUrl(true)
@@ -151,14 +61,12 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
   const handleDownloadData = async () => {
     setIsLoadingDownload(true)
     try {
-      // Call API to get test data (returns CSV text directly)
       const csvContent = await integrationsApi.downloadTestData(
         test.test_id,
         test.experiment_id,
         test.environment_id
       )
 
-      // Check if data is empty
       if (!csvContent || csvContent.trim() === "") {
         toast({
           title: "No data available",
@@ -168,11 +76,8 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
         return
       }
 
-      // Generate filename with timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
       const filename = `test_data_${test.test_id}_${timestamp}.csv`
-
-      // Trigger download
       downloadCsv(csvContent, filename)
 
       toast({
@@ -190,7 +95,6 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
     }
   }
 
-  // Build config manager URL with context
   const configManagerUrl = test.config_id && test.config_version !== null && test.config_version !== undefined
     ? `/config-manager?config_id=${test.config_id}&config_version=${test.config_version}`
     : `/config-manager`
@@ -205,10 +109,7 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
         <CardContent>
           <div className="flex flex-wrap items-center gap-3">
             <Link href={configManagerUrl}>
-              <Button
-                variant="outline"
-                size="sm"
-              >
+              <Button variant="outline" size="sm">
                 <Sliders className="mr-2 h-4 w-4" />
                 Configurations
               </Button>
@@ -223,19 +124,13 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
               Data Lake
             </Button>
             <Link href={`/measurements?test_id=${test.test_id}&experiment_id=${test.experiment_id}&environment_id=${test.environment_id}`}>
-              <Button
-                variant="outline"
-                size="sm"
-              >
+              <Button variant="outline" size="sm">
                 <BarChart3 className="mr-2 h-4 w-4" />
                 Query Data
               </Button>
             </Link>
             <Link href={`/analytics?test_id=${test.test_id}&experiment_id=${test.experiment_id}&environment_id=${test.environment_id}`}>
-              <Button
-                variant="outline"
-                size="sm"
-              >
+              <Button variant="outline" size="sm">
                 <LineChart className="mr-2 h-4 w-4" />
                 Analytics
               </Button>
@@ -283,37 +178,25 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {/* Config Type */}
             <div className="flex flex-col space-y-1">
               <dt className="text-sm font-medium text-muted-foreground">Config Type</dt>
               <dd className="text-sm">{test.config_type || "Not set"}</dd>
             </div>
-
-            {/* Config Id */}
             <div className="flex flex-col space-y-1">
               <dt className="text-sm font-medium text-muted-foreground">Config Id</dt>
-              <dd className="text-sm font-mono text-xs">
-                {test.config_id || "Not set"}
-              </dd>
+              <dd className="text-sm font-mono text-xs">{test.config_id || "Not set"}</dd>
             </div>
-
-            {/* Target Key */}
             <div className="flex flex-col space-y-1">
               <dt className="text-sm font-medium text-muted-foreground">Target Key</dt>
               <dd className="text-sm">{test.target_key || "Not set"}</dd>
             </div>
-
-            {/* Config Version */}
             <div className="flex flex-col space-y-1">
               <dt className="text-sm font-medium text-muted-foreground">Config Version</dt>
-              <dd className="text-sm">
-                {test.config_version ?? "Not set"}
-              </dd>
+              <dd className="text-sm">{test.config_version ?? "Not set"}</dd>
             </div>
           </dl>
-
         </CardContent>
       </Card>
 
@@ -321,35 +204,10 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
       <DataCard
         title="Timestamps"
         items={[
-          {
-            label: "Created",
-            value: formatDateTime(test.created_at),
-          },
-          {
-            label: "Updated",
-            value: formatDateTime(test.updated_at),
-          },
+          { label: "Created", value: formatDateTime(test.created_at) },
+          { label: "Updated", value: formatDateTime(test.updated_at) },
         ]}
       />
-
-      {/* Save Confirmation Dialog */}
-      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Update sensors configuration?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to update the sensors configuration for this test?
-              This action will modify the test data.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleSave} disabled={isSaving}>
-              {isSaving ? "Saving..." : "Save Changes"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

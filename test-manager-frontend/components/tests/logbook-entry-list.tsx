@@ -108,11 +108,7 @@ export function LogbookEntryList({
                   <div className="space-y-1 flex-1 min-w-0">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Clock className="h-3.5 w-3.5" />
-                      <span>{formatDateTime(entry.timestamp)}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <User className="h-3.5 w-3.5" />
-                      <span>{entry.operator}</span>
+                      <span>{formatDateTime(entry.created_at)}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -136,17 +132,6 @@ export function LogbookEntryList({
                 {/* Content */}
                 <div className="text-sm whitespace-pre-wrap">{entry.content}</div>
 
-                {/* Sensor IDs */}
-                {entry.sensor_ids && entry.sensor_ids.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground">Sensors:</span>
-                    {entry.sensor_ids.map((sensorId) => (
-                      <Badge key={sensorId} variant="secondary" className="text-xs">
-                        {sensorId}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
               </div>
             </Card>
           </div>

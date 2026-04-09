@@ -35,7 +35,6 @@ import { useQuixAuth } from "../contexts/quix-auth-context"
 import { ApiError } from "../api/client"
 import { devicesApi as devicesApiRaw } from "../api/devices"
 import { testsApi as testsApiRaw } from "../api/tests"
-import { lookupsApi as lookupsApiRaw } from "../api/lookups"
 import { linksApi as linksApiRaw } from "../api/links"
 import { logbookApi as logbookApiRaw } from "../api/logbook"
 import { filesApi as filesApiRaw } from "../api/files"
@@ -112,18 +111,6 @@ export const useDevicesApi = createAuthenticatedApi(devicesApiRaw)
  * ```
  */
 export const useTestsApi = createAuthenticatedApi(testsApiRaw)
-
-/**
- * Authenticated Lookups API Hook
- *
- * @example
- * ```typescript
- * const lookupsApi = useLookupsApi()
- * const sampleTypes = await lookupsApi.getSampleTypes()
- * const locations = await lookupsApi.getLocations()
- * ```
- */
-export const useLookupsApi = createAuthenticatedApi(lookupsApiRaw)
 
 /**
  * Authenticated Links API Hook

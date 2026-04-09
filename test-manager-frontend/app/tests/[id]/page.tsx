@@ -257,7 +257,6 @@ export default function TestDetailPage() {
           <LogbookEntryForm
             testId={testId}
             entry={editingEntry || undefined}
-            defaultOperator={test.driver}
             onSubmit={handleLogbookSubmit}
             onCancel={() => {
               setShowLogbookDialog(false)

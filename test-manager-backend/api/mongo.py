@@ -14,30 +14,14 @@ def connect(settings: MongoSettings) -> None:
         settings.url,
         tz_aware=True,
         uuidRepresentation="standard",
-        maxPoolSize=50,  # Allow more concurrent connections
-        minPoolSize=10,  # Keep connections warm
-        maxIdleTimeMS=60000,  # Reuse connections for 60s
-        connectTimeoutMS=5000,  # Fail fast on connection issues
-        serverSelectionTimeoutMS=5000,  # Fail fast on server selection
+        maxPoolSize=50,
+        minPoolSize=10,
+        maxIdleTimeMS=60000,
+        connectTimeoutMS=5000,
+        serverSelectionTimeoutMS=5000,
     ).get_database(settings.database)
 
-    # Create indexes for optimal query performance
     # Tests collection
-
-    # Drop obsolete Phase 1 indexes
-    try:
-        _mongo.tests.drop_index("sample_id_1")
-    except Exception:
-        pass
-    try:
-        _mongo.tests.drop_index("environment_id_1")
-    except Exception:
-        pass
-    try:
-        _mongo.tests.drop_index("test_id_text_campaign_id_text_sample_id_text_environment_id_text_operator_text_description_text")
-    except Exception:
-        pass
-
     _mongo.tests.create_index("experiment_id")
     _mongo.tests.create_index("environment_id")
     _mongo.tests.create_index("driver")
@@ -51,11 +35,6 @@ def connect(settings: MongoSettings) -> None:
     _mongo.devices.create_index("status")
     _mongo.devices.create_index("name")
     _mongo.devices.create_index([("name", "text")])
-
-    # Device Journal collection
-    _mongo.device_journal.create_index("device_id")
-    _mongo.device_journal.create_index("timestamp")
-    _mongo.device_journal.create_index([("device_id", 1), ("timestamp", -1)])  # Compound index
 
     # Environments collection
     _mongo.environments.create_index("name")
