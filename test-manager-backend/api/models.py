@@ -205,190 +205,50 @@ class LogbookEntryUpdate(BaseModel):
 class DeviceStatus(str, Enum):
     """Device operational status."""
 
-    CREATED = "created"
-    SETUP = "setup"
-    STORED = "stored"
-    SCRAPPED = "scrapped"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
 
 
-class JournalCategory(str, Enum):
-    """Device journal entry categories."""
+class DeviceCategory(str, Enum):
+    """Device category."""
 
-    SAFETY_REQUIREMENTS = "Safety Requirements"
-    SETUP = "Setup"
-    TESTING = "Testing"
-    CHANGE_LOCATION = "Change-Location"
-    HW_MODIFICATION = "HW Modification"
-    SW_MODIFICATION = "SW Modification"
+    PC = "pc"
+    TEST_RIG = "test_rig"
 
 
 class Device(BaseModel):
-    """Represents a Device Under Test - the sample being tested."""
+    """Represents a device — either a PC (hostname) or a Test Rig (steering wheel)."""
 
     device_id: str = Field(..., alias="_id")
-    status: DeviceStatus = DeviceStatus.CREATED
-    status_note: str | None = None
+    category: DeviceCategory
+    name: str
+    status: DeviceStatus = DeviceStatus.ACTIVE
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
-    creator: str
-    last_editor: str
-
-    # Product fields (strings from lookups)
-    manufacturer: str
-    product_category: str
-    product_name: str
-    product_type: str | None = None
-    product_variant: str | None = None
-    product_key: str | None = None
-
-    # Sample fields
-    sample_type: str
-    sample_nr: str | None = None
-    sample_id: str  # Derived: {sample_type} or {sample_type}-{sample_nr}
-
-    # Organization info
-    sample_owner: str | None = None
-    location: str
-    project: str | None = None
-    picture_link: str | None = None
-
-    # Misc metadata
-    software_bundle: str | None = None
-    hardware_link: str | None = None
-    comment: str | None = None
-    attended_operation: bool = False  # Calculated from safety requirements
-    unattended_operation: bool = False  # Calculated from safety requirements
 
 
 class DeviceCreate(BaseModel):
-    """Represents the data required to create a device."""
+    """Request model for creating a Device. ID is auto-generated."""
 
-    device_id: str
-    manufacturer: str
-    product_category: str
-    product_name: str
-    product_type: str | None = None
-    product_variant: str | None = None
-    product_key: str | None = None
-    sample_type: str
-    sample_nr: str | None = None
-    location: str
-    status: DeviceStatus = DeviceStatus.CREATED
-    status_note: str | None = None
-    sample_owner: str | None = None
-    project: str | None = None
-    picture_link: str | None = None
-    software_bundle: str | None = None
-    hardware_link: str | None = None
-    comment: str | None = None
-    creator: str
-    journal_text: str | None = None
-    journal_category: JournalCategory | None = None
+    category: DeviceCategory
+    name: str = Field(..., min_length=1, description="Device name")
+    status: DeviceStatus = DeviceStatus.ACTIVE
 
 
 class DeviceUpdate(BaseModel):
-    """Represents the updatable fields of a device.
+    """Request model for updating a Device."""
 
-    All device fields (except _id, created_at, updated_at, creator) can be updated.
-    Field-level immutability restrictions can be enforced in the frontend if needed.
-    """
-
-    # Product fields
-    manufacturer: str | None = None
-    product_category: str | None = None
-    product_name: str | None = None
-    product_type: str | None = None
-    product_variant: str | None = None
-    product_key: str | None = None
-
-    # Sample fields
-    sample_type: str | None = None
-    sample_nr: str | None = None
-
-    # Status
+    name: str | None = Field(default=None, min_length=1)
+    category: DeviceCategory | None = None
     status: DeviceStatus | None = None
-    status_note: str | None = None
-
-    # Organization info
-    location: str | None = None
-    project: str | None = None
-    sample_owner: str | None = None
-    picture_link: str | None = None
-
-    # Misc metadata
-    software_bundle: str | None = None
-    hardware_link: str | None = None
-    comment: str | None = None
-
-    # Audit
-    last_editor: str | None = None
-
-    # Journal metadata (not stored on device, used for journal entry creation)
-    journal_text: str | None = None
-    journal_category: JournalCategory | None = None
 
 
 class DeviceQuery(PaginationParams):
-    """Defines the available query parameters for filtering devices with pagination."""
+    """Query parameters for filtering Devices."""
 
-    device_id: str | None = None
+    category: DeviceCategory | None = None
     status: DeviceStatus | None = None
-    manufacturer: str | None = None
-    product_category: str | None = None
-    product_name: str | None = None
-    sample_type: str | None = None
-    sample_id: str | None = None
-    location: str | None = None
-    project: str | None = None
-    creator: str | None = None
-    q: str | None = None  # Text search across multiple fields
-    id_search: str | None = None  # Quick search by Device ID or Sample ID only
-
-
-class DeviceJournalEntry(BaseModel):
-    """Represents an immutable journal entry for a device."""
-
-    device_version: str = Field(..., alias="_id")  # UUID
-    device_id: str
-    timestamp: datetime = Field(default_factory=now)
-    editor: str
-    category: JournalCategory | None = None
-    text: str
-    data: dict[str, Any]  # Full JSON snapshot of device at this point in time
-
-
-class DeviceJournalEntrySummary(BaseModel):
-    """Represents a journal entry without the full device snapshot data.
-
-    This lighter model is optimized for list views where full snapshots
-    are not needed, significantly reducing response payload size.
-    """
-
-    device_version: str = Field(..., alias="_id")  # UUID
-    device_id: str
-    timestamp: datetime
-    editor: str
-    category: JournalCategory | None = None
-    text: str
-
-
-class DeviceJournalEntryCreate(BaseModel):
-    """Represents the data required to create a device journal entry.
-
-    Note: device_id and data are not included here as they are derived by the
-    route handler from the URL path and current device state.
-    """
-
-    editor: str
-    category: JournalCategory | None = None
-    text: str
-
-
-class DeviceUpdatePreview(BaseModel):
-    """Preview of a device update showing suggested journal text."""
-
-    suggested_text: str
-    changed_fields: list[str]
+    q: str | None = None
 
 
 # ============================================================================

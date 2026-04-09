@@ -3,75 +3,98 @@
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { MainLayout } from "@/components/layout/main-layout"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { DeviceForm } from "@/components/devices/device-form"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useDevicesApi } from "@/lib/hooks/use-api"
 import { useToast } from "@/lib/hooks/use-toast"
-import { ArrowLeft } from "lucide-react"
-import type { DeviceCreateFormData, DeviceUpdateFormData } from "@/lib/schemas/device-schema"
+import { DeviceCategory, DeviceCategoryLabels } from "@/types/device"
 
 export default function AddDevicePage() {
   const router = useRouter()
   const { toast } = useToast()
   const devicesApi = useDevicesApi()
+  const [name, setName] = useState("")
+  const [category, setCategory] = useState<DeviceCategory | "">("")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Mock current user - in production, get from auth context
-  const currentUser = "current-user" // TODO: Get from auth context
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim() || !category) return
 
-  const handleSubmit = async (data: DeviceCreateFormData | DeviceUpdateFormData) => {
     try {
       setIsSubmitting(true)
-      // Type assertion needed due to form union type
-      const createdDevice = await devicesApi.create(data as any)
+      const created = await devicesApi.create({
+        name: name.trim(),
+        category: category as DeviceCategory,
+      })
 
       toast({
         title: "Device Created",
-        description: `Device ${createdDevice.device_id} has been created successfully.`,
+        description: `Device ${created.name} (${created.device_id}) has been created.`,
       })
 
-      // Redirect to the newly created device's detail page
-      router.push(`/devices/${createdDevice.device_id}`)
+      router.push(`/devices/${created.device_id}`)
     } catch (error) {
-      console.error("Failed to create device:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create device. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to create device.",
         variant: "destructive",
       })
-      throw error
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const handleCancel = () => {
-    router.push("/devices")
-  }
-
   return (
     <MainLayout backLink={{ href: "/devices", label: "Back to Devices" }}>
-      <div className="max-w-7xl space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Create New Device</h1>
-          <div className="w-24" /> {/* Spacer for center alignment */}
-        </div>
+      <div className="max-w-2xl space-y-6">
+        <h1 className="text-2xl font-bold">Add Device</h1>
 
-        {/* Phase 2.2 Notice */}
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <p className="text-sm text-blue-900 dark:text-blue-100">
-            <strong>Note:</strong> Some dropdowns such as Manufacturer, Product Category, Product Name, and Product Type will be available in Phase 2.2.
-          </p>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Device Information</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Category *</Label>
+                <Select value={category} onValueChange={(v) => setCategory(v as DeviceCategory)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DeviceCategory.PC}>{DeviceCategoryLabels[DeviceCategory.PC]}</SelectItem>
+                    <SelectItem value={DeviceCategory.TEST_RIG}>{DeviceCategoryLabels[DeviceCategory.TEST_RIG]}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-        {/* Device Form */}
-        <DeviceForm
-          mode="create"
-          onSubmit={handleSubmit}
-          onCancel={handleCancel}
-          currentUser={currentUser}
-        />
+              <div className="space-y-2">
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={category === DeviceCategory.PC ? "e.g. XPS, patrickpc" : "e.g. Logitech G29, Fanatec DD Pro"}
+                  disabled={isSubmitting}
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button type="submit" disabled={isSubmitting || !name.trim() || !category}>
+                  {isSubmitting ? "Creating..." : "Create Device"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => router.push("/devices")}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </MainLayout>
   )

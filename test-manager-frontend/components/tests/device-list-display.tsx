@@ -103,19 +103,9 @@ export function DeviceListDisplay({ devices, testId, headerAction }: DeviceListD
                         <DeviceStatusBadge status={deviceDetail.status} />
                       </div>
 
-                      {/* Sample ID */}
-                      <div className="text-sm text-muted-foreground">
-                        Sample: {deviceDetail.sample_id}
-                      </div>
-
-                      {/* Product */}
+                      {/* Name and category */}
                       <div className="text-sm">
-                        {deviceDetail.manufacturer} - {deviceDetail.product_name}
-                      </div>
-
-                      {/* Location */}
-                      <div className="text-sm text-muted-foreground">
-                        Location: {deviceDetail.location}
+                        {deviceDetail.name}
                       </div>
 
                       {/* Version (if captured) */}

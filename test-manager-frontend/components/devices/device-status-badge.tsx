@@ -1,8 +1,3 @@
-/**
- * Device Status Badge Component
- * Displays a colored badge for Device status with industrial professional colors
- */
-
 import { memo } from "react"
 import { Badge } from "@/components/ui/badge"
 import { DeviceStatus, DeviceStatusLabels } from "@/types/device"
@@ -13,25 +8,17 @@ interface DeviceStatusBadgeProps {
 
 export const DeviceStatusBadge = memo(function DeviceStatusBadge({ status }: DeviceStatusBadgeProps) {
   const variants = {
-    [DeviceStatus.CREATED]: {
-      variant: "info" as const,
-      label: DeviceStatusLabels[DeviceStatus.CREATED],
-    },
-    [DeviceStatus.SETUP]: {
-      variant: "warning" as const,
-      label: DeviceStatusLabels[DeviceStatus.SETUP],
-    },
-    [DeviceStatus.STORED]: {
+    [DeviceStatus.ACTIVE]: {
       variant: "success" as const,
-      label: DeviceStatusLabels[DeviceStatus.STORED],
+      label: DeviceStatusLabels[DeviceStatus.ACTIVE],
     },
-    [DeviceStatus.SCRAPPED]: {
+    [DeviceStatus.INACTIVE]: {
       variant: "destructive" as const,
-      label: DeviceStatusLabels[DeviceStatus.SCRAPPED],
+      label: DeviceStatusLabels[DeviceStatus.INACTIVE],
     },
   }
 
-  const config = variants[status] || variants[DeviceStatus.CREATED]
+  const config = variants[status] || variants[DeviceStatus.ACTIVE]
 
   return (
     <Badge variant={config.variant} className="font-medium">

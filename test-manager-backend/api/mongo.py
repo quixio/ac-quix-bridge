@@ -56,25 +56,10 @@ def connect(settings: MongoSettings) -> None:
     )
 
     # Devices collection
+    _mongo.devices.create_index("category")
     _mongo.devices.create_index("status")
-    _mongo.devices.create_index("location")
-    _mongo.devices.create_index("product_category")
-    _mongo.devices.create_index("product_name")
-    _mongo.devices.create_index("manufacturer")
-    _mongo.devices.create_index("sample_type")
-    _mongo.devices.create_index("sample_id")
-    _mongo.devices.create_index("creator")
-    _mongo.devices.create_index("created_at")  # For sorting
-
-    # Text index for Device search
-    _mongo.devices.create_index(
-        [
-            ("device_id", "text"),
-            ("manufacturer", "text"),
-            ("product_name", "text"),
-            ("sample_id", "text"),
-        ]
-    )
+    _mongo.devices.create_index("name")
+    _mongo.devices.create_index([("name", "text")])
 
     # Device Journal collection
     _mongo.device_journal.create_index("device_id")

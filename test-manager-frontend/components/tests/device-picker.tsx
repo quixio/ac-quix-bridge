@@ -129,11 +129,9 @@ export function DevicePicker({ value, onChange, error }: DevicePickerProps) {
                     className="w-full px-4 py-2 text-left hover:bg-muted transition-colors"
                   >
                     <div className="font-medium">{device.device_id}</div>
-                    {device.sample_id && (
-                      <div className="text-sm text-muted-foreground">
-                        {device.sample_id}
-                      </div>
-                    )}
+                    <div className="text-sm text-muted-foreground">
+                      {device.name}
+                    </div>
                   </button>
                 ))}
               </div>

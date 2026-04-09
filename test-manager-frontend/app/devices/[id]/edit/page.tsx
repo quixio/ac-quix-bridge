@@ -1,17 +1,18 @@
 "use client"
 
 import { useParams, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { MainLayout } from "@/components/layout/main-layout"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { DeviceForm } from "@/components/devices/device-form"
-import { JournalMetadataDialog } from "@/components/devices/journal-metadata-dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useDevice } from "@/lib/hooks/use-devices"
 import { useDevicesApi } from "@/lib/hooks/use-api"
 import { useToast } from "@/lib/hooks/use-toast"
-import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowLeft } from "lucide-react"
-import type { Device, DeviceUpdatePreview } from "@/types/device"
-import type { DeviceCreateFormData, DeviceUpdateFormData } from "@/lib/schemas/device-schema"
+import { DeviceCategory, DeviceCategoryLabels, DeviceStatus } from "@/types/device"
 
 export default function EditDevicePage() {
   const params = useParams()
@@ -19,149 +20,51 @@ export default function EditDevicePage() {
   const { toast } = useToast()
   const devicesApi = useDevicesApi()
   const deviceId = params.id as string
-
-  const [device, setDevice] = useState<Device | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { device, loading } = useDevice(deviceId)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [name, setName] = useState<string | null>(null)
+  const [category, setCategory] = useState<DeviceCategory | null>(null)
+  const [status, setStatus] = useState<DeviceStatus | null>(null)
 
-  // Preview dialog state
-  const [previewDialogOpen, setPreviewDialogOpen] = useState(false)
-  const [previewData, setPreviewData] = useState<DeviceUpdatePreview | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [pendingFormData, setPendingFormData] = useState<DeviceUpdateFormData | null>(null)
-  const [newDeviceData, setNewDeviceData] = useState<Device | null>(null)
+  const formName = name ?? device?.name ?? ""
+  const formCategory = category ?? device?.category ?? DeviceCategory.PC
+  const formStatus = status ?? device?.status ?? DeviceStatus.ACTIVE
 
-  // Mock current user - in production, get from auth context
-  const currentUser = "current-user" // TODO: Get from auth context
-
-  // Fetch device data on mount
-  useEffect(() => {
-    const fetchDevice = async () => {
-      try {
-        setLoading(true)
-        const data = await devicesApi.get(deviceId)
-        setDevice(data)
-      } catch (error) {
-        console.error("Failed to fetch device:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load device data. Please try again.",
-          variant: "destructive",
-        })
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchDevice()
-  }, [deviceId, toast])
-
-  // Step 1: Form submit -> fetch preview from backend
-  const handleSubmit = async (data: DeviceCreateFormData | DeviceUpdateFormData) => {
-    if (!device) return
-
-    try {
-      setPreviewLoading(true)
-      setPendingFormData(data as DeviceUpdateFormData)
-
-      // Fetch preview from backend (without journal_text)
-      const { journal_text, ...dataWithoutJournalText } = data
-      const preview = await devicesApi.preview(deviceId, dataWithoutJournalText)
-
-      // Merge form data with original device to create newData for diff
-      const mergedData: Device = {
-        ...device,
-        ...dataWithoutJournalText,
-        // Update sample_id if sample_type or sample_nr changed
-        sample_id: dataWithoutJournalText.sample_type
-          ? dataWithoutJournalText.sample_nr
-            ? `${dataWithoutJournalText.sample_type}-${dataWithoutJournalText.sample_nr}`
-            : dataWithoutJournalText.sample_type
-          : device.sample_id,
-      }
-
-      setPreviewData(preview)
-      setNewDeviceData(mergedData)
-      setPreviewDialogOpen(true)
-    } catch (error) {
-      console.error("Failed to fetch preview:", error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to load preview. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setPreviewLoading(false)
-    }
-  }
-
-  // Step 2: User confirms in preview dialog -> actually save with journal text
-  const handleConfirmSave = async (journalText: string) => {
-    if (!pendingFormData) return
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formName.trim()) return
 
     try {
       setIsSubmitting(true)
-
-      // Add journal text to the pending form data
-      const finalData = {
-        ...pendingFormData,
-        journal_text: journalText,
-      }
-
-      const updatedDevice = await devicesApi.update(deviceId, finalData)
+      await devicesApi.update(deviceId, {
+        name: formName.trim(),
+        category: formCategory,
+        status: formStatus,
+      })
 
       toast({
         title: "Device Updated",
-        description: `Device ${updatedDevice.device_id} has been updated successfully.`,
+        description: `Device ${deviceId} has been updated.`,
       })
 
-      // Close dialog and redirect
-      setPreviewDialogOpen(false)
       router.push(`/devices/${deviceId}`)
     } catch (error) {
-      console.error("Failed to update device:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update device. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to update device.",
         variant: "destructive",
       })
-      throw error
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const handleCancel = () => {
-    router.push(`/devices/${deviceId}`)
-  }
-
-  if (loading) {
+  if (loading || !device) {
     return (
       <MainLayout backLink={{ href: `/devices/${deviceId}`, label: "Back to Device" }}>
-        <div className="max-w-7xl space-y-6">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">Edit Device</h1>
-            <div className="w-24" />
-          </div>
-
-          {/* Loading skeletons */}
-          <div className="space-y-6">
-            <Skeleton className="h-64 w-full" />
-            <Skeleton className="h-64 w-full" />
-            <Skeleton className="h-64 w-full" />
-          </div>
-        </div>
-      </MainLayout>
-    )
-  }
-
-  if (!device) {
-    return (
-      <MainLayout backLink={{ href: "/devices", label: "Back to Devices" }}>
-        <div className="max-w-7xl space-y-6">
-          <div className="text-center py-12">
-            <p className="text-lg text-muted-foreground">Device not found</p>
-          </div>
+        <div className="max-w-2xl space-y-6">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-48 w-full" />
         </div>
       </MainLayout>
     )
@@ -169,41 +72,69 @@ export default function EditDevicePage() {
 
   return (
     <MainLayout backLink={{ href: `/devices/${deviceId}`, label: "Back to Device" }}>
-      <div className="max-w-7xl space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Edit Device: {deviceId}</h1>
-        <div className="w-24" /> {/* Spacer for center alignment */}
-      </div>
+      <div className="max-w-2xl space-y-6">
+        <h1 className="text-2xl font-bold">Edit Device</h1>
 
-      {/* Phase 2.2 Notice */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-        <p className="text-sm text-blue-900 dark:text-blue-100">
-          <strong>Note:</strong> Some dropdowns such as Manufacturer, Product Category, Product Name, and Product Type will be available for editing in Phase 2.2.
-        </p>
-      </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Device Information</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Device ID</Label>
+                <Input value={deviceId} disabled />
+              </div>
 
-      {/* Device Form */}
-      <DeviceForm
-        mode="edit"
-        device={device}
-        onSubmit={handleSubmit}
-        onCancel={handleCancel}
-        currentUser={currentUser}
-      />
+              <div className="space-y-2">
+                <Label>Category *</Label>
+                <Select value={formCategory} onValueChange={(v) => setCategory(v as DeviceCategory)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DeviceCategory.PC}>{DeviceCategoryLabels[DeviceCategory.PC]}</SelectItem>
+                    <SelectItem value={DeviceCategory.TEST_RIG}>{DeviceCategoryLabels[DeviceCategory.TEST_RIG]}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-      {/* Journal Metadata Dialog (with preview) */}
-      {device && newDeviceData && (
-        <JournalMetadataDialog
-          open={previewDialogOpen}
-          onOpenChange={setPreviewDialogOpen}
-          originalData={device}
-          newData={newDeviceData}
-          preview={previewData}
-          loading={previewLoading}
-          onConfirm={handleConfirmSave}
-        />
-      )}
+              <div className="space-y-2">
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  value={formName}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. XPS, Logitech G29"
+                  disabled={isSubmitting}
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={formStatus} onValueChange={(v) => setStatus(v as DeviceStatus)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DeviceStatus.ACTIVE}>Active</SelectItem>
+                    <SelectItem value={DeviceStatus.INACTIVE}>Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button type="submit" disabled={isSubmitting || !formName.trim()}>
+                  {isSubmitting ? "Saving..." : "Save Changes"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => router.push(`/devices/${deviceId}`)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </MainLayout>
   )

@@ -341,10 +341,7 @@ export default function Home() {
                           <DeviceStatusBadge status={device.status} />
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Sample: {device.sample_id}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Location: {device.location}
+                          {device.name}
                         </div>
                       </div>
                     </Link>
