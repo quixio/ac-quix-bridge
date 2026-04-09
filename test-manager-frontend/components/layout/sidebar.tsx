@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, FileText, Box, Server, ChevronLeft, Settings, Sliders, BarChart3, LineChart } from "lucide-react"
+import { Home, FileText, Box, Server, ChevronLeft, Settings, Sliders, BarChart3, LineChart, Users } from "lucide-react"
 import { cn } from "@/lib/utils/cn"
 import { useSidebar } from "@/lib/contexts/sidebar-context"
 
@@ -17,6 +17,7 @@ const navItems: NavItem[] = [
   { href: "/tests", icon: FileText, label: "Tests" },
   { href: "/devices", icon: Box, label: "Devices" },
   { href: "/environments", icon: Server, label: "Environments" },
+  { href: "/drivers", icon: Users, label: "Drivers" },
 ]
 
 const integrationItems: NavItem[] = [

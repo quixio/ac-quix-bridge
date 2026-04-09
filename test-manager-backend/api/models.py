@@ -538,6 +538,39 @@ class DeploymentInfo(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+# ---------------------------------------------------------------------------
+# Driver
+# ---------------------------------------------------------------------------
+
+
+class Driver(BaseModel):
+    """Represents a driver (operator) in the system."""
+
+    driver_id: str = Field(..., alias="_id")
+    name: str
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)
+
+
+class DriverCreate(BaseModel):
+    """Request model for creating a Driver. ID is auto-generated."""
+
+    name: str = Field(..., min_length=1, description="Driver name")
+
+
+class DriverUpdate(BaseModel):
+    """Request model for updating a Driver."""
+
+    name: str | None = Field(default=None, min_length=1)
+
+
+class DriverQuery(PaginationParams):
+    """Query parameters for filtering Drivers."""
+
+    name: str | None = None
+    q: str | None = None
+
+
 class DeploymentReference(BaseModel):
     """Reference to a selected deployment stored in settings."""
 

@@ -81,6 +81,11 @@ def connect(settings: MongoSettings) -> None:
     _mongo.device_journal.create_index("timestamp")
     _mongo.device_journal.create_index([("device_id", 1), ("timestamp", -1)])  # Compound index
 
+    # Drivers collection
+    _mongo.drivers.create_index("name")
+    _mongo.drivers.create_index("created_at")
+    _mongo.drivers.create_index([("name", "text")])
+
     # Logbook collection
     _mongo.logbook.create_index("test_id")
 

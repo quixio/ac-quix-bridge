@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from . import mongo, influx
 from .routes.admin import router as admin_router
 from .routes.devices import router as devices_router
+from .routes.drivers import router as drivers_router
 from .routes.files import router as files_router
 from .routes.integrations import router as integrations_router
 from .routes.links import router as links_router
@@ -160,6 +161,7 @@ def create_app() -> FastAPI:
 
     application.include_router(tests_router, tags=["tests"], prefix="/api/v1")
     application.include_router(devices_router, tags=["devices"], prefix="/api/v1")
+    application.include_router(drivers_router, tags=["drivers"], prefix="/api/v1")
     application.include_router(lookups_router, tags=["lookups"], prefix="/api/v1")
     application.include_router(logbook_router, tags=["logbook"], prefix="/api/v1")
     application.include_router(files_router, tags=["files"], prefix="/api/v1")

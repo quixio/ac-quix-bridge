@@ -43,6 +43,7 @@ import { adminApi as adminApiRaw } from "../api/admin"
 import { integrationsApi as integrationsApiRaw } from "../api/integrations"
 import { settingsApi as settingsApiRaw } from "../api/settings"
 import { portalApi as portalApiRaw } from "../api/portal"
+import { driversApi as driversApiRaw } from "../api/drivers"
 
 /**
  * Generic helper to create an authenticated API client hook
@@ -206,3 +207,15 @@ export const useSettingsApi = createAuthenticatedApi(settingsApiRaw)
  * ```
  */
 export const usePortalApi = createAuthenticatedApi(portalApiRaw)
+
+/**
+ * Authenticated Drivers API Hook
+ *
+ * @example
+ * ```typescript
+ * const driversApi = useDriversApi()
+ * const drivers = await driversApi.list()
+ * await driversApi.create({ name: "Daniel" })
+ * ```
+ */
+export const useDriversApi = createAuthenticatedApi(driversApiRaw)
