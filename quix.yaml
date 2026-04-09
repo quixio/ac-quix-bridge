@@ -386,59 +386,6 @@ deployments:
         label: Telemetry Explorer
         icon: data_usage
         order: 0
-  - name: AC Video Streaming
-    application: ac_video_streaming
-    version: latest
-    deploymentType: Service
-    resources:
-      cpu: 1000
-      memory: 2000
-      replicas: 1
-    state:
-      enabled: true
-      size: 1
-    variables:
-      - name: output
-        inputType: OutputTopic
-        description: Kafka topic for video frame streaming
-        required: true
-        value: ac-video-frames
-      - name: VIDEO_DISPLAY_INDEX
-        inputType: FreeText
-        description: Display index for screen capture (0 = primary)
-        value: 0
-      - name: VIDEO_FPS
-        inputType: FreeText
-        description: Capture and recording FPS
-        value: 30
-      - name: STREAM_FPS
-        inputType: FreeText
-        description: FPS for Kafka frame streaming (lower than VIDEO_FPS)
-        value: 15
-      - name: VIDEO_OUTPUT_DIR
-        inputType: FreeText
-        description: Directory to save per-lap MP4 recordings
-        value: ./recordings
-      - name: VIDEO_RECORDING_ENABLED
-        inputType: FreeText
-        description: Enable MP4 recording (true/false)
-        value: true
-      - name: VIDEO_STREAM_ENABLED
-        inputType: FreeText
-        description: Enable Kafka frame streaming (true/false)
-        value: true
-      - name: STREAM_WIDTH
-        inputType: FreeText
-        description: Max width for streamed frames (height scales proportionally)
-        value: 1280
-      - name: JPEG_QUALITY
-        inputType: FreeText
-        description: JPEG compression quality for streamed frames (1-100)
-        value: 75
-      - name: BLOB_VIDEO_PREFIX
-        inputType: FreeText
-        description: Blob storage path prefix for MP4 uploads
-        value: ac_video
 
 # This section describes the Topics of the data pipeline
 topics:
