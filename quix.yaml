@@ -369,6 +369,8 @@ deployments:
     application: dodgy-app
     version: latest
     deploymentType: Service
+    blobStorage:
+      bind: true
     resources:
       cpu: 200
       memory: 500
