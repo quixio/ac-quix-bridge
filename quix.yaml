@@ -329,11 +329,10 @@ deployments:
     application: ac_video_streaming
     version: latest
     deploymentType: Service
-    desiredStatus: Stopped
     resources:
       cpu: 500
       memory: 1000
-      replicas: 1
+      replicas: 0
     variables:
       - name: output
         inputType: OutputTopic
