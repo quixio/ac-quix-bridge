@@ -346,6 +346,28 @@ deployments:
         description: Kafka topic to consume video frames from
         required: true
         value: ac-video-frames
+  - name: AC Video Browser
+    application: ac-video-browser
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 500
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: acvideobrowser
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: BLOB_VIDEO_PREFIX
+        inputType: FreeText
+        description: Blob storage path prefix where MP4 recordings are stored
+        value: ac_video
+    blobStorage:
+      bind: true
   - name: Telemetry Explorer
     application: telemetry-comparison
     version: latest

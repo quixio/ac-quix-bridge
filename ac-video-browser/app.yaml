@@ -1,0 +1,11 @@
+name: AC Video Browser
+language: python
+variables:
+  - name: BLOB_VIDEO_PREFIX
+    inputType: FreeText
+    description: Blob storage path prefix where MP4 recordings are stored
+    defaultValue: ac_video
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

@@ -172,14 +172,57 @@ To keep sync tight: run the video capture in the **same process** as `ac-telemet
 - Assetto Corsa must be running with an active driving session
 - For testing the pipeline without AC, you could mock the shared memory reader or use a test video file
 
+## 12. End-to-end test results (2026-04-09)
+
+### What was tested
+
+Full pipeline from local Windows laptop to Quix Cloud and back to browser:
+
+```
+Laptop (mock AC + dxcam) → Kafka (Quix Cloud) → AC Video Viewer (Quix Cloud) → Browser
+```
+
+### Results
+
+| Test | Result | Notes |
+|---|---|---|
+| Local mock capture + Kafka streaming | Working | Mock mode simulates AC session lifecycle, dxcam captures real screen |
+| Quix Cloud viewer (WebSocket) | Working | Public URL serves live video stream from Kafka |
+| Per-lap MP4 recording (local) | Working | 30s laps recorded at 1920x1080 @ 30fps, ~370KB per lap |
+| Pause/resume during recording | Working | Mock pause triggers recording pause, resumes cleanly |
+| Blob storage upload | Not tested | Requires `Quix__BlobStorage__Connection__Json` — not available locally, auto-injected only in Quix Cloud containers |
+
+### Deployment architecture
+
+- **`ac-video-viewer/`** — NEW, deployed to Quix Cloud. FastAPI + Kafka consumer + WebSocket. Public URL: `acvideoviewer-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io`
+- **`ac_video_streaming/`** — runs locally on Windows only (dxcam requirement). Connects to Quix Cloud Kafka via SDK token.
+- The old `AC Video Streaming` cloud deployment was removed from `quix.yaml` (can't run in Linux containers).
+
+### Configuration notes
+
+- Portal API: `https://portal-api.cloud.quix.io` (NOT `platform.quix.io` — SSL handshake fails)
+- Workspace: `quixers-acquixbridge-videostreaming`
+- Python 3.12 required (`confluent-kafka` has no wheels for Python 3.14)
+- FFmpeg required for MP4 recording (`winget install ffmpeg`)
+
+### Next steps — blob storage upload
+
+To enable blob upload from the local machine, the `Quix__BlobStorage__Connection__Json` env var is needed. This is auto-injected in Quix Cloud but must be manually configured for local use. Options:
+
+1. **Ask Steve/DevOps** for the blob storage connection JSON from the workspace settings
+2. **Run recording inside Quix Cloud** — not possible (dxcam requires Windows)
+3. **Upload MP4s via a separate cloud service** — the local source could produce MP4 metadata to a Kafka topic, and a cloud-side service with blob storage access could fetch and store them
+
+This relates to open question #2 (Steve).
+
 ## Open questions for the team
 
 | # | Question | Owner | Status |
 |---|---|---|---|
 | 1 | Which SW to install on AC machine? | Claude | Answered |
-| 2 | Storing in database in blob? | Steve | Pending |
-| 3 | Live stream or after-race file storage? | Claude/Tomas | Claude answered, decision pending from Tomas |
-| 4 | MP4 per lap or per whole race? | Tomas/Onboarding | Pending |
+| 2 | Storing in database in blob? | Steve | **Blocker** — need `Quix__BlobStorage__Connection__Json` for local upload, or alternative approach |
+| 3 | Live stream or after-race file storage? | Claude/Tomas | **Both working locally** — decision pending from Tomas |
+| 4 | MP4 per lap or per whole race? | Tomas/Onboarding | Currently per-lap. Pending decision. |
 | 5 | How to start recording with race start? | Claude/Daniel | Answered |
 | 6 | How to identify the correct display to record? | Claude | Answered |
 | 7 | Store unfinished laps/races? On AC exit store MP4? | Claude | Answered — yes, always store |
@@ -187,3 +230,4 @@ To keep sync tight: run the video capture in the **same process** as `ac-telemet
 | 9 | Disable recording or always on? | Claude | Answered — configurable via env var |
 | 10 | Timestamp synchronization with lap data | Claude | Answered |
 | 11 | Test in local environment with Quix CLI? | Claude | Answered — yes, via `quix run` or local Kafka |
+| 12 | End-to-end cloud test | Ludvik/Claude | **Done** — live streaming works, blob upload blocked on #2 |
