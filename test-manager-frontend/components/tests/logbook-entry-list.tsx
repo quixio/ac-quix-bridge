@@ -80,7 +80,7 @@ export function LogbookEntryList({
 
   // Sort entries by timestamp (newest first)
   const sortedEntries = [...entries].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   )
 
   const entryToDelete = entries.find((e) => e.id === deletingEntryId)

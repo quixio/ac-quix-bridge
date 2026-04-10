@@ -118,7 +118,7 @@ export function Combobox({
             <CommandEmpty>
               {allowCustomValue && searchValue ? (
                 <div className="py-6 text-center text-sm text-muted-foreground">
-                  Using "{searchValue}" for partial search
+                  Using &ldquo;{searchValue}&rdquo; for partial search
                 </div>
               ) : (
                 emptyText
