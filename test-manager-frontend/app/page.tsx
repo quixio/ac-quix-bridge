@@ -109,14 +109,6 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="rounded-lg border bg-background p-4">
-                  <CheckCircle className="h-8 w-8 mb-3 text-primary" />
-                  <h3 className="font-semibold mb-2">Ensure Quality</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Link multiple devices to tests, track safety requirements,
-                    and maintain comprehensive documentation for compliance.
-                  </p>
-                </div>
               </div>
 
               {/* Quick Actions */}
