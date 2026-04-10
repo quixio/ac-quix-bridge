@@ -10,6 +10,8 @@ compose.local.yaml
 .venv/
 certificates/
 .quix.yaml.variables
+ac-machine-secrets/
+recordings/
 
 compose.local.yaml
 .secrets
