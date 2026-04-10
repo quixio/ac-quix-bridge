@@ -199,10 +199,30 @@ deployments:
         inputType: FreeText
         required: true
         value: mongodb
+      - name: Quix__BlobStorage__Connection__Json
+        inputType: Secret
+        required: true
+        secretKey: Quix__BlobStorage__Connection__Json
+      - name: INFLUXDB_USER
+        inputType: Secret
+        required: true
+        secretKey: INFLUXDB_USER
+      - name: INFLUXDB_PASSWORD
+        inputType: Secret
+        required: true
+        secretKey: INFLUXDB_PASSWORD
+      - name: INFLUXDB_HOST
+        inputType: FreeText
+        required: true
+        value: influxdb
+      - name: INFLUXDB_PORT
+        inputType: FreeText
+        required: true
+        value: 8086
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true
-        value: http://dynamic-configuration-manager
+        value: https://config-api-svc-quixers-acquixbridge-testmanager.az-france-0.app.quix.io
       - name: MEASUREMENTS_URL
         inputType: FreeText
         required: true
