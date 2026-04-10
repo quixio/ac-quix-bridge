@@ -124,6 +124,7 @@ def create_test(
                 "driver": test_data.driver.lower(),
                 "requirements": test_data.requirements,
             },
+            "replace": True,
         },
     )
     try:
