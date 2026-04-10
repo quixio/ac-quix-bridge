@@ -40,6 +40,7 @@ def list_sessions():
     if not blob_fs:
         raise HTTPException(503, "Blob storage not connected")
     try:
+        blob_fs.invalidate_cache(BLOB_PREFIX)
         entries = blob_fs.ls(BLOB_PREFIX, detail=False)
         sessions = []
         for entry in entries:
