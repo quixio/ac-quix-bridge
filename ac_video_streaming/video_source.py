@@ -18,6 +18,7 @@ State machine (mirrors ac-telemetry-source/ac_source.py):
 import base64
 import logging
 import os
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -177,6 +178,30 @@ class ACVideoSource(Source):
         interval = 1.0 / self._fps
         next_tick = None
 
+        # Background thread for Kafka streaming (decoupled from capture loop)
+        stream_frame_lock = threading.Lock()
+        stream_frame_data = {"frame": None, "session_id": "", "timestamp_ms": 0, "laps": 0}
+        stream_running = True
+
+        def _stream_thread():
+            """Publishes frames to Kafka in a background thread so it doesn't slow capture."""
+            last_frame_id = None
+            while stream_running and self.running:
+                with stream_frame_lock:
+                    frame = stream_frame_data["frame"]
+                    sid = stream_frame_data["session_id"]
+                    ts = stream_frame_data["timestamp_ms"]
+                    laps = stream_frame_data["laps"]
+                if frame is not None and id(frame) != last_frame_id:
+                    last_frame_id = id(frame)
+                    self._publish_frame(frame, sid, ts, laps)
+                else:
+                    time.sleep(0.01)
+
+        if self._stream_enabled:
+            streamer = threading.Thread(target=_stream_thread, daemon=True)
+            streamer.start()
+
         while self.running:
             # ---- Connect to AC shared memory ----
             if not reader.is_open:
@@ -191,18 +216,7 @@ class ACVideoSource(Source):
                     next_tick = None
                     continue
 
-            # ---- Initialize camera ----
-            if camera is None:
-                camera, display_size = self._init_camera()
-                if camera is None:
-                    time.sleep(5)
-                    continue
-
-            if next_tick is None:
-                next_tick = time.perf_counter()
-            next_tick += interval
-
-            # ---- Read AC state ----
+            # ---- Read AC state (before camera init to avoid blocking game) ----
             try:
                 gfx = reader.read_graphics()
             except Exception:
@@ -221,72 +235,92 @@ class ACVideoSource(Source):
             completed_laps = gfx["completedLaps"]
             current_time = gfx["iCurrentTime"]
 
-            # ---- State machine ----
+            # ---- Initialize camera only when going LIVE (avoids blocking game load) ----
+            if camera is None and status == "live":
+                logger.info("AC is LIVE — initializing screen capture...")
+                camera, display_size = self._init_camera()
+                if camera is None:
+                    prev_status = status
+                    prev_current_time = current_time
+                    time.sleep(5)
+                    continue
 
-            if status == "live":
-                new_session = self._is_new_session(
-                    prev_status, status, prev_current_time, current_time
+            # Wait for camera + LIVE status before entering main loop
+            if camera is None or status != "live":
+                if status == "off" and prev_status and prev_status != "off":
+                    self._finalize_recording(recorder, "session ended", session_id or "")
+                    session_id = None
+                    prev_completed_laps = None
+                elif status == "pause" and prev_status == "live":
+                    if recorder and recorder.is_recording:
+                        recorder.pause()
+                    logger.info("Recording paused")
+                prev_status = status
+                prev_current_time = current_time
+                time.sleep(0.1)
+                continue
+
+            if next_tick is None:
+                next_tick = time.perf_counter()
+            next_tick += interval
+
+            # ---- State machine (status is LIVE here) ----
+
+            new_session = self._is_new_session(
+                prev_status, status, prev_current_time, current_time
+            )
+
+            if new_session:
+                # Finalize any prior recording before starting fresh
+                self._finalize_recording(recorder, "new session", session_id or "")
+                session_id = self._new_session_id()
+                static_data = reader.read_static()
+                logger.info(
+                    "New session: %s (%s @ %s)",
+                    session_id, static_data["carModel"], static_data["track"],
                 )
+                prev_completed_laps = completed_laps
+                if recorder:
+                    recorder.start_lap(session_id, completed_laps, *display_size)
 
-                if new_session:
-                    # Finalize any prior recording before starting fresh
-                    self._finalize_recording(recorder, "new session", session_id or "")
-                    session_id = self._new_session_id()
-                    static_data = reader.read_static()
-                    logger.info(
-                        "New session: %s (%s @ %s)",
-                        session_id, static_data["carModel"], static_data["track"],
-                    )
-                    prev_completed_laps = completed_laps
-                    if recorder:
-                        recorder.start_lap(session_id, completed_laps, *display_size)
-
-                elif prev_status == "pause":
-                    # Resume from pause
-                    if recorder and recorder.is_recording:
-                        recorder.resume()
-                    logger.info("Recording resumed")
-
-                # Lap change detection
-                if (
-                    not new_session
-                    and prev_completed_laps is not None
-                    and completed_laps > prev_completed_laps
-                ):
-                    if recorder and recorder.is_recording:
-                        path = recorder.finish_lap()
-                        logger.info("Lap %d recorded: %s", prev_completed_laps, path)
-                        self._upload_to_blob(path, session_id)
-                        recorder.start_lap(session_id, completed_laps, *display_size)
-                    prev_completed_laps = completed_laps
-
-                # Capture frame
-                frame = camera.grab()
-                if frame is not None:
-                    timestamp_ms = int(time.time() * 1000)
-
-                    # Record to MP4
-                    if recorder and recorder.is_recording:
-                        recorder.write_frame(frame)
-
-                    # Stream to Kafka (throttled to STREAM_FPS)
-                    if self._stream_enabled and stream_interval > 0:
-                        frame_count += 1
-                        if frame_count >= stream_interval:
-                            frame_count = 0
-                            self._publish_frame(
-                                frame, session_id, timestamp_ms, completed_laps
-                            )
-
-            elif status == "pause" and prev_status == "live":
+            elif prev_status == "pause":
+                # Resume from pause
                 if recorder and recorder.is_recording:
-                    recorder.pause()
-                logger.info("Recording paused")
+                    recorder.resume()
+                logger.info("Recording resumed")
 
-            elif status == "off" and prev_status and prev_status != "off":
-                self._finalize_recording(recorder, "session ended", session_id or "")
-                session_id = None
-                prev_completed_laps = None
+            # Lap change detection
+            if (
+                not new_session
+                and prev_completed_laps is not None
+                and completed_laps > prev_completed_laps
+            ):
+                if recorder and recorder.is_recording:
+                    path = recorder.finish_lap()
+                    logger.info("Lap %d recorded: %s", prev_completed_laps, path)
+                    self._upload_to_blob(path, session_id)
+                    recorder.start_lap(session_id, completed_laps, *display_size)
+                prev_completed_laps = completed_laps
+
+            # Capture frame
+            frame = camera.grab()
+            if frame is not None:
+                timestamp_ms = int(time.time() * 1000)
+
+                # Record to MP4 (fast — just writes raw bytes to ffmpeg pipe)
+                if recorder and recorder.is_recording:
+                    recorder.write_frame(frame)
+
+                # Hand frame to stream thread (non-blocking)
+                if self._stream_enabled and stream_interval > 0:
+                    frame_count += 1
+                    if frame_count >= stream_interval:
+                        frame_count = 0
+                        with stream_frame_lock:
+                            stream_frame_data["frame"] = frame
+                            stream_frame_data["session_id"] = session_id
+                            stream_frame_data["timestamp_ms"] = timestamp_ms
+                            stream_frame_data["laps"] = completed_laps
 
             prev_status = status
             prev_current_time = current_time
@@ -297,6 +331,7 @@ class ACVideoSource(Source):
                 time.sleep(next_tick - now)
 
         # ---- Cleanup on source shutdown ----
+        stream_running = False
         self._finalize_recording(recorder, "source stopped", session_id or "")
         if camera is not None:
             del camera
