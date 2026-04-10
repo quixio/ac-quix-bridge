@@ -328,6 +328,7 @@ deployments:
   - name: AC Video Streaming
     application: ac_video_streaming
     deploymentType: Service
+    version: f98d84a 
     resources:
       cpu: 500
       memory: 1000
