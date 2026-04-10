@@ -332,7 +332,7 @@ deployments:
     resources:
       cpu: 500
       memory: 1000
-      replicas: 0
+      replicas: 1
     variables:
       - name: output
         inputType: OutputTopic
