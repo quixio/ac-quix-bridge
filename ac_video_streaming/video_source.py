@@ -104,7 +104,7 @@ class ACVideoSource(Source):
         return True
 
     def _upload_to_blob(self, local_path: str, session_id: str):
-        """Upload a finalized MP4 to blob storage."""
+        """Upload a finalized MP4 to blob storage, then delete the local file."""
         if not self._blob_fs or not local_path:
             return
         filename = os.path.basename(local_path)
@@ -114,8 +114,10 @@ class ACVideoSource(Source):
             with open(local_path, "rb") as f:
                 self._blob_fs.pipe(blob_path, f.read())
             logger.info("Uploaded to blob storage: %s", blob_path)
+            os.remove(local_path)
+            logger.info("Deleted local file: %s", filename)
         except Exception:
-            logger.exception("Failed to upload %s to blob storage", filename)
+            logger.exception("Failed to upload %s to blob storage (local file kept)", filename)
 
     def _finalize_recording(self, recorder: VideoRecorder | None, reason: str, session_id: str = ""):
         if recorder and recorder.is_recording:
