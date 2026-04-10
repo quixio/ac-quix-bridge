@@ -106,6 +106,8 @@ class ACGraphicsReaderMock:
             "iCurrentTime": current_time,
             "flag": "none",
             "normalizedCarPosition": (current_time % 60000) / 60000.0,
+            "isInPit": False,
+            "isInPitLane": False,
         }
 
     def read_static(self) -> dict:

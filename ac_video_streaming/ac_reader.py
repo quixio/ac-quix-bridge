@@ -77,6 +77,8 @@ class ACGraphicsReader:
             "iCurrentTime": g.iCurrentTime,
             "flag": FLAG_TYPES.get(g.flag, str(g.flag)),
             "normalizedCarPosition": g.normalizedCarPosition,
+            "isInPit": bool(g.isInPit),
+            "isInPitLane": bool(g.isInPitLane),
         }
 
     def read_static(self) -> dict:
