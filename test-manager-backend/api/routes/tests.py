@@ -109,12 +109,15 @@ def create_test(
     env_name = env["name"].lower().replace(" ", "_").replace("'", "") if env else test_data.environment_id
 
     # Send config to Dynamic Config Manager
+    valid_from = datetime.now(timezone.utc).isoformat()
     response = config_api.post(
         "/api/v1/configurations",
         json={
             "metadata": {
                 "type": "experiment",
                 "target_key": pc_hostname,
+                "category": "ac-telemetry",
+                "valid_from": valid_from,
             },
             "content": {
                 "test_id": test_id,
@@ -266,12 +269,15 @@ def update_test(
     env = mongo.environments.find_one({"_id": test.environment_id})
     env_name = env["name"].lower().replace(" ", "_").replace("'", "") if env else test.environment_id
 
+    valid_from = datetime.now(timezone.utc).isoformat()
     response = config_api.post(
         "/api/v1/configurations",
         json={
             "metadata": {
                 "type": "experiment",
                 "target_key": pc_hostname,
+                "category": "ac-telemetry",
+                "valid_from": valid_from,
             },
             "content": {
                 "test_id": test.test_id,
