@@ -234,9 +234,10 @@ class ACVideoSource(Source):
             status = gfx["status"]
             completed_laps = gfx["completedLaps"]
             current_time = gfx["iCurrentTime"]
+            in_pit = gfx.get("isInPit", False) or gfx.get("isInPitLane", False)
 
-            # ---- Initialize camera only when going LIVE (avoids blocking game load) ----
-            if camera is None and status == "live":
+            # ---- Initialize camera only when LIVE and out of pit ----
+            if camera is None and status == "live" and not in_pit:
                 logger.info("AC is LIVE — initializing screen capture...")
                 camera, display_size = self._init_camera()
                 if camera is None:
@@ -245,8 +246,8 @@ class ACVideoSource(Source):
                     time.sleep(5)
                     continue
 
-            # Wait for camera + LIVE status before entering main loop
-            if camera is None or status != "live":
+            # Wait for camera + LIVE + out of pit before entering main loop
+            if camera is None or status != "live" or in_pit:
                 if status == "off" and prev_status and prev_status != "off":
                     self._finalize_recording(recorder, "session ended", session_id or "")
                     session_id = None
@@ -255,6 +256,9 @@ class ACVideoSource(Source):
                     if recorder and recorder.is_recording:
                         recorder.pause()
                     logger.info("Recording paused")
+                elif in_pit and recorder and recorder.is_recording:
+                    recorder.pause()
+                    logger.info("In pit — recording paused")
                 prev_status = status
                 prev_current_time = current_time
                 time.sleep(0.1)
