@@ -190,13 +190,21 @@ Laptop (mock AC + dxcam) → Kafka (Quix Cloud) → AC Video Viewer (Quix Cloud)
 | Quix Cloud viewer (WebSocket) | Working | Public URL serves live video stream from Kafka |
 | Per-lap MP4 recording (local) | Working | 30s laps recorded at 1920x1080 @ 30fps, ~370KB per lap |
 | Pause/resume during recording | Working | Mock pause triggers recording pause, resumes cleanly |
-| Blob storage upload | Not tested | Requires `Quix__BlobStorage__Connection__Json` — not available locally, auto-injected only in Quix Cloud containers |
+| Blob storage upload | Working | Per-lap MP4s uploaded to S3 bucket `quixdatalaketest` under `ac_video/` prefix |
 
 ### Deployment architecture
 
-- **`ac-video-viewer/`** — NEW, deployed to Quix Cloud. FastAPI + Kafka consumer + WebSocket. Public URL: `acvideoviewer-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io`
-- **`ac_video_streaming/`** — runs locally on Windows only (dxcam requirement). Connects to Quix Cloud Kafka via SDK token.
+- **`ac_video_streaming/`** — runs locally on Windows only (dxcam requirement). Connects to Quix Cloud Kafka via SDK token. Records per-lap MP4s and uploads to S3.
+- **`ac-video-viewer/`** — deployed to Quix Cloud. FastAPI + Kafka consumer + WebSocket. Serves live video stream.
+- **`ac-video-browser/`** — deployed to Quix Cloud. FastAPI web app for browsing and downloading recorded session MP4s from S3.
 - The old `AC Video Streaming` cloud deployment was removed from `quix.yaml` (can't run in Linux containers).
+
+### Public URLs (Quix Cloud)
+
+| Service | URL |
+|---|---|
+| Live video stream | `acvideoviewer-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io` |
+| Video browser / download | `acvideobrowser-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io` |
 
 ### Configuration notes
 
@@ -204,24 +212,28 @@ Laptop (mock AC + dxcam) → Kafka (Quix Cloud) → AC Video Viewer (Quix Cloud)
 - Workspace: `quixers-acquixbridge-videostreaming`
 - Python 3.12 required (`confluent-kafka` has no wheels for Python 3.14)
 - FFmpeg required for MP4 recording (`winget install ffmpeg`)
+- Blob storage: S3 bucket `quixdatalaketest` in `eu-west-2`, configured via `Quix__BlobStorage__Connection__Json`
 
-### Next steps — blob storage upload
+### S3 storage structure
 
-To enable blob upload from the local machine, the `Quix__BlobStorage__Connection__Json` env var is needed. This is auto-injected in Quix Cloud but must be manually configured for local use. Options:
-
-1. **Ask Steve/DevOps** for the blob storage connection JSON from the workspace settings
-2. **Run recording inside Quix Cloud** — not possible (dxcam requires Windows)
-3. **Upload MP4s via a separate cloud service** — the local source could produce MP4 metadata to a Kafka topic, and a cloud-side service with blob storage access could fetch and store them
-
-This relates to open question #2 (Steve).
+```
+quixdatalaketest/
+  ac_video/
+    session_id=2026-04-10T08-14-25.001Z/
+      2026-04-10T08-14-25.001Z_lap000.mp4
+      2026-04-10T08-14-25.001Z_lap001.mp4
+      2026-04-10T08-14-25.001Z_lap002.mp4
+    session_id=.../
+      ...
+```
 
 ## Open questions for the team
 
 | # | Question | Owner | Status |
 |---|---|---|---|
 | 1 | Which SW to install on AC machine? | Claude | Answered |
-| 2 | Storing in database in blob? | Steve | **Blocker** — need `Quix__BlobStorage__Connection__Json` for local upload, or alternative approach |
-| 3 | Live stream or after-race file storage? | Claude/Tomas | **Both working locally** — decision pending from Tomas |
+| 2 | Storing in database in blob? | Steve | **Answered** — MP4s stored in S3 blob storage, browsable via AC Video Browser web app |
+| 3 | Live stream or after-race file storage? | Claude/Tomas | **Both working** — live stream + per-lap recording + S3 upload |
 | 4 | MP4 per lap or per whole race? | Tomas/Onboarding | Currently per-lap. Pending decision. |
 | 5 | How to start recording with race start? | Claude/Daniel | Answered |
 | 6 | How to identify the correct display to record? | Claude | Answered |
@@ -230,4 +242,4 @@ This relates to open question #2 (Steve).
 | 9 | Disable recording or always on? | Claude | Answered — configurable via env var |
 | 10 | Timestamp synchronization with lap data | Claude | Answered |
 | 11 | Test in local environment with Quix CLI? | Claude | Answered — yes, via `quix run` or local Kafka |
-| 12 | End-to-end cloud test | Ludvik/Claude | **Done** — live streaming works, blob upload blocked on #2 |
+| 12 | End-to-end cloud test | Ludvik/Claude | **Done** — full pipeline working: live stream + recording + S3 upload + browser |

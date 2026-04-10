@@ -47,7 +47,8 @@
       "Read(//c/Users/lbazj/AppData/Local/Microsoft/WinGet/Packages/**)",
       "Read(//c/Users/lbazj/AppData/Local/**)",
       "Bash(ls:*)",
-      "Bash(export PATH=\"$PATH:/c/Users/lbazj/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin\")"
+      "Bash(export PATH=\"$PATH:/c/Users/lbazj/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin\")",
+      "Bash(powershell:*)"
     ],
     "deny": [],
     "ask": []
