@@ -40,10 +40,11 @@ def list_sessions():
     if not blob_fs:
         raise HTTPException(503, "Blob storage not connected")
     try:
-        entries = blob_fs.ls(BLOB_PREFIX)
+        entries = blob_fs.ls(BLOB_PREFIX, detail=False)
         sessions = []
         for entry in entries:
-            name = entry.rsplit("/", 1)[-1]
+            path = entry if isinstance(entry, str) else entry.get("name", "")
+            name = path.rsplit("/", 1)[-1]
             if name.startswith("session_id="):
                 session_id = name.replace("session_id=", "")
                 sessions.append(session_id)
