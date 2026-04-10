@@ -327,7 +327,6 @@ deployments:
         order: 0
   - name: AC Video Streaming
     application: ac_video_streaming
-    version: latest
     deploymentType: Service
     resources:
       cpu: 500
