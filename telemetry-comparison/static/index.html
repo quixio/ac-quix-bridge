@@ -786,21 +786,25 @@ function updateMarker(nd, forceTrack) {
     const valueAnn = [];
     const shown = Math.min(MAX_TRACE_ANNOTATIONS, traces.length);
 
+    // Stack annotations vertically in a fixed column next to the marker line
+    // so they never overlap regardless of where the trace values fall.
+    const ROW_H = 18; // px between stacked labels
     for (let k = 0; k < shown; k++) {
       const t = traces[k];
       const v = interpolateAt(t.x, t.y, nd);
       if (v === null || !isFinite(v)) continue;
       const valStr = (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
       valueAnn.push({
-        xref: 'x', yref: 'y',
-        x: nd, y: v,
+        xref: 'x', yref: 'paper',
+        x: nd, y: 1,
         text: valStr,
         showarrow: false,
         xanchor: 'left',
-        yanchor: 'middle',
+        yanchor: 'top',
         xshift: 6,
+        yshift: -(k * ROW_H) - 2,
         font: { color: t.color, size: 11, family: 'monospace' },
-        bgcolor: 'rgba(15,17,23,0.85)',
+        bgcolor: 'rgba(15,17,23,0.9)',
         bordercolor: t.color,
         borderwidth: 1,
         borderpad: 2,
@@ -810,13 +814,14 @@ function updateMarker(nd, forceTrack) {
     if (traces.length > MAX_TRACE_ANNOTATIONS) {
       valueAnn.push({
         xref: 'x', yref: 'paper',
-        x: nd, y: 0,
-        text: `+${traces.length - MAX_TRACE_ANNOTATIONS} more`,
+        x: nd, y: 1,
+        text: `+${traces.length - MAX_TRACE_ANNOTATIONS}`,
         showarrow: false,
-        xanchor: 'left', yanchor: 'bottom',
+        xanchor: 'left', yanchor: 'top',
         xshift: 6,
+        yshift: -(shown * ROW_H) - 2,
         font: { color: '#8892a4', size: 9, style: 'italic' },
-        bgcolor: 'rgba(15,17,23,0.6)',
+        bgcolor: 'rgba(15,17,23,0.7)',
         borderpad: 1,
       });
     }
