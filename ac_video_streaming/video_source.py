@@ -46,7 +46,7 @@ def _get_blob_fs():
 class ACVideoSource(Source):
     """Captures AC gameplay, records per-lap MP4s, and streams frames to Kafka."""
 
-    def __init__(self, name: str, session_tracker: SessionTracker | None = None):
+    def __init__(self, name: str):
         super().__init__(name=name)
         self._display_index = int(os.environ.get("VIDEO_DISPLAY_INDEX", "0"))
         self._fps = int(os.environ.get("VIDEO_FPS", "30"))
@@ -60,7 +60,9 @@ class ACVideoSource(Source):
         self._recording_width = int(os.environ.get("RECORDING_WIDTH", "1920"))
         self._mock_mode = os.environ.get("AC_MOCK_MODE", "false").lower() == "true"
         self._blob_fs = _get_blob_fs() if self._recording_enabled else None
-        self._session_tracker = session_tracker
+        # SessionTracker is created in run() (the child subprocess) — it holds
+        # a threading.Lock which can't be pickled across processes.
+        self._session_tracker: SessionTracker | None = None
 
     @staticmethod
     def _fallback_session_id() -> str:
@@ -197,7 +199,69 @@ class ACVideoSource(Source):
         from ac_reader import ACGraphicsReader
         return ACGraphicsReader()
 
+    def _start_session_tracker_thread(self):
+        """Spawn a background thread in the Source's subprocess that consumes
+        the ac-telemetry-session topic and feeds self._session_tracker.
+
+        Runs in the child process so that the SessionTracker (with its Lock)
+        never has to be pickled across the process boundary. Uses a fresh
+        QuixStreams Application just to obtain a Kafka Consumer with broker
+        config auto-resolved from Quix__Sdk__Token."""
+        import json
+
+        self._session_tracker = SessionTracker()
+        session_topic_name = os.environ.get("session_input", "ac-telemetry-session")
+        tracker = self._session_tracker
+
+        def _run():
+            consumer = None
+            try:
+                from quixstreams import Application as _App
+                mini_app = _App(
+                    consumer_group=(
+                        f"ac_video_session_tracker_{os.getpid()}_{int(time.time() * 1000)}"
+                    ),
+                    auto_offset_reset="earliest",
+                )
+                consumer = mini_app.get_consumer(auto_commit_enable=False)
+                consumer.subscribe([session_topic_name])
+                logger.info("Session tracker subscribed to %s", session_topic_name)
+            except Exception:
+                logger.exception(
+                    "Session tracker setup failed — video will use fallback "
+                    "session_id and won't be syncable in Telemetry Explorer"
+                )
+                return
+
+            while self.running:
+                try:
+                    msg = consumer.poll(1.0)
+                    if msg is None:
+                        continue
+                    if msg.error():
+                        logger.warning("Session topic consumer error: %s", msg.error())
+                        continue
+                    raw = msg.value()
+                    if raw is None:
+                        continue
+                    if isinstance(raw, bytes):
+                        raw = raw.decode("utf-8", errors="replace")
+                    data = json.loads(raw) if isinstance(raw, str) else raw
+                    tracker.update_from_message(data)
+                except Exception:
+                    logger.exception("Session topic poll error")
+                    time.sleep(0.5)
+
+            try:
+                consumer.close()
+            except Exception:
+                pass
+
+        t = threading.Thread(target=_run, daemon=True, name="session-tracker")
+        t.start()
+
     def run(self):
+        self._start_session_tracker_thread()
         reader = self._create_reader()
         sidecar_hz = float(os.environ.get("SIDECAR_SAMPLE_HZ", "5"))
         recorder = (
