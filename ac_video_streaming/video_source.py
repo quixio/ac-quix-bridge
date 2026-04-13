@@ -404,7 +404,10 @@ class ACVideoSource(Source):
                 )
                 prev_completed_laps = completed_laps
                 if recorder:
-                    recorder.start_lap(session_id, completed_laps, *display_size)
+                    # Lake sink stores lap = completedLaps + 1 (out-lap = "lap 1
+                    # in progress"). Use the same convention here so MP4/sidecar
+                    # filenames align with telemetry lap numbers in the Explorer.
+                    recorder.start_lap(session_id, completed_laps + 1, *display_size)
 
             elif prev_status == "pause":
                 # Resume from pause
@@ -420,9 +423,10 @@ class ACVideoSource(Source):
             ):
                 if recorder and recorder.is_recording:
                     path = recorder.finish_lap()
-                    logger.info("Lap %d recorded: %s", prev_completed_laps, path)
+                    logger.info("Lap %d recorded: %s", prev_completed_laps + 1, path)
                     self._upload_to_blob(path, session_id)
-                    recorder.start_lap(session_id, completed_laps, *display_size)
+                    # Same +1 convention as new-session start_lap above.
+                    recorder.start_lap(session_id, completed_laps + 1, *display_size)
                 prev_completed_laps = completed_laps
 
             # Capture frame

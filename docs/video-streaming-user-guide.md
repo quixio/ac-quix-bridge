@@ -173,7 +173,7 @@ The Telemetry Explorer lets you compare data across multiple sessions and laps w
 - **Synced draggable marker** — a red vertical line on every plot, draggable by mouse. Dragging it on any plot updates all other plots + the track dot simultaneously. Position persists across lap changes and re-plots.
 - **Per-trace value annotations** — up to 6 values per plot are shown **stacked in a column** next to the vertical marker, pinned to the top of the plot. Each label is boxed in the trace's color and never overlaps regardless of where values fall. If more than 6 traces, a "+N" badge appears at the bottom of the stack.
 - **Position readout** — under the track map, shows the current `normalizedCarPosition` as both percentage and meters.
-- **Video placeholder** — reserved area in the track panel where video playback will appear once wall-clock sync is implemented.
+- **Video panel** with bidirectional sync (see "Video sync" below).
 - **Per-plot corner overlay** — each plot has a "Show corners" checkbox next to the title. When enabled, the plot is shaded with corner regions matching the track map colors + T1..Tn labels.
 
 ### How it works under the hood
@@ -188,3 +188,24 @@ The Telemetry Explorer lets you compare data across multiple sessions and laps w
 1. Drop the track CSV into `telemetry-comparison/tracks/<track_name>/layout_xxx.csv`
 2. Update `default_track` in `tracks_config.json` (multi-track support will auto-detect based on the session's `track` field in future iterations)
 3. Redeploy the Telemetry Explorer
+
+### Video sync
+
+When you click Plot, a `<video>` element + lap dropdown appear in the track panel. The dropdown lists every currently-plotted lap; the first one auto-loads.
+
+Two interaction modes:
+
+- **Video playing** — the video drives the marker. Frame updates push the red dot on the track and the vertical line on every plot.
+- **Video paused** — dragging the marker on any plot seeks the video. Grabbing the marker while playing pauses the video and seeks immediately.
+
+Sync data is per-MP4 sidecar JSON (`<mp4>.sync.json` in the same S3 folder) carrying frame index → wall-clock → `normalizedCarPosition` at 5 Hz (configurable via `SIDECAR_SAMPLE_HZ`) plus forced samples at pause boundaries and end-of-lap.
+
+Two requirements for sync to be available:
+1. The video was recorded with the sidecar-writing code (added 2026-04-13). Older MP4s show "Video sync metadata not available" but still play.
+2. The video source successfully adopted the telemetry session_id at lap start (it subscribes to `ac-telemetry-session` on startup). If telemetry wasn't running, the video's session_id won't match the data-lake session_id and the Explorer's lookup returns "No video recorded for session X lap Y".
+
+API endpoints on the Telemetry Explorer:
+- `GET /api/video/{session_id}/{lap}` → `{has_video, has_sync, sync, mp4_url, message}`
+- `GET /api/video/{session_id}/{lap}/mp4` → proxy-streams the MP4 bytes from blob storage
+
+Lap numbers in the dropdown match the telemetry lap numbers (1-indexed: `lap 1` is the out-lap, `lap 2` is the first timed lap, etc.) — both the data lake and the video filenames apply `lap = completedLaps + 1`.

@@ -1,5 +1,9 @@
 # Video ↔ Telemetry Sync — Design & Implementation Plan
 
+> **Status: IMPLEMENTED 2026-04-13.** Validated end-to-end on the AC machine.
+> See the "What actually got built" section at the bottom for deviations from
+> this original design.
+
 Design doc for wiring MP4 lap recordings to the Telemetry Explorer so analysts can scrub plot markers and see the matching video frame (and vice versa).
 
 ## The problem
@@ -129,3 +133,102 @@ Capture:
 Cloud:
 - `telemetry-comparison/main.py` (+ ~30 lines: video endpoint)
 - `telemetry-comparison/static/index.html` (+ ~100 lines: video element, sidecar fetch, sync wiring)
+
+---
+
+## What actually got built (deviations from this doc)
+
+The core approach (sidecar JSON per MP4, proxy-streamed MP4s, bidirectional
+join via `normalizedCarPosition`) all landed as described. A few things changed
+once we started implementing:
+
+### 1. Session-ID alignment — added (not in original doc)
+
+The original design assumed MP4 filenames and telemetry rows shared a
+`session_id`. In practice they did not: `ac-telemetry-source` and
+`ac_video_streaming` each generated their own `session_id` on off→live, so
+they differed by tens of milliseconds to tens of seconds (telemetry typically
+detected the transition first, while video waited for the driver to leave the
+pit lane). That broke the Explorer's folder lookup.
+
+Fix: video source subscribes to the `ac-telemetry-session` Kafka topic
+(compacted, infinite retention) and **adopts** the telemetry-published
+session_id on each new-session detection. If telemetry is unreachable, video
+falls back to a locally-generated id (logs a warning; the recording won't be
+syncable in the Explorer, but the MP4 is still saved).
+
+Implementation: `ac_video_streaming/session_tracker.py` (thread-safe holder)
+plus a background thread in `video_source._start_session_tracker_thread`.
+The thread runs inside the Source's subprocess (QuixStreams spawns Sources
+via `multiprocessing`) and uses its own `Application.get_consumer()` — the
+SessionTracker holds a `threading.Lock` and cannot be pickled across the
+process boundary.
+
+Important detail: Quix Cloud prefixes topic names with the workspace id. The
+tracker resolves the prefixed name via `mini_app.topic(name).name` before
+calling `consumer.subscribe(...)`. Subscribing to the bare name silently
+matches nothing.
+
+### 2. Play / pause mode switch instead of bidirectional tolerance
+
+The original doc proposed bidirectional sync guarded by a 0.05s tolerance
+check to avoid feedback loops. The shipped UI uses a cleaner mode switch:
+
+- Video **playing** → `timeupdate` drives the marker + red dot (user cannot
+  fight the video; dragging during playback pauses + seeks).
+- Video **paused** → dragging the marker seeks the video.
+
+Implementation in `static/index.html`: `updateMarker(nd, forceTrack, source)`
+takes a `source` tag so internal callers (`'video'`, `'drag'`, undefined)
+can choose the right policy. `syncVideoFromMarker` only acts when
+`source === 'drag'`.
+
+### 3. Sidecar sampling at 5 Hz + forced boundary samples
+
+The doc suggested 1 Hz (every 30th frame). We went with 5 Hz (every 6th
+frame; configurable via `SIDECAR_SAMPLE_HZ`) for smoother scrubbing, plus
+forced samples at pause boundaries and end-of-lap so wall-clock gaps and
+lap tails are anchored. Size remains tiny (~30–60 KB for a typical lap).
+
+### 4. Telemetry Explorer: blob binding + whole-file proxy
+
+- Added `blobStorage: bind: true` + `BLOB_VIDEO_PREFIX` to the Telemetry
+  Explorer deployment in `quix.yaml` (same pattern as Video Browser).
+- Added `quixportal[all]==2.0.1` + the Azure DevOps extra-index-url to
+  `telemetry-comparison/requirements.txt`.
+- `GET /api/video/{session_id}/{lap}` returns `{has_video, has_sync, sync,
+  mp4_url, message}`.
+- `GET /api/video/{session_id}/{lap}/mp4` proxy-streams the MP4 as a single
+  whole-file response (no HTTP Range). For typical lap sizes (hundreds of
+  KB to a few MB), the browser buffers once and then in-memory seeking is
+  free.
+
+### 5. Multi-lap — dropdown inside the video panel
+
+When the user checks multiple laps, the video panel shows a `<select>` of
+all currently-plotted laps. The first lap auto-loads; the user can switch
+to any other selected lap. Only one video plays at a time (which is the
+only sensible behavior).
+
+### 6. startup ordering
+
+`start-local.ps1` launches telemetry first, then waits 7 seconds before
+launching video. This removes a timing race in the worst case (AC already
+LIVE at launch, video racing ahead of telemetry's first publish). Without
+it, adoption still usually works thanks to topic compaction + the tracker's
+`auto_offset_reset=earliest`, but the delay makes startup bulletproof.
+
+### 7. Mock-mode normPos is now monotonic per lap
+
+`ac_reader_mock.py` was emitting `(current_time % 60000) / 60000` (a
+meaningless 60-second ramp). Replaced with a per-lap 0→1 ramp so end-to-end
+sync can be exercised without AC.
+
+### 8. Lap numbering — `+1` convention
+
+The data lake sink (`ac-telemetry-lake/main.py`) does
+`lap = completedLaps + 1` (out-lap = "lap 1 in progress"). The video source
+originally used raw `completedLaps` for MP4 filenames, so the Explorer was
+asking for `_lapNNN.mp4` where N was off-by-one from the actual file. Fix:
+video source applies the same `+1` so MP4/sidecar filenames align with
+telemetry lap numbers in the Explorer dropdown.

@@ -89,6 +89,19 @@ Next to each plot title is a **"Show corners" checkbox**. When checked, the plot
 
 You toggle this per plot — so you can have corners visible on the Speed plot for context but keep your Tyre Temperature plot clean.
 
+### Synced video playback
+
+Below the track map there's a **video panel**. When you click Plot with at least one lap checked, a dropdown appears listing every currently-plotted lap. The first lap's MP4 loads automatically; switching the dropdown loads a different one. Only one video plays at a time — if you've overlaid three laps, you pick which lap's camera feed drives the scrub.
+
+Once a video is loaded, the marker and the video are synchronized in two modes:
+
+- **Playing the video** (pressing the native play control): the video drives the marker. The red dot on the track and the vertical line on every plot follow the video frame-by-frame.
+- **Paused video**: the marker drives the video. Drag the red line on any plot and the video seeks to the matching frame. Grabbing the marker while the video is playing will pause it and take control — there's no fight between the two.
+
+Under the hood each MP4 has a companion `*.sync.json` sidecar in the same S3 folder. The sidecar carries a sub-sampled map of video frame → wall-clock → `normalizedCarPosition`. When you open the Explorer, the Explorer fetches the sidecar, builds two lookup tables in the browser, and uses them to translate back and forth between the video timeline and the track position the plots care about.
+
+If a lap's video was recorded before sidecars existed, or if the telemetry source wasn't running when the video was recorded (so the session ids don't line up), the panel shows a message saying sync isn't available — the plots still work as before, just without a video.
+
 ## The data lake — behind the scenes
 
 Every telemetry sample is written continuously to cloud object storage as Hive-partitioned Parquet files (organized by environment / rig / experiment / driver / track / car / session / year / month / day / hour / lap). This makes it:
@@ -127,10 +140,9 @@ This means non-developers can tune the product — e.g. change what counts as a 
 
 ## What's intentionally not in yet
 
-- **Video ↔ telemetry time sync** — the MP4s don't carry per-frame wall-clock timestamps yet, so scrubbing a video and seeing the matching telemetry point is not implemented. The Telemetry Explorer has a reserved placeholder where the video will appear. The implementation plan is detailed in `docs/video-sync-design.md` and involves writing a sidecar JSON file alongside each MP4 mapping video time to wall-clock and to `normalizedCarPosition`.
 - **Multi-track switching** — the Telemetry Explorer currently hard-codes one track CSV (Nürburgring Sprint A). Auto-selection based on the session's `track` field is planned but not yet active.
-- **Moving marker during video playback** — once video sync lands, the red dot on the track will animate as the video plays. Today the dot only moves when the analyst drags the plot marker.
 - **Corner classification tuning per track** — the same thresholds apply to all tracks. A per-track override in the config is a natural next step.
+- **HTTP Range requests for the proxied MP4** — the Telemetry Explorer streams video as a single whole-file response. Fine for typical lap sizes (hundreds of KB to a few MB) since the browser buffers once and seeking is then in-memory. Long laps or larger encodes would benefit from Range support.
 
 ## Stack summary
 

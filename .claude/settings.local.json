@@ -52,7 +52,9 @@
       "Bash(git checkout:*)",
       "Bash(git ls-tree:*)",
       "Bash(ac_video_streaming/.venv/Scripts/python.exe:*)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(grep -rn \"lap\\\\|completedLaps\" ac-telemetry-lake/*.py)",
+      "Bash(grep -rn \"completedLaps\\\\|lap\" ac-telemetry-source/*.py)"
     ],
     "deny": [],
     "ask": []

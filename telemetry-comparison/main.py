@@ -14,8 +14,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+import re
+
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from quixlake import QuixLakeClient
@@ -415,33 +417,85 @@ async def get_video_meta(session_id: str, lap: int):
     })
 
 
-@app.get("/api/video/{session_id}/{lap}/mp4")
-async def stream_video(session_id: str, lap: int):
-    """Proxy-stream the MP4 bytes from blob storage to the browser.
+_RANGE_RE = re.compile(r"^bytes=(\d+)-(\d*)$")
 
-    Loads the whole MP4 in memory then streams it — fine for typical lap
-    sizes (~hundreds of KB to a few MB). Once the browser has buffered the
-    file, in-memory seeking is free."""
+
+@app.get("/api/video/{session_id}/{lap}/mp4")
+async def stream_video(
+    session_id: str,
+    lap: int,
+    range: str | None = Header(default=None),
+):
+    """Serve MP4 bytes from blob storage with HTTP Range support.
+
+    Range support is required for the <video> element to seek into
+    unbuffered regions — without it, scrubbing-while-paused doesn't work
+    because the browser can only see whatever it has linearly downloaded.
+    """
     if not blob_fs:
         raise HTTPException(503, "Blob storage not connected")
 
     mp4_path, _ = _video_blob_paths(session_id, lap)
 
     try:
-        data = blob_fs.cat(mp4_path)
+        info = blob_fs.info(mp4_path)
+        total = int(info.get("size", 0))
     except FileNotFoundError:
         raise HTTPException(404, f"Video not found: session={session_id} lap={lap}")
     except Exception:
-        logger.exception("Failed to fetch MP4 from blob: %s", mp4_path)
-        raise HTTPException(500, "Failed to fetch video")
+        logger.exception("Failed to stat MP4 in blob: %s", mp4_path)
+        raise HTTPException(500, "Failed to fetch video metadata")
 
-    return StreamingResponse(
-        iter([data]),
+    common = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=300",
+    }
+
+    if not range:
+        try:
+            data = blob_fs.cat(mp4_path)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Video not found: session={session_id} lap={lap}")
+        except Exception:
+            logger.exception("Failed to fetch MP4 from blob: %s", mp4_path)
+            raise HTTPException(500, "Failed to fetch video")
+        return Response(
+            content=data,
+            media_type="video/mp4",
+            headers={**common, "Content-Length": str(len(data))},
+        )
+
+    m = _RANGE_RE.match(range.strip())
+    if not m:
+        raise HTTPException(416, f"Invalid Range header: {range}")
+    start = int(m.group(1))
+    end = int(m.group(2)) if m.group(2) else total - 1
+    end = min(end, total - 1)
+    if start > end or start >= total:
+        return Response(
+            status_code=416,
+            headers={**common, "Content-Range": f"bytes */{total}"},
+        )
+    length = end - start + 1
+
+    try:
+        with blob_fs.open(mp4_path, "rb") as fh:
+            fh.seek(start)
+            chunk = fh.read(length)
+    except Exception:
+        logger.exception(
+            "Failed to read range %d-%d from %s", start, end, mp4_path
+        )
+        raise HTTPException(500, "Failed to read video range")
+
+    return Response(
+        content=chunk,
+        status_code=206,
         media_type="video/mp4",
         headers={
-            "Content-Length": str(len(data)),
-            "Accept-Ranges": "none",
-            "Cache-Control": "private, max-age=300",
+            **common,
+            "Content-Length": str(len(chunk)),
+            "Content-Range": f"bytes {start}-{end}/{total}",
         },
     )
 
