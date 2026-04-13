@@ -396,6 +396,7 @@ deployments:
         description: Kafka topic to consume video frames from
         required: true
         value: ac-video-frames
+    disabled: true
   - name: AC Video Browser
     application: ac-video-browser
     version: latest
