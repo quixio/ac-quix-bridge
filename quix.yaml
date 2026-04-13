@@ -327,9 +327,8 @@ deployments:
         order: 0
   - name: AC Video Streaming
     application: ac_video_streaming
-    version: latest
+    version: f98d84a
     deploymentType: Service
-    desiredStatus: Stopped
     resources:
       cpu: 500
       memory: 1000
@@ -392,8 +391,8 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 500
+      cpu: 500
+      memory: 2000
       replicas: 1
     publicAccess:
       enabled: true
