@@ -71,7 +71,7 @@ deployments:
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
         required: true
-        value: https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io
+        value: https://config-api-svc-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io
       - name: CONFIG_TYPE
         inputType: FreeText
         description: Config type in the Dynamic Configuration Manager
@@ -99,10 +99,12 @@ deployments:
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
-        value: https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io
+        required: true
+        value: https://config-api-svc-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io
       - name: CONFIG_TYPE
         inputType: FreeText
         description: Config type for session data
+        required: true
         value: session
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
@@ -374,6 +376,7 @@ deployments:
         value: 5
     blobStorage:
       bind: true
+    disabled: true
   - name: AC Video Viewer
     application: ac-video-viewer
     version: latest
@@ -395,6 +398,7 @@ deployments:
         description: Kafka topic to consume video frames from
         required: true
         value: ac-video-frames
+    disabled: true
   - name: AC Video Browser
     application: ac-video-browser
     version: latest
@@ -451,8 +455,6 @@ deployments:
         inputType: FreeText
         description: Blob storage path prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
-    blobStorage:
-      bind: true
     plugin:
       embeddedView:
         enabled: true
@@ -463,6 +465,8 @@ deployments:
         label: Telemetry Explorer
         icon: data_usage
         order: 0
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
