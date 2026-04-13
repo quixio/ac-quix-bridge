@@ -431,11 +431,9 @@
     <input type="range" id="track-zoom" min="1" max="8" step="0.1" value="1" oninput="onZoomChange(this.value)">
     <span class="zoom-val" id="track-zoom-val">1.0x</span>
   </div>
-  <div class="readout-header">Values at marker</div>
   <div class="track-readout" id="track-readout">
     <table class="readout-table"><tbody>
       <tr class="pos-row"><td class="lbl">Position</td><td class="val">0.0%</td></tr>
-      <tr class="empty-row"><td colspan="2">Plot signals to see values</td></tr>
     </tbody></table>
   </div>
 
@@ -778,14 +776,55 @@ function updateMarker(nd, forceTrack) {
     }
   }
 
-  // Update vertical marker line on every plot (annotations only for corner labels)
+  // Update marker line + per-trace value annotations (up to 6 per plot) on every plot
   for (let i = 0; i < plotDivs.length; i++) {
     const div = plotDivs[i];
     if (!div.layout) continue;
+
+    const traces = plotTraces[i] || [];
+    const cornerAnn = div._cornerAnnotations || [];
+    const valueAnn = [];
+    const shown = Math.min(MAX_TRACE_ANNOTATIONS, traces.length);
+
+    for (let k = 0; k < shown; k++) {
+      const t = traces[k];
+      const v = interpolateAt(t.x, t.y, nd);
+      if (v === null || !isFinite(v)) continue;
+      const valStr = (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
+      valueAnn.push({
+        xref: 'x', yref: 'y',
+        x: nd, y: v,
+        text: valStr,
+        showarrow: false,
+        xanchor: 'left',
+        yanchor: 'middle',
+        xshift: 6,
+        font: { color: t.color, size: 11, family: 'monospace' },
+        bgcolor: 'rgba(15,17,23,0.85)',
+        bordercolor: t.color,
+        borderwidth: 1,
+        borderpad: 2,
+      });
+    }
+
+    if (traces.length > MAX_TRACE_ANNOTATIONS) {
+      valueAnn.push({
+        xref: 'x', yref: 'paper',
+        x: nd, y: 0,
+        text: `+${traces.length - MAX_TRACE_ANNOTATIONS} more`,
+        showarrow: false,
+        xanchor: 'left', yanchor: 'bottom',
+        xshift: 6,
+        font: { color: '#8892a4', size: 9, style: 'italic' },
+        bgcolor: 'rgba(15,17,23,0.6)',
+        borderpad: 1,
+      });
+    }
+
     Plotly.relayout(div, {
       'shapes[0].x0': nd,
       'shapes[0].x1': nd,
-      annotations: div._cornerAnnotations || [],
+      annotations: cornerAnn.concat(valueAnn),
     });
   }
 
@@ -801,32 +840,12 @@ function updateReadout() {
     ? `${(markerPosition * 100).toFixed(1)}% @ ${trackPt.distance_m.toFixed(0)}m`
     : `${(markerPosition * 100).toFixed(1)}%`;
 
-  const rows = [
-    `<tr class="pos-row"><td class="lbl">Position</td><td class="val">${posCell}</td></tr>`,
-  ];
-
-  // Up to MAX_READOUTS signal values (from first N plots, top trace of each)
-  const shown = Math.min(MAX_READOUTS, plotDivs.length);
-  for (let i = 0; i < shown; i++) {
-    const sig = plotSignals[i];
-    const traces = plotTraces[i] || [];
-    if (!sig || !traces.length) continue;
-    const ch = channels[sig] || { label: sig, unit: '' };
-    const t = traces[0];
-    const v = interpolateAt(t.x, t.y, markerPosition);
-    const valStr = v === null || !isFinite(v)
-      ? '—'
-      : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3));
-    const unit = ch.unit.replace(/[\[\]]/g, '').trim();
-    rows.push(`<tr><td class="lbl" style="color:${t.color}">${ch.label}</td><td class="val">${valStr}${unit ? ' <span class="u">' + unit + '</span>' : ''}</td></tr>`);
-  }
-
-  if (plotDivs.length > MAX_READOUTS) {
-    rows.push(`<tr class="more-row"><td class="lbl">...</td><td class="val">+${plotDivs.length - MAX_READOUTS} more</td></tr>`);
-  }
-
-  el.innerHTML = `<table class="readout-table"><tbody>${rows.join('')}</tbody></table>`;
+  el.innerHTML = `<table class="readout-table"><tbody>
+    <tr class="pos-row"><td class="lbl">Position</td><td class="val">${posCell}</td></tr>
+  </tbody></table>`;
 }
+
+const MAX_TRACE_ANNOTATIONS = 6;
 
 function interpolateAt(xArr, yArr, xTarget) {
   if (!xArr || !xArr.length) return null;
