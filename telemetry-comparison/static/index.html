@@ -24,10 +24,10 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
       min-height: 100vh;
       padding: 1.5rem;
-      padding-right: 320px;
+      padding-right: 400px;
     }
-    @media (max-width: 1100px) {
-      body { padding-right: 240px; }
+    @media (max-width: 1200px) {
+      body { padding-right: 300px; }
     }
     h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.5rem; }
     h1 span { color: var(--accent); }
@@ -46,6 +46,29 @@
       color: var(--text-muted);
       margin-bottom: 0.75rem;
     }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .panel-header .panel-title { margin-bottom: 0; }
+    .panel-collapse-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.15rem 0.5rem;
+      font-size: 0.78rem;
+      line-height: 1;
+      transition: all 0.15s;
+    }
+    .panel-collapse-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .panel.collapsed .panel-body { display: none; }
 
     .selections { display: flex; flex-direction: column; gap: 0.75rem; }
     .selection-row {
@@ -226,14 +249,35 @@
       position: fixed;
       top: 1rem;
       right: 1rem;
-      width: 280px;
+      width: 360px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 0.5rem;
       z-index: 100;
       box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+      max-height: calc(100vh - 2rem);
+      overflow-y: auto;
     }
+    .zoom-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.25rem 0.3rem 0.5rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+    .zoom-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+    .zoom-row .zoom-val {
+      color: var(--text);
+      min-width: 2.2rem;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .track-map-panel.collapsed .zoom-row { display: none; }
     .track-map-panel .panel-title {
       display: flex;
       justify-content: space-between;
@@ -254,27 +298,51 @@
     .track-readout {
       font-size: 0.72rem;
       color: var(--text-muted);
-      padding: 0.3rem 0.5rem 0.1rem;
+      padding: 0.35rem 0.25rem 0.25rem;
       border-top: 1px solid var(--border);
-      margin-top: 0.3rem;
-      max-height: 120px;
-      overflow: hidden;
+      margin-top: 0.4rem;
     }
-    .track-readout .readout-item {
-      display: flex;
-      justify-content: space-between;
-      padding: 0.1rem 0;
+    .readout-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
     }
-    .track-readout .readout-label {
+    .readout-table td {
+      padding: 0.18rem 0.35rem;
+      vertical-align: middle;
+      border-bottom: 1px solid rgba(45, 48, 71, 0.5);
+    }
+    .readout-table tr:last-child td { border-bottom: none; }
+    .readout-table td.lbl {
       color: var(--text-muted);
+      font-size: 0.7rem;
       white-space: nowrap;
+      max-width: 130px;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 180px;
     }
-    .track-readout .readout-value {
+    .readout-table td.val {
       color: var(--text);
-      font-variant-numeric: tabular-nums;
+      text-align: right;
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+    .readout-table td.val .u {
+      color: var(--text-muted);
+      font-size: 0.62rem;
+      margin-left: 0.15rem;
+    }
+    .readout-table tr.pos-row td.lbl { color: var(--accent); font-weight: 600; }
+    .readout-table tr.more-row td {
+      color: var(--text-muted);
+      opacity: 0.55;
+      font-style: italic;
+      text-align: center;
+      padding: 0.1rem;
+    }
+    .readout-table tr.more-row td.lbl,
+    .readout-table tr.more-row td.val {
+      text-align: center;
     }
 
     .video-placeholder {
@@ -308,8 +376,8 @@
     }
     .track-map-panel.collapsed .video-placeholder { display: none; }
 
-    @media (max-width: 1100px) {
-      .track-map-panel { width: 220px; }
+    @media (max-width: 1200px) {
+      .track-map-panel { width: 280px; }
     }
 
     .status-bar {
@@ -341,7 +409,12 @@
     <span>Track Map</span>
     <button class="toggle-btn" onclick="document.getElementById('track-panel').classList.toggle('collapsed')" title="Collapse">−</button>
   </div>
-  <div id="track-map" style="height: 300px;"></div>
+  <div id="track-map" style="height: 420px;"></div>
+  <div class="zoom-row">
+    <span>Zoom</span>
+    <input type="range" id="track-zoom" min="1" max="8" step="0.1" value="1" oninput="onZoomChange(this.value)">
+    <span class="zoom-val" id="track-zoom-val">1.0x</span>
+  </div>
   <div class="track-readout" id="track-readout"></div>
 
   <div class="panel-title" style="margin-top: 0.75rem;">Video</div>
@@ -355,19 +428,29 @@
 </div>
 
 <!-- Session/Lap selection -->
-<div class="panel">
-  <div class="panel-title">Select sessions and laps to overlay</div>
-  <div class="selections" id="selections"></div>
-  <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
-    <button class="btn btn-sm btn-add" onclick="addRow()">+ Add Session</button>
-    <button class="btn btn-sm" onclick="plot()" id="btn-plot">Plot</button>
+<div class="panel" id="panel-sessions">
+  <div class="panel-header">
+    <div class="panel-title">Select sessions and laps to overlay</div>
+    <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">− Hide</button>
+  </div>
+  <div class="panel-body">
+    <div class="selections" id="selections"></div>
+    <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+      <button class="btn btn-sm btn-add" onclick="addRow()">+ Add Session</button>
+      <button class="btn btn-sm" onclick="plot()" id="btn-plot">Plot</button>
+    </div>
   </div>
 </div>
 
 <!-- Signal picker -->
-<div class="panel">
-  <div class="panel-title">Signals</div>
-  <div id="signal-container">Loading channels...</div>
+<div class="panel" id="panel-signals">
+  <div class="panel-header">
+    <div class="panel-title">Signals</div>
+    <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">− Hide</button>
+  </div>
+  <div class="panel-body">
+    <div id="signal-container">Loading channels...</div>
+  </div>
 </div>
 
 <!-- Charts -->
@@ -413,8 +496,10 @@ let trackConfig = null;    // { corner_thresholds, colors, ... }
 let markerPosition = 0;    // current normalizedCarPosition (0..1), persists across re-plots
 let plotSignals = [];      // list of signal keys currently displayed (aligned with plotDivs)
 let plotTraces = [];       // per plot: array of {label, color, x, y} used for value lookup
+let trackBaseRange = null; // { xMin, xMax, zMin, zMax } of full track (for zoom math)
+let trackZoom = 1;         // current zoom factor (1 = fit whole track)
 
-const MAX_READOUTS = 3;
+const MAX_READOUTS = 6;
 
 const DEFAULT_ACTIVE = new Set(['speedKmh', 'gas', 'brake', 'rpms']);
 const CAT_ORDER = ['Inputs', 'Motion', 'Engine', 'Tyres', 'Suspension & Brakes', 'Environment', 'Car State', 'Session'];
@@ -550,6 +635,17 @@ function renderTrackMap() {
   });
   window._markerTraceIdx = traces.length - 1;
 
+  // Compute and cache base ranges for zoom math
+  const xs = pts.map(p => p.x), zs = pts.map(p => p.z);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const zMin = Math.min(...zs), zMax = Math.max(...zs);
+  const padX = (xMax - xMin) * 0.05;
+  const padZ = (zMax - zMin) * 0.05;
+  trackBaseRange = {
+    xMin: xMin - padX, xMax: xMax + padX,
+    zMin: zMin - padZ, zMax: zMax + padZ,
+  };
+
   // Layout: legend on top, no grid, no axis titles
   const layout = {
     paper_bgcolor: '#1a1d27',
@@ -569,16 +665,42 @@ function renderTrackMap() {
       visible: false,
       showgrid: false, zeroline: false, showticklabels: false,
       scaleanchor: 'y', scaleratio: 1,
+      range: [trackBaseRange.xMin, trackBaseRange.xMax],
     },
     yaxis: {
       visible: false,
       showgrid: false, zeroline: false, showticklabels: false,
+      range: [trackBaseRange.zMin, trackBaseRange.zMax],
     },
   };
 
   const div = document.getElementById('track-map');
   Plotly.newPlot(div, traces, layout, { responsive: true, displayModeBar: false });
   updateMarker(markerPosition, true);
+  applyZoom();
+}
+
+function onZoomChange(v) {
+  trackZoom = parseFloat(v) || 1;
+  document.getElementById('track-zoom-val').textContent = trackZoom.toFixed(1) + 'x';
+  applyZoom();
+}
+
+function applyZoom() {
+  if (!trackBaseRange) return;
+  const div = document.getElementById('track-map');
+  if (!div || !div.layout) return;
+  const p = trackPointAtNorm(markerPosition);
+  const cx = p ? p.x : (trackBaseRange.xMin + trackBaseRange.xMax) / 2;
+  const cz = p ? p.z : (trackBaseRange.zMin + trackBaseRange.zMax) / 2;
+  const fullW = trackBaseRange.xMax - trackBaseRange.xMin;
+  const fullH = trackBaseRange.zMax - trackBaseRange.zMin;
+  const w = fullW / trackZoom;
+  const h = fullH / trackZoom;
+  Plotly.relayout(div, {
+    'xaxis.range': [cx - w / 2, cx + w / 2],
+    'yaxis.range': [cz - h / 2, cz + h / 2],
+  });
 }
 
 function trackPointAtNorm(nd) {
@@ -605,46 +727,21 @@ function updateMarker(nd, forceTrack) {
       const div = document.getElementById('track-map');
       if (div && div.data) {
         Plotly.restyle(div, { x: [[p.x]], y: [[p.z]] }, [window._markerTraceIdx]);
+        // Re-center zoom window on the dot when zoomed in
+        if (trackZoom > 1.05) applyZoom();
       }
     }
   }
 
-  // Update vertical lines + per-trace value annotations on all plots
+  // Update vertical marker line on every plot (annotations only for corner labels)
   for (let i = 0; i < plotDivs.length; i++) {
     const div = plotDivs[i];
     if (!div.layout) continue;
-
-    const relayout = {
+    Plotly.relayout(div, {
       'shapes[0].x0': nd,
       'shapes[0].x1': nd,
-    };
-
-    // Build annotations: base corner labels (if enabled) + value labels at marker
-    const baseAnn = (div._cornerAnnotations || []);
-    const valAnn = [];
-    const traces = plotTraces[i] || [];
-    traces.forEach(t => {
-      const v = interpolateAt(t.x, t.y, nd);
-      if (v === null || !isFinite(v)) return;
-      const valStr = (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
-      valAnn.push({
-        xref: 'x', yref: 'y',
-        x: nd, y: v,
-        text: valStr,
-        showarrow: false,
-        xanchor: 'left',
-        yanchor: 'middle',
-        xshift: 6,
-        font: { color: t.color, size: 11, family: 'monospace' },
-        bgcolor: 'rgba(15,17,23,0.78)',
-        bordercolor: t.color,
-        borderwidth: 1,
-        borderpad: 2,
-      });
+      annotations: div._cornerAnnotations || [],
     });
-
-    relayout.annotations = baseAnn.concat(valAnn);
-    Plotly.relayout(div, relayout);
   }
 
   updateReadout();
@@ -655,34 +752,35 @@ function updateReadout() {
   if (!el) return;
 
   const trackPt = trackPointAtNorm(markerPosition);
-  const parts = [];
+  const posCell = trackPt
+    ? `${(markerPosition * 100).toFixed(1)}% @ ${trackPt.distance_m.toFixed(0)}m`
+    : `${(markerPosition * 100).toFixed(1)}%`;
 
-  // Line 1: position / distance
-  if (trackPt) {
-    parts.push(`<div class="readout-item"><span class="readout-label">Position</span><span class="readout-value">${(markerPosition * 100).toFixed(1)}% @ ${trackPt.distance_m.toFixed(0)}m</span></div>`);
-  } else {
-    parts.push(`<div class="readout-item"><span class="readout-label">Position</span><span class="readout-value">${(markerPosition * 100).toFixed(1)}%</span></div>`);
-  }
+  const rows = [
+    `<tr class="pos-row"><td class="lbl">Position</td><td class="val">${posCell}</td></tr>`,
+  ];
 
-  // Up to 3 signal values from first 3 plots
+  // Up to MAX_READOUTS signal values (from first N plots, top trace of each)
   const shown = Math.min(MAX_READOUTS, plotDivs.length);
   for (let i = 0; i < shown; i++) {
     const sig = plotSignals[i];
     const traces = plotTraces[i] || [];
     if (!sig || !traces.length) continue;
     const ch = channels[sig] || { label: sig, unit: '' };
-    // First trace only (top one in legend)
     const t = traces[0];
-    const val = interpolateAt(t.x, t.y, markerPosition);
-    const valStr = val === null ? '—' : (Math.abs(val) >= 100 ? val.toFixed(1) : val.toFixed(3));
-    parts.push(`<div class="readout-item"><span class="readout-label" style="color:${t.color}">${ch.label}</span><span class="readout-value">${valStr} ${ch.unit.replace(/[\[\]]/g, '')}</span></div>`);
+    const v = interpolateAt(t.x, t.y, markerPosition);
+    const valStr = v === null || !isFinite(v)
+      ? '—'
+      : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3));
+    const unit = ch.unit.replace(/[\[\]]/g, '').trim();
+    rows.push(`<tr><td class="lbl" style="color:${t.color}">${ch.label}</td><td class="val">${valStr}${unit ? ' <span class="u">' + unit + '</span>' : ''}</td></tr>`);
   }
 
   if (plotDivs.length > MAX_READOUTS) {
-    parts.push(`<div class="readout-item" style="opacity:0.5"><span class="readout-label">+${plotDivs.length - MAX_READOUTS} more plot(s)</span><span class="readout-value"></span></div>`);
+    rows.push(`<tr class="more-row"><td class="lbl">...</td><td class="val">+${plotDivs.length - MAX_READOUTS} more</td></tr>`);
   }
 
-  el.innerHTML = parts.join('');
+  el.innerHTML = `<table class="readout-table"><tbody>${rows.join('')}</tbody></table>`;
 }
 
 function interpolateAt(xArr, yArr, xTarget) {
@@ -1127,6 +1225,13 @@ function downsample(x, y, maxPoints = 1500) {
     ny.push(y[idx]);
   }
   return { x: nx, y: ny };
+}
+
+function togglePanel(panelId, btn) {
+  const p = document.getElementById(panelId);
+  if (!p) return;
+  p.classList.toggle('collapsed');
+  btn.textContent = p.classList.contains('collapsed') ? '+ Show' : '− Hide';
 }
 
 function attachMarkerDrag(div) {
