@@ -222,7 +222,14 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
       return
     }
 
-    isEmbedded.current = window !== window.parent
+    // window.self !== window.top is the standard cross-origin-safe iframe check.
+    // Accessing window.top may throw SecurityError across strict sandboxed iframes,
+    // which is itself proof of being embedded — so we default to true on error.
+    try {
+      isEmbedded.current = window.self !== window.top
+    } catch {
+      isEmbedded.current = true
+    }
 
     if (!isEmbedded.current) {
       // Standalone mode - check localStorage first
