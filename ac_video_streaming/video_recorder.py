@@ -77,6 +77,7 @@ class VideoRecorder:
         self._start_wall_ms = 0
         self._last_meta: tuple[int, float | None] | None = None
         self._force_next_sample = False
+        self._effective_fps: float | None = None  # set by finish_lap remux logic
         os.makedirs(output_dir, exist_ok=True)
 
     @property
@@ -135,6 +136,7 @@ class VideoRecorder:
             self._start_wall_ms = int(time.time() * 1000)
             self._last_meta = None
             self._force_next_sample = True  # always sample frame 0
+            self._effective_fps = None      # will be set in finish_lap()
             logger.info(
                 "Recording started: %s (%dx%d @ %dfps, sidecar every %d frames)",
                 filename, self._rec_w, self._rec_h, self._fps, self._sample_interval,
@@ -204,8 +206,8 @@ class VideoRecorder:
         self._force_next_sample = True
 
     def finish_lap(self) -> str:
-        """Finalize the current MP4 and write the sidecar JSON. Returns the
-        MP4 filepath."""
+        """Finalize the current MP4, remux to the actual capture fps if it
+        diverges from the declared rate, and write the sidecar JSON."""
         if self._process is None:
             return ""
         path = self._current_path
@@ -223,11 +225,86 @@ class VideoRecorder:
         except Exception:
             logger.exception("Error finalizing recording")
             self._process.kill()
+
+        # The capture loop targets self._fps but rarely sustains it on a
+        # machine that's also running AC + ffmpeg. ffmpeg was told to mux
+        # frames at self._fps so the MP4 ends up "compressed in time" by
+        # whatever ratio the capture missed. Detect the actual rate from
+        # wall-clock timing and rewrite the MP4 timebase + sidecar t_ms
+        # accordingly so the browser plays at real-time speed.
+        effective_fps = self._fps
+        actual_fps = self._compute_actual_fps()
+        if actual_fps is not None and abs(actual_fps - self._fps) > 0.5:
+            if self._remux_with_fps(path, actual_fps):
+                effective_fps = actual_fps
+                # Sidecar t_ms must match the new playback timeline.
+                for entry in self._sidecar_entries:
+                    entry["t_ms"] = int(round(entry["idx"] * 1000.0 / actual_fps))
+                logger.info(
+                    "Remuxed %s: declared %d fps, actual %.2f fps",
+                    os.path.basename(path), self._fps, actual_fps,
+                )
+        self._effective_fps = effective_fps
+
         self._write_sidecar(path)
         self._cleanup_process()
         if path:
             logger.info("Recording finalized: %s", path)
         return path
+
+    def _compute_actual_fps(self) -> float | None:
+        """Estimate the real capture rate from the recorded wall-clock window.
+        Returns None if there isn't enough data to be confident."""
+        if self._frame_index < 30 or self._last_meta is None:
+            return None
+        last_wall_ms, _ = self._last_meta
+        wall_span_ms = last_wall_ms - self._start_wall_ms
+        if wall_span_ms <= 1000:  # less than a second of capture, skip
+            return None
+        # frame_index counts frames 0..N-1; their wall span is start..last,
+        # giving (frame_index - 1) intervals.
+        intervals = max(1, self._frame_index - 1)
+        return intervals * 1000.0 / wall_span_ms
+
+    def _remux_with_fps(self, mp4_path: str, fps: float) -> bool:
+        """Rewrite the MP4 timebase to the actual fps using `-c copy` (no
+        re-encode). Returns True on success."""
+        if not mp4_path or not os.path.exists(mp4_path):
+            return False
+        tmp_path = mp4_path + ".tmp.mp4"
+        try:
+            proc = subprocess.run(
+                [
+                    self._ffmpeg, "-y",
+                    # -r as input option ignores the file's stored timestamps
+                    # and reassigns them assuming constant frame rate.
+                    "-r", f"{fps:.4f}",
+                    "-i", mp4_path,
+                    "-c", "copy",
+                    tmp_path,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=120,
+            )
+            if proc.returncode != 0:
+                logger.warning(
+                    "Remux failed (%d): %s",
+                    proc.returncode,
+                    proc.stderr.decode(errors="replace")[:500],
+                )
+                if os.path.exists(tmp_path):
+                    try: os.remove(tmp_path)
+                    except Exception: pass
+                return False
+            os.replace(tmp_path, mp4_path)
+            return True
+        except Exception:
+            logger.exception("Failed to remux MP4: %s", mp4_path)
+            if os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except Exception: pass
+            return False
 
     def _write_sidecar(self, mp4_path: str) -> str:
         """Write <mp4>.sync.json next to the MP4. Returns the sidecar path
@@ -235,12 +312,15 @@ class VideoRecorder:
         if not mp4_path or self._frame_index == 0:
             return ""
         sidecar_path = self.sidecar_path_for(mp4_path)
-        duration_ms = int(round(self._frame_index * 1000.0 / self._fps))
+        # _effective_fps is set in finish_lap() — falls back to declared rate
+        # if remux didn't run / wasn't needed.
+        fps = getattr(self, "_effective_fps", self._fps) or self._fps
+        duration_ms = int(round(self._frame_index * 1000.0 / fps))
         payload = {
             "session_id": self._session_id,
             "lap": self._lap,
             "start_wall_ms": self._start_wall_ms,
-            "fps": self._fps,
+            "fps": fps,
             "duration_ms": duration_ms,
             "frame_count": self._frame_index,
             "frames": self._sidecar_entries,
