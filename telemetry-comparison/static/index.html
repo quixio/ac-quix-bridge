@@ -488,7 +488,6 @@
           <option value="1" selected>Realtime</option>
           <option value="2">2×</option>
           <option value="5">5×</option>
-          <option value="10">10×</option>
         </select>
       </label>
     </div>
@@ -711,11 +710,16 @@ function renderTrackMap() {
     showlegend: true,
   });
 
-  // 5) Moving red dot
+  // 5) Moving position dot — distinct color from the marker line so the
+  //    cream-on-plot line and the red-on-track dot read as separate cues.
   traces.push({
     x: [pts[0].x], y: [pts[0].z],
     mode: 'markers', type: 'scatter',
-    marker: { color: colors.marker, size: 13, line: { color: '#fff', width: 2 } },
+    marker: {
+      color: colors.track_dot || colors.marker,
+      size: 13,
+      line: { color: '#fff', width: 2 },
+    },
     hoverinfo: 'text',
     hovertext: 'Position',
     name: 'Current',
@@ -1482,6 +1486,7 @@ function hideVideoElement(emptyMsg) {
   }
   if (c) c.style.display = 'none';
   videoState.frames = null;
+  videoState.framesByNd = null;
   videoState.isPlaying = false;
 }
 
@@ -1598,6 +1603,7 @@ async function loadVideoForLapIdx(idx) {
     );
   } else {
     videoState.frames = null;
+    videoState.framesByNd = null;
     setVideoStatus(meta.message || 'Video sync metadata not available', 'warn');
   }
 }
@@ -1606,10 +1612,18 @@ function buildSyncLookups(sync) {
   const valid = (sync.frames || []).filter(
     f => f && Number.isFinite(f.t_ms) && f.normPos != null && Number.isFinite(f.normPos)
   );
-  // Sort ascending by t_ms. normPos is monotonic in a normal lap so this also
-  // gives us ascending normPos for the marker→video direction.
-  valid.sort((a, b) => a.t_ms - b.t_ms);
-  videoState.frames = valid.length ? valid : null;
+  if (!valid.length) {
+    videoState.frames = null;
+    videoState.framesByNd = null;
+    return;
+  }
+  // Two views: by t_ms for video-playback → marker, by normPos for
+  // marker-drag → video. Maintaining both is critical because normPos is
+  // NOT monotonic on out-laps (wraps from ~1.0 → 0.0 across the S/F line),
+  // and binary-searching a t_ms-sorted array by normPos snaps drags to
+  // either the first or last frame.
+  videoState.frames = valid.slice().sort((a, b) => a.t_ms - b.t_ms);
+  videoState.framesByNd = valid.slice().sort((a, b) => a.normPos - b.normPos);
 }
 
 function _interp(arr, keyFn, valFn, target) {
@@ -1628,7 +1642,7 @@ function _interp(arr, keyFn, valFn, target) {
 }
 
 function lookupTmsForNormPos(nd) {
-  return _interp(videoState.frames, f => f.normPos, f => f.t_ms, nd);
+  return _interp(videoState.framesByNd, f => f.normPos, f => f.t_ms, nd);
 }
 
 function lookupNormPosForTms(t_ms) {

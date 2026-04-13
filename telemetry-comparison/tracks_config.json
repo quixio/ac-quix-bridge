@@ -11,7 +11,8 @@
     "sweeper": "#fbbf24",
     "straight": "#34d399",
     "start_finish": "#ffffff",
-    "marker": "#7dd3fc"
+    "marker": "#fff8e1",
+    "track_dot": "#ef4444"
   },
   "corner_labels": {
     "min_length_m": 20
