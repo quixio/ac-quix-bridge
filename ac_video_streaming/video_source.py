@@ -222,10 +222,21 @@ class ACVideoSource(Source):
                         f"ac_video_session_tracker_{os.getpid()}_{int(time.time() * 1000)}"
                     ),
                     auto_offset_reset="earliest",
+                    auto_create_topics=False,
                 )
+                # Use Application.topic() so the resolved name is workspace-
+                # prefixed (e.g. "quixers-acquixbridge-videostreaming-ac-telemetry-session").
+                # consumer.subscribe() takes raw Kafka topic names with no
+                # auto-prefixing, so the bare name silently subscribes to a
+                # topic that doesn't exist.
+                session_topic = mini_app.topic(name=session_topic_name)
+                resolved_name = session_topic.name
                 consumer = mini_app.get_consumer(auto_commit_enable=False)
-                consumer.subscribe([session_topic_name])
-                logger.info("Session tracker subscribed to %s", session_topic_name)
+                consumer.subscribe([resolved_name])
+                logger.info(
+                    "Session tracker subscribed to %s (resolved from %s)",
+                    resolved_name, session_topic_name,
+                )
             except Exception:
                 logger.exception(
                     "Session tracker setup failed — video will use fallback "
