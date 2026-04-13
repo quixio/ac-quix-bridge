@@ -295,12 +295,28 @@
     .track-map-panel .toggle-btn:hover { color: var(--accent); }
     .track-map-panel.collapsed #track-map { display: none; }
     .track-map-panel.collapsed .track-readout { display: none; }
+    .readout-header {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding: 0.5rem 0.35rem 0.2rem;
+      border-top: 1px solid var(--border);
+      margin-top: 0.4rem;
+      opacity: 0.7;
+    }
+    .track-map-panel.collapsed .readout-header { display: none; }
     .track-readout {
       font-size: 0.72rem;
       color: var(--text-muted);
-      padding: 0.35rem 0.25rem 0.25rem;
-      border-top: 1px solid var(--border);
-      margin-top: 0.4rem;
+      padding: 0 0.25rem 0.25rem;
+    }
+    .readout-table tr.empty-row td {
+      color: var(--text-muted);
+      opacity: 0.4;
+      text-align: center;
+      font-style: italic;
+      padding: 0.5rem 0.35rem;
     }
     .readout-table {
       width: 100%;
@@ -409,13 +425,19 @@
     <span>Track Map</span>
     <button class="toggle-btn" onclick="document.getElementById('track-panel').classList.toggle('collapsed')" title="Collapse">−</button>
   </div>
-  <div id="track-map" style="height: 420px;"></div>
+  <div id="track-map" style="height: 360px;"></div>
   <div class="zoom-row">
     <span>Zoom</span>
     <input type="range" id="track-zoom" min="1" max="8" step="0.1" value="1" oninput="onZoomChange(this.value)">
     <span class="zoom-val" id="track-zoom-val">1.0x</span>
   </div>
-  <div class="track-readout" id="track-readout"></div>
+  <div class="readout-header">Values at marker</div>
+  <div class="track-readout" id="track-readout">
+    <table class="readout-table"><tbody>
+      <tr class="pos-row"><td class="lbl">Position</td><td class="val">0.0%</td></tr>
+      <tr class="empty-row"><td colspan="2">Plot signals to see values</td></tr>
+    </tbody></table>
+  </div>
 
   <div class="panel-title" style="margin-top: 0.75rem;">Video</div>
   <div class="video-placeholder" id="video-placeholder">
@@ -635,15 +657,18 @@ function renderTrackMap() {
   });
   window._markerTraceIdx = traces.length - 1;
 
-  // Compute and cache base ranges for zoom math
+  // Compute and cache base ranges for zoom math.
+  // Use a square bounding box centered on the track so scaleanchor fits
+  // the whole track regardless of container aspect.
   const xs = pts.map(p => p.x), zs = pts.map(p => p.z);
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   const zMin = Math.min(...zs), zMax = Math.max(...zs);
-  const padX = (xMax - xMin) * 0.05;
-  const padZ = (zMax - zMin) * 0.05;
+  const cx = (xMin + xMax) / 2;
+  const cz = (zMin + zMax) / 2;
+  const half = Math.max(xMax - xMin, zMax - zMin) / 2 * 1.08; // 8% padding
   trackBaseRange = {
-    xMin: xMin - padX, xMax: xMax + padX,
-    zMin: zMin - padZ, zMax: zMax + padZ,
+    xMin: cx - half, xMax: cx + half,
+    zMin: cz - half, zMax: cz + half,
   };
 
   // Layout: legend on top, no grid, no axis titles
@@ -661,21 +686,30 @@ function renderTrackMap() {
       bgcolor: 'rgba(0,0,0,0)',
       traceorder: 'normal',
     },
+    dragmode: false,
     xaxis: {
       visible: false,
       showgrid: false, zeroline: false, showticklabels: false,
       scaleanchor: 'y', scaleratio: 1,
       range: [trackBaseRange.xMin, trackBaseRange.xMax],
+      fixedrange: true,
     },
     yaxis: {
       visible: false,
       showgrid: false, zeroline: false, showticklabels: false,
       range: [trackBaseRange.zMin, trackBaseRange.zMax],
+      fixedrange: true,
     },
   };
 
   const div = document.getElementById('track-map');
-  Plotly.newPlot(div, traces, layout, { responsive: true, displayModeBar: false });
+  Plotly.newPlot(div, traces, layout, {
+    responsive: true,
+    displayModeBar: false,
+    scrollZoom: false,
+    doubleClick: false,
+    staticPlot: false,
+  });
   updateMarker(markerPosition, true);
   applyZoom();
 }
@@ -690,6 +724,17 @@ function applyZoom() {
   if (!trackBaseRange) return;
   const div = document.getElementById('track-map');
   if (!div || !div.layout) return;
+
+  // At zoom=1, always show the full track bounding box (don't follow dot)
+  if (trackZoom <= 1.02) {
+    Plotly.relayout(div, {
+      'xaxis.range': [trackBaseRange.xMin, trackBaseRange.xMax],
+      'yaxis.range': [trackBaseRange.zMin, trackBaseRange.zMax],
+    });
+    return;
+  }
+
+  // Zoomed in: center on the red dot
   const p = trackPointAtNorm(markerPosition);
   const cx = p ? p.x : (trackBaseRange.xMin + trackBaseRange.xMax) / 2;
   const cz = p ? p.z : (trackBaseRange.zMin + trackBaseRange.zMax) / 2;
@@ -727,8 +772,8 @@ function updateMarker(nd, forceTrack) {
       const div = document.getElementById('track-map');
       if (div && div.data) {
         Plotly.restyle(div, { x: [[p.x]], y: [[p.z]] }, [window._markerTraceIdx]);
-        // Re-center zoom window on the dot when zoomed in
-        if (trackZoom > 1.05) applyZoom();
+        // Re-center zoom window on the dot ONLY when zoomed in
+        if (trackZoom > 1.02) applyZoom();
       }
     }
   }
