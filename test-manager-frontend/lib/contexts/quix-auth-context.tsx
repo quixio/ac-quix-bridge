@@ -148,7 +148,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
     try {
       // Validate token by making a test API call
       console.log("[Quix Auth] Validating submitted token...")
-      const testResponse = await fetch("/api/v1/lookups/sample-types", {
+      const testResponse = await fetch("/api/v1/user/me", {
         headers: {
           "Authorization": `Bearer ${submittedToken}`
         }
