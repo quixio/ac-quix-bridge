@@ -63,8 +63,15 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
         const originalFn = api[key]
         // @ts-ignore - Dynamic function wrapping
         apiObj[key] = async (...args: any[]) => {
+          // If no token yet in embedded mode, request one from Portal first.
+          // This avoids the race where components fire requests on mount before
+          // the postMessage handshake with the Quix Portal has completed.
+          let activeToken = token
+          if (!activeToken && isEmbedded) {
+            activeToken = await refreshToken()
+          }
           try {
-            return await originalFn(...args, token, refreshToken)
+            return await originalFn(...args, activeToken, refreshToken)
           } catch (error) {
             // In standalone mode, if auth fails after retry, prompt for new token
             if (
