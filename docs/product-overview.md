@@ -64,8 +64,9 @@ A 2D map of the circuit is pinned in the top-right corner and stays visible whil
 - **Corner labels** T1, T2, T3, … automatically placed at the middle of each corner
 - **Start/Finish marker** at the start of the lap
 - A **red dot** showing where on the track the analyst is currently looking
+- A **zoom slider** from 1× to 8×. At 1× the full track is always visible. Above 1×, the view automatically follows the red dot so you can examine a specific corner in detail while scrubbing the plot marker
 
-Thresholds and colors are editable in `tracks_config.json`, so the team can tune what counts as a hairpin vs a tight corner.
+Thresholds and colors are editable in `tracks_config.json`, so the team can tune what counts as a hairpin vs a tight corner. Mouse zoom/pan on the map is disabled — the slider is the sole zoom control.
 
 ### The synced position marker
 
@@ -75,12 +76,12 @@ The marker position persists across changes — if you re-select laps or change 
 
 ### The value readout
 
-Below the track map is a small panel that shows, at the current marker position:
+Values are shown in two places:
 
-- The **track position** (percentage around the lap + distance in meters)
-- The **signal value** at that position for the first 3 plots — color-coded to match the plot traces
+- **On every plot, next to the marker**: up to 6 values per plot stacked vertically in a fixed column pinned to the top of the plot. Each label is boxed in its trace's color so the analyst can instantly tell which lap each value belongs to. The labels never overlap regardless of where the actual trace points fall. If more than 6 traces are overlaid, a "+N" badge appears at the bottom of the stack.
+- **In the track panel**: the current track position (percentage around the lap + distance in meters).
 
-If you have more than 3 plots, the panel says "+N more plot(s)" so you know the cap. Values are interpolated between data points for smoothness.
+Values are interpolated between data points for smooth readout.
 
 ### Corner overlays per plot
 
@@ -126,7 +127,7 @@ This means non-developers can tune the product — e.g. change what counts as a 
 
 ## What's intentionally not in yet
 
-- **Video ↔ telemetry time sync** — the MP4s don't carry per-frame wall-clock timestamps yet, so scrubbing a video and seeing the matching telemetry point is not implemented. The foundation for this exists (session ID and lap are in filenames), but a sidecar timestamp file needs to be written alongside each MP4 to make precise sync work.
+- **Video ↔ telemetry time sync** — the MP4s don't carry per-frame wall-clock timestamps yet, so scrubbing a video and seeing the matching telemetry point is not implemented. The Telemetry Explorer has a reserved placeholder where the video will appear. The implementation plan is detailed in `docs/video-sync-design.md` and involves writing a sidecar JSON file alongside each MP4 mapping video time to wall-clock and to `normalizedCarPosition`.
 - **Multi-track switching** — the Telemetry Explorer currently hard-codes one track CSV (Nürburgring Sprint A). Auto-selection based on the session's `track` field is planned but not yet active.
 - **Moving marker during video playback** — once video sync lands, the red dot on the track will animate as the video plays. Today the dot only moves when the analyst drags the plot marker.
 - **Corner classification tuning per track** — the same thresholds apply to all tracks. A per-track override in the config is a natural next step.

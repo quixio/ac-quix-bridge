@@ -166,10 +166,15 @@ The Telemetry Explorer lets you compare data across multiple sessions and laps w
 
 - **Session/lap overlay** — pick multiple sessions and laps from any combination of filters (environment, rig, experiment, driver, track, car, session). Overlay their telemetry on the same plots.
 - **Signal picker** — choose any combination of telemetry channels (speed, throttle, brake, RPM, tyre temps, brake temps, suspension, and many more) organized by category.
-- **Track map panel** (top-right, sticky) — 2D map of the current track rendered from the CSV in `tracks/`. Corner segments are colored by severity (hairpin/tight/sweeper/straight). Corners are labeled T1..Tn.
-- **Synced position marker** — a red dot on the track map and a vertical line on every plot move together. Click and drag the vertical line on any plot to scrub through the lap. The dot on the map follows, and all plots stay in sync.
-- **Value readout** — under the track map, see the signal values at the marker for the first 3 plots (plus how many more are hidden).
-- **Per-plot corner overlay** — each plot has a "Show corners" checkbox. When enabled, the plot is shaded with corner regions matching the track map colors + T1..Tn labels.
+- **Collapsible control panels** — the session/lap selection and signal picker can be collapsed to save screen space once you've set them up.
+- **Sticky track map panel** (top-right) — 2D map of the current track rendered from the CSV in `tracks/`. Corner segments are colored by severity (hairpin/tight/sweeper/straight). Corners are labeled T1..Tn. Legend at the top. Start/Finish marker at `normalizedDistance=0`.
+- **Track zoom slider** — zoom the map from 1× (full track) to 8×. When zoomed above 1×, the view follows the red dot automatically. Mouse zoom/pan on the map is disabled — the slider is the only way to change zoom.
+- **Red position dot** — on the track map, indicates the current marker position. Updates instantly as you drag the plot marker.
+- **Synced draggable marker** — a red vertical line on every plot, draggable by mouse. Dragging it on any plot updates all other plots + the track dot simultaneously. Position persists across lap changes and re-plots.
+- **Per-trace value annotations** — up to 6 values per plot are shown **stacked in a column** next to the vertical marker, pinned to the top of the plot. Each label is boxed in the trace's color and never overlaps regardless of where values fall. If more than 6 traces, a "+N" badge appears at the bottom of the stack.
+- **Position readout** — under the track map, shows the current `normalizedCarPosition` as both percentage and meters.
+- **Video placeholder** — reserved area in the track panel where video playback will appear once wall-clock sync is implemented.
+- **Per-plot corner overlay** — each plot has a "Show corners" checkbox next to the title. When enabled, the plot is shaded with corner regions matching the track map colors + T1..Tn labels.
 
 ### How it works under the hood
 

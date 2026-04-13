@@ -249,11 +249,23 @@ quixdatalaketest/
 
 Added to the `telemetry-comparison/` app (Telemetry Explorer):
 
-- **Track map panel** (top-right, sticky): 2D track shape rendered from CSV (`x` vs `z`), colored by corner severity, corner labels T1..Tn, Start/Finish marker, red dot for current position
-- **Synced vertical marker** on all telemetry plots — draggable by mouse, updates all plots + track dot simultaneously, position persists across re-plots
-- **Value readout** below track map — shows signal values at marker for up to 3 plots
-- **Corner overlay toggle per plot** — checkbox "Show corners" on each plot, shades corner regions with same severity colors as the map
-- **Config file** `tracks_config.json` — editable corner thresholds (60/150/400m) and colors
-- **Track data** in `tracks/<track>/layout_*.csv` — one row per track point (x, y, z, distance_m, radius_m, speed_kmh, normalizedDistance, etc.)
+### Track visualization
+- **Sticky track panel** (top-right): 2D track shape from CSV (`x` vs `z`), colored by corner severity (hairpin/tight/sweeper/straight), corner labels T1..Tn, Start/Finish square marker, red dot for current marker position
+- **Zoom slider** (1×–8×): mouse zoom/pan disabled; zoom above 1× follows the red dot automatically, zoom=1 always shows the full track
+- **Continuous rendering**: base gray line underneath + colored overlays with spline smoothing for pixel-perfect segment joins, no grid/axes
+
+### Plot interactions
+- **Synced vertical marker**: draggable by mouse on any plot, all plots + track dot update together, position persists across re-plots
+- **Per-trace value annotations**: up to 6 values per plot, **stacked vertically** next to the marker line (pinned to top of plot), boxed in each trace's color, no overlap regardless of value positions, "+N" badge if more traces exist
+- **Per-plot corner overlay**: "Show corners" checkbox next to each plot title — shades corner regions with severity colors + T1..Tn labels
+- **Position readout** in the sticky panel: normalizedCarPosition shown as % and meters
+
+### UI structure
+- **Collapsible control panels** for Session selection and Signal picker (save screen space after configuring)
+- **Video placeholder** reserved below the track readout — to be connected to wall-clock video sync (see `docs/video-sync-design.md`)
+
+### Configuration
+- `tracks_config.json` — editable corner thresholds (60/150/400m) and colors
+- `tracks/<track>/layout_*.csv` — per-track geometry (x, y, z, distance_m, radius_m, speed_kmh, normalizedDistance, etc.)
 
 Join key: `normalizedCarPosition` (telemetry) ↔ `normalizedDistance` (track CSV).
