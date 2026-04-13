@@ -374,6 +374,7 @@ deployments:
         value: 5
     blobStorage:
       bind: true
+    disabled: true
   - name: AC Video Viewer
     application: ac-video-viewer
     version: latest
