@@ -18,8 +18,8 @@ variables:
     required: false
   - name: VIDEO_FPS
     inputType: FreeText
-    description: Capture and recording FPS
-    defaultValue: 30
+    description: Capture and recording FPS. Default 15 — typical AC machines can't sustain 30 alongside the game; the per-lap remux corrects timing if actual rate diverges, but lower target = smoother playback.
+    defaultValue: 15
     required: false
   - name: STREAM_FPS
     inputType: FreeText
@@ -55,6 +55,11 @@ variables:
     inputType: FreeText
     description: Blob storage path prefix for MP4 uploads
     defaultValue: ac_video
+    required: false
+  - name: RECORDING_WIDTH
+    inputType: FreeText
+    description: Cap recording width in pixels (height scales proportionally). 0 = inherit captured screen resolution.
+    defaultValue: 1920
     required: false
   - name: SIDECAR_SAMPLE_HZ
     inputType: FreeText

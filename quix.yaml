@@ -352,8 +352,8 @@ deployments:
         value: 0
       - name: VIDEO_FPS
         inputType: FreeText
-        description: Capture and recording FPS
-        value: 30
+        description: Capture and recording FPS (default 15 — AC machines rarely sustain 30 alongside the game)
+        value: 15
       - name: STREAM_FPS
         inputType: FreeText
         description: FPS for Kafka frame streaming
@@ -370,6 +370,10 @@ deployments:
         inputType: FreeText
         description: Blob storage path prefix for MP4 uploads
         value: ac_video
+      - name: RECORDING_WIDTH
+        inputType: FreeText
+        description: Cap recording width in pixels (height scales proportionally). 0 = inherit captured screen resolution.
+        value: 1920
       - name: SIDECAR_SAMPLE_HZ
         inputType: FreeText
         description: Frequency (Hz) of sidecar JSON samples for video<->telemetry sync

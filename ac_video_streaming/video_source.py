@@ -49,7 +49,7 @@ class ACVideoSource(Source):
     def __init__(self, name: str):
         super().__init__(name=name)
         self._display_index = int(os.environ.get("VIDEO_DISPLAY_INDEX", "0"))
-        self._fps = int(os.environ.get("VIDEO_FPS", "30"))
+        self._fps = int(os.environ.get("VIDEO_FPS", "15"))
         self._stream_fps = int(os.environ.get("STREAM_FPS", "15"))
         self._output_dir = os.environ.get("VIDEO_OUTPUT_DIR", "./recordings")
         self._blob_prefix = os.environ.get("BLOB_VIDEO_PREFIX", "ac_video")
@@ -71,16 +71,22 @@ class ACVideoSource(Source):
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
     def _resolve_session_id(self) -> str:
-        """Adopt the telemetry-published session_id, or fall back if unavailable."""
+        """Adopt the telemetry-published session_id, or fall back if unavailable.
+
+        Waits up to 15s — empirically the tracker's mini-Application takes
+        ~5-7s to fetch broker config from the Quix portal API on first init,
+        and another 1-2s for partition assignment + first poll. A short
+        timeout here causes the fallback path to fire even when telemetry is
+        healthy."""
         detect_ms = int(time.time() * 1000)
         if self._session_tracker is not None:
             sid = self._session_tracker.session_id_for_new_session(
-                our_detect_ms=detect_ms, timeout_s=2.0
+                our_detect_ms=detect_ms, timeout_s=15.0
             )
             if sid is not None:
                 return sid
             logger.warning(
-                "No telemetry session_id received within 2s — "
+                "No telemetry session_id received within 15s — "
                 "telemetry source may not be running. Falling back to local id; "
                 "this video will not be syncable in the Telemetry Explorer."
             )

@@ -85,15 +85,16 @@ class VideoRecorder:
         return self._process is not None
 
     def _calc_recording_size(self, src_w: int, src_h: int) -> tuple[int, int]:
-        """Scale down to max_width if source is larger, keeping aspect ratio.
-        Width and height are rounded to even numbers (required by libx264)."""
-        if src_w <= self._max_width:
+        """Recording dimensions. By default (max_width<=0) inherits the
+        captured screen size as-is. A positive max_width caps the width and
+        scales height proportionally. Width and height are always rounded
+        down to even numbers (libx264 requirement)."""
+        if self._max_width <= 0 or src_w <= self._max_width:
             w, h = src_w, src_h
         else:
             scale = self._max_width / src_w
             w = self._max_width
             h = int(src_h * scale)
-        # libx264 requires even dimensions
         return w - (w % 2), h - (h % 2)
 
     def start_lap(self, session_id: str, lap: int, width: int, height: int) -> str:
