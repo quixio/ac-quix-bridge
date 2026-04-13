@@ -243,3 +243,17 @@ quixdatalaketest/
 | 10 | Timestamp synchronization with lap data | Claude | Answered |
 | 11 | Test in local environment with Quix CLI? | Claude | Answered — yes, via `quix run` or local Kafka |
 | 12 | End-to-end cloud test | Ludvik/Claude | **Done** — full pipeline working: live stream + recording + S3 upload + browser |
+| 13 | Telemetry Explorer enhancements (track map, corner overlay, synced marker, value readout) | Ludvik/Claude | **Done** — see Telemetry Explorer section in user guide |
+
+## Telemetry Explorer extensions (2026-04-13)
+
+Added to the `telemetry-comparison/` app (Telemetry Explorer):
+
+- **Track map panel** (top-right, sticky): 2D track shape rendered from CSV (`x` vs `z`), colored by corner severity, corner labels T1..Tn, Start/Finish marker, red dot for current position
+- **Synced vertical marker** on all telemetry plots — draggable by mouse, updates all plots + track dot simultaneously, position persists across re-plots
+- **Value readout** below track map — shows signal values at marker for up to 3 plots
+- **Corner overlay toggle per plot** — checkbox "Show corners" on each plot, shades corner regions with same severity colors as the map
+- **Config file** `tracks_config.json` — editable corner thresholds (60/150/400m) and colors
+- **Track data** in `tracks/<track>/layout_*.csv` — one row per track point (x, y, z, distance_m, radius_m, speed_kmh, normalizedDistance, etc.)
+
+Join key: `normalizedCarPosition` (telemetry) ↔ `normalizedDistance` (track CSV).

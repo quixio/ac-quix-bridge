@@ -154,5 +154,32 @@ All settings are in `ac_video_streaming/.env`:
 |---|---|---|
 | AC Video Viewer | Live video stream viewer | `acvideoviewer-...az-france-0.app.quix.io` |
 | AC Video Browser | Browse and download recorded sessions | `acvideobrowser-...az-france-0.app.quix.io` |
+| Telemetry Explorer | Compare telemetry across sessions/laps with track map, corner overlays, synced marker | `telemetryexplorer-...az-france-0.app.quix.io` |
 
-Both are deployed in workspace `quixers-acquixbridge-videostreaming`.
+All deployed in workspace `quixers-acquixbridge-videostreaming`.
+
+## Telemetry Explorer — analyzing lap data
+
+The Telemetry Explorer lets you compare data across multiple sessions and laps with interactive plots, a live track map, and corner-severity overlays.
+
+### Main features
+
+- **Session/lap overlay** — pick multiple sessions and laps from any combination of filters (environment, rig, experiment, driver, track, car, session). Overlay their telemetry on the same plots.
+- **Signal picker** — choose any combination of telemetry channels (speed, throttle, brake, RPM, tyre temps, brake temps, suspension, and many more) organized by category.
+- **Track map panel** (top-right, sticky) — 2D map of the current track rendered from the CSV in `tracks/`. Corner segments are colored by severity (hairpin/tight/sweeper/straight). Corners are labeled T1..Tn.
+- **Synced position marker** — a red dot on the track map and a vertical line on every plot move together. Click and drag the vertical line on any plot to scrub through the lap. The dot on the map follows, and all plots stay in sync.
+- **Value readout** — under the track map, see the signal values at the marker for the first 3 plots (plus how many more are hidden).
+- **Per-plot corner overlay** — each plot has a "Show corners" checkbox. When enabled, the plot is shaded with corner regions matching the track map colors + T1..Tn labels.
+
+### How it works under the hood
+
+- Track data: `telemetry-comparison/tracks/ks_nurburgring/layout_sprint_a.csv` — one row per track point with x, y, z, distance, corner radius, ideal speed, width
+- Corner classification: `telemetry-comparison/tracks_config.json` — thresholds (hairpin <60m, tight 60–150m, sweeper 150–400m, straight ≥400m) and colors are editable
+- Join key between telemetry and track: `normalizedCarPosition` (telemetry) ↔ `normalizedDistance` (track CSV), both in range 0.0–1.0
+- Data source: DuckDB queries against QuixLake (Parquet + Iceberg), with partitioning by environment/rig/experiment/driver/track/carModel/session_id/lap
+
+### Adding a new track
+
+1. Drop the track CSV into `telemetry-comparison/tracks/<track_name>/layout_xxx.csv`
+2. Update `default_track` in `tracks_config.json` (multi-track support will auto-detect based on the session's `track` field in future iterations)
+3. Redeploy the Telemetry Explorer

@@ -24,6 +24,10 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
       min-height: 100vh;
       padding: 1.5rem;
+      padding-right: 320px;
+    }
+    @media (max-width: 1100px) {
+      body { padding-right: 240px; }
     }
     h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.5rem; }
     h1 span { color: var(--accent); }
@@ -198,6 +202,84 @@
       border-radius: 10px;
       padding: 0.5rem;
     }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 0.5rem 0.25rem 0.5rem;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .chart-header label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .chart-header input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    /* Sticky track map in top-right corner */
+    .track-map-panel {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      width: 280px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.5rem;
+      z-index: 100;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+    }
+    .track-map-panel .panel-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.25rem;
+    }
+    .track-map-panel .toggle-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 0 0.3rem;
+    }
+    .track-map-panel .toggle-btn:hover { color: var(--accent); }
+    .track-map-panel.collapsed #track-map { display: none; }
+    .track-map-panel.collapsed .track-readout { display: none; }
+    .track-readout {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding: 0.3rem 0.5rem 0.1rem;
+      border-top: 1px solid var(--border);
+      margin-top: 0.3rem;
+      max-height: 120px;
+      overflow: hidden;
+    }
+    .track-readout .readout-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.1rem 0;
+    }
+    .track-readout .readout-label {
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 180px;
+    }
+    .track-readout .readout-value {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 1100px) {
+      .track-map-panel { width: 220px; }
+    }
 
     .status-bar {
       font-size: 0.78rem;
@@ -221,6 +303,16 @@
 <body>
 
 <h1>Telemetry <span>Explorer</span></h1>
+
+<!-- Sticky track map panel (top-right) -->
+<div class="track-map-panel" id="track-panel">
+  <div class="panel-title">
+    <span>Track Map</span>
+    <button class="toggle-btn" onclick="document.getElementById('track-panel').classList.toggle('collapsed')" title="Collapse">−</button>
+  </div>
+  <div id="track-map" style="height: 340px;"></div>
+  <div class="track-readout" id="track-readout"></div>
+</div>
 
 <!-- Session/Lap selection -->
 <div class="panel">
@@ -275,6 +367,15 @@ let channels = {};
 let rowCount = 0;
 let plotDivs = [];
 
+// --- Track state ---
+let trackData = null;      // { points: [{x,z,normalizedDistance,radius_m,severity,...}], corners: [...] }
+let trackConfig = null;    // { corner_thresholds, colors, ... }
+let markerPosition = 0;    // current normalizedCarPosition (0..1), persists across re-plots
+let plotSignals = [];      // list of signal keys currently displayed (aligned with plotDivs)
+let plotTraces = [];       // per plot: array of {label, color, x, y} used for value lookup
+
+const MAX_READOUTS = 3;
+
 const DEFAULT_ACTIVE = new Set(['speedKmh', 'gas', 'brake', 'rpms']);
 const CAT_ORDER = ['Inputs', 'Motion', 'Engine', 'Tyres', 'Suspension & Brakes', 'Environment', 'Car State', 'Session'];
 
@@ -286,6 +387,276 @@ async function fetchSessions() {
   const res = await fetch('/api/sessions');
   const json = await res.json();
   sessions = json.sessions || [];
+}
+
+async function fetchTrack() {
+  try {
+    const [tRes, cRes] = await Promise.all([
+      fetch('/api/track'),
+      fetch('/api/track/config'),
+    ]);
+    trackData = await tRes.json();
+    trackConfig = await cRes.json();
+    renderTrackMap();
+  } catch (e) {
+    console.warn('Track data unavailable:', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Track Map rendering
+// ---------------------------------------------------------------------------
+
+function renderTrackMap() {
+  if (!trackData || !trackConfig) return;
+  const pts = trackData.points;
+  if (!pts.length) return;
+
+  const colors = trackConfig.colors;
+
+  // Build segments per severity so each corner type shows in the correct color.
+  // Plotly doesn't support per-point line color natively, so we draw one trace
+  // per severity run.
+  const traces = [];
+  const order = ['straight', 'sweeper', 'tight', 'hairpin'];
+  const runs = {};
+  for (const sev of order) runs[sev] = [];
+
+  let curRun = null;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (!curRun || curRun.severity !== p.severity) {
+      if (curRun && curRun.x.length) runs[curRun.severity].push(curRun);
+      curRun = { severity: p.severity, x: [], z: [], nd: [] };
+    }
+    curRun.x.push(p.x);
+    curRun.z.push(p.z);
+    curRun.nd.push(p.normalizedDistance);
+    // Bridge to next point so colors touch visually
+    if (i + 1 < pts.length && pts[i + 1].severity !== p.severity) {
+      curRun.x.push(pts[i + 1].x);
+      curRun.z.push(pts[i + 1].z);
+      curRun.nd.push(pts[i + 1].normalizedDistance);
+    }
+  }
+  if (curRun && curRun.x.length) runs[curRun.severity].push(curRun);
+
+  const sevLabels = {
+    hairpin: `Hairpin (R<${trackConfig.corner_thresholds.hairpin_max}m)`,
+    tight: `Tight (${trackConfig.corner_thresholds.hairpin_max}-${trackConfig.corner_thresholds.tight_max}m)`,
+    sweeper: `Sweeper (${trackConfig.corner_thresholds.tight_max}-${trackConfig.corner_thresholds.sweeper_max}m)`,
+    straight: `Straight (R≥${trackConfig.corner_thresholds.sweeper_max}m)`,
+  };
+  const legendShown = { hairpin: false, tight: false, sweeper: false, straight: false };
+
+  for (const sev of order) {
+    for (const run of runs[sev]) {
+      traces.push({
+        x: run.x, y: run.z,
+        mode: 'lines', type: 'scatter',
+        line: { color: colors[sev], width: 3 },
+        hoverinfo: 'skip',
+        name: sevLabels[sev],
+        legendgroup: sev,
+        showlegend: !legendShown[sev],
+      });
+      legendShown[sev] = true;
+    }
+  }
+
+  // Corner labels
+  trackData.corners.forEach(c => {
+    traces.push({
+      x: [c.mid_x], y: [c.mid_z],
+      mode: 'markers+text', type: 'scatter',
+      marker: { color: colors[c.severity], size: 14, line: { color: '#111', width: 1 } },
+      text: [c.label],
+      textfont: { color: '#fff', size: 9, family: 'monospace' },
+      hoverinfo: 'text',
+      hovertext: `${c.label} — ${c.severity} (R=${c.min_radius_m}m)`,
+      showlegend: false,
+    });
+  });
+
+  // Start/Finish marker
+  if (pts.length) {
+    traces.push({
+      x: [pts[0].x], y: [pts[0].z],
+      mode: 'markers', type: 'scatter',
+      marker: { color: colors.start_finish, size: 12, symbol: 'square', line: { color: '#000', width: 1 } },
+      hoverinfo: 'text',
+      hovertext: 'Start / Finish',
+      name: 'Start/Finish',
+      showlegend: true,
+    });
+  }
+
+  // Moving red dot (marker position) — updated via updateMarker()
+  traces.push({
+    x: [pts[0].x], y: [pts[0].z],
+    mode: 'markers', type: 'scatter',
+    marker: { color: colors.marker, size: 12, line: { color: '#fff', width: 2 } },
+    hoverinfo: 'text',
+    hovertext: 'Position',
+    name: 'Current',
+    showlegend: false,
+  });
+  window._markerTraceIdx = traces.length - 1;
+
+  const layout = {
+    paper_bgcolor: '#1a1d27',
+    plot_bgcolor: '#1a1d27',
+    font: { color: '#e2e8f0', size: 10 },
+    margin: { t: 6, r: 6, b: 30, l: 40 },
+    showlegend: true,
+    legend: { x: 0.02, y: 0.02, bgcolor: 'rgba(15,17,23,0.8)', font: { size: 9 } },
+    xaxis: {
+      title: { text: 'X [m]', font: { size: 10 } },
+      color: '#8892a4', gridcolor: '#2d3047',
+      scaleanchor: 'y', scaleratio: 1,
+    },
+    yaxis: {
+      title: { text: 'Z [m]', font: { size: 10 } },
+      color: '#8892a4', gridcolor: '#2d3047',
+    },
+  };
+
+  const div = document.getElementById('track-map');
+  Plotly.newPlot(div, traces, layout, { responsive: true, displayModeBar: false });
+  updateMarker(markerPosition, true);
+}
+
+function trackPointAtNorm(nd) {
+  if (!trackData?.points?.length) return null;
+  const pts = trackData.points;
+  nd = Math.max(0, Math.min(1, nd));
+  // Binary search on normalizedDistance (already sorted)
+  let lo = 0, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid].normalizedDistance < nd) lo = mid + 1;
+    else hi = mid;
+  }
+  return pts[lo];
+}
+
+function updateMarker(nd, forceTrack) {
+  markerPosition = nd;
+
+  // Update track dot
+  if (forceTrack || trackData) {
+    const p = trackPointAtNorm(nd);
+    if (p && window._markerTraceIdx !== undefined) {
+      const div = document.getElementById('track-map');
+      if (div && div.data) {
+        Plotly.restyle(div, { x: [[p.x]], y: [[p.z]] }, [window._markerTraceIdx]);
+      }
+    }
+  }
+
+  // Update vertical lines on all plots
+  for (const div of plotDivs) {
+    if (!div.layout) continue;
+    Plotly.relayout(div, {
+      'shapes[0].x0': nd,
+      'shapes[0].x1': nd,
+    });
+  }
+
+  updateReadout();
+}
+
+function updateReadout() {
+  const el = document.getElementById('track-readout');
+  if (!el) return;
+
+  const trackPt = trackPointAtNorm(markerPosition);
+  const parts = [];
+
+  // Line 1: position / distance
+  if (trackPt) {
+    parts.push(`<div class="readout-item"><span class="readout-label">Position</span><span class="readout-value">${(markerPosition * 100).toFixed(1)}% @ ${trackPt.distance_m.toFixed(0)}m</span></div>`);
+  } else {
+    parts.push(`<div class="readout-item"><span class="readout-label">Position</span><span class="readout-value">${(markerPosition * 100).toFixed(1)}%</span></div>`);
+  }
+
+  // Up to 3 signal values from first 3 plots
+  const shown = Math.min(MAX_READOUTS, plotDivs.length);
+  for (let i = 0; i < shown; i++) {
+    const sig = plotSignals[i];
+    const traces = plotTraces[i] || [];
+    if (!sig || !traces.length) continue;
+    const ch = channels[sig] || { label: sig, unit: '' };
+    // First trace only (top one in legend)
+    const t = traces[0];
+    const val = interpolateAt(t.x, t.y, markerPosition);
+    const valStr = val === null ? '—' : (Math.abs(val) >= 100 ? val.toFixed(1) : val.toFixed(3));
+    parts.push(`<div class="readout-item"><span class="readout-label" style="color:${t.color}">${ch.label}</span><span class="readout-value">${valStr} ${ch.unit.replace(/[\[\]]/g, '')}</span></div>`);
+  }
+
+  if (plotDivs.length > MAX_READOUTS) {
+    parts.push(`<div class="readout-item" style="opacity:0.5"><span class="readout-label">+${plotDivs.length - MAX_READOUTS} more plot(s)</span><span class="readout-value"></span></div>`);
+  }
+
+  el.innerHTML = parts.join('');
+}
+
+function interpolateAt(xArr, yArr, xTarget) {
+  if (!xArr || !xArr.length) return null;
+  if (xTarget <= xArr[0]) return yArr[0];
+  if (xTarget >= xArr[xArr.length - 1]) return yArr[yArr.length - 1];
+  // Binary search
+  let lo = 0, hi = xArr.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (xArr[mid] <= xTarget) lo = mid;
+    else hi = mid;
+  }
+  const x0 = xArr[lo], x1 = xArr[hi];
+  const y0 = yArr[lo], y1 = yArr[hi];
+  if (x1 === x0) return y0;
+  return y0 + (y1 - y0) * (xTarget - x0) / (x1 - x0);
+}
+
+// Corner overlay shapes for a plot, based on config colors + enabled checkbox
+function buildCornerShapes() {
+  if (!trackData?.corners || !trackConfig) return [];
+  const colors = trackConfig.colors;
+  return trackData.corners.map(c => ({
+    type: 'rect',
+    xref: 'x', yref: 'paper',
+    x0: c.start_norm, x1: c.end_norm,
+    y0: 0, y1: 1,
+    fillcolor: colors[c.severity],
+    opacity: 0.18,
+    line: { width: 0 },
+    layer: 'below',
+  }));
+}
+
+function buildCornerAnnotations() {
+  if (!trackData?.corners) return [];
+  return trackData.corners.map(c => ({
+    xref: 'x', yref: 'paper',
+    x: (c.start_norm + c.end_norm) / 2,
+    y: 1,
+    yanchor: 'top',
+    text: c.label,
+    showarrow: false,
+    font: { size: 10, color: '#e2e8f0' },
+    bgcolor: 'rgba(15,17,23,0.6)',
+    borderpad: 2,
+  }));
+}
+
+function toggleCornerOverlay(plotIdx, enabled) {
+  const div = plotDivs[plotIdx];
+  if (!div) return;
+  // Preserve the marker shape (always shapes[0])
+  const base = [div.layout.shapes[0]];
+  const ann = enabled ? buildCornerAnnotations() : [];
+  const shapes = enabled ? base.concat(buildCornerShapes()) : base;
+  Plotly.relayout(div, { shapes, annotations: ann });
 }
 
 async function fetchLaps(filters) {
@@ -578,15 +949,31 @@ async function plot() {
     const chartsDiv = document.getElementById('charts');
     chartsDiv.innerHTML = '';
     plotDivs = [];
+    plotSignals = [];
+    plotTraces = [];
 
     for (let si = 0; si < signals.length; si++) {
       const signal = signals[si];
       const container = document.createElement('div');
       container.className = 'chart-container';
+
+      // Header with corner overlay checkbox
+      const header = document.createElement('div');
+      header.className = 'chart-header';
+      header.innerHTML = `
+        <span>${chartTitle(signal)}</span>
+        <label>
+          <input type="checkbox" id="corner-cb-${si}" onchange="toggleCornerOverlay(${si}, this.checked)">
+          Show corners
+        </label>
+      `;
+      container.appendChild(header);
+
       const plotDiv = document.createElement('div');
       container.appendChild(plotDiv);
       chartsDiv.appendChild(container);
       plotDivs.push(plotDiv);
+      plotSignals.push(signal);
 
       const traces = selections.map((sel, i) => {
         const d = allData[i].data;
@@ -599,19 +986,37 @@ async function plot() {
           showlegend: true,
         };
       });
+      // Remember for value interpolation at marker
+      plotTraces.push(traces.map(t => ({ label: t.name, color: t.line.color, x: t.x, y: t.y })));
+
+      // Marker shape is always shapes[0]; corner overlays appended after when toggled
+      const markerShape = {
+        type: 'line',
+        xref: 'x', yref: 'paper',
+        x0: markerPosition, x1: markerPosition,
+        y0: 0, y1: 1,
+        line: { color: (trackConfig?.colors?.marker) || '#ef4444', width: 1.5, dash: 'solid' },
+      };
 
       Plotly.newPlot(plotDiv, traces, {
         ...PLOTLY_LAYOUT,
         title: null,
+        dragmode: false,
+        shapes: [markerShape],
         xaxis: {
           ...PLOTLY_LAYOUT.xaxis,
           title: 'Track Position [-]',
+          range: [0, 1],
+          fixedrange: false,
         },
         yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
       }, { responsive: true, scrollZoom: false });
+
+      attachMarkerDrag(plotDiv);
     }
 
     linkXAxes(plotDivs);
+    updateMarker(markerPosition, true);
     const totalPts = allData.reduce((sum, d) => sum + d.count, 0);
     setStatus(`Loaded ${totalPts.toLocaleString()} points across ${selections.length} trace(s)`);
   } catch (e) {
@@ -635,6 +1040,43 @@ function downsample(x, y, maxPoints = 1500) {
     ny.push(y[idx]);
   }
   return { x: nx, y: ny };
+}
+
+function attachMarkerDrag(div) {
+  // Drag the vertical marker line via mouse: mousedown on the plot
+  // area anywhere, then mousemove updates position while button held.
+  let dragging = false;
+
+  const pxToX = (ev) => {
+    const gd = div;
+    if (!gd._fullLayout) return null;
+    const rect = gd.getBoundingClientRect();
+    const l = gd._fullLayout.margin.l;
+    const w = gd._fullLayout.width - gd._fullLayout.margin.l - gd._fullLayout.margin.r;
+    const px = ev.clientX - rect.left - l;
+    if (w <= 0) return null;
+    const xRange = gd._fullLayout.xaxis.range;
+    const frac = Math.max(0, Math.min(1, px / w));
+    return xRange[0] + frac * (xRange[1] - xRange[0]);
+  };
+
+  div.addEventListener('mousedown', (ev) => {
+    if (ev.button !== 0) return;
+    const x = pxToX(ev);
+    if (x === null) return;
+    dragging = true;
+    updateMarker(Math.max(0, Math.min(1, x)), true);
+    ev.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (ev) => {
+    if (!dragging) return;
+    const x = pxToX(ev);
+    if (x === null) return;
+    updateMarker(Math.max(0, Math.min(1, x)), true);
+  });
+
+  window.addEventListener('mouseup', () => { dragging = false; });
 }
 
 function linkXAxes(divs) {
@@ -671,7 +1113,7 @@ function setStatus(msg, isError = false) {
 (async () => {
   setStatus('<span class="loading-spinner"></span> Loading...');
   try {
-    await Promise.all([fetchSessions(), loadChannels()]);
+    await Promise.all([fetchSessions(), loadChannels(), fetchTrack()]);
     addRow({ experiment: 'Demo run' });
     setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
   } catch (e) {

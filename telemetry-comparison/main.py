@@ -5,6 +5,7 @@ Queries Hive-partitioned Parquet data in QuixLake via SQL (DuckDB) and serves
 an interactive Plotly.js UI for overlaying telemetry from different sessions/laps.
 """
 
+import csv
 import json
 import os
 import logging
@@ -28,13 +29,19 @@ TABLE_NAME = os.getenv("TABLE_NAME", "ac_telemetry")
 QUIXLAKE_URL = os.getenv("QUIXLAKE_URL")
 QUIX_LAKE_TOKEN = os.getenv("QUIX_LAKE_TOKEN")
 
-STATIC_DIR = Path(__file__).parent / "static"
-CHANNELS_FILE = Path(__file__).parent / "channels.json"
+BASE_DIR = Path(__file__).parent
+STATIC_DIR = BASE_DIR / "static"
+CHANNELS_FILE = BASE_DIR / "channels.json"
+TRACKS_CONFIG_FILE = BASE_DIR / "tracks_config.json"
 
 # Load channel metadata at startup
 with open(CHANNELS_FILE) as f:
     _raw = json.load(f)
 CHANNELS = {k: v for k, v in _raw.items() if not k.startswith("_")}
+
+# Load tracks config at startup
+with open(TRACKS_CONFIG_FILE) as f:
+    TRACKS_CONFIG = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
 
 
 def get_client() -> QuixLakeClient:
@@ -223,6 +230,102 @@ async def list_channels():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Track data
+# ---------------------------------------------------------------------------
+
+def _classify_radius(r_m: float) -> str:
+    t = TRACKS_CONFIG["corner_thresholds"]
+    if r_m < t["hairpin_max"]:
+        return "hairpin"
+    if r_m < t["tight_max"]:
+        return "tight"
+    if r_m < t["sweeper_max"]:
+        return "sweeper"
+    return "straight"
+
+
+def _load_track_csv(rel_path: str) -> dict:
+    csv_path = BASE_DIR / rel_path
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Track file not found: {rel_path}")
+
+    points = []
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                points.append({
+                    "x": float(row["x"]),
+                    "z": float(row["z"]),
+                    "distance_m": float(row["distance_m"]),
+                    "normalizedDistance": float(row["normalizedDistance"]),
+                    "radius_m": float(row["radius_m"]),
+                    "speed_kmh": float(row.get("speed_kmh", 0) or 0),
+                    "gradient_pct": float(row.get("gradient_pct", 0) or 0),
+                    "width_total_m": float(row.get("width_total_m", 0) or 0),
+                    "severity": _classify_radius(float(row["radius_m"])),
+                })
+            except (KeyError, ValueError):
+                continue
+
+    # Group contiguous non-straight runs into labeled corners (T1..Tn)
+    corners = []
+    min_len_m = TRACKS_CONFIG.get("corner_labels", {}).get("min_length_m", 20)
+    i = 0
+    n = len(points)
+    while i < n:
+        sev = points[i]["severity"]
+        if sev == "straight":
+            i += 1
+            continue
+        j = i
+        while j < n and points[j]["severity"] != "straight":
+            j += 1
+        # [i, j) is a corner run
+        seg_len = points[j - 1]["distance_m"] - points[i]["distance_m"]
+        if seg_len >= min_len_m:
+            # Dominant severity = smallest min radius in the run
+            min_r = min(points[k]["radius_m"] for k in range(i, j))
+            corners.append({
+                "index": len(corners) + 1,
+                "label": f"T{len(corners) + 1}",
+                "severity": _classify_radius(min_r),
+                "start_norm": points[i]["normalizedDistance"],
+                "end_norm": points[j - 1]["normalizedDistance"],
+                "start_m": points[i]["distance_m"],
+                "end_m": points[j - 1]["distance_m"],
+                "min_radius_m": round(min_r, 1),
+                "mid_x": points[(i + j - 1) // 2]["x"],
+                "mid_z": points[(i + j - 1) // 2]["z"],
+            })
+        i = j
+
+    return {
+        "points": points,
+        "corners": corners,
+        "total_length_m": points[-1]["distance_m"] if points else 0,
+    }
+
+
+@app.get("/api/track")
+async def get_track():
+    """Return the default track: points + classified corners."""
+    try:
+        rel_path = TRACKS_CONFIG.get("default_track", "tracks/ks_nurburgring/layout_sprint_a.csv")
+        data = _load_track_csv(rel_path)
+        return JSONResponse(content={"track_file": rel_path, **data})
+    except Exception as e:
+        logger.exception("Failed to load track")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/track/config")
+async def get_track_config():
+    """Return the tracks config (thresholds, colors)."""
+    return JSONResponse(content=TRACKS_CONFIG)
 
 
 # ---------------------------------------------------------------------------

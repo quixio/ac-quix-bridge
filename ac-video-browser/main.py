@@ -40,6 +40,7 @@ def list_sessions():
     if not blob_fs:
         raise HTTPException(503, "Blob storage not connected")
     try:
+        blob_fs.invalidate_cache(BLOB_PREFIX)
         entries = blob_fs.ls(BLOB_PREFIX, detail=False)
         sessions = []
         for entry in entries:
@@ -62,6 +63,7 @@ def list_files(session_id: str):
     safe_id = session_id.replace(":", "-")
     prefix = f"{BLOB_PREFIX}/session_id={safe_id}"
     try:
+        blob_fs.invalidate_cache(prefix)
         entries = blob_fs.ls(prefix, detail=True)
         files = []
         for entry in entries:
