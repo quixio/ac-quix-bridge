@@ -7,12 +7,19 @@ frames while the game is paused.
 
 Frames are resized to RECORDING_WIDTH (default 1920) before encoding to keep
 ffmpeg encoding in real time even at 4K capture resolution.
+
+Each finished MP4 is paired with a sidecar JSON (<mp4>.sync.json) that maps
+sub-sampled frame indices to wall-clock time and AC's normalizedCarPosition.
+The Telemetry Explorer uses the sidecar to bind plot-marker drag <-> video
+seek (see docs/video-sync-design.md).
 """
 
+import json
 import logging
 import os
 import shutil
 import subprocess
+import time
 
 import cv2
 import numpy as np
@@ -38,9 +45,20 @@ def _find_ffmpeg() -> str:
 
 
 class VideoRecorder:
-    """Manages per-lap MP4 recording lifecycle via ffmpeg."""
+    """Manages per-lap MP4 recording lifecycle via ffmpeg.
 
-    def __init__(self, output_dir: str, fps: int, max_width: int = 1920):
+    Also tracks per-frame wall-clock + AC position metadata at sidecar_sample_hz
+    and emits a `<mp4>.sync.json` sidecar on finish_lap() for video <-> telemetry
+    sync in the Telemetry Explorer.
+    """
+
+    def __init__(
+        self,
+        output_dir: str,
+        fps: int,
+        max_width: int = 1920,
+        sidecar_sample_hz: float = 5.0,
+    ):
         self._output_dir = output_dir
         self._fps = fps
         self._max_width = max_width
@@ -50,6 +68,15 @@ class VideoRecorder:
         self._paused = False
         self._rec_w: int = 0
         self._rec_h: int = 0
+        # Sidecar state — reset per-lap in start_lap()
+        self._sample_interval = max(1, int(round(fps / max(0.1, sidecar_sample_hz))))
+        self._frame_index = 0  # number of frames written to ffmpeg so far
+        self._sidecar_entries: list[dict] = []
+        self._session_id = ""
+        self._lap = 0
+        self._start_wall_ms = 0
+        self._last_meta: tuple[int, float | None] | None = None
+        self._force_next_sample = False
         os.makedirs(output_dir, exist_ok=True)
 
     @property
@@ -100,9 +127,17 @@ class VideoRecorder:
             )
             self._current_path = filepath
             self._paused = False
+            # Reset sidecar state for the new lap
+            self._frame_index = 0
+            self._sidecar_entries = []
+            self._session_id = session_id
+            self._lap = lap
+            self._start_wall_ms = int(time.time() * 1000)
+            self._last_meta = None
+            self._force_next_sample = True  # always sample frame 0
             logger.info(
-                "Recording started: %s (%dx%d @ %dfps)",
-                filename, self._rec_w, self._rec_h, self._fps,
+                "Recording started: %s (%dx%d @ %dfps, sidecar every %d frames)",
+                filename, self._rec_w, self._rec_h, self._fps, self._sample_interval,
             )
             return filepath
         except FileNotFoundError:
@@ -115,7 +150,9 @@ class VideoRecorder:
 
     def write_frame(self, frame: np.ndarray):
         """Write a frame (numpy array, RGB) to the current recording.
-        Automatically resizes to the recording resolution if needed."""
+        Automatically resizes to the recording resolution if needed.
+
+        Pair with log_frame() to record sidecar metadata for this frame."""
         if self._process is None or self._paused:
             return
         h, w = frame.shape[:2]
@@ -123,23 +160,60 @@ class VideoRecorder:
             frame = cv2.resize(frame, (self._rec_w, self._rec_h))
         try:
             self._process.stdin.write(frame.tobytes())
+            self._frame_index += 1
         except (BrokenPipeError, OSError):
             logger.error("ffmpeg pipe broken, stopping recording")
             self._cleanup_process()
 
+    def log_frame(self, wall_ms: int, norm_pos: float | None):
+        """Record sidecar metadata for the most recently written frame.
+
+        Must be called immediately after write_frame() so that frame index,
+        wall_ms, and norm_pos line up. No-op if recording stopped/paused or
+        no frame has been written yet."""
+        if self._process is None or self._paused or self._frame_index == 0:
+            return
+        idx = self._frame_index - 1
+        self._last_meta = (int(wall_ms), norm_pos)
+        if (idx % self._sample_interval) == 0 or self._force_next_sample:
+            self._record_sample(idx, wall_ms, norm_pos)
+            self._force_next_sample = False
+
+    def _record_sample(self, idx: int, wall_ms: int, norm_pos: float | None):
+        if self._sidecar_entries and self._sidecar_entries[-1]["idx"] == idx:
+            return  # already recorded this frame (e.g., pause boundary collision)
+        self._sidecar_entries.append({
+            "idx": idx,
+            "t_ms": int(round(idx * 1000.0 / self._fps)),
+            "wall_ms": int(wall_ms),
+            "normPos": float(norm_pos) if norm_pos is not None else None,
+        })
+
     def pause(self):
-        """Pause recording — frames are skipped until resume()."""
+        """Pause recording — frames are skipped until resume().
+        Forces a sample at the last LIVE frame so the wall-clock gap is bounded."""
+        if not self._paused and self._last_meta is not None and self._frame_index > 0:
+            wall_ms, norm_pos = self._last_meta
+            self._record_sample(self._frame_index - 1, wall_ms, norm_pos)
         self._paused = True
 
     def resume(self):
-        """Resume recording after a pause."""
+        """Resume recording after a pause. The next logged frame is forced
+        to be a sample so the post-pause wall_ms is anchored."""
         self._paused = False
+        self._force_next_sample = True
 
     def finish_lap(self) -> str:
-        """Finalize the current MP4 and return its filepath."""
+        """Finalize the current MP4 and write the sidecar JSON. Returns the
+        MP4 filepath."""
         if self._process is None:
             return ""
         path = self._current_path
+        # Anchor the very last frame in the sidecar so end-of-lap interpolation
+        # is exact rather than capped at the prior sample.
+        if self._last_meta is not None and self._frame_index > 0:
+            wall_ms, norm_pos = self._last_meta
+            self._record_sample(self._frame_index - 1, wall_ms, norm_pos)
         try:
             self._process.stdin.close()
             self._process.wait(timeout=120)
@@ -149,12 +223,52 @@ class VideoRecorder:
         except Exception:
             logger.exception("Error finalizing recording")
             self._process.kill()
+        self._write_sidecar(path)
         self._cleanup_process()
         if path:
             logger.info("Recording finalized: %s", path)
         return path
 
+    def _write_sidecar(self, mp4_path: str) -> str:
+        """Write <mp4>.sync.json next to the MP4. Returns the sidecar path
+        or empty string on failure / nothing to write."""
+        if not mp4_path or self._frame_index == 0:
+            return ""
+        sidecar_path = self.sidecar_path_for(mp4_path)
+        duration_ms = int(round(self._frame_index * 1000.0 / self._fps))
+        payload = {
+            "session_id": self._session_id,
+            "lap": self._lap,
+            "start_wall_ms": self._start_wall_ms,
+            "fps": self._fps,
+            "duration_ms": duration_ms,
+            "frame_count": self._frame_index,
+            "frames": self._sidecar_entries,
+        }
+        try:
+            with open(sidecar_path, "w") as f:
+                json.dump(payload, f)
+            logger.info(
+                "Sidecar written: %s (%d samples, %d frames, %.1fs)",
+                os.path.basename(sidecar_path),
+                len(self._sidecar_entries),
+                self._frame_index,
+                duration_ms / 1000.0,
+            )
+            return sidecar_path
+        except Exception:
+            logger.exception("Failed to write sidecar JSON: %s", sidecar_path)
+            return ""
+
+    @staticmethod
+    def sidecar_path_for(mp4_path: str) -> str:
+        """Return the sidecar JSON path that pairs with an MP4 path."""
+        if mp4_path.lower().endswith(".mp4"):
+            return mp4_path[:-4] + ".sync.json"
+        return mp4_path + ".sync.json"
+
     def _cleanup_process(self):
         self._process = None
         self._current_path = ""
         self._paused = False
+        # Sidecar state will be reinitialized on the next start_lap()

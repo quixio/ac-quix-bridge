@@ -361,7 +361,32 @@
       text-align: center;
     }
 
-    .video-placeholder {
+    .video-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .video-lap-select {
+      width: 100%;
+      background: #0b0d13;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.3rem 0.4rem;
+      font-size: 0.72rem;
+    }
+    .video-lap-select:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .video-player {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 6px;
+      display: block;
+    }
+    .video-empty {
       width: 100%;
       aspect-ratio: 16 / 9;
       background: #0b0d13;
@@ -371,26 +396,20 @@
       align-items: center;
       justify-content: center;
       color: var(--text-muted);
+      text-align: center;
+      padding: 0.5rem;
+      font-size: 0.7rem;
+      line-height: 1.3;
     }
-    .video-placeholder-inner { text-align: center; }
-    .video-icon {
-      font-size: 1.6rem;
-      color: var(--text-muted);
-      opacity: 0.45;
-      margin-bottom: 0.3rem;
-    }
-    .video-label {
-      font-size: 0.72rem;
-      color: var(--text);
-      opacity: 0.7;
-    }
-    .video-hint {
+    .video-status {
       font-size: 0.62rem;
       color: var(--text-muted);
-      opacity: 0.6;
-      margin-top: 0.2rem;
+      min-height: 0.9rem;
+      line-height: 1.2;
     }
-    .track-map-panel.collapsed .video-placeholder { display: none; }
+    .video-status.error { color: var(--red); }
+    .video-status.warn { color: #f59e0b; }
+    .track-map-panel.collapsed .video-panel { display: none; }
 
     @media (max-width: 1200px) {
       .track-map-panel { width: 280px; }
@@ -438,12 +457,15 @@
   </div>
 
   <div class="panel-title" style="margin-top: 0.75rem;">Video</div>
-  <div class="video-placeholder" id="video-placeholder">
-    <div class="video-placeholder-inner">
-      <div class="video-icon">▶</div>
-      <div class="video-label">Video will appear here</div>
-      <div class="video-hint">synced with marker position (coming soon)</div>
-    </div>
+  <div class="video-panel" id="video-panel">
+    <select id="video-lap-select" class="video-lap-select" disabled
+            onchange="onVideoLapChange(this.value)">
+      <option value="">— pick laps and Plot —</option>
+    </select>
+    <video id="video-player" class="video-player" controls preload="metadata"
+           style="display:none"></video>
+    <div id="video-empty" class="video-empty">No lap selected</div>
+    <div id="video-status" class="video-status"></div>
   </div>
 </div>
 
@@ -518,6 +540,16 @@ let plotSignals = [];      // list of signal keys currently displayed (aligned w
 let plotTraces = [];       // per plot: array of {label, color, x, y} used for value lookup
 let trackBaseRange = null; // { xMin, xMax, zMin, zMax } of full track (for zoom math)
 let trackZoom = 1;         // current zoom factor (1 = fit whole track)
+
+// --- Video sync state (populated after Plot when a lap with a sidecar exists) ---
+let videoState = {
+  element: null,        // <video> reference (set once at init)
+  laps: [],             // currently selectable laps (subset of plot selections)
+  currentLapIdx: -1,    // index in videoState.laps, -1 = none loaded
+  currentLoadToken: 0,  // monotonic, used to ignore stale async loads
+  frames: null,         // sorted-by-t_ms array of {t_ms, normPos} for the loaded lap
+  isPlaying: false,     // true between 'play' and 'pause'/'ended' events
+};
 
 const MAX_READOUTS = 6;
 
@@ -760,8 +792,10 @@ function trackPointAtNorm(nd) {
   return pts[lo];
 }
 
-function updateMarker(nd, forceTrack) {
+function updateMarker(nd, forceTrack, source) {
   markerPosition = nd;
+  // Video sync — only marker→video; video→marker callers pass source='video'.
+  syncVideoFromMarker(nd, source);
 
   // Update track dot
   if (forceTrack || trackData) {
@@ -1273,6 +1307,7 @@ async function plot() {
     updateMarker(markerPosition, true);
     const totalPts = allData.reduce((sum, d) => sum + d.count, 0);
     setStatus(`Loaded ${totalPts.toLocaleString()} points across ${selections.length} trace(s)`);
+    populateVideoLapPicker(selections);
   } catch (e) {
     setStatus('Error: ' + e.message, true);
   } finally {
@@ -1325,7 +1360,7 @@ function attachMarkerDrag(div) {
     const x = pxToX(ev);
     if (x === null) return;
     dragging = true;
-    updateMarker(Math.max(0, Math.min(1, x)), true);
+    updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
     ev.preventDefault();
   });
 
@@ -1333,7 +1368,7 @@ function attachMarkerDrag(div) {
     if (!dragging) return;
     const x = pxToX(ev);
     if (x === null) return;
-    updateMarker(Math.max(0, Math.min(1, x)), true);
+    updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
   });
 
   window.addEventListener('mouseup', () => { dragging = false; });
@@ -1368,10 +1403,228 @@ function setStatus(msg, isError = false) {
 }
 
 // ---------------------------------------------------------------------------
+// Video sync (MP4 + sidecar) — see docs/video-sync-design.md
+//
+// Mode-switched bidirectional sync, no feedback-loop hack:
+//   - Video PLAYING  → video.timeupdate drives the marker (and red dot).
+//   - Video PAUSED   → user dragging the marker seeks the video.
+//
+// Lookups: sidecar JSON has frames=[{idx,t_ms,wall_ms,normPos}, ...] sampled
+// at SIDECAR_SAMPLE_HZ. Sorted by t_ms. We interpolate linearly for both
+// directions because normPos and t_ms are both monotonic across a normal lap.
+// ---------------------------------------------------------------------------
+
+function setVideoStatus(msg, level) {
+  const el = document.getElementById('video-status');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.className = 'video-status' + (level ? ' ' + level : '');
+}
+
+function showVideoElement() {
+  const v = document.getElementById('video-player');
+  const e = document.getElementById('video-empty');
+  if (v) v.style.display = 'block';
+  if (e) e.style.display = 'none';
+}
+
+function hideVideoElement(emptyMsg) {
+  const v = document.getElementById('video-player');
+  const e = document.getElementById('video-empty');
+  if (v) {
+    try { v.pause(); } catch (_) {}
+    v.removeAttribute('src');
+    v.load();
+    v.style.display = 'none';
+  }
+  if (e) {
+    e.textContent = emptyMsg || 'No video for this lap';
+    e.style.display = 'flex';
+  }
+  videoState.frames = null;
+  videoState.isPlaying = false;
+}
+
+function populateVideoLapPicker(selections) {
+  const select = document.getElementById('video-lap-select');
+  if (!select) return;
+
+  videoState.laps = (selections || []).slice();
+  select.innerHTML = '';
+
+  if (!videoState.laps.length) {
+    select.appendChild(new Option('— pick laps and Plot —', ''));
+    select.disabled = true;
+    hideVideoElement('Pick laps and click Plot');
+    setVideoStatus('');
+    return;
+  }
+
+  videoState.laps.forEach((sel, i) => {
+    const sid = sel.key.session_id || '?';
+    // Short session display: just the timestamp portion
+    const shortSid = sid.length > 19 ? sid.slice(11, 19) : sid;
+    const text = `${sel.label} • ${shortSid}`;
+    select.appendChild(new Option(text, String(i)));
+  });
+  select.disabled = false;
+
+  // Auto-load the first lap if nothing was loaded yet (preserve user's choice
+  // across re-plots if the same lap is still in the list).
+  let preserveIdx = -1;
+  if (videoState.currentLapIdx >= 0) {
+    const prev = videoState.laps[videoState.currentLapIdx];
+    if (prev) preserveIdx = videoState.currentLapIdx;
+  }
+  const targetIdx = preserveIdx >= 0 ? preserveIdx : 0;
+  select.value = String(targetIdx);
+  loadVideoForLapIdx(targetIdx);
+}
+
+function onVideoLapChange(idxStr) {
+  const idx = parseInt(idxStr, 10);
+  if (Number.isFinite(idx)) loadVideoForLapIdx(idx);
+}
+
+async function loadVideoForLapIdx(idx) {
+  const sel = videoState.laps[idx];
+  if (!sel) return;
+  videoState.currentLapIdx = idx;
+
+  const sid = sel.key.session_id;
+  const lap = sel.lap;
+  if (!sid && sid !== 0) {
+    hideVideoElement('Selection has no session_id');
+    setVideoStatus('');
+    return;
+  }
+
+  const token = ++videoState.currentLoadToken;
+  setVideoStatus('Loading video...');
+
+  let meta;
+  try {
+    const url = `/api/video/${encodeURIComponent(sid)}/${lap}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      hideVideoElement('Video unavailable (HTTP ' + res.status + ')');
+      setVideoStatus('HTTP ' + res.status, 'error');
+      return;
+    }
+    meta = await res.json();
+  } catch (e) {
+    hideVideoElement('Video request failed');
+    setVideoStatus(e.message || String(e), 'error');
+    return;
+  }
+
+  // A newer load may have started while we awaited — drop stale results
+  if (token !== videoState.currentLoadToken) return;
+
+  if (!meta || !meta.has_video) {
+    hideVideoElement(meta && meta.message || 'No video for this lap');
+    setVideoStatus('');
+    return;
+  }
+
+  showVideoElement();
+  const video = videoState.element;
+  if (video) {
+    try { video.pause(); } catch (_) {}
+    video.src = meta.mp4_url;
+    video.currentTime = 0;
+    videoState.isPlaying = false;
+  }
+
+  if (meta.has_sync && meta.sync && Array.isArray(meta.sync.frames)) {
+    buildSyncLookups(meta.sync);
+    const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
+    setVideoStatus(
+      `${meta.sync.frame_count || '?'} frames • ${dur} • sync ${videoState.frames ? videoState.frames.length : 0} pts`
+    );
+  } else {
+    videoState.frames = null;
+    setVideoStatus(meta.message || 'Video sync metadata not available', 'warn');
+  }
+}
+
+function buildSyncLookups(sync) {
+  const valid = (sync.frames || []).filter(
+    f => f && Number.isFinite(f.t_ms) && f.normPos != null && Number.isFinite(f.normPos)
+  );
+  // Sort ascending by t_ms. normPos is monotonic in a normal lap so this also
+  // gives us ascending normPos for the marker→video direction.
+  valid.sort((a, b) => a.t_ms - b.t_ms);
+  videoState.frames = valid.length ? valid : null;
+}
+
+function _interp(arr, keyFn, valFn, target) {
+  if (!arr || !arr.length) return null;
+  if (target <= keyFn(arr[0])) return valFn(arr[0]);
+  if (target >= keyFn(arr[arr.length - 1])) return valFn(arr[arr.length - 1]);
+  let lo = 0, hi = arr.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (keyFn(arr[mid]) <= target) lo = mid; else hi = mid;
+  }
+  const k0 = keyFn(arr[lo]), k1 = keyFn(arr[hi]);
+  if (k1 === k0) return valFn(arr[lo]);
+  const frac = (target - k0) / (k1 - k0);
+  return valFn(arr[lo]) + frac * (valFn(arr[hi]) - valFn(arr[lo]));
+}
+
+function lookupTmsForNormPos(nd) {
+  return _interp(videoState.frames, f => f.normPos, f => f.t_ms, nd);
+}
+
+function lookupNormPosForTms(t_ms) {
+  return _interp(videoState.frames, f => f.t_ms, f => f.normPos, t_ms);
+}
+
+function syncVideoFromMarker(nd, source) {
+  // Called from updateMarker.
+  //   source==='video' : called by the video timeupdate handler — don't echo.
+  //   source==='drag'  : user dragged the marker → pause video (if playing),
+  //                      then seek to the matching frame.
+  //   else             : programmatic re-render (plot/init/etc) → leave video alone.
+  const v = videoState.element;
+  if (!v || !videoState.frames) return;
+  if (source !== 'drag') return;
+  if (videoState.isPlaying) {
+    try { v.pause(); } catch (_) {}
+  }
+  const t_ms = lookupTmsForNormPos(nd);
+  if (t_ms == null) return;
+  const target = t_ms / 1000;
+  if (Math.abs(v.currentTime - target) > 0.05) {
+    v.currentTime = target;
+  }
+}
+
+function _wireVideoElement() {
+  const v = document.getElementById('video-player');
+  if (!v) return;
+  videoState.element = v;
+
+  v.addEventListener('play', () => { videoState.isPlaying = true; });
+  v.addEventListener('pause', () => { videoState.isPlaying = false; });
+  v.addEventListener('ended', () => { videoState.isPlaying = false; });
+
+  // While playing, the video drives the marker + red dot.
+  v.addEventListener('timeupdate', () => {
+    if (!videoState.isPlaying || !videoState.frames) return;
+    const nd = lookupNormPosForTms(v.currentTime * 1000);
+    if (nd == null) return;
+    updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 (async () => {
   setStatus('<span class="loading-spinner"></span> Loading...');
+  _wireVideoElement();
   try {
     await Promise.all([fetchSessions(), loadChannels(), fetchTrack()]);
     addRow({ experiment: 'Demo run' });

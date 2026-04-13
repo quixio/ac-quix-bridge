@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 import cv2
 from quixstreams.sources import Source
 
+from session_tracker import SessionTracker
 from video_recorder import VideoRecorder
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def _get_blob_fs():
 class ACVideoSource(Source):
     """Captures AC gameplay, records per-lap MP4s, and streams frames to Kafka."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, session_tracker: SessionTracker | None = None):
         super().__init__(name=name)
         self._display_index = int(os.environ.get("VIDEO_DISPLAY_INDEX", "0"))
         self._fps = int(os.environ.get("VIDEO_FPS", "30"))
@@ -59,10 +60,29 @@ class ACVideoSource(Source):
         self._recording_width = int(os.environ.get("RECORDING_WIDTH", "1920"))
         self._mock_mode = os.environ.get("AC_MOCK_MODE", "false").lower() == "true"
         self._blob_fs = _get_blob_fs() if self._recording_enabled else None
+        self._session_tracker = session_tracker
 
     @staticmethod
-    def _new_session_id() -> str:
+    def _fallback_session_id() -> str:
+        """Used only when the telemetry session topic is unreachable. Video
+        recorded with this id won't be syncable in the Telemetry Explorer."""
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+    def _resolve_session_id(self) -> str:
+        """Adopt the telemetry-published session_id, or fall back if unavailable."""
+        detect_ms = int(time.time() * 1000)
+        if self._session_tracker is not None:
+            sid = self._session_tracker.session_id_for_new_session(
+                our_detect_ms=detect_ms, timeout_s=2.0
+            )
+            if sid is not None:
+                return sid
+            logger.warning(
+                "No telemetry session_id received within 2s — "
+                "telemetry source may not be running. Falling back to local id; "
+                "this video will not be syncable in the Telemetry Explorer."
+            )
+        return self._fallback_session_id()
 
     def _init_camera(self):
         """Initialize dxcam screen capture. Returns (camera, (width, height)) or (None, None)."""
@@ -105,12 +125,28 @@ class ACVideoSource(Source):
         return True
 
     def _upload_to_blob(self, local_path: str, session_id: str):
-        """Upload a finalized MP4 to blob storage, then delete the local file."""
+        """Upload a finalized MP4 + its sidecar JSON to blob storage, then
+        delete the local files. Sidecar is best-effort: a missing sidecar
+        does not block the MP4 upload."""
         if not self._blob_fs or not local_path:
             return
-        filename = os.path.basename(local_path)
         safe_session = session_id.replace(":", "-")
-        blob_path = f"{self._blob_prefix}/session_id={safe_session}/{filename}"
+        folder = f"{self._blob_prefix}/session_id={safe_session}"
+
+        self._upload_one(local_path, f"{folder}/{os.path.basename(local_path)}")
+
+        sidecar_path = VideoRecorder.sidecar_path_for(local_path)
+        if os.path.exists(sidecar_path):
+            self._upload_one(sidecar_path, f"{folder}/{os.path.basename(sidecar_path)}")
+        else:
+            logger.warning(
+                "No sidecar found for %s — Telemetry Explorer sync unavailable for this lap",
+                os.path.basename(local_path),
+            )
+
+    def _upload_one(self, local_path: str, blob_path: str):
+        """Upload one local file to blob_path, then delete it locally."""
+        filename = os.path.basename(local_path)
         try:
             with open(local_path, "rb") as f:
                 self._blob_fs.pipe(blob_path, f.read())
@@ -163,7 +199,15 @@ class ACVideoSource(Source):
 
     def run(self):
         reader = self._create_reader()
-        recorder = VideoRecorder(self._output_dir, self._fps, self._recording_width) if self._recording_enabled else None
+        sidecar_hz = float(os.environ.get("SIDECAR_SAMPLE_HZ", "5"))
+        recorder = (
+            VideoRecorder(
+                self._output_dir, self._fps, self._recording_width,
+                sidecar_sample_hz=sidecar_hz,
+            )
+            if self._recording_enabled
+            else None
+        )
         camera = None
         display_size = None
 
@@ -277,7 +321,7 @@ class ACVideoSource(Source):
             if new_session:
                 # Finalize any prior recording before starting fresh
                 self._finalize_recording(recorder, "new session", session_id or "")
-                session_id = self._new_session_id()
+                session_id = self._resolve_session_id()
                 static_data = reader.read_static()
                 logger.info(
                     "New session: %s (%s @ %s)",
@@ -314,6 +358,7 @@ class ACVideoSource(Source):
                 # Record to MP4 (fast — just writes raw bytes to ffmpeg pipe)
                 if recorder and recorder.is_recording:
                     recorder.write_frame(frame)
+                    recorder.log_frame(timestamp_ms, gfx.get("normalizedCarPosition"))
 
                 # Hand frame to stream thread (non-blocking)
                 if self._stream_enabled and stream_interval > 0:

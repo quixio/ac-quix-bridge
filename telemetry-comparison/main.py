@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from quixlake import QuixLakeClient
@@ -28,11 +28,28 @@ app = FastAPI(title="Telemetry Comparison")
 TABLE_NAME = os.getenv("TABLE_NAME", "ac_telemetry")
 QUIXLAKE_URL = os.getenv("QUIXLAKE_URL")
 QUIX_LAKE_TOKEN = os.getenv("QUIX_LAKE_TOKEN")
+BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 CHANNELS_FILE = BASE_DIR / "channels.json"
 TRACKS_CONFIG_FILE = BASE_DIR / "tracks_config.json"
+
+
+def _get_blob_fs():
+    """Get quixportal filesystem for blob storage. Returns None if unavailable.
+    Used by the video sync endpoints to fetch MP4s + sidecar JSONs from S3."""
+    try:
+        from quixportal.storage import get_filesystem
+        fs = get_filesystem()
+        logger.info("Blob storage connected (prefix=%s)", BLOB_VIDEO_PREFIX)
+        return fs
+    except Exception as e:
+        logger.warning("Blob storage not available — video sync will return 503: %s", e)
+        return None
+
+
+blob_fs = _get_blob_fs()
 
 # Load channel metadata at startup
 with open(CHANNELS_FILE) as f:
@@ -326,6 +343,107 @@ async def get_track():
 async def get_track_config():
     """Return the tracks config (thresholds, colors)."""
     return JSONResponse(content=TRACKS_CONFIG)
+
+
+# ---------------------------------------------------------------------------
+# Video sync (MP4 + sidecar JSON proxy from blob storage)
+# ---------------------------------------------------------------------------
+
+def _safe_session(session_id: str) -> str:
+    """Convert telemetry session_id (with colons) to the storage form (hyphens).
+    Idempotent — passing an already-safe id is a no-op."""
+    return session_id.replace(":", "-")
+
+
+def _video_blob_paths(session_id: str, lap: int) -> tuple[str, str]:
+    """Return (mp4_blob_path, sidecar_blob_path) for a session+lap."""
+    safe = _safe_session(session_id)
+    folder = f"{BLOB_VIDEO_PREFIX}/session_id={safe}"
+    base = f"{safe}_lap{lap:03d}"
+    return f"{folder}/{base}.mp4", f"{folder}/{base}.sync.json"
+
+
+@app.get("/api/video/{session_id}/{lap}")
+async def get_video_meta(session_id: str, lap: int):
+    """Return sidecar sync data + MP4 stream URL for a session+lap.
+
+    Response shape:
+      {
+        "has_video": bool,
+        "has_sync": bool,
+        "sync": {...} | None,
+        "mp4_url": str | None,
+        "message": str | None
+      }"""
+    if not blob_fs:
+        raise HTTPException(503, "Blob storage not connected")
+
+    mp4_path, sidecar_path = _video_blob_paths(session_id, lap)
+    folder = mp4_path.rsplit("/", 1)[0]
+
+    try:
+        blob_fs.invalidate_cache(folder)
+        mp4_exists = blob_fs.exists(mp4_path)
+    except Exception:
+        logger.exception("Failed to check MP4 existence")
+        mp4_exists = False
+
+    if not mp4_exists:
+        return JSONResponse({
+            "has_video": False,
+            "has_sync": False,
+            "sync": None,
+            "mp4_url": None,
+            "message": f"No video recorded for session {session_id} lap {lap}",
+        })
+
+    sync = None
+    try:
+        sidecar_bytes = blob_fs.cat(sidecar_path)
+        sync = json.loads(sidecar_bytes)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        logger.exception("Failed to read sidecar JSON: %s", sidecar_path)
+
+    return JSONResponse({
+        "has_video": True,
+        "has_sync": sync is not None,
+        "sync": sync,
+        "mp4_url": f"/api/video/{session_id}/{lap}/mp4",
+        "message": None if sync else "Video recorded but sync metadata not available",
+    })
+
+
+@app.get("/api/video/{session_id}/{lap}/mp4")
+async def stream_video(session_id: str, lap: int):
+    """Proxy-stream the MP4 bytes from blob storage to the browser.
+
+    Loads the whole MP4 in memory then streams it — fine for typical lap
+    sizes (~hundreds of KB to a few MB). Once the browser has buffered the
+    file, in-memory seeking is free."""
+    if not blob_fs:
+        raise HTTPException(503, "Blob storage not connected")
+
+    mp4_path, _ = _video_blob_paths(session_id, lap)
+
+    try:
+        data = blob_fs.cat(mp4_path)
+    except FileNotFoundError:
+        raise HTTPException(404, f"Video not found: session={session_id} lap={lap}")
+    except Exception:
+        logger.exception("Failed to fetch MP4 from blob: %s", mp4_path)
+        raise HTTPException(500, "Failed to fetch video")
+
+    return StreamingResponse(
+        iter([data]),
+        media_type="video/mp4",
+        headers={
+            "Content-Length": str(len(data)),
+            "Accept-Ranges": "none",
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

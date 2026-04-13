@@ -51,7 +51,8 @@
       "Bash(powershell:*)",
       "Bash(git checkout:*)",
       "Bash(git ls-tree:*)",
-      "Bash(ac_video_streaming/.venv/Scripts/python.exe:*)"
+      "Bash(ac_video_streaming/.venv/Scripts/python.exe:*)",
+      "Bash(echo \"EXIT=$?\")"
     ],
     "deny": [],
     "ask": []

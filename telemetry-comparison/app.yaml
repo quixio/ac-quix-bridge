@@ -14,5 +14,9 @@ variables:
     inputType: FreeText
     description: QuixLake table name for telemetry data
     defaultValue: ac_telemetry
+  - name: BLOB_VIDEO_PREFIX
+    inputType: FreeText
+    description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
+    defaultValue: ac_video
 dockerfile: dockerfile
 defaultFile: main.py

@@ -105,10 +105,25 @@ class ACGraphicsReaderMock:
             "completedLaps": laps,
             "iCurrentTime": current_time,
             "flag": "none",
-            "normalizedCarPosition": (current_time % 60000) / 60000.0,
+            "normalizedCarPosition": self._norm_pos(laps, current_time, status),
             "isInPit": False,
             "isInPitLane": False,
         }
+
+    def _norm_pos(self, laps: int, current_time: int, status: str) -> float:
+        """Monotonic 0->1 ramp per lap so sidecar JSON / Telemetry Explorer
+        sync can be exercised end-to-end in mock mode.
+
+        Lap 0 and lap 2 each take MOCK_LAP_DURATION_S seconds of LIVE time.
+        Lap 1 is split by a mid-lap pause so its full LIVE span is 2x that.
+        Position is held during PAUSE."""
+        if status not in ("live", "pause"):
+            return 0.0
+        d_ms = self._lap_dur * 1000
+        full_dur = (2 * d_ms) if laps == 1 else d_ms
+        if full_dur <= 0:
+            return 0.0
+        return max(0.0, min(1.0, current_time / full_dur))
 
     def read_static(self) -> dict:
         return {

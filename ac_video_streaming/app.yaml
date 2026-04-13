@@ -6,6 +6,11 @@ variables:
     description: Kafka topic for video frame streaming
     defaultValue: ac-video-frames
     required: true
+  - name: session_input
+    inputType: InputTopic
+    description: Topic from ac-telemetry-source carrying the canonical session_id to adopt
+    defaultValue: ac-telemetry-session
+    required: true
   - name: VIDEO_DISPLAY_INDEX
     inputType: FreeText
     description: Display index for screen capture (0 = primary)
@@ -50,6 +55,11 @@ variables:
     inputType: FreeText
     description: Blob storage path prefix for MP4 uploads
     defaultValue: ac_video
+    required: false
+  - name: SIDECAR_SAMPLE_HZ
+    inputType: FreeText
+    description: Frequency at which sidecar JSON samples wall_ms + normPos for video<->telemetry sync
+    defaultValue: 5
     required: false
 dockerfile: dockerfile
 runEntryPoint: main.py

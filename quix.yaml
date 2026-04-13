@@ -339,6 +339,11 @@ deployments:
         description: Kafka topic for video frame streaming
         required: true
         value: ac-video-frames
+      - name: session_input
+        inputType: InputTopic
+        description: Topic from ac-telemetry-source carrying the canonical session_id
+        required: true
+        value: ac-telemetry-session
       - name: VIDEO_DISPLAY_INDEX
         inputType: FreeText
         description: Display index for screen capture (0 = primary)
@@ -363,6 +368,10 @@ deployments:
         inputType: FreeText
         description: Blob storage path prefix for MP4 uploads
         value: ac_video
+      - name: SIDECAR_SAMPLE_HZ
+        inputType: FreeText
+        description: Frequency (Hz) of sidecar JSON samples for video<->telemetry sync
+        value: 5
     blobStorage:
       bind: true
   - name: AC Video Viewer
@@ -438,6 +447,12 @@ deployments:
         inputType: FreeText
         description: QuixLake table name for telemetry data
         value: ac_telemetry
+      - name: BLOB_VIDEO_PREFIX
+        inputType: FreeText
+        description: Blob storage path prefix where MP4 recordings + sidecar JSONs are stored
+        value: ac_video
+    blobStorage:
+      bind: true
     plugin:
       embeddedView:
         enabled: true
