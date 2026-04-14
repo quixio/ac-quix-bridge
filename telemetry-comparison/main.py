@@ -190,6 +190,18 @@ async def get_telemetry(
             ORDER BY normalizedCarPosition
         """)
         df = sanitize_df(df)
+
+        # First lap: trim the approach to the start line (pit exit / grid).
+        # Detect a backward jump in normalizedCarPosition (near 1 → near 0)
+        # when sorted by time, and discard everything before that wrap.
+        if lap == 1 and not df.empty:
+            by_time = df.sort_values("timestamp_ms")
+            ncp = by_time["normalizedCarPosition"].values
+            for i in range(1, len(ncp)):
+                if ncp[i - 1] > 0.9 and ncp[i] < 0.1:
+                    df = by_time.iloc[i:].sort_values("normalizedCarPosition")
+                    break
+
         return JSONResponse(content={
             "session_id": session_id,
             "lap": lap,
