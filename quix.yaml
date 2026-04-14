@@ -51,37 +51,6 @@ deployments:
         description: The root password to initialize MongoDB with
         required: true
         secretKey: MONGO_ROOT_PASSWORD
-  - name: Config Form
-    application: config-form
-    version: latest
-    deploymentType: Service
-    resources:
-      cpu: 1000
-      memory: 2000
-      replicas: 1
-    publicAccess:
-      enabled: true
-      urlPrefix: configform
-    network:
-      ports:
-        - port: 80
-          targetPort: 80
-    variables:
-      - name: CONFIG_MANAGER_URL
-        inputType: FreeText
-        description: URL of the Dynamic Configuration Manager API
-        required: true
-        value: https://config-api-svc-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io
-      - name: CONFIG_TYPE
-        inputType: FreeText
-        description: Config type in the Dynamic Configuration Manager
-        required: true
-        value: experiment
-      - name: TARGET_KEY
-        inputType: FreeText
-        description: Target key for the config
-        required: true
-        value: '*'
   - name: Session Config Bridge
     application: session-config-bridge
     version: latest
@@ -203,6 +172,110 @@ deployments:
         value: 10
     blobStorage:
       bind: true
+  - name: Test Manager - Backend
+    application: test-manager-backend
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 500
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: test-manager-api
+    network:
+      serviceName: test-manager-backend
+      ports:
+        - port: 80
+          targetPort: 8080
+    variables:
+      - name: MONGO_USER
+        inputType: Secret
+        required: true
+        secretKey: MONGO_USER
+      - name: MONGO_PASSWORD
+        inputType: Secret
+        required: true
+        secretKey: MONGO_ROOT_PASSWORD
+      - name: MONGO_HOST
+        inputType: FreeText
+        required: true
+        value: mongodb
+      - name: Quix__BlobStorage__Connection__Json
+        inputType: Secret
+        required: true
+        secretKey: Quix__BlobStorage__Connection__Json
+      - name: INFLUXDB_USER
+        inputType: Secret
+        required: true
+        secretKey: INFLUXDB_USER
+      - name: INFLUXDB_PASSWORD
+        inputType: Secret
+        required: true
+        secretKey: INFLUXDB_PASSWORD
+      - name: INFLUXDB_HOST
+        inputType: FreeText
+        required: true
+        value: influxdb
+      - name: INFLUXDB_PORT
+        inputType: FreeText
+        required: true
+        value: 8086
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        required: true
+        value: https://config-api-svc-quixdev-acquixbridge-testmanager.deployments-dev.quix.io
+      - name: MEASUREMENTS_URL
+        inputType: FreeText
+        required: true
+        value: https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io/
+      - name: DATA_LAKE_V2_TOPIC_NAME
+        inputType: FreeText
+        required: true
+        value: config-enriched-data
+      - name: ANALYTICS_URL
+        inputType: FreeText
+        required: true
+        value: https://marimo-analysis-quixers-advancedanalyticsnew-new.az-france-0.app.quix.io
+  - name: Test Manager - Frontend
+    application: test-manager-frontend
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 500
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: test-manager
+    network:
+      serviceName: test-manager-frontend
+      ports:
+        - port: 80
+          targetPort: 3000
+    variables:
+      - name: API_URL
+        inputType: FreeText
+        description: Backend API URL for server-side requests
+        required: true
+        value: http://test-manager-backend
+      - name: NODE_ENV
+        inputType: FreeText
+        required: true
+        value: production
+      - name: NEXT_TELEMETRY_DISABLED
+        inputType: FreeText
+        value: 1
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: Test Manager
+        icon: data_thresholding
+        order: 1
   - name: RaceTelemetryAnalysis
     application: racetelemetryanalysis
     version: latest
@@ -248,7 +321,7 @@ deployments:
     deploymentType: Service
     resources:
       cpu: 500
-      memory: 2000
+      memory: 200
       replicas: 1
     publicAccess:
       enabled: true
@@ -288,7 +361,7 @@ deployments:
     deploymentType: Service
     resources:
       cpu: 500
-      memory: 2000
+      memory: 200
       replicas: 1
     publicAccess:
       enabled: true

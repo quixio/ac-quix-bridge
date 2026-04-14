@@ -4,16 +4,12 @@ __pycache__/
 .venv/
 *.egg-info/
 dist/
-.env
 compose.local.yaml
 .secrets
-.venv/
 certificates/
 .quix.yaml.variables
 ac-machine-secrets/
 recordings/
 
-compose.local.yaml
-.secrets
-certificates/
-.quix.yaml.variables
+# Reference repo (test manager source)
+quixers-testmanager-standalone/

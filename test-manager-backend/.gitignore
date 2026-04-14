@@ -1,0 +1,52 @@
+# Mac OS
+.DS_Store
+
+# Quixstreams (Quix Platform)
+certificates/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# coverage reports
+.coverage
+
+# environment
+env/
+venv/
+.venv/
+
+# build results
+/build/
+dist/
+*egg-info
+**/__pycache__/**
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# direnv
+.direnv/
+.envrc
+
+# mkdocs
+site/
+.env
+compose.local.yaml
+.secrets
+.quix.yaml.variables
+
+.ruff_cache/
