@@ -2,9 +2,12 @@
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 
-# Accept build argument for API URL (defaults to internal service name for Quix Cloud)
+# Accept build arguments for Next.js (needed at build time for NEXT_PUBLIC_ vars)
 ARG API_URL=http://test-manager-backend
 ENV API_URL=$API_URL
+
+ARG NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
+ENV NEXT_PUBLIC_TELEMETRY_EXPLORER_URL=$NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
 
 # Copy package files
 COPY package*.json ./
