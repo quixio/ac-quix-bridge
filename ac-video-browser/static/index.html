@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AC Video Browser</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #111;
+            color: #eee;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 24px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 { font-size: 22px; font-weight: 500; margin-bottom: 24px; }
+        h2 { font-size: 16px; font-weight: 500; margin-bottom: 12px; color: #aaa; }
+        .session-list { list-style: none; margin-bottom: 32px; }
+        .session-list li {
+            padding: 12px 16px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.15s;
+        }
+        .session-list li:hover { background: #222; }
+        .session-list li.active { background: #1a2a1a; border-color: #4ade80; }
+        .session-id { font-family: monospace; font-size: 14px; }
+        .file-count { font-size: 12px; color: #666; }
+        .files-panel { display: none; }
+        .files-panel.visible { display: block; }
+        .files-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 24px;
+        }
+        .files-table th {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 1px solid #333;
+            color: #888;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .files-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #222;
+            font-size: 14px;
+        }
+        .files-table tr:hover td { background: #1a1a1a; }
+        .filename { font-family: monospace; }
+        .size { color: #888; }
+        .btn {
+            display: inline-block;
+            padding: 6px 14px;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.15s;
+        }
+        .btn:hover { background: #1d4ed8; }
+        .btn-all {
+            background: #16a34a;
+            margin-bottom: 16px;
+        }
+        .btn-all:hover { background: #15803d; }
+        .empty { color: #555; font-style: italic; padding: 24px 0; }
+        .loading { color: #888; }
+        .back-btn {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 13px;
+            margin-bottom: 16px;
+            padding: 4px 0;
+        }
+        .back-btn:hover { color: #eee; }
+        video {
+            max-width: 100%;
+            border-radius: 6px;
+            margin-top: 16px;
+            background: #000;
+        }
+    </style>
+</head>
+<body>
+    <h1>AC Video Browser</h1>
+
+    <div id="sessions-view">
+        <h2>Sessions</h2>
+        <div id="sessions-loading" class="loading">Loading sessions...</div>
+        <ul id="sessions-list" class="session-list"></ul>
+    </div>
+
+    <div id="files-view" class="files-panel">
+        <button class="back-btn" onclick="showSessions()">&larr; Back to sessions</button>
+        <h2>Session: <span id="current-session" class="session-id"></span></h2>
+        <button class="btn btn-all" onclick="downloadAll()">Download all files</button>
+        <table class="files-table">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Size</th>
+                    <th>Preview</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="files-body"></tbody>
+        </table>
+        <video id="preview" controls style="display:none"></video>
+    </div>
+
+    <script>
+        let currentSession = null;
+        let currentFiles = [];
+
+        async function loadSessions() {
+            const res = await fetch('/api/sessions');
+            const data = await res.json();
+            const list = document.getElementById('sessions-list');
+            const loading = document.getElementById('sessions-loading');
+            loading.style.display = 'none';
+
+            if (data.sessions.length === 0) {
+                list.innerHTML = '<li class="empty">No sessions found</li>';
+                return;
+            }
+
+            list.innerHTML = data.sessions.map(s => `
+                <li onclick="loadFiles('${s}')">
+                    <span class="session-id">${s}</span>
+                </li>
+            `).join('');
+        }
+
+        async function loadFiles(sessionId) {
+            currentSession = sessionId;
+            document.getElementById('current-session').textContent = sessionId;
+            document.getElementById('sessions-view').style.display = 'none';
+            document.getElementById('files-view').classList.add('visible');
+            document.getElementById('preview').style.display = 'none';
+
+            const res = await fetch(`/api/sessions/${sessionId}/files`);
+            const data = await res.json();
+            currentFiles = data.files;
+
+            const body = document.getElementById('files-body');
+            if (data.files.length === 0) {
+                body.innerHTML = '<tr><td colspan="4" class="empty">No files found</td></tr>';
+                return;
+            }
+
+            body.innerHTML = data.files.map(f => `
+                <tr>
+                    <td class="filename">${f.name}</td>
+                    <td class="size">${f.size_kb} KB</td>
+                    <td><button class="btn" onclick="previewFile('${f.download_url}')" style="background:#666">Play</button></td>
+                    <td><a class="btn" href="${f.download_url}">Download</a></td>
+                </tr>
+            `).join('');
+        }
+
+        function previewFile(url) {
+            const video = document.getElementById('preview');
+            video.src = url;
+            video.style.display = 'block';
+            video.play();
+        }
+
+        function showSessions() {
+            document.getElementById('sessions-view').style.display = 'block';
+            document.getElementById('files-view').classList.remove('visible');
+            document.getElementById('preview').style.display = 'none';
+        }
+
+        function downloadAll() {
+            currentFiles.forEach(f => {
+                const a = document.createElement('a');
+                a.href = f.download_url;
+                a.download = f.name;
+                a.click();
+            });
+        }
+
+        loadSessions();
+    </script>
+</body>
+</html>

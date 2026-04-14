@@ -24,6 +24,10 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
       min-height: 100vh;
       padding: 1.5rem;
+      padding-right: 400px;
+    }
+    @media (max-width: 1200px) {
+      body { padding-right: 300px; }
     }
     h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.5rem; }
     h1 span { color: var(--accent); }
@@ -42,6 +46,29 @@
       color: var(--text-muted);
       margin-bottom: 0.75rem;
     }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .panel-header .panel-title { margin-bottom: 0; }
+    .panel-collapse-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.15rem 0.5rem;
+      font-size: 0.78rem;
+      line-height: 1;
+      transition: all 0.15s;
+    }
+    .panel-collapse-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .panel.collapsed .panel-body { display: none; }
 
     .selections { display: flex; flex-direction: column; gap: 0.75rem; }
     .selection-row {
@@ -198,6 +225,211 @@
       border-radius: 10px;
       padding: 0.5rem;
     }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 0.5rem 0.25rem 0.5rem;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .chart-header label {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .chart-header input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    /* Sticky track map in top-right corner */
+    .track-map-panel {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      width: 360px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.5rem;
+      z-index: 100;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+      max-height: calc(100vh - 2rem);
+      overflow-y: auto;
+    }
+    .zoom-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.25rem 0.3rem 0.5rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+    .zoom-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+    .zoom-row .zoom-val {
+      color: var(--text);
+      min-width: 2.2rem;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .track-map-panel.collapsed .zoom-row { display: none; }
+    .track-map-panel .panel-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.25rem;
+    }
+    .track-map-panel .toggle-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 0 0.3rem;
+    }
+    .track-map-panel .toggle-btn:hover { color: var(--accent); }
+    .track-map-panel.collapsed #track-map { display: none; }
+    .track-map-panel.collapsed .track-readout { display: none; }
+    .readout-header {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding: 0.5rem 0.35rem 0.2rem;
+      border-top: 1px solid var(--border);
+      margin-top: 0.4rem;
+      opacity: 0.7;
+    }
+    .track-map-panel.collapsed .readout-header { display: none; }
+    .track-readout {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding: 0 0.25rem 0.25rem;
+    }
+    .readout-table tr.empty-row td {
+      color: var(--text-muted);
+      opacity: 0.4;
+      text-align: center;
+      font-style: italic;
+      padding: 0.5rem 0.35rem;
+    }
+    .readout-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+    .readout-table td {
+      padding: 0.18rem 0.35rem;
+      vertical-align: middle;
+      border-bottom: 1px solid rgba(45, 48, 71, 0.5);
+    }
+    .readout-table tr:last-child td { border-bottom: none; }
+    .readout-table td.lbl {
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      white-space: nowrap;
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .readout-table td.val {
+      color: var(--text);
+      text-align: right;
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+    .readout-table td.val .u {
+      color: var(--text-muted);
+      font-size: 0.62rem;
+      margin-left: 0.15rem;
+    }
+    .readout-table tr.pos-row td.lbl { color: var(--accent); font-weight: 600; }
+    .readout-table tr.more-row td {
+      color: var(--text-muted);
+      opacity: 0.55;
+      font-style: italic;
+      text-align: center;
+      padding: 0.1rem;
+    }
+    .readout-table tr.more-row td.lbl,
+    .readout-table tr.more-row td.val {
+      text-align: center;
+    }
+
+    .video-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .video-lap-select {
+      width: 100%;
+      background: #0b0d13;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.3rem 0.4rem;
+      font-size: 0.72rem;
+    }
+    .video-lap-select:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .video-player {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 6px;
+      display: block;
+    }
+    .video-empty {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #0b0d13;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 0.5rem;
+      font-size: 0.7rem;
+      line-height: 1.3;
+    }
+    .video-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+    .video-speed-label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex: 1;
+    }
+    .video-speed-label select {
+      flex: 1;
+    }
+    .video-status {
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      min-height: 0.9rem;
+      line-height: 1.2;
+    }
+    .video-status.error { color: var(--red); }
+    .video-status.warn { color: #f59e0b; }
+    .track-map-panel.collapsed .video-panel { display: none; }
+
+    @media (max-width: 1200px) {
+      .track-map-panel { width: 280px; }
+    }
 
     .status-bar {
       font-size: 0.78rem;
@@ -222,20 +454,71 @@
 
 <h1>Telemetry <span>Explorer</span></h1>
 
+<!-- Sticky track map panel (top-right) -->
+<div class="track-map-panel" id="track-panel">
+  <div class="panel-title">
+    <span>Track Map</span>
+    <button class="toggle-btn" onclick="document.getElementById('track-panel').classList.toggle('collapsed')" title="Collapse">−</button>
+  </div>
+  <div id="track-map" style="height: 360px;"></div>
+  <div class="zoom-row">
+    <span>Zoom</span>
+    <input type="range" id="track-zoom" min="1" max="8" step="0.1" value="1" oninput="onZoomChange(this.value)">
+    <span class="zoom-val" id="track-zoom-val">1.0x</span>
+  </div>
+  <div class="track-readout" id="track-readout">
+    <table class="readout-table"><tbody>
+      <tr class="pos-row"><td class="lbl">Position</td><td class="val">0.0%</td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="panel-title" style="margin-top: 0.75rem;">Video</div>
+  <div class="video-panel" id="video-panel">
+    <select id="video-lap-select" class="video-lap-select" disabled
+            onchange="onVideoLapChange(this.value)">
+      <option value="">— pick laps and Plot —</option>
+    </select>
+    <video id="video-player" class="video-player" controls preload="metadata"
+           style="display:none"></video>
+    <div id="video-empty" class="video-empty">No lap selected</div>
+    <div class="video-controls" id="video-controls" style="display:none">
+      <label class="video-speed-label">Speed
+        <select id="video-speed" class="video-lap-select"
+                onchange="onVideoSpeedChange(this.value)">
+          <option value="1" selected>Realtime</option>
+          <option value="2">2×</option>
+          <option value="5">5×</option>
+        </select>
+      </label>
+    </div>
+    <div id="video-status" class="video-status"></div>
+  </div>
+</div>
+
 <!-- Session/Lap selection -->
-<div class="panel">
-  <div class="panel-title">Select sessions and laps to overlay</div>
-  <div class="selections" id="selections"></div>
-  <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
-    <button class="btn btn-sm btn-add" onclick="addRow()">+ Add Session</button>
-    <button class="btn btn-sm" onclick="plot()" id="btn-plot">Plot</button>
+<div class="panel" id="panel-sessions">
+  <div class="panel-header">
+    <div class="panel-title">Select sessions and laps to overlay</div>
+    <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">− Hide</button>
+  </div>
+  <div class="panel-body">
+    <div class="selections" id="selections"></div>
+    <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+      <button class="btn btn-sm btn-add" onclick="addRow()">+ Add Session</button>
+      <button class="btn btn-sm" onclick="plot()" id="btn-plot">Plot</button>
+    </div>
   </div>
 </div>
 
 <!-- Signal picker -->
-<div class="panel">
-  <div class="panel-title">Signals</div>
-  <div id="signal-container">Loading channels...</div>
+<div class="panel" id="panel-signals">
+  <div class="panel-header">
+    <div class="panel-title">Signals</div>
+    <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">− Hide</button>
+  </div>
+  <div class="panel-body">
+    <div id="signal-container">Loading channels...</div>
+  </div>
 </div>
 
 <!-- Charts -->
@@ -275,6 +558,36 @@ let channels = {};
 let rowCount = 0;
 let plotDivs = [];
 
+// --- Track state ---
+let trackData = null;      // { points: [{x,z,normalizedDistance,radius_m,severity,...}], corners: [...] }
+let trackConfig = null;    // { corner_thresholds, colors, ... }
+let markerPosition = 0;    // current normalizedCarPosition (0..1), persists across re-plots
+let plotSignals = [];      // list of signal keys currently displayed (aligned with plotDivs)
+let plotTraces = [];       // per plot: array of {label, color, x, y} used for value lookup
+let trackBaseRange = null; // { xMin, xMax, zMin, zMax } of full track (for zoom math)
+let trackZoom = 1;         // current zoom factor (1 = fit whole track)
+
+// --- Video sync state (populated after Plot when a lap with a sidecar exists) ---
+let videoState = {
+  element: null,        // <video> reference (set once at init)
+  laps: [],             // currently selectable laps (subset of plot selections)
+  currentLapIdx: -1,    // index in videoState.laps, -1 = none loaded
+  currentLoadToken: 0,  // monotonic, used to ignore stale async loads
+  frames: null,         // sorted-by-t_ms array of {t_ms, normPos} for the loaded lap
+  isPlaying: false,     // true between 'play' and 'pause'/'ended' events
+  rafId: null,          // requestAnimationFrame id (active while playing)
+  lastRafUpdate: 0,     // performance.now() timestamp of last marker update
+};
+
+// Throttle rAF-driven marker updates so Plotly relayouts don't pile up.
+// Browser native timeupdate fires ~4Hz which causes visible stutter in the
+// marker line and red dot. Reading video.currentTime via rAF gives us a
+// continuously updating value; we cap Plotly load at ~30Hz which still feels
+// fluid to the eye but doesn't choke on multi-plot relayouts.
+const VIDEO_RAF_INTERVAL_MS = 1000 / 30;
+
+const MAX_READOUTS = 6;
+
 const DEFAULT_ACTIVE = new Set(['speedKmh', 'gas', 'brake', 'rpms']);
 const CAT_ORDER = ['Inputs', 'Motion', 'Engine', 'Tyres', 'Suspension & Brakes', 'Environment', 'Car State', 'Session'];
 
@@ -286,6 +599,392 @@ async function fetchSessions() {
   const res = await fetch('/api/sessions');
   const json = await res.json();
   sessions = json.sessions || [];
+}
+
+async function fetchTrack() {
+  try {
+    const [tRes, cRes] = await Promise.all([
+      fetch('/api/track'),
+      fetch('/api/track/config'),
+    ]);
+    trackData = await tRes.json();
+    trackConfig = await cRes.json();
+    renderTrackMap();
+  } catch (e) {
+    console.warn('Track data unavailable:', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Track Map rendering
+// ---------------------------------------------------------------------------
+
+function renderTrackMap() {
+  if (!trackData || !trackConfig) return;
+  const pts = trackData.points;
+  if (!pts.length) return;
+
+  const colors = trackConfig.colors;
+  const sevLabels = {
+    hairpin: `Hairpin (R<${trackConfig.corner_thresholds.hairpin_max}m)`,
+    tight: `Tight (${trackConfig.corner_thresholds.hairpin_max}-${trackConfig.corner_thresholds.tight_max}m)`,
+    sweeper: `Sweeper (${trackConfig.corner_thresholds.tight_max}-${trackConfig.corner_thresholds.sweeper_max}m)`,
+    straight: `Straight (R≥${trackConfig.corner_thresholds.sweeper_max}m)`,
+  };
+
+  const traces = [];
+
+  // 1) Single continuous "base" line for visual connectivity (thin neutral)
+  //    Ensures the track never shows gaps regardless of severity transitions.
+  traces.push({
+    x: pts.map(p => p.x),
+    y: pts.map(p => p.z),
+    mode: 'lines', type: 'scatter',
+    line: { color: '#3a3f55', width: 5, shape: 'spline', smoothing: 0.7 },
+    hoverinfo: 'skip',
+    showlegend: false,
+  });
+
+  // 2) Overlay colored segments per severity.
+  //    Build contiguous runs bridged with the FIRST point of the next run
+  //    so each colored line touches the next one pixel-perfect.
+  const order = ['straight', 'sweeper', 'tight', 'hairpin'];
+  const runs = {};
+  for (const sev of order) runs[sev] = [];
+
+  let curRun = null;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (!curRun || curRun.severity !== p.severity) {
+      if (curRun && curRun.x.length) runs[curRun.severity].push(curRun);
+      curRun = { severity: p.severity, x: [], z: [] };
+      // Prepend the previous point so this segment starts where the last ended
+      if (i > 0) {
+        curRun.x.push(pts[i - 1].x);
+        curRun.z.push(pts[i - 1].z);
+      }
+    }
+    curRun.x.push(p.x);
+    curRun.z.push(p.z);
+  }
+  if (curRun && curRun.x.length) runs[curRun.severity].push(curRun);
+
+  const legendShown = { hairpin: false, tight: false, sweeper: false, straight: false };
+  for (const sev of order) {
+    for (const run of runs[sev]) {
+      traces.push({
+        x: run.x, y: run.z,
+        mode: 'lines', type: 'scatter',
+        line: { color: colors[sev], width: 4, shape: 'spline', smoothing: 0.7 },
+        hoverinfo: 'skip',
+        name: sevLabels[sev],
+        legendgroup: sev,
+        showlegend: !legendShown[sev],
+      });
+      legendShown[sev] = true;
+    }
+  }
+
+  // 3) Corner number badges
+  trackData.corners.forEach(c => {
+    traces.push({
+      x: [c.mid_x], y: [c.mid_z],
+      mode: 'markers+text', type: 'scatter',
+      marker: { color: colors[c.severity], size: 16, line: { color: '#0f1117', width: 1.5 } },
+      text: [c.label],
+      textfont: { color: '#fff', size: 9, family: 'monospace' },
+      hoverinfo: 'text',
+      hovertext: `${c.label} — ${c.severity} (R=${c.min_radius_m}m)`,
+      showlegend: false,
+    });
+  });
+
+  // 4) Start/Finish
+  traces.push({
+    x: [pts[0].x], y: [pts[0].z],
+    mode: 'markers', type: 'scatter',
+    marker: { color: colors.start_finish, size: 11, symbol: 'square', line: { color: '#000', width: 1 } },
+    hoverinfo: 'text',
+    hovertext: 'Start / Finish',
+    name: 'Start/Finish',
+    showlegend: true,
+  });
+
+  // 5) Moving position dot — distinct color from the marker line so the
+  //    cream-on-plot line and the red-on-track dot read as separate cues.
+  traces.push({
+    x: [pts[0].x], y: [pts[0].z],
+    mode: 'markers', type: 'scatter',
+    marker: {
+      color: colors.track_dot || colors.marker,
+      size: 13,
+      line: { color: '#fff', width: 2 },
+    },
+    hoverinfo: 'text',
+    hovertext: 'Position',
+    name: 'Current',
+    showlegend: false,
+  });
+  window._markerTraceIdx = traces.length - 1;
+
+  // Compute and cache base ranges for zoom math.
+  // Use a square bounding box centered on the track so scaleanchor fits
+  // the whole track regardless of container aspect.
+  const xs = pts.map(p => p.x), zs = pts.map(p => p.z);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const zMin = Math.min(...zs), zMax = Math.max(...zs);
+  const cx = (xMin + xMax) / 2;
+  const cz = (zMin + zMax) / 2;
+  const half = Math.max(xMax - xMin, zMax - zMin) / 2 * 1.08; // 8% padding
+  trackBaseRange = {
+    xMin: cx - half, xMax: cx + half,
+    zMin: cz - half, zMax: cz + half,
+  };
+
+  // Layout: legend on top, no grid, no axis titles
+  const layout = {
+    paper_bgcolor: '#1a1d27',
+    plot_bgcolor: '#1a1d27',
+    font: { color: '#e2e8f0', size: 9 },
+    margin: { t: 40, r: 4, b: 4, l: 4 },
+    showlegend: true,
+    legend: {
+      orientation: 'h',
+      x: 0.5, xanchor: 'center',
+      y: 1.08, yanchor: 'bottom',
+      font: { size: 8 },
+      bgcolor: 'rgba(0,0,0,0)',
+      traceorder: 'normal',
+    },
+    dragmode: false,
+    xaxis: {
+      visible: false,
+      showgrid: false, zeroline: false, showticklabels: false,
+      scaleanchor: 'y', scaleratio: 1,
+      range: [trackBaseRange.xMin, trackBaseRange.xMax],
+      fixedrange: true,
+    },
+    yaxis: {
+      visible: false,
+      showgrid: false, zeroline: false, showticklabels: false,
+      range: [trackBaseRange.zMin, trackBaseRange.zMax],
+      fixedrange: true,
+    },
+  };
+
+  const div = document.getElementById('track-map');
+  Plotly.newPlot(div, traces, layout, {
+    responsive: true,
+    displayModeBar: false,
+    scrollZoom: false,
+    doubleClick: false,
+    staticPlot: false,
+  });
+  updateMarker(markerPosition, true);
+  applyZoom();
+}
+
+function onZoomChange(v) {
+  trackZoom = parseFloat(v) || 1;
+  document.getElementById('track-zoom-val').textContent = trackZoom.toFixed(1) + 'x';
+  applyZoom();
+}
+
+function applyZoom() {
+  if (!trackBaseRange) return;
+  const div = document.getElementById('track-map');
+  if (!div || !div.layout) return;
+
+  // At zoom=1, always show the full track bounding box (don't follow dot)
+  if (trackZoom <= 1.02) {
+    Plotly.relayout(div, {
+      'xaxis.range': [trackBaseRange.xMin, trackBaseRange.xMax],
+      'yaxis.range': [trackBaseRange.zMin, trackBaseRange.zMax],
+    });
+    return;
+  }
+
+  // Zoomed in: center on the red dot
+  const p = trackPointAtNorm(markerPosition);
+  const cx = p ? p.x : (trackBaseRange.xMin + trackBaseRange.xMax) / 2;
+  const cz = p ? p.z : (trackBaseRange.zMin + trackBaseRange.zMax) / 2;
+  const fullW = trackBaseRange.xMax - trackBaseRange.xMin;
+  const fullH = trackBaseRange.zMax - trackBaseRange.zMin;
+  const w = fullW / trackZoom;
+  const h = fullH / trackZoom;
+  Plotly.relayout(div, {
+    'xaxis.range': [cx - w / 2, cx + w / 2],
+    'yaxis.range': [cz - h / 2, cz + h / 2],
+  });
+}
+
+function trackPointAtNorm(nd) {
+  if (!trackData?.points?.length) return null;
+  const pts = trackData.points;
+  nd = Math.max(0, Math.min(1, nd));
+  // Binary search on normalizedDistance (already sorted)
+  let lo = 0, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid].normalizedDistance < nd) lo = mid + 1;
+    else hi = mid;
+  }
+  return pts[lo];
+}
+
+function updateMarker(nd, forceTrack, source) {
+  markerPosition = nd;
+  // Video sync — only marker→video; video→marker callers pass source='video'.
+  syncVideoFromMarker(nd, source);
+
+  // Update track dot
+  if (forceTrack || trackData) {
+    const p = trackPointAtNorm(nd);
+    if (p && window._markerTraceIdx !== undefined) {
+      const div = document.getElementById('track-map');
+      if (div && div.data) {
+        Plotly.restyle(div, { x: [[p.x]], y: [[p.z]] }, [window._markerTraceIdx]);
+        // Re-center zoom window on the dot ONLY when zoomed in
+        if (trackZoom > 1.02) applyZoom();
+      }
+    }
+  }
+
+  // Update marker line + per-trace value annotations (up to 6 per plot) on every plot
+  for (let i = 0; i < plotDivs.length; i++) {
+    const div = plotDivs[i];
+    if (!div.layout) continue;
+
+    const traces = plotTraces[i] || [];
+    const cornerAnn = div._cornerAnnotations || [];
+    const valueAnn = [];
+    const shown = Math.min(MAX_TRACE_ANNOTATIONS, traces.length);
+
+    // Stack annotations vertically in a fixed column next to the marker line
+    // so they never overlap regardless of where the trace values fall.
+    const ROW_H = 18; // px between stacked labels
+    for (let k = 0; k < shown; k++) {
+      const t = traces[k];
+      const v = interpolateAt(t.x, t.y, nd);
+      if (v === null || !isFinite(v)) continue;
+      const valStr = (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
+      valueAnn.push({
+        xref: 'x', yref: 'paper',
+        x: nd, y: 1,
+        text: valStr,
+        showarrow: false,
+        xanchor: 'left',
+        yanchor: 'top',
+        xshift: 6,
+        yshift: -(k * ROW_H) - 2,
+        font: { color: t.color, size: 11, family: 'monospace' },
+        bgcolor: 'rgba(15,17,23,0.9)',
+        bordercolor: t.color,
+        borderwidth: 1,
+        borderpad: 2,
+      });
+    }
+
+    if (traces.length > MAX_TRACE_ANNOTATIONS) {
+      valueAnn.push({
+        xref: 'x', yref: 'paper',
+        x: nd, y: 1,
+        text: `+${traces.length - MAX_TRACE_ANNOTATIONS}`,
+        showarrow: false,
+        xanchor: 'left', yanchor: 'top',
+        xshift: 6,
+        yshift: -(shown * ROW_H) - 2,
+        font: { color: '#8892a4', size: 9, style: 'italic' },
+        bgcolor: 'rgba(15,17,23,0.7)',
+        borderpad: 1,
+      });
+    }
+
+    Plotly.relayout(div, {
+      'shapes[0].x0': nd,
+      'shapes[0].x1': nd,
+      annotations: cornerAnn.concat(valueAnn),
+    });
+  }
+
+  updateReadout();
+}
+
+function updateReadout() {
+  const el = document.getElementById('track-readout');
+  if (!el) return;
+
+  const trackPt = trackPointAtNorm(markerPosition);
+  const posCell = trackPt
+    ? `${(markerPosition * 100).toFixed(1)}% @ ${trackPt.distance_m.toFixed(0)}m`
+    : `${(markerPosition * 100).toFixed(1)}%`;
+
+  el.innerHTML = `<table class="readout-table"><tbody>
+    <tr class="pos-row"><td class="lbl">Position</td><td class="val">${posCell}</td></tr>
+  </tbody></table>`;
+}
+
+const MAX_TRACE_ANNOTATIONS = 6;
+
+function interpolateAt(xArr, yArr, xTarget) {
+  if (!xArr || !xArr.length) return null;
+  if (xTarget <= xArr[0]) return yArr[0];
+  if (xTarget >= xArr[xArr.length - 1]) return yArr[yArr.length - 1];
+  // Binary search
+  let lo = 0, hi = xArr.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (xArr[mid] <= xTarget) lo = mid;
+    else hi = mid;
+  }
+  const x0 = xArr[lo], x1 = xArr[hi];
+  const y0 = yArr[lo], y1 = yArr[hi];
+  if (x1 === x0) return y0;
+  return y0 + (y1 - y0) * (xTarget - x0) / (x1 - x0);
+}
+
+// Corner overlay shapes for a plot, based on config colors + enabled checkbox
+function buildCornerShapes() {
+  if (!trackData?.corners || !trackConfig) return [];
+  const colors = trackConfig.colors;
+  return trackData.corners.map(c => ({
+    type: 'rect',
+    xref: 'x', yref: 'paper',
+    x0: c.start_norm, x1: c.end_norm,
+    y0: 0, y1: 1,
+    fillcolor: colors[c.severity],
+    opacity: 0.18,
+    line: { width: 0 },
+    layer: 'below',
+  }));
+}
+
+function buildCornerAnnotations() {
+  if (!trackData?.corners) return [];
+  return trackData.corners.map(c => ({
+    xref: 'x', yref: 'paper',
+    x: (c.start_norm + c.end_norm) / 2,
+    y: 1,
+    yanchor: 'top',
+    text: c.label,
+    showarrow: false,
+    font: { size: 10, color: '#e2e8f0' },
+    bgcolor: 'rgba(15,17,23,0.6)',
+    borderpad: 2,
+  }));
+}
+
+function toggleCornerOverlay(plotIdx, enabled) {
+  const div = plotDivs[plotIdx];
+  if (!div) return;
+  // Preserve the marker shape (always shapes[0])
+  const base = [div.layout.shapes[0]];
+  const shapes = enabled ? base.concat(buildCornerShapes()) : base;
+  // Store corner annotations separately so updateMarker can preserve them
+  div._cornerAnnotations = enabled ? buildCornerAnnotations() : [];
+  Plotly.relayout(div, { shapes });
+  // Refresh so value annotations + corner labels coexist
+  updateMarker(markerPosition, false);
 }
 
 async function fetchLaps(filters) {
@@ -578,15 +1277,31 @@ async function plot() {
     const chartsDiv = document.getElementById('charts');
     chartsDiv.innerHTML = '';
     plotDivs = [];
+    plotSignals = [];
+    plotTraces = [];
 
     for (let si = 0; si < signals.length; si++) {
       const signal = signals[si];
       const container = document.createElement('div');
       container.className = 'chart-container';
+
+      // Header with corner overlay checkbox
+      const header = document.createElement('div');
+      header.className = 'chart-header';
+      header.innerHTML = `
+        <span>${chartTitle(signal)}</span>
+        <label>
+          <input type="checkbox" id="corner-cb-${si}" onchange="toggleCornerOverlay(${si}, this.checked)">
+          Show corners
+        </label>
+      `;
+      container.appendChild(header);
+
       const plotDiv = document.createElement('div');
       container.appendChild(plotDiv);
       chartsDiv.appendChild(container);
       plotDivs.push(plotDiv);
+      plotSignals.push(signal);
 
       const traces = selections.map((sel, i) => {
         const d = allData[i].data;
@@ -599,21 +1314,40 @@ async function plot() {
           showlegend: true,
         };
       });
+      // Remember for value interpolation at marker
+      plotTraces.push(traces.map(t => ({ label: t.name, color: t.line.color, x: t.x, y: t.y })));
+
+      // Marker shape is always shapes[0]; corner overlays appended after when toggled
+      const markerShape = {
+        type: 'line',
+        xref: 'x', yref: 'paper',
+        x0: markerPosition, x1: markerPosition,
+        y0: 0, y1: 1,
+        line: { color: (trackConfig?.colors?.marker) || '#ef4444', width: 1.5, dash: 'solid' },
+      };
 
       Plotly.newPlot(plotDiv, traces, {
         ...PLOTLY_LAYOUT,
         title: null,
+        dragmode: false,
+        shapes: [markerShape],
         xaxis: {
           ...PLOTLY_LAYOUT.xaxis,
           title: 'Track Position [-]',
+          range: [0, 1],
+          fixedrange: false,
         },
         yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
       }, { responsive: true, scrollZoom: false });
+
+      attachMarkerDrag(plotDiv);
     }
 
     linkXAxes(plotDivs);
+    updateMarker(markerPosition, true);
     const totalPts = allData.reduce((sum, d) => sum + d.count, 0);
     setStatus(`Loaded ${totalPts.toLocaleString()} points across ${selections.length} trace(s)`);
+    populateVideoLapPicker(selections);
   } catch (e) {
     setStatus('Error: ' + e.message, true);
   } finally {
@@ -635,6 +1369,49 @@ function downsample(x, y, maxPoints = 1500) {
     ny.push(y[idx]);
   }
   return { x: nx, y: ny };
+}
+
+function togglePanel(panelId, btn) {
+  const p = document.getElementById(panelId);
+  if (!p) return;
+  p.classList.toggle('collapsed');
+  btn.textContent = p.classList.contains('collapsed') ? '+ Show' : '− Hide';
+}
+
+function attachMarkerDrag(div) {
+  // Drag the vertical marker line via mouse: mousedown on the plot
+  // area anywhere, then mousemove updates position while button held.
+  let dragging = false;
+
+  // Use Plotly's actual xaxis pixel offset + length for precise mapping
+  const pxToX = (ev) => {
+    const gd = div;
+    if (!gd._fullLayout || !gd._fullLayout.xaxis) return null;
+    const rect = gd.getBoundingClientRect();
+    const xa = gd._fullLayout.xaxis;
+    const px = ev.clientX - rect.left - xa._offset;
+    if (xa._length <= 0) return null;
+    const frac = Math.max(0, Math.min(1, px / xa._length));
+    return xa.range[0] + frac * (xa.range[1] - xa.range[0]);
+  };
+
+  div.addEventListener('mousedown', (ev) => {
+    if (ev.button !== 0) return;
+    const x = pxToX(ev);
+    if (x === null) return;
+    dragging = true;
+    updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
+    ev.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (ev) => {
+    if (!dragging) return;
+    const x = pxToX(ev);
+    if (x === null) return;
+    updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
+  });
+
+  window.addEventListener('mouseup', () => { dragging = false; });
 }
 
 function linkXAxes(divs) {
@@ -666,12 +1443,296 @@ function setStatus(msg, isError = false) {
 }
 
 // ---------------------------------------------------------------------------
+// Video sync (MP4 + sidecar) — see docs/video-sync-design.md
+//
+// Mode-switched bidirectional sync, no feedback-loop hack:
+//   - Video PLAYING  → video.timeupdate drives the marker (and red dot).
+//   - Video PAUSED   → user dragging the marker seeks the video.
+//
+// Lookups: sidecar JSON has frames=[{idx,t_ms,wall_ms,normPos}, ...] sampled
+// at SIDECAR_SAMPLE_HZ. Sorted by t_ms. We interpolate linearly for both
+// directions because normPos and t_ms are both monotonic across a normal lap.
+// ---------------------------------------------------------------------------
+
+function setVideoStatus(msg, level) {
+  const el = document.getElementById('video-status');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.className = 'video-status' + (level ? ' ' + level : '');
+}
+
+function showVideoElement() {
+  const v = document.getElementById('video-player');
+  const e = document.getElementById('video-empty');
+  const c = document.getElementById('video-controls');
+  if (v) v.style.display = 'block';
+  if (e) e.style.display = 'none';
+  if (c) c.style.display = 'flex';
+}
+
+function hideVideoElement(emptyMsg) {
+  const v = document.getElementById('video-player');
+  const e = document.getElementById('video-empty');
+  const c = document.getElementById('video-controls');
+  if (v) {
+    try { v.pause(); } catch (_) {}
+    v.removeAttribute('src');
+    v.load();
+    v.style.display = 'none';
+  }
+  if (e) {
+    e.textContent = emptyMsg || 'No video for this lap';
+    e.style.display = 'flex';
+  }
+  if (c) c.style.display = 'none';
+  videoState.frames = null;
+  videoState.framesByNd = null;
+  videoState.isPlaying = false;
+}
+
+function onVideoSpeedChange(rate) {
+  if (!videoState.element) return;
+  const r = parseFloat(rate);
+  if (Number.isFinite(r) && r > 0) videoState.element.playbackRate = r;
+}
+
+function _currentVideoSpeed() {
+  const el = document.getElementById('video-speed');
+  const r = el ? parseFloat(el.value) : 1;
+  return Number.isFinite(r) && r > 0 ? r : 1;
+}
+
+function populateVideoLapPicker(selections) {
+  const select = document.getElementById('video-lap-select');
+  if (!select) return;
+
+  videoState.laps = (selections || []).slice();
+  select.innerHTML = '';
+
+  if (!videoState.laps.length) {
+    select.appendChild(new Option('— pick laps and Plot —', ''));
+    select.disabled = true;
+    hideVideoElement('Pick laps and click Plot');
+    setVideoStatus('');
+    return;
+  }
+
+  videoState.laps.forEach((sel, i) => {
+    const sid = sel.key.session_id || '?';
+    // Short session display: just the timestamp portion
+    const shortSid = sid.length > 19 ? sid.slice(11, 19) : sid;
+    const text = `${sel.label} • ${shortSid}`;
+    select.appendChild(new Option(text, String(i)));
+  });
+  select.disabled = false;
+
+  // Auto-load the first lap if nothing was loaded yet (preserve user's choice
+  // across re-plots if the same lap is still in the list).
+  let preserveIdx = -1;
+  if (videoState.currentLapIdx >= 0) {
+    const prev = videoState.laps[videoState.currentLapIdx];
+    if (prev) preserveIdx = videoState.currentLapIdx;
+  }
+  const targetIdx = preserveIdx >= 0 ? preserveIdx : 0;
+  select.value = String(targetIdx);
+  loadVideoForLapIdx(targetIdx);
+}
+
+function onVideoLapChange(idxStr) {
+  const idx = parseInt(idxStr, 10);
+  if (Number.isFinite(idx)) loadVideoForLapIdx(idx);
+}
+
+async function loadVideoForLapIdx(idx) {
+  const sel = videoState.laps[idx];
+  if (!sel) return;
+  videoState.currentLapIdx = idx;
+
+  const sid = sel.key.session_id;
+  const lap = sel.lap;
+  if (!sid && sid !== 0) {
+    hideVideoElement('Selection has no session_id');
+    setVideoStatus('');
+    return;
+  }
+
+  const token = ++videoState.currentLoadToken;
+  setVideoStatus('Loading video...');
+
+  let meta;
+  try {
+    const url = `/api/video/${encodeURIComponent(sid)}/${lap}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      hideVideoElement('Video unavailable (HTTP ' + res.status + ')');
+      setVideoStatus('HTTP ' + res.status, 'error');
+      return;
+    }
+    meta = await res.json();
+  } catch (e) {
+    hideVideoElement('Video request failed');
+    setVideoStatus(e.message || String(e), 'error');
+    return;
+  }
+
+  // A newer load may have started while we awaited — drop stale results
+  if (token !== videoState.currentLoadToken) return;
+
+  if (!meta || !meta.has_video) {
+    hideVideoElement(meta && meta.message || 'No video for this lap');
+    setVideoStatus('');
+    return;
+  }
+
+  showVideoElement();
+  const video = videoState.element;
+  if (video) {
+    try { video.pause(); } catch (_) {}
+    video.src = meta.mp4_url;
+    video.currentTime = 0;
+    // Preserve user's chosen playback speed across lap switches
+    video.playbackRate = _currentVideoSpeed();
+    videoState.isPlaying = false;
+  }
+
+  if (meta.has_sync && meta.sync && Array.isArray(meta.sync.frames)) {
+    buildSyncLookups(meta.sync);
+    const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
+    setVideoStatus(
+      `${meta.sync.frame_count || '?'} frames • ${dur} • sync ${videoState.frames ? videoState.frames.length : 0} pts`
+    );
+  } else {
+    videoState.frames = null;
+    videoState.framesByNd = null;
+    setVideoStatus(meta.message || 'Video sync metadata not available', 'warn');
+  }
+}
+
+function buildSyncLookups(sync) {
+  const valid = (sync.frames || []).filter(
+    f => f && Number.isFinite(f.t_ms) && f.normPos != null && Number.isFinite(f.normPos)
+  );
+  if (!valid.length) {
+    videoState.frames = null;
+    videoState.framesByNd = null;
+    return;
+  }
+  // Two views: by t_ms for video-playback → marker, by normPos for
+  // marker-drag → video. Maintaining both is critical because normPos is
+  // NOT monotonic on out-laps (wraps from ~1.0 → 0.0 across the S/F line),
+  // and binary-searching a t_ms-sorted array by normPos snaps drags to
+  // either the first or last frame.
+  videoState.frames = valid.slice().sort((a, b) => a.t_ms - b.t_ms);
+  videoState.framesByNd = valid.slice().sort((a, b) => a.normPos - b.normPos);
+}
+
+function _interp(arr, keyFn, valFn, target) {
+  if (!arr || !arr.length) return null;
+  if (target <= keyFn(arr[0])) return valFn(arr[0]);
+  if (target >= keyFn(arr[arr.length - 1])) return valFn(arr[arr.length - 1]);
+  let lo = 0, hi = arr.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (keyFn(arr[mid]) <= target) lo = mid; else hi = mid;
+  }
+  const k0 = keyFn(arr[lo]), k1 = keyFn(arr[hi]);
+  if (k1 === k0) return valFn(arr[lo]);
+  const frac = (target - k0) / (k1 - k0);
+  return valFn(arr[lo]) + frac * (valFn(arr[hi]) - valFn(arr[lo]));
+}
+
+function lookupTmsForNormPos(nd) {
+  return _interp(videoState.framesByNd, f => f.normPos, f => f.t_ms, nd);
+}
+
+function lookupNormPosForTms(t_ms) {
+  return _interp(videoState.frames, f => f.t_ms, f => f.normPos, t_ms);
+}
+
+function syncVideoFromMarker(nd, source) {
+  // Called from updateMarker.
+  //   source==='video' : called by the video timeupdate handler — don't echo.
+  //   source==='drag'  : user dragged the marker → pause video (if playing),
+  //                      then seek to the matching frame.
+  //   else             : programmatic re-render (plot/init/etc) → leave video alone.
+  const v = videoState.element;
+  if (!v || !videoState.frames) return;
+  if (source !== 'drag') return;
+  if (videoState.isPlaying) {
+    try { v.pause(); } catch (_) {}
+  }
+  const t_ms = lookupTmsForNormPos(nd);
+  if (t_ms == null) return;
+  const target = t_ms / 1000;
+  // Smaller-than-frame deltas would just churn the video element. At 30 fps
+  // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
+  // dragging.
+  if (Math.abs(v.currentTime - target) > 0.015) {
+    v.currentTime = target;
+  }
+}
+
+function _videoRafLoop() {
+  if (!videoState.isPlaying || !videoState.frames || !videoState.element) {
+    videoState.rafId = null;
+    return;
+  }
+  const now = performance.now();
+  if (now - videoState.lastRafUpdate >= VIDEO_RAF_INTERVAL_MS) {
+    const nd = lookupNormPosForTms(videoState.element.currentTime * 1000);
+    if (nd != null) {
+      updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
+    }
+    videoState.lastRafUpdate = now;
+  }
+  videoState.rafId = requestAnimationFrame(_videoRafLoop);
+}
+
+function _wireVideoElement() {
+  const v = document.getElementById('video-player');
+  if (!v) return;
+  videoState.element = v;
+
+  v.addEventListener('play', () => {
+    videoState.isPlaying = true;
+    if (videoState.rafId == null) {
+      videoState.lastRafUpdate = 0;
+      videoState.rafId = requestAnimationFrame(_videoRafLoop);
+    }
+  });
+  v.addEventListener('pause', () => {
+    videoState.isPlaying = false;
+    if (videoState.rafId != null) {
+      cancelAnimationFrame(videoState.rafId);
+      videoState.rafId = null;
+    }
+  });
+  v.addEventListener('ended', () => {
+    videoState.isPlaying = false;
+    if (videoState.rafId != null) {
+      cancelAnimationFrame(videoState.rafId);
+      videoState.rafId = null;
+    }
+  });
+
+  // While paused, native HTML5 video controls (or the user's marker drag)
+  // can step the frame; reflect any seek in the marker so the dot follows.
+  v.addEventListener('seeked', () => {
+    if (videoState.isPlaying || !videoState.frames) return;
+    const nd = lookupNormPosForTms(v.currentTime * 1000);
+    if (nd == null) return;
+    updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 (async () => {
   setStatus('<span class="loading-spinner"></span> Loading...');
+  _wireVideoElement();
   try {
-    await Promise.all([fetchSessions(), loadChannels()]);
+    await Promise.all([fetchSessions(), loadChannels(), fetchTrack()]);
     addRow({ experiment: 'Demo run' });
     setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
   } catch (e) {

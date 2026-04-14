@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AC Video Stream</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #111;
+            color: #eee;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        header {
+            width: 100%;
+            padding: 12px 24px;
+            background: #1a1a1a;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #333;
+        }
+        header h1 { font-size: 18px; font-weight: 500; }
+        #status {
+            font-size: 13px;
+            padding: 4px 12px;
+            border-radius: 12px;
+            background: #333;
+        }
+        #status.connected { background: #1a3a1a; color: #4ade80; }
+        #status.disconnected { background: #3a1a1a; color: #f87171; }
+        .info-bar {
+            width: 100%;
+            padding: 8px 24px;
+            background: #1a1a1a;
+            display: flex;
+            gap: 24px;
+            font-size: 13px;
+            color: #999;
+            border-bottom: 1px solid #222;
+        }
+        .info-bar span strong { color: #ccc; }
+        #video-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            width: 100%;
+        }
+        #frame {
+            max-width: 100%;
+            max-height: calc(100vh - 120px);
+            border-radius: 4px;
+            background: #222;
+        }
+        #frame.hidden { display: none; }
+        #placeholder {
+            color: #555;
+            font-size: 16px;
+            text-align: center;
+        }
+        #placeholder.hidden { display: none; }
+        #fps-counter {
+            font-variant-numeric: tabular-nums;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AC Video Stream</h1>
+        <div id="status" class="disconnected">Disconnected</div>
+    </header>
+    <div class="info-bar">
+        <span>Session: <strong id="session-id">—</strong></span>
+        <span>Lap: <strong id="lap">—</strong></span>
+        <span>FPS: <strong id="fps-counter">0</strong></span>
+        <span>Latency: <strong id="latency">—</strong></span>
+    </div>
+    <div id="video-container">
+        <img id="frame" class="hidden" alt="AC Video Stream" />
+        <div id="placeholder">Waiting for video frames...</div>
+    </div>
+
+    <script>
+        const frame = document.getElementById('frame');
+        const placeholder = document.getElementById('placeholder');
+        const statusEl = document.getElementById('status');
+        const sessionEl = document.getElementById('session-id');
+        const lapEl = document.getElementById('lap');
+        const fpsEl = document.getElementById('fps-counter');
+        const latencyEl = document.getElementById('latency');
+
+        let frameCount = 0;
+        let lastFpsUpdate = performance.now();
+
+        function updateFps() {
+            const now = performance.now();
+            const elapsed = (now - lastFpsUpdate) / 1000;
+            if (elapsed >= 1) {
+                fpsEl.textContent = Math.round(frameCount / elapsed);
+                frameCount = 0;
+                lastFpsUpdate = now;
+            }
+        }
+
+        function connect() {
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+            ws.onopen = () => {
+                statusEl.textContent = 'Connected';
+                statusEl.className = 'connected';
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                // Update frame
+                frame.src = 'data:image/jpeg;base64,' + data.frame;
+                frame.classList.remove('hidden');
+                placeholder.classList.add('hidden');
+
+                // Update info
+                sessionEl.textContent = data.session_id || '—';
+                lapEl.textContent = data.completedLaps ?? '—';
+
+                // Latency
+                if (data.timestamp_ms) {
+                    const latency = Date.now() - data.timestamp_ms;
+                    latencyEl.textContent = latency + ' ms';
+                }
+
+                // FPS
+                frameCount++;
+                updateFps();
+            };
+
+            ws.onclose = () => {
+                statusEl.textContent = 'Disconnected';
+                statusEl.className = 'disconnected';
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = () => ws.close();
+        }
+
+        connect();
+    </script>
+</body>
+</html>

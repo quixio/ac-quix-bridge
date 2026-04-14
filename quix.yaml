@@ -68,10 +68,12 @@ deployments:
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
-        value: https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io
+        required: true
+        value: https://config-api-svc-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io
       - name: CONFIG_TYPE
         inputType: FreeText
         description: Config type for session data
+        required: true
         value: session
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
@@ -398,6 +400,104 @@ deployments:
         label: Telemetry Analysis
         icon: rocket_launch
         order: 0
+  - name: AC Video Streaming
+    application: ac_video_streaming
+    version: f98d84a
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 1000
+      replicas: 1
+    variables:
+      - name: output
+        inputType: OutputTopic
+        description: Kafka topic for video frame streaming
+        required: true
+        value: ac-video-frames
+      - name: session_input
+        inputType: InputTopic
+        description: Topic from ac-telemetry-source carrying the canonical session_id
+        required: true
+        value: ac-telemetry-session
+      - name: VIDEO_DISPLAY_INDEX
+        inputType: FreeText
+        description: Display index for screen capture (0 = primary)
+        value: 0
+      - name: VIDEO_FPS
+        inputType: FreeText
+        description: Capture and recording FPS (default 15 — AC machines rarely sustain 30 alongside the game)
+        value: 15
+      - name: STREAM_FPS
+        inputType: FreeText
+        description: FPS for Kafka frame streaming
+        value: 15
+      - name: VIDEO_RECORDING_ENABLED
+        inputType: FreeText
+        description: Enable MP4 recording (true/false)
+        value: true
+      - name: VIDEO_STREAM_ENABLED
+        inputType: FreeText
+        description: Enable Kafka frame streaming (true/false)
+        value: false
+      - name: BLOB_VIDEO_PREFIX
+        inputType: FreeText
+        description: Blob storage path prefix for MP4 uploads
+        value: ac_video
+      - name: RECORDING_WIDTH
+        inputType: FreeText
+        description: Cap recording width in pixels (height scales proportionally). 0 = inherit captured screen resolution.
+        value: 1920
+      - name: SIDECAR_SAMPLE_HZ
+        inputType: FreeText
+        description: Frequency (Hz) of sidecar JSON samples for video<->telemetry sync
+        value: 5
+    blobStorage:
+      bind: true
+    disabled: true
+  - name: AC Video Viewer
+    application: ac-video-viewer
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 500
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: acvideoviewer
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Kafka topic to consume video frames from
+        required: true
+        value: ac-video-frames
+    disabled: true
+  - name: AC Video Browser
+    application: ac-video-browser
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 2000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: acvideobrowser
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: BLOB_VIDEO_PREFIX
+        inputType: FreeText
+        description: Blob storage path prefix where MP4 recordings are stored
+        value: ac_video
+    blobStorage:
+      bind: true
   - name: Telemetry Explorer
     application: telemetry-comparison
     version: latest
@@ -428,6 +528,10 @@ deployments:
         inputType: FreeText
         description: QuixLake table name for telemetry data
         value: ac_telemetry
+      - name: BLOB_VIDEO_PREFIX
+        inputType: FreeText
+        description: Blob storage path prefix where MP4 recordings + sidecar JSONs are stored
+        value: ac_video
     plugin:
       embeddedView:
         enabled: true
@@ -438,6 +542,8 @@ deployments:
         label: Telemetry Explorer
         icon: data_usage
         order: 0
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -453,5 +559,11 @@ topics:
       replicationFactor: 1
       retentionInMinutes: -1
       cleanupPolicy: Compact
+  - name: ac-video-frames
+    configuration:
+      partitions: 1
+      replicationFactor: 1
+      retentionInMinutes: 60
+      retentionInBytes: 5368709120
   - name: tsbs_data_transformed
   - name: ac-telemetry-config

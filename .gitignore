@@ -8,6 +8,8 @@ compose.local.yaml
 .secrets
 certificates/
 .quix.yaml.variables
+ac-machine-secrets/
+recordings/
 
 # Reference repo (test manager source)
 quixers-testmanager-standalone/
