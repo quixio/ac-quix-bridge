@@ -18,12 +18,12 @@ const navItems: NavItem[] = [
   { href: "/devices", icon: Box, label: "Devices" },
   { href: "/environments", icon: Server, label: "Environments" },
   { href: "/drivers", icon: Users, label: "Drivers" },
-  { href: "/analysis", icon: TrendingUp, label: "Analysis" },
 ]
 
 const integrationItems: NavItem[] = [
   { href: "/config-manager", icon: Sliders, label: "Configurations" },
   { href: "/measurements", icon: BarChart3, label: "Measurements" },
+  { href: "/analysis", icon: TrendingUp, label: "Analysis" },
 ]
 
 export function Sidebar() {
