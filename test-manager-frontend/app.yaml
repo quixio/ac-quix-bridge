@@ -15,10 +15,9 @@ variables:
     inputType: FreeText
     description: Disable Next.js telemetry
     defaultValue: 1
-  - name: MEASUREMENTS_URL
+  - name: NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
     inputType: FreeText
-    multiline: false
-    defaultValue: https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io/
+    description: Public URL of the Telemetry Explorer deployment
     required: true
 dockerfile: dockerfile
 runEntryPoint: package.json
