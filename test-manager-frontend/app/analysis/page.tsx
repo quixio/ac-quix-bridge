@@ -75,10 +75,7 @@ function PlaceholderTab({ tab }: { tab: (typeof ANALYSIS_TABS)[number] }) {
           <tab.icon className="h-8 w-8 text-primary" />
         </div>
         <h2 className="text-xl font-semibold mb-2">{tab.title}</h2>
-        <p className="text-sm text-muted-foreground max-w-md mb-4">
-          {tab.description}
-        </p>
-        <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+        <span className="text-sm text-muted-foreground">
           Coming soon
         </span>
       </CardContent>

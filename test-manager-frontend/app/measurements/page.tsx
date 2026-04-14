@@ -97,10 +97,7 @@ export default function MeasurementsPage() {
               <BarChart3 className="h-8 w-8 text-primary" />
             </div>
             <h2 className="text-2xl font-semibold">Measurements</h2>
-            <p className="text-muted-foreground">
-              Measurements service is not configured yet. Configure it in Settings or check back later.
-            </p>
-            <span className="inline-block text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+            <span className="text-sm text-muted-foreground">
               Coming soon
             </span>
           </div>
