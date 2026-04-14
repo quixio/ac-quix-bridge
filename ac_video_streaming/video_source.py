@@ -425,8 +425,15 @@ class ACVideoSource(Source):
                 if recorder and recorder.is_recording:
                     path = recorder.finish_lap()
                     logger.info("Lap %d recorded: %s", prev_completed_laps + 1, path)
-                    self._upload_to_blob(path, session_id)
+                    # Start new recording BEFORE uploading so the capture
+                    # loop isn't blocked by the S3 transfer.
                     recorder.start_lap(session_id, completed_laps + 1, *display_size)
+                    upload_sid = session_id
+                    threading.Thread(
+                        target=self._upload_to_blob,
+                        args=(path, upload_sid),
+                        daemon=True,
+                    ).start()
                 prev_completed_laps = completed_laps
 
             # Adopt telemetry session_id as soon as it arrives
