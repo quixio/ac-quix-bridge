@@ -12,7 +12,7 @@ import time
 
 load_dotenv()
 
-print(os.environ["Quix__BlobStorage__Json"])
+print(os.environ["Quix__BlobStorage__Connection__Json"])
 time.sleep(10000)
 
 """
