@@ -286,6 +286,7 @@ deployments:
         label: Test Manager
         icon: data_thresholding
         order: 1
+    disabled: true
   - name: RaceTelemetryAnalysis
     application: racetelemetryanalysis
     version: latest
