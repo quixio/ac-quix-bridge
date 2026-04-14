@@ -359,6 +359,7 @@ def get_telemetry_params(
         "driver": content.get("driver", ""),
         "track": track,
         "carModel": car_model,
+        "session_ids": [s["session_id"] for s in sessions],
     }
 
 
