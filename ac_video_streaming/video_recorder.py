@@ -131,6 +131,7 @@ class VideoRecorder:
                     "-c:v", "libx264",
                     "-preset", "fast",
                     "-crf", "28",
+                    "-g", str(self._fps),  # keyframe every 1s for fast seeking
                     "-pix_fmt", "yuv420p",
                     filepath,
                 ],
