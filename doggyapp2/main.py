@@ -15,8 +15,9 @@ load_dotenv()
 print(os.environ["Quix__BlobStorage__Json"])
 time.sleep(10000)
 
+"""
 def main():
-    """
+  
     Transformations generally read from, and produce to, Kafka topics.
 
     They are conducted with Applications and their accompanying StreamingDataFrames
@@ -27,7 +28,7 @@ def main():
 
     To learn about what operations are possible, the best place to start is:
     https://quix.io/docs/quix-streams/processing.html
-    """
+
 
     # Setup necessary objects
     app = Application(
@@ -53,3 +54,4 @@ def main():
 # It is recommended to execute Applications under a conditional main
 if __name__ == "__main__":
     main()
+"""
