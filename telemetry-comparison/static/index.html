@@ -574,9 +574,11 @@ let videoState = {
   currentLapIdx: -1,    // index in videoState.laps, -1 = none loaded
   currentLoadToken: 0,  // monotonic, used to ignore stale async loads
   frames: null,         // sorted-by-t_ms array of {t_ms, normPos} for the loaded lap
+  framesByNd: null,
   isPlaying: false,     // true between 'play' and 'pause'/'ended' events
   rafId: null,          // requestAnimationFrame id (active while playing)
   lastRafUpdate: 0,     // performance.now() timestamp of last marker update
+  blobUrl: null,        // object URL for fully-buffered MP4
 };
 
 // Throttle rAF-driven marker updates so Plotly relayouts don't pile up.
@@ -1586,25 +1588,67 @@ async function loadVideoForLapIdx(idx) {
 
   showVideoElement();
   const video = videoState.element;
-  if (video) {
-    try { video.pause(); } catch (_) {}
-    video.src = meta.mp4_url;
-    video.currentTime = 0;
-    // Preserve user's chosen playback speed across lap switches
-    video.playbackRate = _currentVideoSpeed();
-    videoState.isPlaying = false;
-  }
 
+  // Build sync lookups first (doesn't depend on video download)
   if (meta.has_sync && meta.sync && Array.isArray(meta.sync.frames)) {
     buildSyncLookups(meta.sync);
-    const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
-    setVideoStatus(
-      `${meta.sync.frame_count || '?'} frames • ${dur} • sync ${videoState.frames ? videoState.frames.length : 0} pts`
-    );
   } else {
     videoState.frames = null;
     videoState.framesByNd = null;
-    setVideoStatus(meta.message || 'Video sync metadata not available', 'warn');
+  }
+
+  if (!video) return;
+  try { video.pause(); } catch (_) {}
+  videoState.isPlaying = false;
+
+  // Release previous blob URL
+  if (videoState.blobUrl) {
+    URL.revokeObjectURL(videoState.blobUrl);
+    videoState.blobUrl = null;
+  }
+
+  // Fetch the full MP4 into memory (up to 100 MB) so seeking is instant.
+  // Larger files fall back to streaming.
+  const MAX_BLOB_BYTES = 100 * 1048576;
+  setVideoStatus('Buffering video...');
+  try {
+    const headResp = await fetch(meta.mp4_url, { method: 'HEAD' });
+    if (token !== videoState.currentLoadToken) return;
+    const contentLen = parseInt(headResp.headers.get('Content-Length') || '0', 10);
+
+    if (contentLen > 0 && contentLen <= MAX_BLOB_BYTES) {
+      const resp = await fetch(meta.mp4_url);
+      if (token !== videoState.currentLoadToken) return;
+      if (!resp.ok) {
+        setVideoStatus('Failed to buffer video (HTTP ' + resp.status + ')', 'error');
+        return;
+      }
+      const blob = await resp.blob();
+      if (token !== videoState.currentLoadToken) return;
+      videoState.blobUrl = URL.createObjectURL(blob);
+      video.src = videoState.blobUrl;
+    } else {
+      // Too large or unknown size — stream directly
+      video.src = meta.mp4_url;
+    }
+    video.currentTime = 0;
+    video.playbackRate = _currentVideoSpeed();
+
+    const sizeMB = (blob.size / 1048576).toFixed(1);
+    if (videoState.frames) {
+      const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
+      setVideoStatus(
+        `${sizeMB} MB • ${dur} • sync ${videoState.frames.length} pts`
+      );
+    } else {
+      setVideoStatus(
+        `${sizeMB} MB buffered` + (meta.message ? ' • ' + meta.message : ''),
+        meta.has_sync ? '' : 'warn'
+      );
+    }
+  } catch (e) {
+    if (token !== videoState.currentLoadToken) return;
+    setVideoStatus('Video buffer failed: ' + (e.message || e), 'error');
   }
 }
 
