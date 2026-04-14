@@ -72,7 +72,7 @@ deployments:
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
         required: true
-        value: https://config-api-svc-quixers-acquixbridge-videostreaming.az-france-0.app.quix.io
+        value: https://config-api-svc-quixdev-acquixbridge-testmanager.deployments-dev.quix.io
       - name: CONFIG_TYPE
         inputType: FreeText
         description: Config type for session data
