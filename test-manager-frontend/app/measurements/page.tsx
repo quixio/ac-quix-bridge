@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { MainLayout } from "@/components/layout/main-layout"
 import { useIntegrationsApi } from "@/lib/hooks/use-api"
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context"
-import { Loader2 } from "lucide-react"
+import { Loader2, BarChart3 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export default function MeasurementsPage() {
@@ -91,10 +91,20 @@ export default function MeasurementsPage() {
   if (error) {
     return (
       <MainLayout>
-        <Alert variant="destructive">
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <div className="flex items-center justify-center min-h-[500px]">
+          <div className="max-w-md text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+              <BarChart3 className="h-8 w-8 text-primary" />
+            </div>
+            <h2 className="text-2xl font-semibold">Measurements</h2>
+            <p className="text-muted-foreground">
+              Measurements service is not configured yet. Configure it in Settings or check back later.
+            </p>
+            <span className="inline-block text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+              Coming soon
+            </span>
+          </div>
+        </div>
       </MainLayout>
     )
   }
