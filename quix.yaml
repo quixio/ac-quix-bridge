@@ -259,21 +259,22 @@ deployments:
     variables:
       - name: API_URL
         inputType: FreeText
-        description: Backend API URL for server-side requests
+        description: Backend API URL for server-side requests (internal Kubernetes service name)
         required: true
         value: http://test-manager-backend
       - name: NODE_ENV
         inputType: FreeText
+        description: Node environment
         required: true
         value: production
       - name: NEXT_TELEMETRY_DISABLED
         inputType: FreeText
+        description: Disable Next.js telemetry
         value: 1
-      - name: NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
+      - name: MEASUREMENTS_URL
         inputType: FreeText
-        description: Public URL of the Telemetry Explorer deployment
         required: true
-        value: https://telemetryexplorer-quixdev-acquixbridge-testmanager.deployments-dev.quix.io
+        value: https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io/
     plugin:
       embeddedView:
         enabled: true
