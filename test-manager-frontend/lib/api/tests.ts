@@ -96,6 +96,24 @@ export const testsApi = {
     return apiDelete(`/tests/${testId}`, token, refreshToken)
   },
 
+  /**
+   * Get Quix Lake partition parameters for a test (from Dynamic Config Manager)
+   */
+  getTelemetryParams: (
+    testId: string,
+    token?: string | null,
+    refreshToken?: () => Promise<string | null>
+  ) => {
+    return apiGet<{
+      environment: string
+      test_rig: string
+      experiment: string
+      driver: string
+      track: string
+      carModel: string
+    }>(`/tests/${testId}/telemetry-params`, undefined, token, refreshToken)
+  },
+
   // ========================================================================
   // Logbook Entries
   // ========================================================================

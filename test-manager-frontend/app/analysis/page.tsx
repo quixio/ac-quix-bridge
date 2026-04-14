@@ -1,10 +1,11 @@
 "use client"
 
-import { Suspense } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { MainLayout } from "@/components/layout/main-layout"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Card, CardContent } from "@/components/ui/card"
+import { Loader2 } from "lucide-react"
 import {
   GitCompare,
   MapPin,
@@ -13,6 +14,7 @@ import {
   Trophy,
   BookOpenText,
 } from "lucide-react"
+import { useTestsApi } from "@/lib/hooks/use-api"
 
 const ANALYSIS_TABS = [
   {
@@ -65,14 +67,123 @@ const ANALYSIS_TABS = [
   },
 ] as const
 
+function PlaceholderTab({ tab }: { tab: (typeof ANALYSIS_TABS)[number] }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="mb-4 rounded-full bg-primary/10 p-4">
+          <tab.icon className="h-8 w-8 text-primary" />
+        </div>
+        <h2 className="text-xl font-semibold mb-2">{tab.title}</h2>
+        <p className="text-sm text-muted-foreground max-w-md mb-4">
+          {tab.description}
+        </p>
+        <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+          Coming soon
+        </span>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CompareTab({ testId }: { testId: string | null }) {
+  const testsApi = useTestsApi()
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Telemetry Explorer base URL — resolved from env or fallback
+  const explorerBaseUrl = process.env.NEXT_PUBLIC_TELEMETRY_EXPLORER_URL || ""
+
+  useEffect(() => {
+    if (!testId) {
+      // No test selected — show explorer without filters
+      if (explorerBaseUrl) {
+        setIframeUrl(explorerBaseUrl)
+      }
+      return
+    }
+
+    const fetchParams = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const params = await testsApi.getTelemetryParams(testId)
+        const qs = new URLSearchParams()
+        if (params.environment) qs.set("environment", params.environment)
+        if (params.test_rig) qs.set("test_rig", params.test_rig)
+        if (params.experiment) qs.set("experiment", params.experiment)
+        if (params.driver) qs.set("driver", params.driver)
+        if (params.track) qs.set("track", params.track)
+        if (params.carModel) qs.set("carModel", params.carModel)
+        setIframeUrl(`${explorerBaseUrl}?${qs.toString()}`)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load telemetry parameters")
+        // Fall back to unfiltered explorer
+        if (explorerBaseUrl) {
+          setIframeUrl(explorerBaseUrl)
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchParams()
+  }, [testId])
+
+  if (!explorerBaseUrl) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-4 rounded-full bg-primary/10 p-4">
+            <GitCompare className="h-8 w-8 text-primary" />
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Telemetry Explorer</h2>
+          <p className="text-sm text-muted-foreground max-w-md mb-4">
+            Telemetry Explorer URL is not configured. Set the NEXT_PUBLIC_TELEMETRY_EXPLORER_URL environment variable.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[500px]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading Telemetry Explorer...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="mb-2 text-sm text-amber-500">
+        Note: Could not load test parameters — showing unfiltered view.
+      </div>
+    )
+  }
+
+  if (!iframeUrl) return null
+
+  return (
+    <iframe
+      src={iframeUrl}
+      className="w-full border-0 rounded-lg"
+      style={{ height: "calc(100vh - 12rem)" }}
+      title="Telemetry Explorer"
+    />
+  )
+}
+
 function AnalysisPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
   const activeTab = searchParams.get("tab") || "compare"
-  const testIds =
-    searchParams.get("test_ids")?.split(",").filter(Boolean) || []
-  const corner = searchParams.get("corner") || null
+  const testId = searchParams.get("test_id") || null
 
   const handleTabChange = (value: string) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -90,18 +201,11 @@ function AnalysisPageContent() {
           </p>
         </div>
 
-        {(testIds.length > 0 || corner) && (
+        {testId && (
           <div className="mb-4 flex gap-2 text-sm">
-            {testIds.length > 0 && (
-              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
-                Tests: {testIds.join(", ")}
-              </span>
-            )}
-            {corner && (
-              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
-                Corner: {corner}
-              </span>
-            )}
+            <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
+              Test: {testId}
+            </span>
           </div>
         )}
 
@@ -115,22 +219,13 @@ function AnalysisPageContent() {
             ))}
           </TabsList>
 
-          {ANALYSIS_TABS.map((tab) => (
+          <TabsContent value="compare">
+            <CompareTab testId={testId} />
+          </TabsContent>
+
+          {ANALYSIS_TABS.filter((t) => t.value !== "compare").map((tab) => (
             <TabsContent key={tab.value} value={tab.value}>
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                  <div className="mb-4 rounded-full bg-primary/10 p-4">
-                    <tab.icon className="h-8 w-8 text-primary" />
-                  </div>
-                  <h2 className="text-xl font-semibold mb-2">{tab.title}</h2>
-                  <p className="text-sm text-muted-foreground max-w-md mb-4">
-                    {tab.description}
-                  </p>
-                  <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
-                    Coming soon
-                  </span>
-                </CardContent>
-              </Card>
+              <PlaceholderTab tab={tab} />
             </TabsContent>
           ))}
         </Tabs>

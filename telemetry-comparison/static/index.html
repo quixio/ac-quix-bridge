@@ -1733,7 +1733,14 @@ function _wireVideoElement() {
   _wireVideoElement();
   try {
     await Promise.all([fetchSessions(), loadChannels(), fetchTrack()]);
-    addRow({ experiment: 'Demo run' });
+    // Read URL params to pre-fill the first row (for deep-linking from Test Manager)
+    const urlParams = new URLSearchParams(window.location.search);
+    const defaults = {};
+    for (const col of PART_COLS) {
+      const val = urlParams.get(col);
+      if (val) defaults[col] = val;
+    }
+    addRow(Object.keys(defaults).length > 0 ? defaults : { experiment: 'Demo run' });
     setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
   } catch (e) {
     setStatus('Failed to initialize: ' + e.message, true);
