@@ -547,6 +547,23 @@ deployments:
         order: 0
     blobStorage:
       bind: true
+  - name: DoggyApp2
+    application: doggyapp2
+    version: 613996a2df1c306fce21388ddcf76ceeb7e44f9d
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 500
+      replicas: 1
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Name of the input topic to listen to.
+        value: csv-data
+      - name: output
+        inputType: OutputTopic
+        description: Name of the output topic to write to.
+        value: transform
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -570,3 +587,4 @@ topics:
       retentionInBytes: 536870912
   - name: tsbs_data_transformed
   - name: ac-telemetry-config
+  - name: csv-data
