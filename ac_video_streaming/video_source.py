@@ -408,9 +408,6 @@ class ACVideoSource(Source):
                 )
                 prev_completed_laps = completed_laps
                 if recorder:
-                    # Lake sink stores lap = completedLaps + 1 (out-lap = "lap 1
-                    # in progress"). Use the same convention here so MP4/sidecar
-                    # filenames align with telemetry lap numbers in the Explorer.
                     recorder.start_lap(session_id, completed_laps + 1, *display_size)
 
             elif prev_status == "pause":
@@ -429,7 +426,6 @@ class ACVideoSource(Source):
                     path = recorder.finish_lap()
                     logger.info("Lap %d recorded: %s", prev_completed_laps + 1, path)
                     self._upload_to_blob(path, session_id)
-                    # Same +1 convention as new-session start_lap above.
                     recorder.start_lap(session_id, completed_laps + 1, *display_size)
                 prev_completed_laps = completed_laps
 
@@ -473,7 +469,13 @@ class ACVideoSource(Source):
                 # Record to MP4 (fast — just writes raw bytes to ffmpeg pipe)
                 if recorder and recorder.is_recording:
                     recorder.write_frame(frame)
-                    recorder.log_frame(timestamp_ms, gfx.get("normalizedCarPosition"))
+                    # Re-read normPos now — the gfx from the top of the loop
+                    # is stale (car moved between the read and frame capture).
+                    try:
+                        norm_pos = reader.read_graphics().get("normalizedCarPosition")
+                    except Exception:
+                        norm_pos = gfx.get("normalizedCarPosition")
+                    recorder.log_frame(timestamp_ms, norm_pos)
 
                 # Hand frame to stream thread (non-blocking)
                 if self._stream_enabled and stream_interval > 0:
