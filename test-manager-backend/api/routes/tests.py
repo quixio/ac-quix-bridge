@@ -15,6 +15,7 @@ from ..models import (
     TestQuery,
     TestUpdate,
     TestFullData,
+    SessionInfo,
     File,
     Link,
     LogbookEntry,
@@ -346,14 +347,46 @@ def get_telemetry_params(
             detail=f"Failed to fetch config content: {e.response.status_code}",
         )
 
+    # Get track/carModel from sessions if available, otherwise fallback
+    sessions = test.get("sessions", [])
+    track = sessions[0]["track"] if sessions else "ks_nurburgring"
+    car_model = sessions[0]["car_model"] if sessions else "bmw_1m"
+
     return {
         "environment": content.get("environment", ""),
         "test_rig": content.get("test_rig", ""),
         "experiment": content.get("experiment_id", ""),
         "driver": content.get("driver", ""),
-        "track": "ks_nurburgring",  # TODO: get from session config when available
-        "carModel": "bmw_1m",  # TODO: get from session config when available
+        "track": track,
+        "carModel": car_model,
     }
+
+
+@router.post("/tests/{test_id}/sessions", response_model=Test, response_model_by_alias=False)
+def add_session(
+    test_id: str,
+    session: SessionInfo = Body(...),
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    _: None = Depends(update_permission),
+) -> Test:
+    """Add a session to a test. Skips if session_id already exists."""
+    test = mongo.tests.find_one({"_id": test_id})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    # Check for duplicate session_id
+    existing_ids = [s["session_id"] for s in test.get("sessions", [])]
+    if session.session_id in existing_ids:
+        return resolve_test_names(Test(**test), mongo)
+
+    # Append session
+    mongo.tests.update_one(
+        {"_id": test_id},
+        {"$push": {"sessions": session.model_dump()}},
+    )
+
+    updated = mongo.tests.find_one({"_id": test_id})
+    return resolve_test_names(Test(**updated), mongo)
 
 
 @router.delete("/tests/{test_id}", status_code=204)

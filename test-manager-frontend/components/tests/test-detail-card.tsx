@@ -131,6 +131,33 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
         ]}
       />
 
+      {/* Sessions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Sessions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {test.sessions && test.sessions.length > 0 ? (
+            <div className="space-y-2">
+              {test.sessions.map((session) => (
+                <div
+                  key={session.session_id}
+                  className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                >
+                  <span className="font-mono text-xs">{session.session_id}</span>
+                  <div className="flex gap-3 text-muted-foreground text-xs">
+                    <span>{session.track}</span>
+                    <span>{session.car_model}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No sessions yet</p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Configuration */}
       <Card>
         <CardHeader>

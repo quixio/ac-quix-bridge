@@ -96,6 +96,14 @@ class LinkCreate(BaseModel):
     label: str
 
 
+class SessionInfo(BaseModel):
+    """A session linked to a test, with track and car info from AC."""
+
+    session_id: str
+    track: str
+    car_model: str
+
+
 class Test(BaseModel):
     """Represents a test / experiment record."""
 
@@ -106,6 +114,7 @@ class Test(BaseModel):
     environment_id: str
     driver: str
     requirements: str = ""
+    sessions: list[SessionInfo] = []
     # Resolved display names (populated by API, not stored in DB)
     pc_device_name: str | None = None
     test_rig_device_name: str | None = None

@@ -29,6 +29,12 @@ export interface LinkCreate {
   label: string
 }
 
+export interface SessionInfo {
+  session_id: string
+  track: string
+  car_model: string
+}
+
 export interface Test {
   test_id: string
   experiment_id: string
@@ -37,6 +43,7 @@ export interface Test {
   environment_id: string
   driver: string
   requirements: string
+  sessions: SessionInfo[]
   // Resolved display names from backend
   pc_device_name: string | null
   test_rig_device_name: string | null
