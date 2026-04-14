@@ -83,13 +83,13 @@ def _build_partition_filter(**kwargs) -> str:
         if isinstance(val, int):
             clauses.append(f"{col} = {val}")
         elif col == "session_id":
-            # Try exact match in both formats (raw ISO and normalized)
-            normalized = val.replace('T', ' ').rstrip('Z')
-            with_t = val if 'T' in val else val.replace(' ', 'T') + 'Z'
+            # Hive partitions store session_id as e.g. "2026-04-14T11:42:08.107Z"
+            # but the frontend may send "2026-04-14 11:42:08.107000" (space, microseconds, no Z).
+            # Use CAST to VARCHAR + LIKE prefix match to handle all format variations.
+            # Strip trailing zeros and Z to get a common prefix for matching.
+            prefix = val.replace('T', ' ').rstrip('Z').rstrip('0').rstrip('.')
             clauses.append(
-                f"(session_id = '{val}'"
-                f" OR session_id = '{normalized}'"
-                f" OR session_id = '{with_t}')"
+                f"CAST(session_id AS VARCHAR) LIKE '{prefix}%'"
             )
         else:
             clauses.append(f"{col} = '{val}'")
