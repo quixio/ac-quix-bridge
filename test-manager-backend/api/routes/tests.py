@@ -312,6 +312,50 @@ def update_test(
     return resolve_test_names(Test(**mongo.tests.find_one({"_id": test_id})), mongo)
 
 
+@router.get("/tests/{test_id}/telemetry-params", response_model_by_alias=False)
+def get_telemetry_params(
+    test_id: str,
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    config_api: httpx.Client = Depends(get_config_api_client),
+    _: None = Depends(read_permission),
+):
+    """Get Quix Lake partition parameters for a test by fetching its config content.
+
+    Returns the exact values stored in the Dynamic Config Manager, which match
+    the Hive partition columns in Quix Lake (environment, test_rig, experiment, driver).
+    Also includes hardcoded track and carModel for now.
+    """
+    test = mongo.tests.find_one({"_id": test_id})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    config_id = test.get("config_id")
+    config_version = test.get("config_version")
+    if not config_id or not config_version:
+        raise HTTPException(status_code=404, detail="Test has no configuration")
+
+    try:
+        resp = config_api.get(
+            f"/api/v1/configurations/{config_id}/versions/{config_version}/content"
+        )
+        resp.raise_for_status()
+        content = resp.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=424,
+            detail=f"Failed to fetch config content: {e.response.status_code}",
+        )
+
+    return {
+        "environment": content.get("environment", ""),
+        "test_rig": content.get("test_rig", ""),
+        "experiment": content.get("experiment_id", ""),
+        "driver": content.get("driver", ""),
+        "track": "ks_nurburgring",  # TODO: get from session config when available
+        "carModel": "bmw_1m",  # TODO: get from session config when available
+    }
+
+
 @router.delete("/tests/{test_id}", status_code=204)
 def delete_test(
     test_id: str,
