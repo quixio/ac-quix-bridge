@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 BLOB_PREFIX = os.environ.get("BLOB_VIDEO_PREFIX", "ac_video")
 STATIC_DIR = Path(__file__).parent / "static"
 
-print(os.environ["Quix__BlobStorage__Connection__Json"])
-
 def _get_blob_fs():
     try:
         from quixportal.storage import get_filesystem
