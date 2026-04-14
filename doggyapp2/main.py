@@ -6,8 +6,14 @@ import os
 
 # for local dev, load env vars from a .env file
 from dotenv import load_dotenv
+import time
+
+
+
 load_dotenv()
 
+print(os.environ["Quix__BlobStorage__Json"])
+time.sleep(10000)
 
 def main():
     """
