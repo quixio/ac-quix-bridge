@@ -1616,6 +1616,7 @@ async function loadVideoForLapIdx(idx) {
     if (token !== videoState.currentLoadToken) return;
     const contentLen = parseInt(headResp.headers.get('Content-Length') || '0', 10);
 
+    let sizeMB = '?';
     if (contentLen > 0 && contentLen <= MAX_BLOB_BYTES) {
       const resp = await fetch(meta.mp4_url);
       if (token !== videoState.currentLoadToken) return;
@@ -1627,22 +1628,21 @@ async function loadVideoForLapIdx(idx) {
       if (token !== videoState.currentLoadToken) return;
       videoState.blobUrl = URL.createObjectURL(blob);
       video.src = videoState.blobUrl;
+      sizeMB = (blob.size / 1048576).toFixed(1);
     } else {
       // Too large or unknown size — stream directly
       video.src = meta.mp4_url;
+      if (contentLen > 0) sizeMB = (contentLen / 1048576).toFixed(1);
     }
     video.currentTime = 0;
     video.playbackRate = _currentVideoSpeed();
 
-    const sizeMB = (blob.size / 1048576).toFixed(1);
     if (videoState.frames) {
       const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
-      setVideoStatus(
-        `${sizeMB} MB • ${dur} • sync ${videoState.frames.length} pts`
-      );
+      setVideoStatus(`${sizeMB} MB • ${dur} • sync ${videoState.frames.length} pts`);
     } else {
       setVideoStatus(
-        `${sizeMB} MB buffered` + (meta.message ? ' • ' + meta.message : ''),
+        `${sizeMB} MB` + (meta.message ? ' • ' + meta.message : ''),
         meta.has_sync ? '' : 'warn'
       );
     }
