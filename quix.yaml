@@ -526,7 +526,7 @@ deployments:
         inputType: FreeText
         description: Base URL of the QuixLake instance
         required: true
-        value: https://quixlake-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io
+        value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: TABLE_NAME
         inputType: FreeText
         description: QuixLake table name for telemetry data
