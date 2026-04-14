@@ -1589,7 +1589,6 @@ async function loadVideoForLapIdx(idx) {
   if (video) {
     try { video.pause(); } catch (_) {}
     video.src = meta.mp4_url;
-    video.currentTime = 0;
     // Preserve user's chosen playback speed across lap switches
     video.playbackRate = _currentVideoSpeed();
     videoState.isPlaying = false;
@@ -1597,6 +1596,10 @@ async function loadVideoForLapIdx(idx) {
 
   if (meta.has_sync && meta.sync && Array.isArray(meta.sync.frames)) {
     buildSyncLookups(meta.sync);
+    // Skip past the pitstop/approach portion of the video
+    if (video && videoState.startOffsetS > 0) {
+      video.currentTime = videoState.startOffsetS;
+    }
     const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
     setVideoStatus(
       `${meta.sync.frame_count || '?'} frames • ${dur} • sync ${videoState.frames ? videoState.frames.length : 0} pts`
@@ -1604,24 +1607,43 @@ async function loadVideoForLapIdx(idx) {
   } else {
     videoState.frames = null;
     videoState.framesByNd = null;
+    videoState.startOffsetS = 0;
     setVideoStatus(meta.message || 'Video sync metadata not available', 'warn');
   }
 }
 
 function buildSyncLookups(sync) {
-  const valid = (sync.frames || []).filter(
+  let valid = (sync.frames || []).filter(
     f => f && Number.isFinite(f.t_ms) && f.normPos != null && Number.isFinite(f.normPos)
   );
   if (!valid.length) {
     videoState.frames = null;
     videoState.framesByNd = null;
+    videoState.startOffsetS = 0;
     return;
   }
+
+  // Trim approach/pitstop: find the first wrap where normPos drops from
+  // near 1 to near 0 (sorted by t_ms). Discard everything before that.
+  const byT = valid.slice().sort((a, b) => a.t_ms - b.t_ms);
+  let wrapIdx = -1;
+  for (let i = 1; i < byT.length; i++) {
+    if (byT[i - 1].normPos > 0.9 && byT[i].normPos < 0.1) {
+      wrapIdx = i;
+      break;
+    }
+  }
+  if (wrapIdx >= 0) {
+    valid = byT.slice(wrapIdx);
+  } else if (byT[0].normPos > 0.1) {
+    // Pure out-lap (no wrap) — all frames are approach. Keep the data
+    // but set startOffset so the video seeks past it.
+    valid = byT;
+  }
+  videoState.startOffsetS = valid.length ? valid[0].t_ms / 1000 : 0;
+
   // Two views: by t_ms for video-playback → marker, by normPos for
-  // marker-drag → video. Maintaining both is critical because normPos is
-  // NOT monotonic on out-laps (wraps from ~1.0 → 0.0 across the S/F line),
-  // and binary-searching a t_ms-sorted array by normPos snaps drags to
-  // either the first or last frame.
+  // marker-drag → video.
   videoState.frames = valid.slice().sort((a, b) => a.t_ms - b.t_ms);
   videoState.framesByNd = valid.slice().sort((a, b) => a.normPos - b.normPos);
 }
