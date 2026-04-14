@@ -99,3 +99,16 @@ class SessionTracker:
             if time.time() >= deadline:
                 return sid
             time.sleep(0.05)
+
+    def try_get_fresh_session_id(self, our_detect_ms: int) -> str | None:
+        """Non-blocking check for a fresh telemetry session_id.
+
+        Returns the session_id if the tracker holds a message timestamped
+        within FRESH_TOLERANCE_MS of *our_detect_ms*, otherwise None.
+        """
+        with self._lock:
+            sid = self._session_id
+            ts = self._timestamp_ms
+        if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+            return sid
+        return None

@@ -84,6 +84,17 @@ class VideoRecorder:
     def is_recording(self) -> bool:
         return self._process is not None
 
+    def update_session_id(self, new_session_id: str):
+        """Update the session_id for the current recording.
+
+        The MP4 file will be renamed after ffmpeg closes in finish_lap().
+        The sidecar uses the updated id immediately."""
+        if self._session_id == new_session_id:
+            return
+        old_id = self._session_id
+        self._session_id = new_session_id
+        logger.info("Recorder session_id updated: %s -> %s", old_id, new_session_id)
+
     def _calc_recording_size(self, src_w: int, src_h: int) -> tuple[int, int]:
         """Recording dimensions. By default (max_width<=0) inherits the
         captured screen size as-is. A positive max_width caps the width and
@@ -247,6 +258,10 @@ class VideoRecorder:
                 )
         self._effective_fps = effective_fps
 
+        # If session_id was updated after start_lap() (deferred adoption from
+        # telemetry), rename the MP4 now that ffmpeg has released it.
+        path = self._rename_to_session_id(path)
+
         self._write_sidecar(path)
         self._cleanup_process()
         if path:
@@ -306,6 +321,25 @@ class VideoRecorder:
                 try: os.remove(tmp_path)
                 except Exception: pass
             return False
+
+    def _rename_to_session_id(self, path: str) -> str:
+        """Rename the MP4 if session_id changed since start_lap().
+        Called after ffmpeg has closed the file. Returns the (possibly new) path."""
+        if not path or not os.path.exists(path):
+            return path
+        safe_id = self._session_id.replace(":", "-")
+        expected_name = f"{safe_id}_lap{self._lap:03d}.mp4"
+        current_name = os.path.basename(path)
+        if current_name == expected_name:
+            return path
+        new_path = os.path.join(os.path.dirname(path), expected_name)
+        try:
+            os.rename(path, new_path)
+            logger.info("Renamed recording: %s -> %s", current_name, expected_name)
+            return new_path
+        except OSError:
+            logger.exception("Failed to rename %s -> %s", current_name, expected_name)
+            return path
 
     def _write_sidecar(self, mp4_path: str) -> str:
         """Write <mp4>.sync.json next to the MP4. Returns the sidecar path

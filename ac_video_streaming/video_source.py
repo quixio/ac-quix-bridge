@@ -70,28 +70,6 @@ class ACVideoSource(Source):
         recorded with this id won't be syncable in the Telemetry Explorer."""
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-    def _resolve_session_id(self) -> str:
-        """Adopt the telemetry-published session_id, or fall back if unavailable.
-
-        Waits up to 15s — empirically the tracker's mini-Application takes
-        ~5-7s to fetch broker config from the Quix portal API on first init,
-        and another 1-2s for partition assignment + first poll. A short
-        timeout here causes the fallback path to fire even when telemetry is
-        healthy."""
-        detect_ms = int(time.time() * 1000)
-        if self._session_tracker is not None:
-            sid = self._session_tracker.session_id_for_new_session(
-                our_detect_ms=detect_ms, timeout_s=15.0
-            )
-            if sid is not None:
-                return sid
-            logger.warning(
-                "No telemetry session_id received within 15s — "
-                "telemetry source may not be running. Falling back to local id; "
-                "this video will not be syncable in the Telemetry Explorer."
-            )
-        return self._fallback_session_id()
-
     def _init_camera(self):
         """Initialize dxcam screen capture. Returns (camera, (width, height)) or (None, None)."""
         try:
@@ -296,6 +274,8 @@ class ACVideoSource(Source):
         prev_completed_laps = None
         prev_current_time = None
         session_id = None
+        session_id_confirmed = True   # False while waiting for telemetry id
+        session_detect_ms = 0         # wall-clock ms when new session was detected
 
         frame_count = 0
         stream_interval = max(1, self._fps // self._stream_fps) if self._stream_fps > 0 else 0
@@ -402,11 +382,29 @@ class ACVideoSource(Source):
             if new_session:
                 # Finalize any prior recording before starting fresh
                 self._finalize_recording(recorder, "new session", session_id or "")
-                session_id = self._resolve_session_id()
+                session_detect_ms = int(time.time() * 1000)
+                # Non-blocking: use telemetry id if already available, else
+                # start recording immediately with a temporary local id.
+                resolved = (
+                    self._session_tracker.try_get_fresh_session_id(session_detect_ms)
+                    if self._session_tracker else None
+                )
+                if resolved:
+                    session_id = resolved
+                    session_id_confirmed = True
+                else:
+                    session_id = self._fallback_session_id()
+                    session_id_confirmed = False
+                    logger.info(
+                        "Recording with temporary id %s — "
+                        "waiting for telemetry session_id",
+                        session_id,
+                    )
                 static_data = reader.read_static()
                 logger.info(
-                    "New session: %s (%s @ %s)",
+                    "New session: %s (%s @ %s)%s",
                     session_id, static_data["carModel"], static_data["track"],
+                    "" if session_id_confirmed else " [pending telemetry id]",
                 )
                 prev_completed_laps = completed_laps
                 if recorder:
@@ -434,6 +432,38 @@ class ACVideoSource(Source):
                     # Same +1 convention as new-session start_lap above.
                     recorder.start_lap(session_id, completed_laps + 1, *display_size)
                 prev_completed_laps = completed_laps
+
+            # Adopt telemetry session_id as soon as it arrives
+            if not session_id_confirmed and self._session_tracker is not None:
+                resolved = self._session_tracker.try_get_fresh_session_id(session_detect_ms)
+                if resolved:
+                    logger.info(
+                        "Adopted telemetry session_id: %s (was temporary %s)",
+                        resolved, session_id,
+                    )
+                    session_id = resolved
+                    session_id_confirmed = True
+                    if recorder:
+                        recorder.update_session_id(resolved)
+                elif int(time.time() * 1000) - session_detect_ms > 15_000:
+                    # Timeout: accept any id the tracker holds (cold-start
+                    # where telemetry is already running, no new session msg).
+                    stale = self._session_tracker.current_session_id
+                    if stale:
+                        logger.info(
+                            "Accepted existing telemetry session_id: %s "
+                            "(was temporary %s)",
+                            stale, session_id,
+                        )
+                        session_id = stale
+                        if recorder:
+                            recorder.update_session_id(stale)
+                    else:
+                        logger.warning(
+                            "No telemetry session_id received — "
+                            "this recording will not be syncable"
+                        )
+                    session_id_confirmed = True  # stop polling
 
             # Capture frame
             frame = camera.grab()
