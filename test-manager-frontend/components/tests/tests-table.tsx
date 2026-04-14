@@ -22,11 +22,8 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import type { Test } from "@/types/test"
-import { ArrowUpDown, Loader2, Download, BarChart3, LineChart } from "lucide-react"
+import { ArrowUpDown, Loader2, TrendingUp } from "lucide-react"
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter"
-import { useIntegrationsApi } from "@/lib/hooks/use-api"
-import { useToast } from "@/lib/hooks/use-toast"
-import { downloadCsv } from "@/lib/utils/csv"
 
 interface TestsTableProps {
   data: Test[]
@@ -38,60 +35,11 @@ export const TestsTable = memo(function TestsTable({ data, sorting, onSortingCha
   const router = useRouter()
   const pathname = usePathname()
   const [navigatingTestId, setNavigatingTestId] = useState<string | null>(null)
-  const [downloadingTestId, setDownloadingTestId] = useState<string | null>(null)
   const { formatDate } = useDateFormatter()
-  const integrationsApi = useIntegrationsApi()
-  const { toast } = useToast()
-
   // Reset loading state when navigation completes
   useEffect(() => {
     setNavigatingTestId(null)
   }, [pathname])
-
-  const handleDownload = async (test: Test, event: React.MouseEvent) => {
-    // Prevent row click navigation
-    event.stopPropagation()
-
-    setDownloadingTestId(test.test_id)
-    try {
-      // Call API to get test data (returns CSV text directly)
-      const csvContent = await integrationsApi.downloadTestData(
-        test.test_id,
-        test.experiment_id,
-        test.environment_id
-      )
-
-      // Check if data is empty
-      if (!csvContent || csvContent.trim() === "") {
-        toast({
-          title: "No data available",
-          description: "No measurement data found for this test.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
-      const filename = `test_data_${test.test_id}_${timestamp}.csv`
-
-      // Trigger download
-      downloadCsv(csvContent, filename)
-
-      toast({
-        title: "Download started",
-        description: `Downloading ${filename}`,
-      })
-    } catch (error) {
-      toast({
-        title: "Error downloading data",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      })
-    } finally {
-      setDownloadingTestId(null)
-    }
-  }
 
   const columns = useMemo<ColumnDef<Test>[]>(
     () => [
@@ -186,53 +134,20 @@ export const TestsTable = memo(function TestsTable({ data, sorting, onSortingCha
         id: "actions",
         header: "",
         cell: ({ row }) => {
-          const isDownloading = downloadingTestId === row.original.test_id
           const test = row.original
           return (
             <div className="flex items-center">
-              {/* Download CSV */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => handleDownload(test, e)}
-                disabled={isDownloading}
-                className="h-8 w-8 p-0"
-                title="Download test data as CSV"
-              >
-                {isDownloading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-              </Button>
-
-              {/* Go to Data Query */}
               <Link
-                href={`/measurements?test_id=${test.test_id}&experiment_id=${test.experiment_id}&environment_id=${test.environment_id}`}
+                href={`/analysis?tab=compare&test_id=${test.test_id}`}
                 onClick={(e) => e.stopPropagation()}
               >
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
-                  title="Go to Data Query"
+                  title="Analyze telemetry"
                 >
-                  <BarChart3 className="h-4 w-4" />
-                </Button>
-              </Link>
-
-              {/* Go to Analytics */}
-              <Link
-                href={`/analytics?test_id=${test.test_id}&experiment_id=${test.experiment_id}&environment_id=${test.environment_id}`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  title="Go to Analytics"
-                >
-                  <LineChart className="h-4 w-4" />
+                  <TrendingUp className="h-4 w-4" />
                 </Button>
               </Link>
             </div>
@@ -240,7 +155,7 @@ export const TestsTable = memo(function TestsTable({ data, sorting, onSortingCha
         },
       },
     ],
-    [formatDate, downloadingTestId, handleDownload]
+    [formatDate]
   )
 
   const table = useReactTable({

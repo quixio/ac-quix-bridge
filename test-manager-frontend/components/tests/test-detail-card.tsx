@@ -10,7 +10,7 @@ import { useToast } from "@/lib/hooks/use-toast"
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter"
 import { downloadCsv } from "@/lib/utils/csv"
 import type { Test } from "@/types/test"
-import { ExternalLink, Sliders, Database, BarChart3, LineChart, Download } from "lucide-react"
+import { ExternalLink, Sliders, Database, BarChart3, LineChart, Download, TrendingUp } from "lucide-react"
 
 interface TestDetailCardProps {
   test: Test
@@ -108,43 +108,12 @@ export function TestDetailCard({ test, onTestUpdated, resolvedNames }: TestDetai
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-center gap-3">
-            <Link href={configManagerUrl}>
+            <Link href={`/analysis?tab=compare&test_id=${test.test_id}`}>
               <Button variant="outline" size="sm">
-                <Sliders className="mr-2 h-4 w-4" />
-                Configurations
+                <TrendingUp className="mr-2 h-4 w-4" />
+                Analyze
               </Button>
             </Link>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleOpenDataLake}
-              disabled={isLoadingDataLakeUrl}
-            >
-              <Database className="mr-2 h-4 w-4" />
-              Data Lake
-            </Button>
-            <Link href={`/measurements?test_id=${test.test_id}&experiment_id=${test.experiment_id}&environment_id=${test.environment_id}`}>
-              <Button variant="outline" size="sm">
-                <BarChart3 className="mr-2 h-4 w-4" />
-                Query Data
-              </Button>
-            </Link>
-            <Link href={`/analytics?test_id=${test.test_id}&experiment_id=${test.experiment_id}&environment_id=${test.environment_id}`}>
-              <Button variant="outline" size="sm">
-                <LineChart className="mr-2 h-4 w-4" />
-                Analytics
-              </Button>
-            </Link>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownloadData}
-              disabled={isLoadingDownload}
-              className="ml-auto"
-            >
-              <Download className="mr-2 h-4 w-4" />
-              {isLoadingDownload ? "Downloading..." : "Download Data"}
-            </Button>
           </div>
         </CardContent>
       </Card>
