@@ -357,12 +357,51 @@ def _safe_session(session_id: str) -> str:
     return session_id.replace(":", "-")
 
 
-def _video_blob_paths(session_id: str, lap: int) -> tuple[str, str]:
-    """Return (mp4_blob_path, sidecar_blob_path) for a session+lap."""
+def _session_blob_variants(session_id: str) -> list[str]:
+    """Return possible blob-safe forms of a session_id.
+
+    Handles format differences between Quix Cloud
+    ('2026-04-14T11:42:08.107Z') and Quix Dev
+    ('2026-04-14 11:42:08.1070000')."""
     safe = _safe_session(session_id)
-    folder = f"{BLOB_VIDEO_PREFIX}/session_id={safe}"
-    base = f"{safe}_lap{lap:03d}"
-    return f"{folder}/{base}.mp4", f"{folder}/{base}.sync.json"
+    variants = [safe]
+    # Cloud → Dev: T→space, strip Z, pad fractional seconds to 7 digits
+    if "T" in safe and safe.endswith("Z"):
+        alt = safe.replace("T", " ")[:-1]
+        if "." in alt:
+            base, frac = alt.rsplit(".", 1)
+            alt = f"{base}.{frac.ljust(7, '0')}"
+        if alt != safe:
+            variants.append(alt)
+    # Dev → Cloud: space→T, trim fractional to 3 digits, add Z
+    if " " in safe and not safe.endswith("Z"):
+        alt = safe.replace(" ", "T")
+        if "." in alt:
+            base, frac = alt.rsplit(".", 1)
+            alt = f"{base}.{frac[:3]}Z"
+        elif not alt.endswith("Z"):
+            alt += "Z"
+        if alt != safe:
+            variants.append(alt)
+    return variants
+
+
+def _find_video_paths(session_id: str, lap: int) -> tuple[str, str] | None:
+    """Find MP4 + sidecar blob paths for a session+lap, trying format variants.
+    Returns (mp4_path, sidecar_path) or None if no video found."""
+    if not blob_fs:
+        return None
+    for safe in _session_blob_variants(session_id):
+        folder = f"{BLOB_VIDEO_PREFIX}/session_id={safe}"
+        base = f"{safe}_lap{lap:03d}"
+        mp4 = f"{folder}/{base}.mp4"
+        try:
+            blob_fs.invalidate_cache(folder)
+            if blob_fs.exists(mp4):
+                return mp4, f"{folder}/{base}.sync.json"
+        except Exception:
+            continue
+    return None
 
 
 @app.get("/api/video/{session_id}/{lap}")
@@ -380,17 +419,8 @@ async def get_video_meta(session_id: str, lap: int):
     if not blob_fs:
         raise HTTPException(503, "Blob storage not connected")
 
-    mp4_path, sidecar_path = _video_blob_paths(session_id, lap)
-    folder = mp4_path.rsplit("/", 1)[0]
-
-    try:
-        blob_fs.invalidate_cache(folder)
-        mp4_exists = blob_fs.exists(mp4_path)
-    except Exception:
-        logger.exception("Failed to check MP4 existence")
-        mp4_exists = False
-
-    if not mp4_exists:
+    result = _find_video_paths(session_id, lap)
+    if not result:
         return JSONResponse({
             "has_video": False,
             "has_sync": False,
@@ -399,6 +429,7 @@ async def get_video_meta(session_id: str, lap: int):
             "message": f"No video recorded for session {session_id} lap {lap}",
         })
 
+    mp4_path, sidecar_path = result
     sync = None
     try:
         sidecar_bytes = blob_fs.cat(sidecar_path)
@@ -435,16 +466,26 @@ async def stream_video(
     if not blob_fs:
         raise HTTPException(503, "Blob storage not connected")
 
-    mp4_path, _ = _video_blob_paths(session_id, lap)
+    # Try session_id format variants to find the actual blob path
+    mp4_path = None
+    total = 0
+    for safe in _session_blob_variants(session_id):
+        folder = f"{BLOB_VIDEO_PREFIX}/session_id={safe}"
+        base = f"{safe}_lap{lap:03d}"
+        candidate = f"{folder}/{base}.mp4"
+        try:
+            info = blob_fs.info(candidate)
+            mp4_path = candidate
+            total = int(info.get("size", 0))
+            break
+        except FileNotFoundError:
+            continue
+        except Exception:
+            logger.exception("Failed to stat MP4: %s", candidate)
+            continue
 
-    try:
-        info = blob_fs.info(mp4_path)
-        total = int(info.get("size", 0))
-    except FileNotFoundError:
+    if not mp4_path:
         raise HTTPException(404, f"Video not found: session={session_id} lap={lap}")
-    except Exception:
-        logger.exception("Failed to stat MP4 in blob: %s", mp4_path)
-        raise HTTPException(500, "Failed to fetch video metadata")
 
     common = {
         "Accept-Ranges": "bytes",
