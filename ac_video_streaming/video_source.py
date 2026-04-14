@@ -276,6 +276,8 @@ class ACVideoSource(Source):
         session_id = None
         session_id_confirmed = True   # False while waiting for telemetry id
         session_detect_ms = 0         # wall-clock ms when new session was detected
+        prev_norm_pos = None          # for start-line crossing detection
+        waiting_for_start_line = False
 
         frame_count = 0
         stream_interval = max(1, self._fps // self._stream_fps) if self._stream_fps > 0 else 0
@@ -407,8 +409,10 @@ class ACVideoSource(Source):
                     "" if session_id_confirmed else " [pending telemetry id]",
                 )
                 prev_completed_laps = completed_laps
-                if recorder:
-                    recorder.start_lap(session_id, completed_laps + 1, *display_size)
+                # Don't record yet — wait for the car to cross the
+                # start/finish line so the MP4 has no pitstop footage.
+                waiting_for_start_line = True
+                prev_norm_pos = None
 
             elif prev_status == "pause":
                 # Resume from pause
@@ -435,6 +439,25 @@ class ACVideoSource(Source):
                         daemon=True,
                     ).start()
                 prev_completed_laps = completed_laps
+
+            # Detect start/finish line crossing to begin recording.
+            # This skips the out-lap (pit → start line) so no pitstop
+            # footage ends up in the MP4.
+            if waiting_for_start_line and recorder and not recorder.is_recording:
+                curr_norm = gfx.get("normalizedCarPosition")
+                if curr_norm is not None and curr_norm < 0.05:
+                    crossed = (prev_norm_pos is not None and prev_norm_pos > 0.9)
+                    already_there = (prev_norm_pos is not None and prev_norm_pos < 0.1)
+                    first_read = (prev_norm_pos is None)
+                    if crossed or already_there or first_read:
+                        recorder.start_lap(
+                            session_id, completed_laps + 1, *display_size
+                        )
+                        waiting_for_start_line = False
+                        logger.info(
+                            "Start line crossed — recording begins (normPos %.3f)",
+                            curr_norm,
+                        )
 
             # Adopt telemetry session_id as soon as it arrives
             if not session_id_confirmed and self._session_tracker is not None:
@@ -503,6 +526,7 @@ class ACVideoSource(Source):
 
             prev_status = status
             prev_current_time = current_time
+            prev_norm_pos = gfx.get("normalizedCarPosition")
 
             # ---- Frame rate control ----
             now = time.perf_counter()
