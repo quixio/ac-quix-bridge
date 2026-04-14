@@ -478,10 +478,16 @@ class ACVideoSource(Source):
                     recorder.write_frame(frame)
                     # Re-read normPos now — the gfx from the top of the loop
                     # is stale (car moved between the read and frame capture).
+                    old_norm = gfx.get("normalizedCarPosition")
                     try:
                         norm_pos = reader.read_graphics().get("normalizedCarPosition")
+                        # Guard: if normPos wrapped backward (car crossed the
+                        # finish line between reads), keep the old value so
+                        # the crossing doesn't land in this lap's sidecar.
+                        if old_norm is not None and old_norm > 0.8 and norm_pos is not None and norm_pos < 0.2:
+                            norm_pos = old_norm
                     except Exception:
-                        norm_pos = gfx.get("normalizedCarPosition")
+                        norm_pos = old_norm
                     recorder.log_frame(timestamp_ms, norm_pos)
 
                 # Hand frame to stream thread (non-blocking)
