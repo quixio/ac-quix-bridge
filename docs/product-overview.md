@@ -15,7 +15,7 @@ This is where the data is born. The AC game exposes a shared-memory interface wi
 - **Telemetry Source** — reads the shared memory 60 times per second and sends every signal to Quix Cloud
 - **Video Streaming** — captures the game screen in real time, streams it live as a video feed, records each lap as an MP4 file, and uploads each finished lap to cloud storage
 
-Both services start with a single click (`startUpScript.bat`) and react to what the game does: recording starts when the driver leaves the pit, pauses when the game pauses, splits files at every lap, and finalizes cleanly when the session ends or the game closes.
+Both services start with a single script (`start-local.ps1`) and react to what the game does: recording waits for the car to cross the start/finish line (so the MP4 has no pitstop footage), pauses when the game pauses, splits files at every lap, and finalizes cleanly when the session ends or the game closes.
 
 ### 2. Quix Cloud (the analytics platform)
 
@@ -115,9 +115,9 @@ Video recordings are uploaded to the same blob storage bucket under a `ac_video/
 ## What happens during a typical race
 
 1. The driver sits down at the AC machine and launches the game
-2. An operator double-clicks `startUpScript.bat` — two terminal windows open, one for telemetry, one for video
+2. An operator runs `start-local.ps1` — two terminal windows open, one for telemetry, one for video
 3. The driver picks their car and track, goes out on track
-4. The moment the car **leaves the pit lane**, both services start producing data:
+4. The moment the car **crosses the start/finish line**, both services start producing data:
    - Telemetry goes to Kafka → data lake in real time
    - Video is captured at 30 FPS locally + streamed live at 15 FPS to Kafka
 5. A **team member anywhere in the world** can open the live video viewer in a browser and watch the session unfold
@@ -142,7 +142,7 @@ This means non-developers can tune the product — e.g. change what counts as a 
 
 - **Multi-track switching** — the Telemetry Explorer currently hard-codes one track CSV (Nürburgring Sprint A). Auto-selection based on the session's `track` field is planned but not yet active.
 - **Corner classification tuning per track** — the same thresholds apply to all tracks. A per-track override in the config is a natural next step.
-- **HTTP Range requests for the proxied MP4** — the Telemetry Explorer streams video as a single whole-file response. Fine for typical lap sizes (hundreds of KB to a few MB) since the browser buffers once and seeking is then in-memory. Long laps or larger encodes would benefit from Range support.
+- **HTTP Range requests for the proxied MP4** — the Telemetry Explorer now supports HTTP Range seeking. Videos up to 100 MB are fully blob-buffered in the browser for instant seeking; larger files fall back to range-based streaming.
 
 ## Stack summary
 

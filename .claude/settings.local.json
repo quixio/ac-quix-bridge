@@ -54,7 +54,11 @@
       "Bash(ac_video_streaming/.venv/Scripts/python.exe:*)",
       "Bash(echo \"EXIT=$?\")",
       "Bash(grep -rn \"lap\\\\|completedLaps\" ac-telemetry-lake/*.py)",
-      "Bash(grep -rn \"completedLaps\\\\|lap\" ac-telemetry-source/*.py)"
+      "Bash(grep -rn \"completedLaps\\\\|lap\" ac-telemetry-source/*.py)",
+      "WebSearch",
+      "Bash(npm --version)",
+      "Bash(npx --version)",
+      "mcp__playwright__browser_take_screenshot"
     ],
     "deny": [],
     "ask": []

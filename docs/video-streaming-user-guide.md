@@ -111,14 +111,38 @@ Each MP4 is named with the session timestamp and lap number.
 
 | AC Status | What happens |
 |---|---|
-| OFF -> LIVE | New session starts, recording begins (lap 0) |
-| Lap change | Current lap MP4 finalized, uploaded to S3, next lap recording starts |
+| OFF -> LIVE (in pit) | Session detected, camera initializes, but recording waits for start/finish line crossing |
+| Start line crossed | Recording begins (normPos wraps from >0.9 to <0.05). No pitstop footage in the MP4 |
+| Lap change | Current lap MP4 finalized, next lap recording starts immediately, S3 upload runs in background |
 | LIVE -> PAUSE | Recording pauses (no frames captured, ffmpeg pipe stays open) |
 | PAUSE -> LIVE | Recording resumes seamlessly |
 | LIVE -> OFF | Recording finalized, uploaded to S3, streaming stops |
 | AC closed / crash | Recording finalized and uploaded (incomplete session preserved) |
 
 Incomplete sessions are always saved. No data is lost on unexpected exits.
+
+### Start-line detection
+
+The video source monitors `normalizedCarPosition` from AC's shared memory. Recording begins only when the car crosses the start/finish line (normPos wraps from near 1.0 to near 0.0). This means:
+
+- **Out-lap from pit** — the drive from pit exit to the start line is NOT recorded. The first MP4 starts cleanly from the start/finish line.
+- **Hotlap / time attack** — if the car spawns near the start line (normPos < 0.05), recording starts immediately.
+- **Race grid start** — the car sits on the grid (normPos ~0.95), then drives forward across the line. Recording starts at the crossing.
+
+### Session ID adoption (deferred, non-blocking)
+
+The video source adopts the telemetry-published `session_id` so MP4 filenames and S3 paths match the data lake. This adoption is **non-blocking**:
+
+1. Recording starts immediately with a temporary local ID
+2. Each frame, the source polls the `ac-telemetry-session` topic for the real ID
+3. When the real ID arrives, the recorder updates internally
+4. At `finish_lap()`, the MP4 is renamed from the temporary name to the real session ID
+
+If the telemetry source is not running, the video falls back to the local ID after 15 seconds (the recording still works, but won't be findable in the Telemetry Explorer).
+
+### Background upload
+
+When a lap changes, the new recording starts **before** the S3 upload of the previous lap. The upload runs in a background thread so the capture loop is not blocked. This minimizes the gap between laps (previously ~5-10 seconds of missed frames; now only ~1s for ffmpeg finalization).
 
 ## Configuration
 
@@ -132,7 +156,7 @@ All settings are in `ac_video_streaming/.env`:
 | `Quix__BlobStorage__Connection__Json` | (required for upload) | S3/Azure blob storage credentials JSON |
 | `AC_MOCK_MODE` | `false` | Enable mock mode (no AC needed) |
 | `VIDEO_DISPLAY_INDEX` | `0` | Which monitor to capture (0 = primary) |
-| `VIDEO_FPS` | `30` | Capture and recording frame rate |
+| `VIDEO_FPS` | `15` | Capture and recording frame rate |
 | `STREAM_FPS` | `15` | Live stream frame rate (lower = less bandwidth) |
 | `STREAM_WIDTH` | `1280` | Max width for streamed frames |
 | `JPEG_QUALITY` | `75` | JPEG compression for streamed frames (1-100) |
@@ -206,6 +230,18 @@ Two requirements for sync to be available:
 
 API endpoints on the Telemetry Explorer:
 - `GET /api/video/{session_id}/{lap}` → `{has_video, has_sync, sync, mp4_url, message}`
-- `GET /api/video/{session_id}/{lap}/mp4` → proxy-streams the MP4 bytes from blob storage
+- `GET /api/video/{session_id}/{lap}/mp4` → proxy-streams the MP4 bytes from blob storage (supports HTTP Range for seeking)
 
-Lap numbers in the dropdown match the telemetry lap numbers (1-indexed: `lap 1` is the out-lap, `lap 2` is the first timed lap, etc.) — both the data lake and the video filenames apply `lap = completedLaps + 1`.
+Lap numbers in the dropdown match the telemetry lap numbers (1-indexed: `lap = completedLaps + 1`). The video source uses the same convention.
+
+### Video buffering
+
+Videos up to 100 MB are fully downloaded into a browser blob URL when selected. This makes seeking instant (no HTTP round-trips). Larger files fall back to streaming with HTTP Range requests.
+
+### Session ID format compatibility
+
+The video lookup endpoints try multiple session ID formats to handle differences between Quix Cloud (`2026-04-14T11:42:08.107Z`) and Quix Dev (`2026-04-14 11:42:08.1070000`). Both old and new recordings are found regardless of which environment produced them.
+
+### First-lap telemetry trim
+
+The Telemetry Explorer filters out approach/out-lap data for the first lap (lap 1). If the data only covers a partial track (min normalizedCarPosition > 0.1 with no start-line wrap), it returns empty — keeping the plots clean when comparing timed laps.

@@ -13,3 +13,9 @@ recordings/
 
 # Reference repo (test manager source)
 quixers-testmanager-standalone/
+
+# Playwright MCP artifacts (smoke tests, agent screenshots, MCP cache)
+.playwright-mcp/
+smoke-test-*.png
+nitpicker-*.png
+test[0-9]*-*.png
