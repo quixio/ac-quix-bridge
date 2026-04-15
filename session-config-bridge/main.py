@@ -33,10 +33,6 @@ AUTH_TOKEN = os.environ.get("Quix__Sdk__Token", "")
 TEST_MANAGER_URL = os.environ.get("TEST_MANAGER_URL", "http://test-manager-backend")
 TEST_MANAGER_API = f"{TEST_MANAGER_URL}/api/v1"
 
-# Cache of known config IDs per target_key (hostname)
-_config_ids: dict[str, str] = {}
-_experiment_config_ids: dict[str, str] = {}
-
 
 def _auth_headers() -> dict:
     if AUTH_TOKEN:
@@ -46,9 +42,6 @@ def _auth_headers() -> dict:
 
 def _find_config_id(target_key: str) -> str | None:
     """Search for existing config by type and target key."""
-    if target_key in _config_ids:
-        return _config_ids[target_key]
-
     with httpx.Client() as client:
         resp = client.get(
             f"{API_BASE}/configurations",
@@ -61,9 +54,7 @@ def _find_config_id(target_key: str) -> str | None:
             for cfg in configs:
                 meta = cfg.get("metadata", {})
                 if meta.get("type") == CONFIG_TYPE and meta.get("target_key") == target_key:
-                    config_id = cfg.get("id") or cfg.get("_id")
-                    _config_ids[target_key] = config_id
-                    return config_id
+                    return cfg.get("id") or cfg.get("_id")
     return None
 
 
@@ -101,12 +92,6 @@ def _push_to_config_manager(target_key: str, content: dict):
                 headers=_auth_headers(),
                 timeout=10.0,
             )
-            if resp.status_code in (200, 201):
-                # Cache the new config ID
-                result = resp.json()
-                new_id = result.get("id") or result.get("_id")
-                if new_id:
-                    _config_ids[target_key] = new_id
 
         if resp.status_code in (200, 201):
             logger.info(
@@ -121,9 +106,6 @@ def _push_to_config_manager(target_key: str, content: dict):
 
 def _find_experiment_config_id(target_key: str) -> str | None:
     """Find the experiment config in DCM for this hostname."""
-    if target_key in _experiment_config_ids:
-        return _experiment_config_ids[target_key]
-
     with httpx.Client() as client:
         resp = client.get(f"{API_BASE}/configurations", headers=_auth_headers(), timeout=5.0)
         if resp.status_code != 200:
@@ -134,9 +116,7 @@ def _find_experiment_config_id(target_key: str) -> str | None:
         for cfg in configs:
             meta = cfg.get("metadata", {})
             if meta.get("type") == "experiment" and meta.get("target_key") == target_key:
-                config_id = cfg.get("id") or cfg.get("_id")
-                _experiment_config_ids[target_key] = config_id
-                return config_id
+                return cfg.get("id") or cfg.get("_id")
     return None
 
 
