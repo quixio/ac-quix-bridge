@@ -78,6 +78,11 @@ deployments:
         description: Config type for session data
         required: true
         value: session
+      - name: TEST_MANAGER_URL
+        inputType: FreeText
+        description: Test Manager backend URL (in-cluster service name)
+        required: false
+        value: http://test-manager-backend
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
     version: latest
