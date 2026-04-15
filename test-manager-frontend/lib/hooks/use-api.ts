@@ -50,7 +50,7 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
   api: T
 ) {
   return function useAuthenticatedApiHook() {
-    const { token, refreshToken, clearTokenAndPrompt, isEmbedded } = useQuixAuth()
+    const { token, refreshToken, clearTokenAndPrompt, isEmbedded, isLoading } = useQuixAuth()
 
     // Memoize the authenticated API object to prevent infinite re-renders
     // Only recreate when token or refreshToken changes
@@ -73,8 +73,11 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
           try {
             return await originalFn(...args, activeToken, refreshToken)
           } catch (error) {
-            // In standalone mode, if auth fails after retry, prompt for new token
+            // Only prompt for a new token in standalone mode AND after the auth
+            // context has finished initializing. This avoids a race during embedded
+            // mount where isEmbedded is still false from its initial useRef value.
             if (
+              !isLoading &&
               !isEmbedded &&
               error instanceof ApiError &&
               (error.status === 401 || error.status === 403)
@@ -87,7 +90,7 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
       }
 
       return apiObj
-    }, [token, refreshToken, clearTokenAndPrompt, isEmbedded])
+    }, [token, refreshToken, clearTokenAndPrompt, isEmbedded, isLoading])
 
     return authenticatedApi
   }

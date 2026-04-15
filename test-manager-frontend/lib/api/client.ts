@@ -49,8 +49,10 @@ function getAuthToken(providedToken?: string | null): string | null {
     return providedToken
   }
 
-  // Fallback: Check localStorage for standalone mode token
-  if (typeof window !== "undefined") {
+  // Only consult localStorage when running standalone (top-level tab).
+  // In embedded mode (iframe), the Portal supplies the token via postMessage
+  // and using a stale localStorage PAT would cause spurious 403s.
+  if (typeof window !== "undefined" && window === window.parent) {
     const stored = localStorage.getItem(STANDALONE_TOKEN_KEY)
     if (stored) {
       console.log("[API Client] Using token from localStorage (standalone mode)")
