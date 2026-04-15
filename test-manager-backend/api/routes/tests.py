@@ -400,11 +400,15 @@ def delete_test(
     if not (test := mongo.tests.find_one({"_id": test_id})):
         raise HTTPException(status_code=404, detail="Test not found")
 
-    # Delete config
+    # Delete only this test's version of the experiment config. Other tests on
+    # the same hostname share the same config_id (one config per target_key,
+    # one version per test), so deleting the whole config would wipe their history.
     try:
-        config_api.delete(f"/api/v1/configurations/{test['config_id']}").raise_for_status()
+        config_api.delete(
+            f"/api/v1/configurations/{test['config_id']}/versions/{test['config_version']}"
+        ).raise_for_status()
     except httpx.HTTPStatusError:
-        pass  # Config may already be deleted
+        pass  # Version may already be deleted
 
     mongo.logbook.delete_many({"test_id": test_id})
     mongo.tests.delete_one({"_id": test_id})
