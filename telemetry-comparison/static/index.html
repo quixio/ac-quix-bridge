@@ -16,7 +16,7 @@
       --green: #34d399;
       --orange: #f59e0b;
       --red: #f87171;
-      --topbar-height: clamp(260px, 35vh, 380px);
+      --topbar-height: clamp(380px, 45vh, 540px);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -339,19 +339,27 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+    /* Video panel body centers a 16:9 element within its column */
+    #topbar-video .topbar-body {
+      align-items: center;
+      justify-content: center;
+    }
     .video-player {
-      width: 100%;
-      flex: 1;
-      min-height: 0;
+      aspect-ratio: 16 / 9;
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
       background: #000;
       border-radius: 6px;
-      display: block;
       object-fit: contain;
     }
     .video-empty {
-      width: 100%;
-      flex: 1;
-      min-height: 0;
+      aspect-ratio: 16 / 9;
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
       background: #0b0d13;
       border: 1px dashed var(--border);
       border-radius: 8px;
