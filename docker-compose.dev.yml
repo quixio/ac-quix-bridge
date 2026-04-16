@@ -1,0 +1,93 @@
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:8.0
+    container_name: ac-quix-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: test-manager
+      MONGO_INITDB_ROOT_PASSWORD: local-dev-password
+      MONGO_INITDB_DATABASE: test_manager
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mock Dynamic Configuration Manager
+  config-api:
+    build:
+      context: ./mock_config_api
+    container_name: ac-quix-config-api
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Test Manager Backend (FastAPI)
+  backend:
+    build:
+      context: ./test-manager-backend
+      dockerfile: dockerfile
+    container_name: ac-quix-backend
+    ports:
+      - "8080:8080"
+    environment:
+      LOCAL_DEV_MODE: "true"
+      API_AUTH_ACTIVE: "false"
+      MONGO_USER: test-manager
+      MONGO_PASSWORD: local-dev-password
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_DATABASE: test_manager
+      CONFIG_API_URL: http://config-api:8001
+      Quix__Workspace__Id: local-dev-workspace
+      Quix__Sdk__Token: local-dev-token
+      Quix__BlobStorage__Connection__Json: '{"provider":"local","local_storage":{"DirectoryPath":"/app/storage"}}'
+    volumes:
+      - ./test-manager-backend:/app
+      - backend_storage:/app/storage
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      config-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Test Manager Frontend (Next.js)
+  frontend:
+    build:
+      context: ./test-manager-frontend
+      dockerfile: Dockerfile.dev
+    container_name: ac-quix-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      API_URL: http://backend:8080
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_LOCAL_DEV_MODE: "true"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./test-manager-frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_cache:/app/.next
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mongodb_data:
+  backend_storage:
+  frontend_node_modules:
+  frontend_cache:
