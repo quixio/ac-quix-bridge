@@ -1771,6 +1771,7 @@ async function loadVideoForLapIdx(idx) {
     }
     video.currentTime = 0;
     video.playbackRate = _currentVideoSpeed();
+    video.play().catch(() => {});
 
     if (videoState.frames) {
       const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
