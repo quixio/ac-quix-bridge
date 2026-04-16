@@ -1384,8 +1384,9 @@ function highlightVideoLapTrace(label) {
   });
 
   // 3) DOM: move selected trace SVG to front + highlight legend + annotations
+  // Only target chart plots (plotDivs), not the track map
   setTimeout(() => {
-    document.querySelectorAll('.js-plotly-plot').forEach(plot => {
+    plotDivs.forEach(plot => {
       // Bring selected trace to front
       const layer = plot.querySelector('.scatterlayer');
       if (layer) {
@@ -1457,8 +1458,8 @@ function clearTraceHighlight() {
     div.data.forEach((d, i) => { if (d.name === '_halo') haloIdxs.push(i); });
     for (let i = haloIdxs.length - 1; i >= 0; i--) Plotly.deleteTraces(div, haloIdxs[i]);
   });
-  // Reset legend styles
-  document.querySelectorAll('.js-plotly-plot').forEach(plot => {
+  // Reset legend styles — only chart plots, not track map
+  plotDivs.forEach(plot => {
     plot.querySelectorAll('.legend .traces').forEach(entry => {
       entry.querySelectorAll('text, path, line, rect').forEach(el => {
         el.style.fontWeight = '';
