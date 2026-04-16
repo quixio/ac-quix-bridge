@@ -222,7 +222,7 @@ def get_test_full(
     files_dict = test_doc.get("files", {})
     files = [File(**f) for f in files_dict.values()]
     logbook = [LogbookEntry(**e) for e in mongo.logbook.find({"test_id": test_id}).sort("timestamp", -1)]
-    links = [Link(**l) for l in test_doc.get("links", [])]
+    links = [Link(**link) for link in test_doc.get("links", [])]
 
     return TestFullData(test=test, files=files, logbook=logbook, links=links)
 
