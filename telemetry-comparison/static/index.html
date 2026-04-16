@@ -1771,6 +1771,14 @@ async function loadVideoForLapIdx(idx) {
     }
     video.currentTime = 0;
     video.playbackRate = _currentVideoSpeed();
+    // Compute timebase correction once MP4 metadata loads
+    video.addEventListener('loadedmetadata', function _onMeta() {
+      video.removeEventListener('loadedmetadata', _onMeta);
+      const mp4Dur = video.duration * 1000;
+      if (videoState.sidecarDurationMs > 0 && mp4Dur > 0) {
+        videoState.timeScale = videoState.sidecarDurationMs / mp4Dur;
+      }
+    }, { once: true });
     video.play().catch(() => {});
 
     if (videoState.frames) {
@@ -1804,6 +1812,9 @@ function buildSyncLookups(sync) {
   // either the first or last frame.
   videoState.frames = valid.slice().sort((a, b) => a.t_ms - b.t_ms);
   videoState.framesByNd = valid.slice().sort((a, b) => a.normPos - b.normPos);
+  // Sidecar duration for timebase correction (MP4 duration may differ)
+  videoState.sidecarDurationMs = valid.length ? valid[valid.length - 1].t_ms : 0;
+  videoState.timeScale = 1; // updated once video metadata loads
 }
 
 function _interp(arr, keyFn, valFn, target) {
@@ -1843,7 +1854,8 @@ function syncVideoFromMarker(nd, source) {
   }
   const t_ms = lookupTmsForNormPos(nd);
   if (t_ms == null) return;
-  const target = t_ms / 1000;
+  const scale = videoState.timeScale || 1;
+  const target = (t_ms / scale) / 1000;
   // Smaller-than-frame deltas would just churn the video element. At 30 fps
   // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
   // dragging.
@@ -1855,7 +1867,8 @@ function syncVideoFromMarker(nd, source) {
 // ---------- requestVideoFrameCallback path (frame-accurate) ----------------
 function _onVideoFrame(_now, metadata) {
   if (!videoState.isPlaying || !videoState.frames || !videoState.element) return;
-  const nd = lookupNormPosForTms(metadata.mediaTime * 1000);
+  const scale = videoState.timeScale || 1;
+  const nd = lookupNormPosForTms(metadata.mediaTime * 1000 * scale);
   if (nd != null) {
     updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
   }
