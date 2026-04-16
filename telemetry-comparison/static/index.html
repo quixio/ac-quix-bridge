@@ -621,7 +621,7 @@ function renderTrackMap() {
   //    Ensures the track never shows gaps regardless of severity transitions.
   traces.push({
     x: pts.map(p => p.x),
-    y: pts.map(p => p.z),
+    y: pts.map(p => -p.z),
     mode: 'lines', type: 'scatter',
     line: { color: '#3a3f55', width: 5, shape: 'spline', smoothing: 0.7 },
     hoverinfo: 'skip',
@@ -644,11 +644,11 @@ function renderTrackMap() {
       // Prepend the previous point so this segment starts where the last ended
       if (i > 0) {
         curRun.x.push(pts[i - 1].x);
-        curRun.z.push(pts[i - 1].z);
+        curRun.z.push(-pts[i - 1].z);
       }
     }
     curRun.x.push(p.x);
-    curRun.z.push(p.z);
+    curRun.z.push(-p.z);
   }
   if (curRun && curRun.x.length) runs[curRun.severity].push(curRun);
 
@@ -671,7 +671,7 @@ function renderTrackMap() {
   // 3) Corner number badges
   trackData.corners.forEach(c => {
     traces.push({
-      x: [c.mid_x], y: [c.mid_z],
+      x: [c.mid_x], y: [-c.mid_z],
       mode: 'markers+text', type: 'scatter',
       marker: { color: colors[c.severity], size: 16, line: { color: '#0f1117', width: 1.5 } },
       text: [c.label],
@@ -684,7 +684,7 @@ function renderTrackMap() {
 
   // 4) Start/Finish
   traces.push({
-    x: [pts[0].x], y: [pts[0].z],
+    x: [pts[0].x], y: [-pts[0].z],
     mode: 'markers', type: 'scatter',
     marker: { color: colors.start_finish, size: 11, symbol: 'square', line: { color: '#000', width: 1 } },
     hoverinfo: 'text',
@@ -696,7 +696,7 @@ function renderTrackMap() {
   // 5) Moving position dot — distinct color from the marker line so the
   //    cream-on-plot line and the red-on-track dot read as separate cues.
   traces.push({
-    x: [pts[0].x], y: [pts[0].z],
+    x: [pts[0].x], y: [-pts[0].z],
     mode: 'markers', type: 'scatter',
     marker: {
       color: colors.track_dot || colors.marker,
@@ -713,7 +713,7 @@ function renderTrackMap() {
   // Compute and cache base ranges for zoom math.
   // Use a square bounding box centered on the track so scaleanchor fits
   // the whole track regardless of container aspect.
-  const xs = pts.map(p => p.x), zs = pts.map(p => p.z);
+  const xs = pts.map(p => p.x), zs = pts.map(p => -p.z);
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   const zMin = Math.min(...zs), zMax = Math.max(...zs);
   const cx = (xMin + xMax) / 2;
@@ -790,7 +790,7 @@ function applyZoom() {
   // Zoomed in: center on the red dot
   const p = trackPointAtNorm(markerPosition);
   const cx = p ? p.x : (trackBaseRange.xMin + trackBaseRange.xMax) / 2;
-  const cz = p ? p.z : (trackBaseRange.zMin + trackBaseRange.zMax) / 2;
+  const cz = p ? -p.z : (trackBaseRange.zMin + trackBaseRange.zMax) / 2;
   const fullW = trackBaseRange.xMax - trackBaseRange.xMin;
   const fullH = trackBaseRange.zMax - trackBaseRange.zMin;
   const w = fullW / trackZoom;
@@ -826,7 +826,7 @@ function updateMarker(nd, forceTrack, source) {
     if (p && window._markerTraceIdx !== undefined) {
       const div = document.getElementById('track-map');
       if (div && div.data) {
-        Plotly.restyle(div, { x: [[p.x]], y: [[p.z]] }, [window._markerTraceIdx]);
+        Plotly.restyle(div, { x: [[p.x]], y: [[-p.z]] }, [window._markerTraceIdx]);
         // Re-center zoom window on the dot ONLY when zoomed in
         if (trackZoom > 1.02) applyZoom();
       }
