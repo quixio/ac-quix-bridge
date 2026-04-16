@@ -850,16 +850,19 @@ function updateMarker(nd, forceTrack, source) {
 
     // Stack annotations vertically in a fixed column next to the marker line
     // so they never overlap regardless of where the trace values fall.
+    // Selected (highlighted) annotation renders last so it draws on top.
     const ROW_H = 18; // px between stacked labels
+    let hlAnn = null;
     for (let k = 0; k < shown; k++) {
       const t = traces[k];
       const v = interpolateAt(t.x, t.y, nd);
       if (v === null || !isFinite(v)) continue;
       const valStr = (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
-      valueAnn.push({
+      const isHL = _highlightedLabel && t.label === _highlightedLabel;
+      const ann = {
         xref: 'x', yref: 'paper',
         x: nd, y: 1,
-        text: valStr,
+        text: isHL ? `<b>${valStr}</b>` : valStr,
         showarrow: false,
         xanchor: 'left',
         yanchor: 'top',
@@ -868,10 +871,13 @@ function updateMarker(nd, forceTrack, source) {
         font: { color: t.color, size: 11, family: 'monospace' },
         bgcolor: 'rgba(15,17,23,0.9)',
         bordercolor: t.color,
-        borderwidth: 1,
+        borderwidth: isHL ? 2 : 1,
         borderpad: 2,
-      });
+        opacity: 1,
+      };
+      if (isHL) { hlAnn = ann; } else { valueAnn.push(ann); }
     }
+    if (hlAnn) valueAnn.push(hlAnn);
 
     if (traces.length > MAX_TRACE_ANNOTATIONS) {
       valueAnn.push({
@@ -1351,6 +1357,122 @@ async function plot() {
 }
 
 // ---------------------------------------------------------------------------
+// Neon highlight for video-selected lap trace
+// ---------------------------------------------------------------------------
+
+let _highlightedLabel = null;
+
+function highlightVideoLapTrace(label) {
+  _highlightedLabel = label;
+  if (!plotDivs.length || !plotTraces.length) return;
+  const matchIdx = plotTraces[0]?.findIndex(t => t.label === label) ?? -1;
+  const selColor = plotTraces[0]?.[matchIdx]?.color;
+
+  plotDivs.forEach((div, pi) => {
+    const traces = plotTraces[pi];
+    if (!traces || !div.data) return;
+
+    // 1) Remove old halos FIRST so trace indices are clean
+    const haloIdxs = [];
+    div.data.forEach((d, i) => { if (d.name === '_halo') haloIdxs.push(i); });
+    for (let i = haloIdxs.length - 1; i >= 0; i--) Plotly.deleteTraces(div, haloIdxs[i]);
+
+    // 2) Width: selected bolder, ALL others back to normal
+    traces.forEach((t, i) => {
+      Plotly.restyle(div, { 'line.width': t.label === label ? 3 : 1.5, opacity: t.label === label ? 1 : 0.7 }, [i]);
+    });
+  });
+
+  // 3) DOM: move selected trace SVG to front + highlight legend + annotations
+  setTimeout(() => {
+    document.querySelectorAll('.js-plotly-plot').forEach(plot => {
+      // Bring selected trace to front
+      const layer = plot.querySelector('.scatterlayer');
+      if (layer) {
+        layer.querySelectorAll('.trace').forEach(tr => {
+          const path = tr.querySelector('path.js-line');
+          if (path) {
+            const w = parseFloat(path.getAttribute('stroke-width') || '1');
+            if (w >= 2.5) layer.appendChild(tr);
+          }
+        });
+      }
+
+      // Legend highlight
+      const legendEntries = plot.querySelectorAll('.legend .traces');
+      legendEntries.forEach((entry, i) => {
+        const isMatch = i === matchIdx;
+        entry.querySelectorAll('text').forEach(t => {
+          t.style.fontWeight = isMatch ? 'bold' : '';
+          t.style.opacity = isMatch ? '1' : '0.5';
+          t.style.filter = isMatch ? `drop-shadow(0 0 6px ${selColor || '#fff'})` : '';
+        });
+        entry.querySelectorAll('path, line, rect').forEach(l => {
+          l.style.opacity = isMatch ? '1' : '0.5';
+          l.style.filter = isMatch ? `drop-shadow(0 0 6px ${selColor || '#fff'})` : '';
+        });
+      });
+
+      // Annotation highlight handled via Plotly layout in updateMarker()
+      // Force a marker update to re-render annotations with highlight
+      updateMarker(markerPosition, false);
+    });
+  }, 150);
+}
+
+function _highlightAnnotations(plot, matchIdx, selColor) {
+  const annotations = plot.querySelectorAll('.annotation');
+  annotations.forEach((ann, i) => {
+    const bg = ann.querySelector('rect');
+    const txt = ann.querySelector('text');
+    if (!bg || !txt) return;
+    const isMatch = i === matchIdx;
+    if (isMatch) {
+      txt.style.fontWeight = 'bold';
+      txt.style.fontSize = '13px';
+      txt.style.opacity = '1';
+      bg.style.opacity = '1';
+      bg.style.filter = selColor ? `drop-shadow(0 0 4px ${selColor})` : '';
+    } else {
+      txt.style.fontWeight = '';
+      txt.style.fontSize = '';
+      txt.style.opacity = '0.5';
+      bg.style.opacity = '0.5';
+      bg.style.filter = '';
+    }
+  });
+}
+
+function clearTraceHighlight() {
+  _highlightedLabel = null;
+  if (!plotDivs.length || !plotTraces.length) return;
+  plotDivs.forEach((div, pi) => {
+    const traces = plotTraces[pi];
+    if (!traces || !div.data) return;
+    traces.forEach((t, i) => {
+      Plotly.restyle(div, { 'line.width': 1.5, opacity: 1 }, [i]);
+    });
+    // Remove halo traces
+    const haloIdxs = [];
+    div.data.forEach((d, i) => { if (d.name === '_halo') haloIdxs.push(i); });
+    for (let i = haloIdxs.length - 1; i >= 0; i--) Plotly.deleteTraces(div, haloIdxs[i]);
+  });
+  // Reset legend styles
+  document.querySelectorAll('.js-plotly-plot').forEach(plot => {
+    plot.querySelectorAll('.legend .traces').forEach(entry => {
+      entry.querySelectorAll('text, path, line, rect').forEach(el => {
+        el.style.fontWeight = '';
+        el.style.opacity = '';
+        el.style.filter = '';
+      });
+    });
+  });
+  // Refresh annotations without highlight
+  updateMarker(markerPosition, false);
+}
+
+
+// ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
 
@@ -1495,7 +1617,7 @@ function hideVideoElement(emptyMsg) {
     e.textContent = emptyMsg || 'No video for this lap';
     e.style.display = 'flex';
   }
-  if (c) c.style.display = 'none';
+  // Keep video controls visible so user can switch laps even when current has no video
   videoState.frames = null;
   videoState.framesByNd = null;
   videoState.isPlaying = false;
@@ -1536,6 +1658,8 @@ function populateVideoLapPicker(selections) {
     select.appendChild(new Option(text, String(i)));
   });
   select.disabled = false;
+  const vc = document.getElementById('video-controls');
+  if (vc) vc.style.display = 'flex';
 
   // Auto-load the first lap if nothing was loaded yet (preserve user's choice
   // across re-plots if the same lap is still in the list).
@@ -1558,6 +1682,7 @@ async function loadVideoForLapIdx(idx) {
   const sel = videoState.laps[idx];
   if (!sel) return;
   videoState.currentLapIdx = idx;
+  highlightVideoLapTrace(sel.label);
 
   const sid = sel.key.session_id;
   const lap = sel.lap;

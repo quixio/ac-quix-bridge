@@ -68,7 +68,17 @@
       "mcp__playwright__browser_snapshot",
       "mcp__playwright__browser_click",
       "mcp__playwright__browser_run_code",
-      "mcp__playwright__browser_console_messages"
+      "mcp__playwright__browser_console_messages",
+      "Bash(npx -y playwright screenshot --browser chromium http://localhost:8000 C:/repos/ac-quix-bridge/neon-test.png)",
+      "Bash(ffmpeg -y -f lavfi -i \"color=c=0x1a1d27:s=640x360:d=10,drawtext=text='LAP 1 - DEMO':fontcolor=white:fontsize=36:x=\\(w-text_w\\)/2:y=\\(h-text_h\\)/2\" -f lavfi -i \"sine=frequency=0:duration=10\" -c:v libx264 -pix_fmt yuv420p -g 4 -movflags +faststart C:/repos/ac-quix-bridge/telemetry-comparison/mock_data/lap1.mp4)",
+      "Bash(ffmpeg -y -f lavfi -i \"color=c=0x2d3047:s=640x360:d=10,drawtext=text='LAP 2 - DEMO':fontcolor=0x4f8ef7:fontsize=36:x=\\(w-text_w\\)/2:y=\\(h-text_h\\)/2\" -f lavfi -i \"sine=frequency=0:duration=10\" -c:v libx264 -pix_fmt yuv420p -g 4 -movflags +faststart C:/repos/ac-quix-bridge/telemetry-comparison/mock_data/lap2.mp4)",
+      "Bash(ffmpeg -y -f lavfi -i \"color=c=0x4f8ef7:s=640x360:d=10\" -f lavfi -i \"sine=frequency=0:duration=10\" -c:v libx264 -pix_fmt yuv420p -g 4 -movflags +faststart C:/repos/ac-quix-bridge/telemetry-comparison/mock_data/lap1.mp4)",
+      "Bash(ffmpeg -y -f lavfi -i \"color=c=0xf59e0b:s=640x360:d=10\" -f lavfi -i \"sine=frequency=0:duration=10\" -c:v libx264 -pix_fmt yuv420p -g 4 -movflags +faststart C:/repos/ac-quix-bridge/telemetry-comparison/mock_data/lap2.mp4)",
+      "Bash(npx -y playwright@latest screenshot --browser chromium http://localhost:8000 mock-initial.png)",
+      "Bash(pip install *)",
+      "Bash(awk '{print $5}')",
+      "mcp__playwright__browser_tabs",
+      "mcp__playwright__browser_select_option"
     ],
     "deny": [],
     "ask": []
