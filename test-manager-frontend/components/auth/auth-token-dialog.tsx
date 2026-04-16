@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 /**
  * Auth Token Dialog Component
@@ -13,47 +13,57 @@
  * - Helper text with instructions
  */
 
-import { useState } from "react"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { useQuixAuth } from "@/lib/contexts/quix-auth-context"
-import { AlertCircle } from "lucide-react"
+import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
+import { AlertCircle } from "lucide-react";
 
 export function AuthTokenDialog() {
-  const { showAuthDialog, authError, handleTokenSubmit } = useQuixAuth()
-  const [tokenInput, setTokenInput] = useState("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const { showAuthDialog, authError, handleTokenSubmit } = useQuixAuth();
+  const [tokenInput, setTokenInput] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
     if (!tokenInput.trim()) {
-      return
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
     try {
-      await handleTokenSubmit(tokenInput.trim())
+      await handleTokenSubmit(tokenInput.trim());
       // On success, dialog will close automatically and tokenInput will be cleared
-      setTokenInput("")
+      setTokenInput("");
     } catch (error) {
       // Error is handled by context and shown via authError
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
-    <Dialog open={showAuthDialog} onOpenChange={() => {/* Non-dismissible */}}>
-      <DialogContent
-        className="sm:max-w-[500px]"
-        hideCloseButton={true}
-      >
+    <Dialog
+      open={showAuthDialog}
+      onOpenChange={() => {
+        /* Non-dismissible */
+      }}
+    >
+      <DialogContent className="sm:max-w-[500px]" hideCloseButton={true}>
         <DialogHeader>
           <DialogTitle>Authentication Required</DialogTitle>
           <DialogDescription>
-            This app is running in standalone mode. Please enter your Quix Cloud authentication token to continue.
+            This app is running in standalone mode. Please enter your Quix Cloud
+            authentication token to continue.
           </DialogDescription>
         </DialogHeader>
 
@@ -74,7 +84,8 @@ export function AuthTokenDialog() {
                 required
               />
               <p className="text-xs text-muted-foreground">
-                Get your Personal Access Token from Quix Portal: Settings → Personal Access Tokens
+                Get your Personal Access Token from Quix Portal: Settings →
+                Personal Access Tokens
               </p>
             </div>
 
@@ -101,5 +112,5 @@ export function AuthTokenDialog() {
         </form>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

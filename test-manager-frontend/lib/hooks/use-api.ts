@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 /**
  * Authenticated API Client Hooks - MAIN ENTRY POINT
@@ -30,43 +30,48 @@
  * Always use these hooks instead.
  */
 
-import { useMemo } from "react"
-import { useQuixAuth } from "../contexts/quix-auth-context"
-import { ApiError } from "../api/client"
-import { devicesApi as devicesApiRaw } from "../api/devices"
-import { testsApi as testsApiRaw } from "../api/tests"
-import { logbookApi as logbookApiRaw } from "../api/logbook"
-import { adminApi as adminApiRaw } from "../api/admin"
-import { integrationsApi as integrationsApiRaw } from "../api/integrations"
-import { settingsApi as settingsApiRaw } from "../api/settings"
-import { portalApi as portalApiRaw } from "../api/portal"
-import { driversApi as driversApiRaw } from "../api/drivers"
-import { environmentsApi as environmentsApiRaw } from "../api/environments"
+import { useMemo } from "react";
+import { useQuixAuth } from "../contexts/quix-auth-context";
+import { ApiError } from "../api/client";
+import { devicesApi as devicesApiRaw } from "../api/devices";
+import { testsApi as testsApiRaw } from "../api/tests";
+import { logbookApi as logbookApiRaw } from "../api/logbook";
+import { adminApi as adminApiRaw } from "../api/admin";
+import { integrationsApi as integrationsApiRaw } from "../api/integrations";
+import { settingsApi as settingsApiRaw } from "../api/settings";
+import { portalApi as portalApiRaw } from "../api/portal";
+import { driversApi as driversApiRaw } from "../api/drivers";
+import { environmentsApi as environmentsApiRaw } from "../api/environments";
 
 /**
  * Generic helper to create an authenticated API client hook
  */
-function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any>>(
-  api: T
-) {
+function createAuthenticatedApi<
+  T extends Record<string, (...args: any[]) => any>,
+>(api: T) {
   return function useAuthenticatedApiHook() {
-    const { token, refreshToken, clearTokenAndPrompt, isEmbedded, isLoading } = useQuixAuth()
+    const { token, refreshToken, clearTokenAndPrompt, isEmbedded, isLoading } =
+      useQuixAuth();
 
     // Memoize the authenticated API object to prevent infinite re-renders
     // Only recreate when token or refreshToken changes
     const authenticatedApi = useMemo(() => {
       const apiObj = {} as {
-        [K in keyof T]: (...args: Parameters<T[K]> extends [...infer P, any, any] ? P : Parameters<T[K]>) => ReturnType<T[K]>
-      }
+        [K in keyof T]: (
+          ...args: Parameters<T[K]> extends [...infer P, any, any]
+            ? P
+            : Parameters<T[K]>
+        ) => ReturnType<T[K]>;
+      };
 
       for (const key in api) {
-        const originalFn = api[key]
+        const originalFn = api[key];
         // @ts-ignore - Dynamic function wrapping
         apiObj[key] = async (...args: any[]) => {
           // MainLayout gates rendering on auth-ready, so by the time any
           // component fires an API call, the token is already in place.
           try {
-            return await originalFn(...args, token, refreshToken)
+            return await originalFn(...args, token, refreshToken);
           } catch (error) {
             // Only prompt for a new token in standalone mode AND after the auth
             // context has finished initializing. This avoids a race during embedded
@@ -77,18 +82,18 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
               error instanceof ApiError &&
               (error.status === 401 || error.status === 403)
             ) {
-              clearTokenAndPrompt()
+              clearTokenAndPrompt();
             }
-            throw error
+            throw error;
           }
-        }
+        };
       }
 
-      return apiObj
-    }, [token, refreshToken, clearTokenAndPrompt, isEmbedded, isLoading])
+      return apiObj;
+    }, [token, refreshToken, clearTokenAndPrompt, isEmbedded, isLoading]);
 
-    return authenticatedApi
-  }
+    return authenticatedApi;
+  };
 }
 
 /**
@@ -101,7 +106,7 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
  * const device = await devicesApi.get("DEV-001")
  * ```
  */
-export const useDevicesApi = createAuthenticatedApi(devicesApiRaw)
+export const useDevicesApi = createAuthenticatedApi(devicesApiRaw);
 
 /**
  * Authenticated Tests API Hook
@@ -113,7 +118,7 @@ export const useDevicesApi = createAuthenticatedApi(devicesApiRaw)
  * const test = await testsApi.get("test-123")
  * ```
  */
-export const useTestsApi = createAuthenticatedApi(testsApiRaw)
+export const useTestsApi = createAuthenticatedApi(testsApiRaw);
 
 /**
  * Authenticated Logbook API Hook
@@ -125,7 +130,7 @@ export const useTestsApi = createAuthenticatedApi(testsApiRaw)
  * await logbookApi.create("test-123", { content: "Test started" })
  * ```
  */
-export const useLogbookApi = createAuthenticatedApi(logbookApiRaw)
+export const useLogbookApi = createAuthenticatedApi(logbookApiRaw);
 
 /**
  * Authenticated Admin API Hook
@@ -136,7 +141,7 @@ export const useLogbookApi = createAuthenticatedApi(logbookApiRaw)
  * await adminApi.seedTestData({ num_dacs: 10, num_tests: 20 })
  * ```
  */
-export const useAdminApi = createAuthenticatedApi(adminApiRaw)
+export const useAdminApi = createAuthenticatedApi(adminApiRaw);
 
 /**
  * Authenticated Integrations API Hook
@@ -147,7 +152,7 @@ export const useAdminApi = createAuthenticatedApi(adminApiRaw)
  * const { url } = await integrationsApi.getConfigManagerUrl("test-123")
  * ```
  */
-export const useIntegrationsApi = createAuthenticatedApi(integrationsApiRaw)
+export const useIntegrationsApi = createAuthenticatedApi(integrationsApiRaw);
 
 /**
  * Authenticated Settings API Hook
@@ -160,7 +165,7 @@ export const useIntegrationsApi = createAuthenticatedApi(integrationsApiRaw)
  * const topics = await settingsApi.getTopics()
  * ```
  */
-export const useSettingsApi = createAuthenticatedApi(settingsApiRaw)
+export const useSettingsApi = createAuthenticatedApi(settingsApiRaw);
 
 /**
  * Authenticated Portal API Hook
@@ -173,7 +178,7 @@ export const useSettingsApi = createAuthenticatedApi(settingsApiRaw)
  * const deployments = await portalApi.getDeployments(workspaceId)
  * ```
  */
-export const usePortalApi = createAuthenticatedApi(portalApiRaw)
+export const usePortalApi = createAuthenticatedApi(portalApiRaw);
 
 /**
  * Authenticated Drivers API Hook
@@ -185,9 +190,9 @@ export const usePortalApi = createAuthenticatedApi(portalApiRaw)
  * await driversApi.create({ name: "Daniel" })
  * ```
  */
-export const useDriversApi = createAuthenticatedApi(driversApiRaw)
+export const useDriversApi = createAuthenticatedApi(driversApiRaw);
 
 /**
  * Authenticated Environments API Hook
  */
-export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw)
+export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw);

@@ -1,9 +1,9 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,18 +13,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { useToast } from "@/lib/hooks/use-toast"
-import { useDateFormatter } from "@/lib/hooks/use-date-formatter"
-import { useLogbookApi } from "@/lib/hooks/use-api"
-import type { LogbookEntry } from "@/types/test"
-import { Clock, User, Pencil, Trash2, Activity } from "lucide-react"
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/lib/hooks/use-toast";
+import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
+import { useLogbookApi } from "@/lib/hooks/use-api";
+import type { LogbookEntry } from "@/types/test";
+import { Clock, User, Pencil, Trash2, Activity } from "lucide-react";
 
 interface LogbookEntryListProps {
-  testId: string
-  entries: LogbookEntry[]
-  onEntryDeleted: () => void
-  onEditEntry: (entry: LogbookEntry) => void
+  testId: string;
+  entries: LogbookEntry[];
+  onEntryDeleted: () => void;
+  onEditEntry: (entry: LogbookEntry) => void;
 }
 
 export function LogbookEntryList({
@@ -33,38 +33,39 @@ export function LogbookEntryList({
   onEntryDeleted,
   onEditEntry,
 }: LogbookEntryListProps) {
-  const logbookApi = useLogbookApi()
-  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null)
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const { toast } = useToast()
-  const { formatDateTime } = useDateFormatter()
+  const logbookApi = useLogbookApi();
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const { toast } = useToast();
+  const { formatDateTime } = useDateFormatter();
 
   const handleDeleteClick = (entryId: string) => {
-    setDeletingEntryId(entryId)
-    setShowDeleteDialog(true)
-  }
+    setDeletingEntryId(entryId);
+    setShowDeleteDialog(true);
+  };
 
   const handleDeleteConfirm = async () => {
-    if (!deletingEntryId) return
+    if (!deletingEntryId) return;
 
     try {
-      await logbookApi.delete(testId, deletingEntryId)
+      await logbookApi.delete(testId, deletingEntryId);
       toast({
         title: "Entry deleted",
         description: "The logbook entry has been deleted successfully.",
-      })
-      onEntryDeleted()
+      });
+      onEntryDeleted();
     } catch (error) {
       toast({
         title: "Error deleting entry",
-        description: error instanceof Error ? error.message : "An error occurred",
+        description:
+          error instanceof Error ? error.message : "An error occurred",
         variant: "destructive",
-      })
+      });
     } finally {
-      setShowDeleteDialog(false)
-      setDeletingEntryId(null)
+      setShowDeleteDialog(false);
+      setDeletingEntryId(null);
     }
-  }
+  };
 
   if (entries.length === 0) {
     return (
@@ -75,15 +76,16 @@ export function LogbookEntryList({
           Create your first entry to track test progress
         </p>
       </Card>
-    )
+    );
   }
 
   // Sort entries by timestamp (newest first)
   const sortedEntries = [...entries].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  )
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
 
-  const entryToDelete = entries.find((e) => e.id === deletingEntryId)
+  const entryToDelete = entries.find((e) => e.id === deletingEntryId);
 
   return (
     <>
@@ -130,8 +132,9 @@ export function LogbookEntryList({
                 </div>
 
                 {/* Content */}
-                <div className="text-sm whitespace-pre-wrap">{entry.content}</div>
-
+                <div className="text-sm whitespace-pre-wrap">
+                  {entry.content}
+                </div>
               </div>
             </Card>
           </div>
@@ -166,5 +169,5 @@ export function LogbookEntryList({
         </AlertDialogContent>
       </AlertDialog>
     </>
-  )
+  );
 }

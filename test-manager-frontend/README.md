@@ -122,15 +122,15 @@ See `docs/frontend/` for comprehensive guides (if available):
 
 ## Tech Stack
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| Next.js | 14.2.5 | React framework |
-| React | 18.3.1 | UI library |
-| TypeScript | 5.3.3 | Type safety |
-| Tailwind CSS | 3.4.0 | Styling |
-| shadcn/ui | Latest | Component library |
-| TanStack Table | 8.21.3 | Data tables |
-| Lucide React | 0.300.0 | Icons |
+| Technology     | Version | Purpose           |
+| -------------- | ------- | ----------------- |
+| Next.js        | 14.2.5  | React framework   |
+| React          | 18.3.1  | UI library        |
+| TypeScript     | 5.3.3   | Type safety       |
+| Tailwind CSS   | 3.4.0   | Styling           |
+| shadcn/ui      | Latest  | Component library |
+| TanStack Table | 8.21.3  | Data tables       |
+| Lucide React   | 0.300.0 | Icons             |
 
 ## E2E Testing with Playwright
 
@@ -169,6 +169,7 @@ docker compose exec frontend npm run test:e2e:report
 ### What's Tested
 
 **Tests Management (Phase 3):**
+
 - ✅ Tests list page display and navigation
 - ✅ Test filtering by status, campaign, Environment ID
 - ✅ Test search functionality
@@ -184,12 +185,12 @@ docker compose exec frontend npm run test:e2e:report
 Add new test files to the `e2e/` directory:
 
 ```typescript
-import { test, expect } from './fixtures';
+import { test, expect } from "./fixtures";
 
-test.describe('My Feature', () => {
-  test('should do something', async ({ page }) => {
-    await page.goto('/my-page');
-    await expect(page.getByRole('heading')).toBeVisible();
+test.describe("My Feature", () => {
+  test("should do something", async ({ page }) => {
+    await page.goto("/my-page");
+    await expect(page.getByRole("heading")).toBeVisible();
   });
 });
 ```

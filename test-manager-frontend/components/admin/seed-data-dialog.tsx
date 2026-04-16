@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -12,15 +12,15 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { useAdminApi } from "@/lib/hooks/use-api"
-import { useToast } from "@/lib/hooks/use-toast"
-import { Loader2 } from "lucide-react"
+} from "@/components/ui/dialog";
+import { useAdminApi } from "@/lib/hooks/use-api";
+import { useToast } from "@/lib/hooks/use-toast";
+import { Loader2 } from "lucide-react";
 
 interface SeedDataDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSuccess?: () => void
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
 }
 
 export function SeedDataDialog({
@@ -28,13 +28,13 @@ export function SeedDataDialog({
   onOpenChange,
   onSuccess,
 }: SeedDataDialogProps) {
-  const adminApi = useAdminApi()
-  const [numDevices, setNumDevices] = useState(10)
-  const [numTests, setNumTests] = useState(10)
-  const [includeJournals, setIncludeJournals] = useState(true)
-  const [includeLogbook, setIncludeLogbook] = useState(true)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const { toast } = useToast()
+  const adminApi = useAdminApi();
+  const [numDevices, setNumDevices] = useState(10);
+  const [numTests, setNumTests] = useState(10);
+  const [includeJournals, setIncludeJournals] = useState(true);
+  const [includeLogbook, setIncludeLogbook] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
 
   const handleSubmit = async () => {
     // Validate ranges
@@ -43,8 +43,8 @@ export function SeedDataDialog({
         title: "Invalid input",
         description: "Number of devices must be between 1 and 100",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
     if (numTests < 1 || numTests > 100) {
@@ -52,39 +52,40 @@ export function SeedDataDialog({
         title: "Invalid input",
         description: "Number of Tests must be between 1 and 100",
         variant: "destructive",
-      })
-      return
+      });
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
     try {
       const result = await adminApi.seedTestData({
         num_dacs: numDevices,
         num_tests: numTests,
         include_journals: includeJournals,
         include_logbook: includeLogbook,
-      })
+      });
 
       toast({
         title: "Test data generated successfully",
         description: `Created ${result.dacs_created} devices, ${result.tests_created} Tests, ${result.journal_entries_created} journal entries, and ${result.logbook_entries_created} logbook entries`,
-      })
+      });
 
       // Close dialog and notify parent
-      onOpenChange(false)
+      onOpenChange(false);
       if (onSuccess) {
-        onSuccess()
+        onSuccess();
       }
     } catch (error) {
       toast({
         title: "Error generating test data",
-        description: error instanceof Error ? error.message : "An error occurred",
+        description:
+          error instanceof Error ? error.message : "An error occurred",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -92,8 +93,8 @@ export function SeedDataDialog({
         <DialogHeader>
           <DialogTitle>Generate Test Data</DialogTitle>
           <DialogDescription>
-            Configure how much test data to generate. This will create devices, tests, and related
-            entries with realistic sample data.
+            Configure how much test data to generate. This will create devices,
+            tests, and related entries with realistic sample data.
           </DialogDescription>
         </DialogHeader>
 
@@ -135,7 +136,9 @@ export function SeedDataDialog({
             <Checkbox
               id="includeJournals"
               checked={includeJournals}
-              onCheckedChange={(checked) => setIncludeJournals(checked === true)}
+              onCheckedChange={(checked) =>
+                setIncludeJournals(checked === true)
+              }
             />
             <Label
               htmlFor="includeJournals"
@@ -176,5 +179,5 @@ export function SeedDataDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
-import { useMemo, useState, useEffect, memo } from "react"
-import { useRouter, usePathname } from "next/navigation"
+import { useMemo, useState, useEffect, memo } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import {
   useReactTable,
   getCoreRowModel,
@@ -10,7 +10,7 @@ import {
   ColumnDef,
   SortingState,
   OnChangeFn,
-} from "@tanstack/react-table"
+} from "@tanstack/react-table";
 import {
   Table,
   TableBody,
@@ -18,28 +18,32 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
-import { EnvironmentStatusBadge } from "./environment-status-badge"
-import type { Environment } from "@/types/environment"
-import { ArrowUpDown, Loader2 } from "lucide-react"
-import { useDateFormatter } from "@/lib/hooks/use-date-formatter"
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { EnvironmentStatusBadge } from "./environment-status-badge";
+import type { Environment } from "@/types/environment";
+import { ArrowUpDown, Loader2 } from "lucide-react";
+import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
 
 interface EnvironmentsTableNewProps {
-  data: Environment[]
-  sorting: SortingState
-  onSortingChange: OnChangeFn<SortingState>
+  data: Environment[];
+  sorting: SortingState;
+  onSortingChange: OnChangeFn<SortingState>;
 }
 
-export const EnvironmentsTableNew = memo(function EnvironmentsTableNew({ data, sorting, onSortingChange }: EnvironmentsTableNewProps) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const [navigatingId, setNavigatingId] = useState<string | null>(null)
-  const { formatDate } = useDateFormatter()
+export const EnvironmentsTableNew = memo(function EnvironmentsTableNew({
+  data,
+  sorting,
+  onSortingChange,
+}: EnvironmentsTableNewProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [navigatingId, setNavigatingId] = useState<string | null>(null);
+  const { formatDate } = useDateFormatter();
 
   useEffect(() => {
-    setNavigatingId(null)
-  }, [pathname])
+    setNavigatingId(null);
+  }, [pathname]);
 
   const columns = useMemo<ColumnDef<Environment>[]>(
     () => [
@@ -113,8 +117,8 @@ export const EnvironmentsTableNew = memo(function EnvironmentsTableNew({ data, s
         cell: ({ row }) => formatDate(row.getValue("created_at")),
       },
     ],
-    [formatDate]
-  )
+    [formatDate],
+  );
 
   const table = useReactTable({
     data,
@@ -123,7 +127,7 @@ export const EnvironmentsTableNew = memo(function EnvironmentsTableNew({ data, s
     onSortingChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-  })
+  });
 
   return (
     <div className="rounded-md border">
@@ -135,7 +139,10 @@ export const EnvironmentsTableNew = memo(function EnvironmentsTableNew({ data, s
                 <TableHead key={header.id}>
                   {header.isPlaceholder
                     ? null
-                    : flexRender(header.column.columnDef.header, header.getContext())}
+                    : flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
                 </TableHead>
               ))}
             </TableRow>
@@ -144,15 +151,15 @@ export const EnvironmentsTableNew = memo(function EnvironmentsTableNew({ data, s
         <TableBody>
           {table.getRowModel().rows?.length ? (
             table.getRowModel().rows.map((row) => {
-              const envId = row.original.environment_id
-              const isNavigating = navigatingId === envId
+              const envId = row.original.environment_id;
+              const isNavigating = navigatingId === envId;
               return (
                 <TableRow
                   key={row.id}
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => {
-                    setNavigatingId(envId)
-                    router.push(`/environments/${envId}`)
+                    setNavigatingId(envId);
+                    router.push(`/environments/${envId}`);
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
@@ -160,15 +167,21 @@ export const EnvironmentsTableNew = memo(function EnvironmentsTableNew({ data, s
                       {isNavigating && cell.column.id === "environment_id" ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
                         </div>
                       ) : (
-                        flexRender(cell.column.columnDef.cell, cell.getContext())
+                        flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )
                       )}
                     </TableCell>
                   ))}
                 </TableRow>
-              )
+              );
             })
           ) : (
             <TableRow>
@@ -180,5 +193,5 @@ export const EnvironmentsTableNew = memo(function EnvironmentsTableNew({ data, s
         </TableBody>
       </Table>
     </div>
-  )
-})
+  );
+});

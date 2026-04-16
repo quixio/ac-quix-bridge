@@ -1,12 +1,14 @@
-import { memo } from "react"
-import { Badge } from "@/components/ui/badge"
-import { DeviceStatus, DeviceStatusLabels } from "@/types/device"
+import { memo } from "react";
+import { Badge } from "@/components/ui/badge";
+import { DeviceStatus, DeviceStatusLabels } from "@/types/device";
 
 interface DeviceStatusBadgeProps {
-  status: DeviceStatus
+  status: DeviceStatus;
 }
 
-export const DeviceStatusBadge = memo(function DeviceStatusBadge({ status }: DeviceStatusBadgeProps) {
+export const DeviceStatusBadge = memo(function DeviceStatusBadge({
+  status,
+}: DeviceStatusBadgeProps) {
   const variants = {
     [DeviceStatus.ACTIVE]: {
       variant: "success" as const,
@@ -16,13 +18,13 @@ export const DeviceStatusBadge = memo(function DeviceStatusBadge({ status }: Dev
       variant: "destructive" as const,
       label: DeviceStatusLabels[DeviceStatus.INACTIVE],
     },
-  }
+  };
 
-  const config = variants[status] || variants[DeviceStatus.ACTIVE]
+  const config = variants[status] || variants[DeviceStatus.ACTIVE];
 
   return (
     <Badge variant={config.variant} className="font-medium">
       {config.label}
     </Badge>
-  )
-})
+  );
+});

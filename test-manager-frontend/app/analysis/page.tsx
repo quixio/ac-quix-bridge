@@ -1,11 +1,11 @@
-"use client"
+"use client";
 
-import { Suspense, useEffect, useState } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
-import { MainLayout } from "@/components/layout/main-layout"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Card, CardContent } from "@/components/ui/card"
-import { Loader2 } from "lucide-react"
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { MainLayout } from "@/components/layout/main-layout";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 import {
   GitCompare,
   MapPin,
@@ -13,8 +13,8 @@ import {
   BarChart3,
   Trophy,
   BookOpenText,
-} from "lucide-react"
-import { useTestsApi } from "@/lib/hooks/use-api"
+} from "lucide-react";
+import { useTestsApi } from "@/lib/hooks/use-api";
 
 const ANALYSIS_TABS = [
   {
@@ -65,7 +65,7 @@ const ANALYSIS_TABS = [
     description:
       "Interactive data science notebook for advanced analysis. Currently available via Analytics in the sidebar.",
   },
-] as const
+] as const;
 
 function PlaceholderTab({ tab }: { tab: (typeof ANALYSIS_TABS)[number] }) {
   return (
@@ -75,58 +75,60 @@ function PlaceholderTab({ tab }: { tab: (typeof ANALYSIS_TABS)[number] }) {
           <tab.icon className="h-8 w-8 text-primary" />
         </div>
         <h2 className="text-xl font-semibold mb-2">{tab.title}</h2>
-        <span className="text-sm text-muted-foreground">
-          Coming soon
-        </span>
+        <span className="text-sm text-muted-foreground">Coming soon</span>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function CompareTab({ testId }: { testId: string | null }) {
-  const testsApi = useTestsApi()
-  const [iframeUrl, setIframeUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const testsApi = useTestsApi();
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Telemetry Explorer base URL — resolved from env or fallback
-  const explorerBaseUrl = process.env.NEXT_PUBLIC_TELEMETRY_EXPLORER_URL || ""
+  const explorerBaseUrl = process.env.NEXT_PUBLIC_TELEMETRY_EXPLORER_URL || "";
 
   useEffect(() => {
     if (!testId) {
       // No test selected — show explorer without filters
       if (explorerBaseUrl) {
-        setIframeUrl(explorerBaseUrl)
+        setIframeUrl(explorerBaseUrl);
       }
-      return
+      return;
     }
 
     const fetchParams = async () => {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
       try {
-        const params = await testsApi.getTelemetryParams(testId)
-        const qs = new URLSearchParams()
-        if (params.environment) qs.set("environment", params.environment)
-        if (params.test_rig) qs.set("test_rig", params.test_rig)
-        if (params.experiment) qs.set("experiment", params.experiment)
-        if (params.driver) qs.set("driver", params.driver)
-        if (params.track) qs.set("track", params.track)
-        if (params.carModel) qs.set("carModel", params.carModel)
-        setIframeUrl(`${explorerBaseUrl}?${qs.toString()}`)
+        const params = await testsApi.getTelemetryParams(testId);
+        const qs = new URLSearchParams();
+        if (params.environment) qs.set("environment", params.environment);
+        if (params.test_rig) qs.set("test_rig", params.test_rig);
+        if (params.experiment) qs.set("experiment", params.experiment);
+        if (params.driver) qs.set("driver", params.driver);
+        if (params.track) qs.set("track", params.track);
+        if (params.carModel) qs.set("carModel", params.carModel);
+        setIframeUrl(`${explorerBaseUrl}?${qs.toString()}`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load telemetry parameters")
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load telemetry parameters",
+        );
         // Fall back to unfiltered explorer
         if (explorerBaseUrl) {
-          setIframeUrl(explorerBaseUrl)
+          setIframeUrl(explorerBaseUrl);
         }
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchParams()
-  }, [testId])
+    fetchParams();
+  }, [testId]);
 
   if (!explorerBaseUrl) {
     return (
@@ -137,11 +139,12 @@ function CompareTab({ testId }: { testId: string | null }) {
           </div>
           <h2 className="text-xl font-semibold mb-2">Telemetry Explorer</h2>
           <p className="text-sm text-muted-foreground max-w-md mb-4">
-            Telemetry Explorer URL is not configured. Set the NEXT_PUBLIC_TELEMETRY_EXPLORER_URL environment variable.
+            Telemetry Explorer URL is not configured. Set the
+            NEXT_PUBLIC_TELEMETRY_EXPLORER_URL environment variable.
           </p>
         </CardContent>
       </Card>
-    )
+    );
   }
 
   if (loading) {
@@ -152,7 +155,7 @@ function CompareTab({ testId }: { testId: string | null }) {
           <p className="text-muted-foreground">Loading Telemetry Explorer...</p>
         </div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -160,10 +163,10 @@ function CompareTab({ testId }: { testId: string | null }) {
       <div className="mb-2 text-sm text-amber-500">
         Note: Could not load test parameters — showing unfiltered view.
       </div>
-    )
+    );
   }
 
-  if (!iframeUrl) return null
+  if (!iframeUrl) return null;
 
   return (
     <iframe
@@ -172,21 +175,21 @@ function CompareTab({ testId }: { testId: string | null }) {
       style={{ height: "calc(100vh - 12rem)" }}
       title="Telemetry Explorer"
     />
-  )
+  );
 }
 
 function AnalysisPageContent() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const activeTab = searchParams.get("tab") || "compare"
-  const testId = searchParams.get("test_id") || null
+  const activeTab = searchParams.get("tab") || "compare";
+  const testId = searchParams.get("test_id") || null;
 
   const handleTabChange = (value: string) => {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set("tab", value)
-    router.push(`/analysis?${params.toString()}`)
-  }
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", value);
+    router.push(`/analysis?${params.toString()}`);
+  };
 
   return (
     <MainLayout noPadding>
@@ -223,7 +226,7 @@ function AnalysisPageContent() {
         </Tabs>
       </div>
     </MainLayout>
-  )
+  );
 }
 
 export default function AnalysisPage() {
@@ -239,5 +242,5 @@ export default function AnalysisPage() {
     >
       <AnalysisPageContent />
     </Suspense>
-  )
+  );
 }

@@ -3,12 +3,12 @@
  * Provides methods to interact with /tests/{test_id}/logbook endpoints
  */
 
-import { apiGet, apiPost, apiPut, apiDelete } from "./client"
+import { apiGet, apiPost, apiPut, apiDelete } from "./client";
 import type {
   LogbookEntry,
   LogbookEntryCreate,
   LogbookEntryUpdate,
-} from "@/types/test"
+} from "@/types/test";
 
 export const logbookApi = {
   /**
@@ -17,9 +17,14 @@ export const logbookApi = {
   list: (
     testId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<LogbookEntry[]>(`/tests/${testId}/logbook`, undefined, token, refreshToken)
+    return apiGet<LogbookEntry[]>(
+      `/tests/${testId}/logbook`,
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -29,9 +34,14 @@ export const logbookApi = {
     testId: string,
     entryId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<LogbookEntry>(`/tests/${testId}/logbook/${entryId}`, undefined, token, refreshToken)
+    return apiGet<LogbookEntry>(
+      `/tests/${testId}/logbook/${entryId}`,
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -41,9 +51,14 @@ export const logbookApi = {
     testId: string,
     data: LogbookEntryCreate,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPost<LogbookEntry>(`/tests/${testId}/logbook`, data, token, refreshToken)
+    return apiPost<LogbookEntry>(
+      `/tests/${testId}/logbook`,
+      data,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -54,9 +69,14 @@ export const logbookApi = {
     entryId: string,
     data: LogbookEntryUpdate,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPut<LogbookEntry>(`/tests/${testId}/logbook/${entryId}`, data, token, refreshToken)
+    return apiPut<LogbookEntry>(
+      `/tests/${testId}/logbook/${entryId}`,
+      data,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -66,8 +86,12 @@ export const logbookApi = {
     testId: string,
     entryId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiDelete(`/tests/${testId}/logbook/${entryId}`, token, refreshToken)
+    return apiDelete(
+      `/tests/${testId}/logbook/${entryId}`,
+      token,
+      refreshToken,
+    );
   },
-}
+};

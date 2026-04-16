@@ -1,30 +1,38 @@
-"use client"
+"use client";
 
-import { Suspense, useState, useCallback } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
-import { SortingState } from "@tanstack/react-table"
-import { MainLayout } from "@/components/layout/main-layout"
-import { NavigationButton } from "@/components/ui/navigation-button"
-import { EnvironmentsTableNew } from "@/components/environments/environments-table-new"
-import { EmptyState } from "@/components/shared/empty-state"
-import { Pagination } from "@/components/shared/pagination"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useEnvironments } from "@/lib/hooks/use-environments"
-import { EnvironmentStatus } from "@/types/environment"
-import { Plus, Server } from "lucide-react"
+import { Suspense, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { SortingState } from "@tanstack/react-table";
+import { MainLayout } from "@/components/layout/main-layout";
+import { NavigationButton } from "@/components/ui/navigation-button";
+import { EnvironmentsTableNew } from "@/components/environments/environments-table-new";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Pagination } from "@/components/shared/pagination";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useEnvironments } from "@/lib/hooks/use-environments";
+import { EnvironmentStatus } from "@/types/environment";
+import { Plus, Server } from "lucide-react";
 
 function EnvironmentsPageContent() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [filters, setFilters] = useState({
     status: searchParams.get("status") as EnvironmentStatus | undefined,
     q: searchParams.get("q") || undefined,
-  })
+  });
 
-  const [sorting, setSorting] = useState<SortingState>([{ id: "environment_id", desc: false }])
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "environment_id", desc: false },
+  ]);
 
   const {
     environments,
@@ -37,28 +45,40 @@ function EnvironmentsPageContent() {
     totalPages,
     goToPage,
     changePageSize,
-  } = useEnvironments(filters)
+  } = useEnvironments(filters);
 
-  const updateFilters = useCallback((newFilters: typeof filters) => {
-    setFilters(newFilters)
-    const params = new URLSearchParams()
-    Object.entries(newFilters).forEach(([k, v]) => {
-      if (v) params.set(k, v)
-    })
-    router.push(`/environments?${params.toString()}`)
-  }, [router])
+  const updateFilters = useCallback(
+    (newFilters: typeof filters) => {
+      setFilters(newFilters);
+      const params = new URLSearchParams();
+      Object.entries(newFilters).forEach(([k, v]) => {
+        if (v) params.set(k, v);
+      });
+      router.push(`/environments?${params.toString()}`);
+    },
+    [router],
+  );
 
-  const handleSearch = useCallback((value: string) => {
-    updateFilters({ ...filters, q: value || undefined })
-  }, [filters, updateFilters])
+  const handleSearch = useCallback(
+    (value: string) => {
+      updateFilters({ ...filters, q: value || undefined });
+    },
+    [filters, updateFilters],
+  );
 
-  const handleStatusChange = useCallback((value: string) => {
-    updateFilters({ ...filters, status: value === "all" ? undefined : value as EnvironmentStatus })
-  }, [filters, updateFilters])
+  const handleStatusChange = useCallback(
+    (value: string) => {
+      updateFilters({
+        ...filters,
+        status: value === "all" ? undefined : (value as EnvironmentStatus),
+      });
+    },
+    [filters, updateFilters],
+  );
 
   const handleClearFilters = useCallback(() => {
-    updateFilters({ status: undefined, q: undefined })
-  }, [updateFilters])
+    updateFilters({ status: undefined, q: undefined });
+  }, [updateFilters]);
 
   return (
     <MainLayout>
@@ -84,14 +104,19 @@ function EnvironmentsPageContent() {
               onChange={(e) => handleSearch(e.target.value)}
               className="max-w-sm"
             />
-            <Select value={filters.status || "all"} onValueChange={handleStatusChange}>
+            <Select
+              value={filters.status || "all"}
+              onValueChange={handleStatusChange}
+            >
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="All Statuses" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
                 <SelectItem value={EnvironmentStatus.ACTIVE}>Active</SelectItem>
-                <SelectItem value={EnvironmentStatus.INACTIVE}>Inactive</SelectItem>
+                <SelectItem value={EnvironmentStatus.INACTIVE}>
+                  Inactive
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -112,18 +137,27 @@ function EnvironmentsPageContent() {
             <EmptyState
               icon={<Server className="h-12 w-12" />}
               title="No environments found"
-              description={filters.q || filters.status
-                ? "No environments match your filters. Try adjusting your criteria."
-                : "Get started by adding your first environment."
+              description={
+                filters.q || filters.status
+                  ? "No environments match your filters. Try adjusting your criteria."
+                  : "Get started by adding your first environment."
               }
-              action={filters.q || filters.status
-                ? { label: "Clear Filters", onClick: handleClearFilters }
-                : { label: "Add Environment", onClick: () => router.push("/environments/add") }
+              action={
+                filters.q || filters.status
+                  ? { label: "Clear Filters", onClick: handleClearFilters }
+                  : {
+                      label: "Add Environment",
+                      onClick: () => router.push("/environments/add"),
+                    }
               }
             />
           ) : (
             <>
-              <EnvironmentsTableNew data={environments} sorting={sorting} onSortingChange={setSorting} />
+              <EnvironmentsTableNew
+                data={environments}
+                sorting={sorting}
+                onSortingChange={setSorting}
+              />
               {total > 0 && (
                 <Pagination
                   page={page}
@@ -139,13 +173,19 @@ function EnvironmentsPageContent() {
         </div>
       </div>
     </MainLayout>
-  )
+  );
 }
 
 export default function EnvironmentsPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen"><div>Loading...</div></div>}>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-screen">
+          <div>Loading...</div>
+        </div>
+      }
+    >
       <EnvironmentsPageContent />
     </Suspense>
-  )
+  );
 }

@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
-import { useMemo, useState, useEffect, memo } from "react"
-import { useRouter, usePathname } from "next/navigation"
+import { useMemo, useState, useEffect, memo } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import {
   useReactTable,
   getCoreRowModel,
@@ -10,7 +10,7 @@ import {
   ColumnDef,
   SortingState,
   OnChangeFn,
-} from "@tanstack/react-table"
+} from "@tanstack/react-table";
 import {
   Table,
   TableBody,
@@ -18,30 +18,34 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { DeviceStatusBadge } from "./device-status-badge"
-import type { Device } from "@/types/device"
-import { DeviceCategoryLabels } from "@/types/device"
-import { ArrowUpDown, Loader2 } from "lucide-react"
-import { useDateFormatter } from "@/lib/hooks/use-date-formatter"
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { DeviceStatusBadge } from "./device-status-badge";
+import type { Device } from "@/types/device";
+import { DeviceCategoryLabels } from "@/types/device";
+import { ArrowUpDown, Loader2 } from "lucide-react";
+import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
 
 interface DevicesTableProps {
-  data: Device[]
-  sorting: SortingState
-  onSortingChange: OnChangeFn<SortingState>
+  data: Device[];
+  sorting: SortingState;
+  onSortingChange: OnChangeFn<SortingState>;
 }
 
-export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortingChange }: DevicesTableProps) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const [navigatingId, setNavigatingId] = useState<string | null>(null)
-  const { formatDate } = useDateFormatter()
+export const DevicesTable = memo(function DevicesTable({
+  data,
+  sorting,
+  onSortingChange,
+}: DevicesTableProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [navigatingId, setNavigatingId] = useState<string | null>(null);
+  const { formatDate } = useDateFormatter();
 
   useEffect(() => {
-    setNavigatingId(null)
-  }, [pathname])
+    setNavigatingId(null);
+  }, [pathname]);
 
   const columns = useMemo<ColumnDef<Device>[]>(
     () => [
@@ -77,7 +81,9 @@ export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortin
         ),
         cell: ({ row }) => (
           <Badge variant="outline">
-            {DeviceCategoryLabels[row.getValue("category") as keyof typeof DeviceCategoryLabels] || row.getValue("category")}
+            {DeviceCategoryLabels[
+              row.getValue("category") as keyof typeof DeviceCategoryLabels
+            ] || row.getValue("category")}
           </Badge>
         ),
       },
@@ -99,7 +105,9 @@ export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortin
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }) => <DeviceStatusBadge status={row.getValue("status")} />,
+        cell: ({ row }) => (
+          <DeviceStatusBadge status={row.getValue("status")} />
+        ),
       },
       {
         accessorKey: "created_at",
@@ -117,8 +125,8 @@ export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortin
         cell: ({ row }) => formatDate(row.getValue("created_at")),
       },
     ],
-    [formatDate]
-  )
+    [formatDate],
+  );
 
   const table = useReactTable({
     data,
@@ -127,7 +135,7 @@ export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortin
     onSortingChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-  })
+  });
 
   return (
     <div className="rounded-md border">
@@ -139,7 +147,10 @@ export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortin
                 <TableHead key={header.id}>
                   {header.isPlaceholder
                     ? null
-                    : flexRender(header.column.columnDef.header, header.getContext())}
+                    : flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
                 </TableHead>
               ))}
             </TableRow>
@@ -148,15 +159,15 @@ export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortin
         <TableBody>
           {table.getRowModel().rows?.length ? (
             table.getRowModel().rows.map((row) => {
-              const deviceId = row.original.device_id
-              const isNavigating = navigatingId === deviceId
+              const deviceId = row.original.device_id;
+              const isNavigating = navigatingId === deviceId;
               return (
                 <TableRow
                   key={row.id}
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => {
-                    setNavigatingId(deviceId)
-                    router.push(`/devices/${deviceId}`)
+                    setNavigatingId(deviceId);
+                    router.push(`/devices/${deviceId}`);
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
@@ -164,15 +175,21 @@ export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortin
                       {isNavigating && cell.column.id === "device_id" ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
                         </div>
                       ) : (
-                        flexRender(cell.column.columnDef.cell, cell.getContext())
+                        flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )
                       )}
                     </TableCell>
                   ))}
                 </TableRow>
-              )
+              );
             })
           ) : (
             <TableRow>
@@ -184,5 +201,5 @@ export const DevicesTable = memo(function DevicesTable({ data, sorting, onSortin
         </TableBody>
       </Table>
     </div>
-  )
-})
+  );
+});

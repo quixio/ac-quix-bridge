@@ -3,47 +3,47 @@
  * Provides methods to interact with /settings endpoints
  */
 
-import { apiGet, apiPut } from "./client"
-import type { DeploymentReference, TopicReference } from "../types/portal"
+import { apiGet, apiPut } from "./client";
+import type { DeploymentReference, TopicReference } from "../types/portal";
 
 export interface IntegrationSettings {
   // Configurations - Dynamic Configuration Manager
-  config_api_deployment: DeploymentReference | null
-  config_api_is_fallback: boolean
+  config_api_deployment: DeploymentReference | null;
+  config_api_is_fallback: boolean;
 
   // Measurements - Query UI deployment and topic
-  measurements_deployment: DeploymentReference | null
-  measurements_topic: TopicReference | null
-  measurements_is_fallback: boolean
+  measurements_deployment: DeploymentReference | null;
+  measurements_topic: TopicReference | null;
+  measurements_is_fallback: boolean;
 
   // Analytics - Marimo/Analytics deployment
-  analytics_deployment: DeploymentReference | null
-  analytics_is_fallback: boolean
+  analytics_deployment: DeploymentReference | null;
+  analytics_is_fallback: boolean;
 
-  updated_at: string | null
-  updated_by: string | null
+  updated_at: string | null;
+  updated_by: string | null;
 }
 
 export interface IntegrationSettingsUpdate {
   // Config API
-  config_api_deployment?: DeploymentReference | null
+  config_api_deployment?: DeploymentReference | null;
 
   // Measurements
-  measurements_deployment?: DeploymentReference | null
-  measurements_topic?: TopicReference | null
+  measurements_deployment?: DeploymentReference | null;
+  measurements_topic?: TopicReference | null;
 
   // Analytics
-  analytics_deployment?: DeploymentReference | null
+  analytics_deployment?: DeploymentReference | null;
 }
 
 export interface Topic {
-  id: string
-  name: string
+  id: string;
+  name: string;
 }
 
 export interface Workspace {
-  id: string
-  name: string
+  id: string;
+  name: string;
 }
 
 export const settingsApi = {
@@ -52,9 +52,14 @@ export const settingsApi = {
    */
   getSettings: (
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<IntegrationSettings>("/settings", undefined, token, refreshToken)
+    return apiGet<IntegrationSettings>(
+      "/settings",
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -63,9 +68,9 @@ export const settingsApi = {
   updateSettings: (
     data: IntegrationSettingsUpdate,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPut<IntegrationSettings>("/settings", data, token, refreshToken)
+    return apiPut<IntegrationSettings>("/settings", data, token, refreshToken);
   },
 
   /**
@@ -73,9 +78,9 @@ export const settingsApi = {
    */
   getTopics: (
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<Topic[]>("/settings/topics", undefined, token, refreshToken)
+    return apiGet<Topic[]>("/settings/topics", undefined, token, refreshToken);
   },
 
   /**
@@ -83,8 +88,13 @@ export const settingsApi = {
    */
   getWorkspaces: (
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<Workspace[]>("/settings/workspaces", undefined, token, refreshToken)
+    return apiGet<Workspace[]>(
+      "/settings/workspaces",
+      undefined,
+      token,
+      refreshToken,
+    );
   },
-}
+};

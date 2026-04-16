@@ -1,15 +1,15 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ReactNode } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ReactNode } from "react";
 
 interface DataItem {
-  label: string
-  value: ReactNode
+  label: string;
+  value: ReactNode;
 }
 
 interface DataCardProps {
-  title: string
-  items: DataItem[]
-  headerAction?: ReactNode
+  title: string;
+  items: DataItem[];
+  headerAction?: ReactNode;
 }
 
 export function DataCard({ title, items, headerAction }: DataCardProps) {
@@ -34,5 +34,5 @@ export function DataCard({ title, items, headerAction }: DataCardProps) {
         </dl>
       </CardContent>
     </Card>
-  )
+  );
 }

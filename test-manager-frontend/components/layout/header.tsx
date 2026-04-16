@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { Search, User, X, ArrowLeft, LogOut } from "lucide-react"
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { useQuixAuth } from "@/lib/contexts/quix-auth-context"
+import Link from "next/link";
+import { Search, User, X, ArrowLeft, LogOut } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,20 +12,21 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ui/dropdown-menu";
 
 interface BackLink {
-  href: string
-  label: string
+  href: string;
+  label: string;
 }
 
 interface HeaderProps {
-  backLink?: BackLink
+  backLink?: BackLink;
 }
 
 export function Header({ backLink }: HeaderProps) {
-  const [searchInput, setSearchInput] = useState("")
-  const { userName, userEmail, isEmbedded, clearTokenAndPrompt } = useQuixAuth()
+  const [searchInput, setSearchInput] = useState("");
+  const { userName, userEmail, isEmbedded, clearTokenAndPrompt } =
+    useQuixAuth();
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center border-b bg-background px-6">
@@ -79,14 +80,18 @@ export function Header({ backLink }: HeaderProps) {
                   <User className="h-4 w-4" />
                 </div>
                 <div className="text-left">
-                  <div className="text-sm font-medium">{userName || "User"}</div>
+                  <div className="text-sm font-medium">
+                    {userName || "User"}
+                  </div>
                 </div>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{userName || "User"}</p>
+                  <p className="text-sm font-medium leading-none">
+                    {userName || "User"}
+                  </p>
                   {userEmail && (
                     <p className="text-xs leading-none text-muted-foreground">
                       {userEmail}
@@ -111,5 +116,5 @@ export function Header({ backLink }: HeaderProps) {
         </div>
       </div>
     </header>
-  )
+  );
 }

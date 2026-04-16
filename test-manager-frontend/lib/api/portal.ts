@@ -3,13 +3,13 @@
  * Provides methods to interact with /portal endpoints
  */
 
-import { apiGet } from "./client"
+import { apiGet } from "./client";
 import type {
   Repository,
   WorkspaceDetails,
   DeploymentInfo,
   TopicInfo,
-} from "../types/portal"
+} from "../types/portal";
 
 export const portalApi = {
   /**
@@ -17,9 +17,14 @@ export const portalApi = {
    */
   getRepositories: (
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<Repository[]>("/portal/repositories", undefined, token, refreshToken)
+    return apiGet<Repository[]>(
+      "/portal/repositories",
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -29,10 +34,15 @@ export const portalApi = {
   getWorkspaces: (
     repositoryId?: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    const params = repositoryId ? { repository_id: repositoryId } : undefined
-    return apiGet<WorkspaceDetails[]>("/portal/workspaces", params, token, refreshToken)
+    const params = repositoryId ? { repository_id: repositoryId } : undefined;
+    return apiGet<WorkspaceDetails[]>(
+      "/portal/workspaces",
+      params,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -42,14 +52,14 @@ export const portalApi = {
   getDeployments: (
     workspaceId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
     return apiGet<DeploymentInfo[]>(
       `/portal/workspaces/${workspaceId}/deployments`,
       undefined,
       token,
-      refreshToken
-    )
+      refreshToken,
+    );
   },
 
   /**
@@ -57,14 +67,14 @@ export const portalApi = {
    */
   getCurrentWorkspaceId: (
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
     return apiGet<{ workspace_id: string }>(
       "/portal/current-workspace-id",
       undefined,
       token,
-      refreshToken
-    )
+      refreshToken,
+    );
   },
 
   /**
@@ -74,14 +84,14 @@ export const portalApi = {
   getFallbackDeployment: (
     deploymentName: string = "Dynamic Configuration Manager",
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
     return apiGet<DeploymentInfo | null>(
       "/portal/fallback-deployment",
       { deployment_name: deploymentName },
       token,
-      refreshToken
-    )
+      refreshToken,
+    );
   },
 
   /**
@@ -91,13 +101,13 @@ export const portalApi = {
   getTopics: (
     workspaceId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
     return apiGet<TopicInfo[]>(
       `/portal/workspaces/${workspaceId}/topics`,
       undefined,
       token,
-      refreshToken
-    )
+      refreshToken,
+    );
   },
-}
+};

@@ -1,12 +1,17 @@
-import { memo } from "react"
-import { Badge } from "@/components/ui/badge"
-import { EnvironmentStatus, EnvironmentStatusLabels } from "@/types/environment"
+import { memo } from "react";
+import { Badge } from "@/components/ui/badge";
+import {
+  EnvironmentStatus,
+  EnvironmentStatusLabels,
+} from "@/types/environment";
 
 interface EnvironmentStatusBadgeProps {
-  status: EnvironmentStatus
+  status: EnvironmentStatus;
 }
 
-export const EnvironmentStatusBadge = memo(function EnvironmentStatusBadge({ status }: EnvironmentStatusBadgeProps) {
+export const EnvironmentStatusBadge = memo(function EnvironmentStatusBadge({
+  status,
+}: EnvironmentStatusBadgeProps) {
   const variants = {
     [EnvironmentStatus.ACTIVE]: {
       variant: "success" as const,
@@ -16,13 +21,13 @@ export const EnvironmentStatusBadge = memo(function EnvironmentStatusBadge({ sta
       variant: "destructive" as const,
       label: EnvironmentStatusLabels[EnvironmentStatus.INACTIVE],
     },
-  }
+  };
 
-  const config = variants[status] || variants[EnvironmentStatus.ACTIVE]
+  const config = variants[status] || variants[EnvironmentStatus.ACTIVE];
 
   return (
     <Badge variant={config.variant} className="font-medium">
       {config.label}
     </Badge>
-  )
-})
+  );
+});

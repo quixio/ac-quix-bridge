@@ -1,70 +1,74 @@
-"use client"
+"use client";
 
-import { useEffect, useState, useRef } from "react"
-import { useSearchParams } from "next/navigation"
-import { MainLayout } from "@/components/layout/main-layout"
-import { useIntegrationsApi } from "@/lib/hooks/use-api"
-import { useQuixAuth } from "@/lib/contexts/quix-auth-context"
-import { Loader2, Sliders } from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "next/navigation";
+import { MainLayout } from "@/components/layout/main-layout";
+import { useIntegrationsApi } from "@/lib/hooks/use-api";
+import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
+import { Loader2, Sliders } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function ConfigManagerPage() {
-  const searchParams = useSearchParams()
-  const configId = searchParams.get("config_id")
-  const configVersion = searchParams.get("config_version")
+  const searchParams = useSearchParams();
+  const configId = searchParams.get("config_id");
+  const configVersion = searchParams.get("config_version");
 
-  const integrationsApi = useIntegrationsApi()
-  const { token } = useQuixAuth()
+  const integrationsApi = useIntegrationsApi();
+  const { token } = useQuixAuth();
 
-  const [iframeUrl, setIframeUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Check if running in local development mode
-  const isLocalDev = process.env.NEXT_PUBLIC_LOCAL_DEV_MODE === 'true'
+  const isLocalDev = process.env.NEXT_PUBLIC_LOCAL_DEV_MODE === "true";
 
   // Fetch the Config Manager frontend URL
   useEffect(() => {
     // Skip fetching in local dev mode
     if (isLocalDev) {
-      setLoading(false)
-      return
+      setLoading(false);
+      return;
     }
 
     const fetchUrl = async () => {
       try {
-        setLoading(true)
-        setError(null)
+        setLoading(true);
+        setError(null);
 
-        const version = configVersion ? parseInt(configVersion, 10) : null
+        const version = configVersion ? parseInt(configVersion, 10) : null;
         const { url } = await integrationsApi.getConfigManagerFrontendUrl(
           configId,
-          version
-        )
+          version,
+        );
 
-        setIframeUrl(url)
+        setIframeUrl(url);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load Configuration Manager")
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load Configuration Manager",
+        );
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchUrl()
-  }, [configId, configVersion, isLocalDev])
+    fetchUrl();
+  }, [configId, configVersion, isLocalDev]);
 
   // Set up postMessage listener for authentication
   useEffect(() => {
-    if (!iframeUrl || !token) return
+    if (!iframeUrl || !token) return;
 
     const handleMessage = (event: MessageEvent) => {
       // Validate origin for security (in production, use specific origin)
       // For now, we accept messages from any origin since Config Manager URL is dynamic
 
       if (event.data?.type === "REQUEST_AUTH_TOKEN") {
-        console.log("Config Manager requested auth token")
+        console.log("Config Manager requested auth token");
 
         // Send the auth token back to the iframe
         if (iframeRef.current?.contentWindow) {
@@ -73,19 +77,19 @@ export default function ConfigManagerPage() {
               type: "AUTH_TOKEN",
               token: token,
             },
-            "*" // In production, use specific origin for security
-          )
-          console.log("Auth token sent to Config Manager")
+            "*", // In production, use specific origin for security
+          );
+          console.log("Auth token sent to Config Manager");
         }
       }
-    }
+    };
 
-    window.addEventListener("message", handleMessage)
+    window.addEventListener("message", handleMessage);
 
     return () => {
-      window.removeEventListener("message", handleMessage)
-    }
-  }, [iframeUrl, token])
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [iframeUrl, token]);
 
   if (loading) {
     return (
@@ -93,11 +97,13 @@ export default function ConfigManagerPage() {
         <div className="flex items-center justify-center min-h-[500px]">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-muted-foreground">Loading Configuration Manager...</p>
+            <p className="text-muted-foreground">
+              Loading Configuration Manager...
+            </p>
           </div>
         </div>
       </MainLayout>
-    )
+    );
   }
 
   // Show informative message in local development mode
@@ -112,16 +118,21 @@ export default function ConfigManagerPage() {
             <div className="space-y-2">
               <h2 className="text-2xl font-semibold">Configuration Manager</h2>
               <p className="text-muted-foreground">
-                The Dynamic Configuration Manager UI is only available when running in Quix Cloud.
+                The Dynamic Configuration Manager UI is only available when
+                running in Quix Cloud.
               </p>
             </div>
             <p className="text-sm text-muted-foreground">
-              In local development, a mock Configuration API is running at <code className="bg-muted px-1.5 py-0.5 rounded text-xs">localhost:8001</code> for backend integration testing.
+              In local development, a mock Configuration API is running at{" "}
+              <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
+                localhost:8001
+              </code>{" "}
+              for backend integration testing.
             </p>
           </div>
         </div>
       </MainLayout>
-    )
+    );
   }
 
   if (error) {
@@ -132,7 +143,7 @@ export default function ConfigManagerPage() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       </MainLayout>
-    )
+    );
   }
 
   if (!iframeUrl) {
@@ -145,7 +156,7 @@ export default function ConfigManagerPage() {
           </AlertDescription>
         </Alert>
       </MainLayout>
-    )
+    );
   }
 
   return (
@@ -158,5 +169,5 @@ export default function ConfigManagerPage() {
         allow="clipboard-read; clipboard-write"
       />
     </MainLayout>
-  )
+  );
 }

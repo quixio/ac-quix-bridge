@@ -1,37 +1,45 @@
-"use client"
+"use client";
 
-import { Suspense, useState, useCallback } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
-import nextDynamic from "next/dynamic"
-import { SortingState } from "@tanstack/react-table"
-import { MainLayout } from "@/components/layout/main-layout"
-import { NavigationButton } from "@/components/ui/navigation-button"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Suspense, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import nextDynamic from "next/dynamic";
+import { SortingState } from "@tanstack/react-table";
+import { MainLayout } from "@/components/layout/main-layout";
+import { NavigationButton } from "@/components/ui/navigation-button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Lazy load TestsTable to reduce initial bundle size
-const TestsTable = nextDynamic(() => import("@/components/tests/tests-table").then((mod) => ({ default: mod.TestsTable })), {
-  loading: () => <Skeleton className="h-96 w-full" />,
-  ssr: false,
-})
-import { TestsFilters } from "@/components/tests/tests-filters"
-import { EmptyState } from "@/components/shared/empty-state"
-import { Pagination } from "@/components/shared/pagination"
-import { useTests } from "@/lib/hooks/use-tests"
-import { Plus, FileText } from "lucide-react"
+const TestsTable = nextDynamic(
+  () =>
+    import("@/components/tests/tests-table").then((mod) => ({
+      default: mod.TestsTable,
+    })),
+  {
+    loading: () => <Skeleton className="h-96 w-full" />,
+    ssr: false,
+  },
+);
+import { TestsFilters } from "@/components/tests/tests-filters";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Pagination } from "@/components/shared/pagination";
+import { useTests } from "@/lib/hooks/use-tests";
+import { Plus, FileText } from "lucide-react";
 
 // Inner component that uses useSearchParams
 function TestsPageContent() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Get filters from URL
   const [filters, setFilters] = useState({
     environment_id: searchParams.get("environment_id") || undefined,
     experiment_id: searchParams.get("experiment_id") || undefined,
     q: searchParams.get("q") || undefined,
-  })
+  });
 
-  const [sorting, setSorting] = useState<SortingState>([{ id: "test_id", desc: false }])
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "test_id", desc: false },
+  ]);
 
   // Fetch tests with filters and pagination
   const {
@@ -45,29 +53,32 @@ function TestsPageContent() {
     totalPages,
     goToPage,
     changePageSize,
-  } = useTests(filters)
+  } = useTests(filters);
 
   // Handle filter changes and update URL
-  const handleFilterChange = useCallback((key: string, value: string | undefined) => {
-    const newFilters = { ...filters, [key]: value }
-    setFilters(newFilters)
+  const handleFilterChange = useCallback(
+    (key: string, value: string | undefined) => {
+      const newFilters = { ...filters, [key]: value };
+      setFilters(newFilters);
 
-    // Update URL params
-    const params = new URLSearchParams()
-    Object.entries(newFilters).forEach(([k, v]) => {
-      if (v) params.set(k, v)
-    })
-    router.push(`/tests?${params.toString()}`)
-  }, [filters, router])
+      // Update URL params
+      const params = new URLSearchParams();
+      Object.entries(newFilters).forEach(([k, v]) => {
+        if (v) params.set(k, v);
+      });
+      router.push(`/tests?${params.toString()}`);
+    },
+    [filters, router],
+  );
 
   const handleClearFilters = useCallback(() => {
     setFilters({
       environment_id: undefined,
       experiment_id: undefined,
       q: undefined,
-    })
-    router.push("/tests")
-  }, [router])
+    });
+    router.push("/tests");
+  }, [router]);
 
   return (
     <MainLayout>
@@ -126,7 +137,11 @@ function TestsPageContent() {
             />
           ) : (
             <>
-              <TestsTable data={tests} sorting={sorting} onSortingChange={setSorting} />
+              <TestsTable
+                data={tests}
+                sorting={sorting}
+                onSortingChange={setSorting}
+              />
               {total > 0 && (
                 <Pagination
                   page={page}
@@ -142,13 +157,19 @@ function TestsPageContent() {
         </div>
       </div>
     </MainLayout>
-  )
+  );
 }
 
 export default function TestsPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen"><div>Loading...</div></div>}>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-screen">
+          <div>Loading...</div>
+        </div>
+      }
+    >
       <TestsPageContent />
     </Suspense>
-  )
+  );
 }

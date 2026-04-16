@@ -11,7 +11,7 @@
  * ```
  */
 
-import { apiGet, apiPost, apiPut, apiDelete } from "./client"
+import { apiGet, apiPost, apiPut, apiDelete } from "./client";
 import type {
   Test,
   TestCreate,
@@ -24,8 +24,8 @@ import type {
   Link,
   LinkCreate,
   File,
-} from "@/types/test"
-import type { PaginatedResponse } from "@/types/pagination"
+} from "@/types/test";
+import type { PaginatedResponse } from "@/types/pagination";
 
 export const testsApi = {
   /**
@@ -34,9 +34,14 @@ export const testsApi = {
   list: (
     params?: TestQuery,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<PaginatedResponse<Test>>("/tests", params, token, refreshToken)
+    return apiGet<PaginatedResponse<Test>>(
+      "/tests",
+      params,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -45,9 +50,9 @@ export const testsApi = {
   get: (
     testId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<Test>(`/tests/${testId}`, undefined, token, refreshToken)
+    return apiGet<Test>(`/tests/${testId}`, undefined, token, refreshToken);
   },
 
   /**
@@ -57,9 +62,14 @@ export const testsApi = {
   getFull: (
     testId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<TestFullData>(`/tests/${testId}/full`, undefined, token, refreshToken)
+    return apiGet<TestFullData>(
+      `/tests/${testId}/full`,
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -68,9 +78,9 @@ export const testsApi = {
   create: (
     data: TestCreate,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPost<Test>("/tests", data, token, refreshToken)
+    return apiPost<Test>("/tests", data, token, refreshToken);
   },
 
   /**
@@ -80,9 +90,9 @@ export const testsApi = {
     testId: string,
     data: TestUpdate,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPut<Test>(`/tests/${testId}`, data, token, refreshToken)
+    return apiPut<Test>(`/tests/${testId}`, data, token, refreshToken);
   },
 
   /**
@@ -91,9 +101,9 @@ export const testsApi = {
   delete: (
     testId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiDelete(`/tests/${testId}`, token, refreshToken)
+    return apiDelete(`/tests/${testId}`, token, refreshToken);
   },
 
   /**
@@ -102,16 +112,16 @@ export const testsApi = {
   getTelemetryParams: (
     testId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
     return apiGet<{
-      environment: string
-      test_rig: string
-      experiment: string
-      driver: string
-      track: string
-      carModel: string
-    }>(`/tests/${testId}/telemetry-params`, undefined, token, refreshToken)
+      environment: string;
+      test_rig: string;
+      experiment: string;
+      driver: string;
+      track: string;
+      carModel: string;
+    }>(`/tests/${testId}/telemetry-params`, undefined, token, refreshToken);
   },
 
   // ========================================================================
@@ -124,9 +134,14 @@ export const testsApi = {
   listLogbook: (
     testId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<LogbookEntry[]>(`/tests/${testId}/logbook`, undefined, token, refreshToken)
+    return apiGet<LogbookEntry[]>(
+      `/tests/${testId}/logbook`,
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -136,9 +151,14 @@ export const testsApi = {
     testId: string,
     entryId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<LogbookEntry>(`/tests/${testId}/logbook/${entryId}`, undefined, token, refreshToken)
+    return apiGet<LogbookEntry>(
+      `/tests/${testId}/logbook/${entryId}`,
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -148,9 +168,14 @@ export const testsApi = {
     testId: string,
     data: LogbookEntryCreate,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPost<LogbookEntry>(`/tests/${testId}/logbook`, data, token, refreshToken)
+    return apiPost<LogbookEntry>(
+      `/tests/${testId}/logbook`,
+      data,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -161,9 +186,14 @@ export const testsApi = {
     entryId: string,
     data: LogbookEntryUpdate,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPut<LogbookEntry>(`/tests/${testId}/logbook/${entryId}`, data, token, refreshToken)
+    return apiPut<LogbookEntry>(
+      `/tests/${testId}/logbook/${entryId}`,
+      data,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -173,9 +203,13 @@ export const testsApi = {
     testId: string,
     entryId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiDelete(`/tests/${testId}/logbook/${entryId}`, token, refreshToken)
+    return apiDelete(
+      `/tests/${testId}/logbook/${entryId}`,
+      token,
+      refreshToken,
+    );
   },
 
   // ========================================================================
@@ -189,9 +223,9 @@ export const testsApi = {
     testId: string,
     data: LinkCreate,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPost<Link>(`/tests/${testId}/links`, data, token, refreshToken)
+    return apiPost<Link>(`/tests/${testId}/links`, data, token, refreshToken);
   },
 
   /**
@@ -201,9 +235,9 @@ export const testsApi = {
     testId: string,
     linkId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiDelete(`/tests/${testId}/links/${linkId}`, token, refreshToken)
+    return apiDelete(`/tests/${testId}/links/${linkId}`, token, refreshToken);
   },
 
   // ========================================================================
@@ -216,9 +250,14 @@ export const testsApi = {
   listFiles: (
     testId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<File[]>(`/tests/${testId}/files`, undefined, token, refreshToken)
+    return apiGet<File[]>(
+      `/tests/${testId}/files`,
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -228,11 +267,16 @@ export const testsApi = {
     testId: string,
     filename: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPost<{ url: string }>(`/tests/${testId}/files/presigned-upload`, {
-      filename,
-    }, token, refreshToken)
+    return apiPost<{ url: string }>(
+      `/tests/${testId}/files/presigned-upload`,
+      {
+        filename,
+      },
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -243,11 +287,16 @@ export const testsApi = {
     fileId: string,
     filename: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiPost<File>(`/tests/${testId}/files/${fileId}`, {
-      filename,
-    }, token, refreshToken)
+    return apiPost<File>(
+      `/tests/${testId}/files/${fileId}`,
+      {
+        filename,
+      },
+      token,
+      refreshToken,
+    );
   },
 
   /**
@@ -257,9 +306,9 @@ export const testsApi = {
     testId: string,
     fileId: string,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiDelete(`/tests/${testId}/files/${fileId}`, token, refreshToken)
+    return apiDelete(`/tests/${testId}/files/${fileId}`, token, refreshToken);
   },
 
   // ========================================================================
@@ -268,22 +317,37 @@ export const testsApi = {
 
   getExperimentIds: (
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<string[]>("/tests/filters/experiment-ids", undefined, token, refreshToken)
+    return apiGet<string[]>(
+      "/tests/filters/experiment-ids",
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   getEnvironmentIds: (
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<string[]>("/tests/filters/environment-ids", undefined, token, refreshToken)
+    return apiGet<string[]>(
+      "/tests/filters/environment-ids",
+      undefined,
+      token,
+      refreshToken,
+    );
   },
 
   getDrivers: (
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    return apiGet<string[]>("/tests/filters/drivers", undefined, token, refreshToken)
+    return apiGet<string[]>(
+      "/tests/filters/drivers",
+      undefined,
+      token,
+      refreshToken,
+    );
   },
-}
+};
