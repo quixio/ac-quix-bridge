@@ -73,8 +73,49 @@
     .topbar-panel.collapsed { align-self: start; }
 
     /* ---- Track map in top-bar context ---- */
-    .map-panel .topbar-body { padding: 6px 8px 8px; gap: 0.3rem; }
+    .map-panel .topbar-body {
+      padding: 6px 8px 8px;
+      gap: 0.3rem;
+      display: flex;
+      flex-direction: column;
+    }
+    .map-body-row {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      gap: 6px;
+    }
     #track-map { flex: 1; min-height: 0; }
+    #corner-legend {
+      width: 160px;
+      flex-shrink: 0;
+      overflow-y: auto;
+      border-left: 1px solid var(--border);
+      padding: 4px 6px;
+      font-size: 10px;
+      line-height: 1.6;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .legend-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .legend-label {
+      font-family: monospace;
+      color: var(--text);
+    }
+    .legend-name {
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
     /* ======= READOUT STRIP (sticky just below top bar) ======= */
     .readout-strip {
@@ -460,7 +501,10 @@
               title="Collapse">-</button>
     </div>
     <div class="topbar-body">
-      <div id="track-map"></div>
+      <div class="map-body-row">
+        <div id="track-map"></div>
+        <div id="corner-legend"></div>
+      </div>
       <div class="zoom-row">
         <span>Zoom</span>
         <input type="range" id="track-zoom" min="1" max="8" step="0.1" value="1"
@@ -682,7 +726,7 @@ function renderTrackMap() {
       text: [c.label],
       textfont: { color: '#fff', size: 9, family: 'monospace' },
       hoverinfo: 'text',
-      hovertext: `${c.label} — ${c.severity} (R=${c.min_radius_m}m)`,
+      hovertext: `${c.label}: ${c.name || ''} (R=${c.min_radius_m}m)`,
       showlegend: false,
     });
   });
@@ -770,6 +814,19 @@ function renderTrackMap() {
   });
   updateMarker(markerPosition, true);
   applyZoom();
+
+  // Populate corner legend table
+  const legendEl = document.getElementById('corner-legend');
+  if (legendEl && trackData.corners.length) {
+    legendEl.innerHTML = trackData.corners.map(c => {
+      const dotColor = colors[c.severity] || '#888';
+      return `<div class="legend-row">` +
+        `<span class="legend-dot" style="background:${dotColor}"></span>` +
+        `<span class="legend-label">${c.label}</span>` +
+        `<span class="legend-name">${c.name || ''}</span>` +
+        `</div>`;
+    }).join('');
+  }
 }
 
 function onZoomChange(v) {
@@ -783,7 +840,6 @@ function applyZoom() {
   const div = document.getElementById('track-map');
   if (!div || !div.layout) return;
 
-  // At zoom=1, always show the full track bounding box (don't follow dot)
   if (trackZoom <= 1.02) {
     Plotly.relayout(div, {
       'xaxis.range': [trackBaseRange.xMin, trackBaseRange.xMax],
@@ -792,7 +848,6 @@ function applyZoom() {
     return;
   }
 
-  // Zoomed in: center on the red dot
   const p = trackPointAtNorm(markerPosition);
   const cx = p ? p.x : (trackBaseRange.xMin + trackBaseRange.xMax) / 2;
   const cz = p ? -p.z : (trackBaseRange.zMin + trackBaseRange.zMax) / 2;

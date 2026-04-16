@@ -78,6 +78,29 @@ Everything else for Topic 2 is ready to spec without more input from Ludvik.
 
 ---
 
+---
+
+## Topic 4 — Corner name labels on zoomed track map
+
+**Status:** Prototyped and removed — needs better collision avoidance before shipping.
+
+**What:** When the track map is zoomed in (>=2x), show corner names as text labels near the corner badges. Labels should be placed outside the track boundary using the track tangent + corner direction to compute placement.
+
+**Problems found during prototype:**
+- Labels overlap the track in dense corner clusters (Mercedes Arena section has 4+ corners close together)
+- Collision avoidance by filtering close corners loses information
+- Pixel vs data-space offset doesn't scale well across zoom levels
+
+**Ideas to explore:**
+- Place labels in data coordinates offset along the outside-normal of each corner
+- Use a force-directed layout to push overlapping labels apart
+- Only show label for the corner nearest to the current marker position
+- Show label on hover of the corner badge instead of always-on
+
+**Relevant code reference:** The prototype used `_buildCornerAnnotations()` in `renderTrackMap()` returning Plotly annotations with `axref/ayref: 'x'/'y'` for data-space positioning. Removed 2026-04-16.
+
+---
+
 ## Meta
 
 10. Combine Topics 1 + 3 into one "track-config-format" spec? Keep Topic 2 separate as "video-sync-gaps"? (Maestro's recommendation.)
