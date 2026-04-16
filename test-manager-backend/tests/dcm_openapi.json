@@ -1,0 +1,1363 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Quix Configuration API service",
+    "contact": {
+      "name": "Quix Engineering",
+      "url": "https://quix.io/",
+      "email": "devs@quix.io"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/configurations": {
+      "post": {
+        "summary": "Create Configuration",
+        "operationId": "create_configuration_api_v1_configurations_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConfigurationInsert" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Search Configuration",
+        "operationId": "search_configuration_api_v1_configurations_get",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Type of the configuration",
+              "title": "Type"
+            },
+            "description": "Type of the configuration"
+          },
+          {
+            "name": "type__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$match", "$regex"],
+              "type": "string",
+              "description": "Operator for the type",
+              "default": "$match",
+              "title": "Type  Operator"
+            },
+            "description": "Operator for the type"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Category of the configuration",
+              "title": "Category"
+            },
+            "description": "Category of the configuration"
+          },
+          {
+            "name": "category__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$match", "$regex"],
+              "type": "string",
+              "description": "Operator for the category",
+              "default": "$match",
+              "title": "Category  Operator"
+            },
+            "description": "Operator for the category"
+          },
+          {
+            "name": "target_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Target key of the configuration",
+              "title": "Target Key"
+            },
+            "description": "Target key of the configuration"
+          },
+          {
+            "name": "target_key__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$match", "$regex"],
+              "type": "string",
+              "description": "Operator for the target_key",
+              "default": "$match",
+              "title": "Target Key  Operator"
+            },
+            "description": "Operator for the target_key"
+          },
+          {
+            "name": "content_filename",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Content filename of the configuration",
+              "title": "Content Filename"
+            },
+            "description": "Content filename of the configuration"
+          },
+          {
+            "name": "content_filename__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$match", "$regex"],
+              "type": "string",
+              "description": "Operator for the content_filename",
+              "default": "$match",
+              "title": "Content Filename  Operator"
+            },
+            "description": "Operator for the content_filename"
+          },
+          {
+            "name": "valid_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                { "const": "null", "type": "string" },
+                { "type": "string", "format": "date-time" }
+              ],
+              "description": "Valid from date of the configuration",
+              "title": "Valid From"
+            },
+            "description": "Valid from date of the configuration"
+          },
+          {
+            "name": "valid_from__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$lt", "$lte", "$gt", "$gte"],
+              "type": "string",
+              "description": "Operator for the valid_from date",
+              "default": "$gte",
+              "title": "Valid From  Operator"
+            },
+            "description": "Operator for the valid_from date"
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Version of the configuration",
+              "title": "Version"
+            },
+            "description": "Version of the configuration"
+          },
+          {
+            "name": "version__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$eq", "$neq", "$lt", "$lte", "$gt", "$gte"],
+              "type": "string",
+              "description": "Operator for the version",
+              "default": "$eq",
+              "title": "Version  Operator"
+            },
+            "description": "Operator for the version"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 0,
+              "description": "Limit the number of configurations returned (0 for default)",
+              "default": 0,
+              "title": "Limit"
+            },
+            "description": "Limit the number of configurations returned (0 for default)"
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "created_at",
+                "version",
+                "valid_from",
+                "type",
+                "category",
+                "target_key"
+              ],
+              "type": "string",
+              "description": "Field to sort the configurations by",
+              "default": "created_at",
+              "title": "Sort"
+            },
+            "description": "Field to sort the configurations by"
+          },
+          {
+            "name": "sort_direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["asc", "desc"],
+              "type": "string",
+              "description": "Sort direction",
+              "default": "desc",
+              "title": "Sort Direction"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Offset for pagination",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Offset for pagination"
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "ID of the configuration",
+              "title": "Id"
+            },
+            "description": "ID of the configuration"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponse_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/configurations/{id}": {
+      "get": {
+        "summary": "Get Configuration",
+        "operationId": "get_configuration_api_v1_configurations__id__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Configuration",
+        "operationId": "update_configuration_api_v1_configurations__id__put",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConfigurationUpdate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Configuration",
+        "operationId": "delete_configuration_api_v1_configurations__id__delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponse_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/configurations/{id}/content": {
+      "get": {
+        "summary": "Get Configuration Content",
+        "operationId": "get_configuration_content_api_v1_configurations__id__content_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Configuration Content Api V1 Configurations  Id  Content Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metadata": {
+      "get": {
+        "summary": "Get Metadata",
+        "operationId": "get_metadata_api_v1_metadata_get",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Type of the configuration",
+              "title": "Type"
+            },
+            "description": "Type of the configuration"
+          },
+          {
+            "name": "type__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$match", "$regex"],
+              "type": "string",
+              "description": "Operator for the type",
+              "default": "$match",
+              "title": "Type  Operator"
+            },
+            "description": "Operator for the type"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Category of the configuration",
+              "title": "Category"
+            },
+            "description": "Category of the configuration"
+          },
+          {
+            "name": "category__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$match", "$regex"],
+              "type": "string",
+              "description": "Operator for the category",
+              "default": "$match",
+              "title": "Category  Operator"
+            },
+            "description": "Operator for the category"
+          },
+          {
+            "name": "target_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Target key of the configuration",
+              "title": "Target Key"
+            },
+            "description": "Target key of the configuration"
+          },
+          {
+            "name": "target_key__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$match", "$regex"],
+              "type": "string",
+              "description": "Operator for the target_key",
+              "default": "$match",
+              "title": "Target Key  Operator"
+            },
+            "description": "Operator for the target_key"
+          },
+          {
+            "name": "content_filename",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Content filename of the configuration",
+              "title": "Content Filename"
+            },
+            "description": "Content filename of the configuration"
+          },
+          {
+            "name": "content_filename__operator",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["$match", "$regex"],
+              "type": "string",
+              "description": "Operator for the content_filename",
+              "default": "$match",
+              "title": "Content Filename  Operator"
+            },
+            "description": "Operator for the content_filename"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response_SearchMetadata_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/configurations/{id}/versions": {
+      "get": {
+        "summary": "Get Configuration Versions",
+        "operationId": "get_configuration_versions_api_v1_configurations__id__versions_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/SearchQuery" }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponse_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/configurations/{id}/versions/{version}": {
+      "get": {
+        "summary": "Get Configuration Version",
+        "operationId": "get_configuration_version_api_v1_configurations__id__versions__version__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Configuration Version",
+        "operationId": "delete_configuration_version_api_v1_configurations__id__versions__version__delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Configuration Version",
+        "operationId": "update_configuration_version_api_v1_configurations__id__versions__version__put",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConfigurationUpdate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/configurations/{id}/versions/{version}/content": {
+      "get": {
+        "summary": "Get Configuration Version Content",
+        "operationId": "get_configuration_version_content_api_v1_configurations__id__versions__version__content_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Configuration Version Content Api V1 Configurations  Id  Versions  Version  Content Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Set Configuration Version Content",
+        "operationId": "set_configuration_version_content_api_v1_configurations__id__versions__version__content_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Id" }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "content_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["json", "binary"],
+              "type": "string",
+              "default": "binary",
+              "title": "Content Type"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_set_configuration_version_content_api_v1_configurations__id__versions__version__content_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response_ConfigurationResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_set_configuration_version_content_api_v1_configurations__id__versions__version__content_post": {
+        "properties": {
+          "file": { "type": "string", "format": "binary", "title": "File" }
+        },
+        "type": "object",
+        "required": ["file"],
+        "title": "Body_set_configuration_version_content_api_v1_configurations__id__versions__version__content_post"
+      },
+      "ConfigurationInsert": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/ConfigurationMetadataInsert"
+          },
+          "content": {
+            "anyOf": [
+              { "additionalProperties": true, "type": "object" },
+              { "type": "null" }
+            ],
+            "title": "Content"
+          },
+          "replace": {
+            "anyOf": [{ "type": "boolean" }, { "type": "null" }],
+            "title": "Replace",
+            "description": "If true, create a new version when config already exists",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["metadata"],
+        "title": "ConfigurationInsert",
+        "description": "Model for inserting a new configuration."
+      },
+      "ConfigurationMetadata": {
+        "properties": {
+          "valid_from": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Valid From"
+          },
+          "category": { "type": "string", "title": "Category", "default": "" },
+          "type": { "type": "string", "title": "Type" },
+          "target_key": { "type": "string", "title": "Target Key" },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version",
+            "default": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "sha256sum": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Sha256Sum"
+          },
+          "content_type": {
+            "anyOf": [
+              { "type": "string", "enum": ["json", "binary"] },
+              { "type": "null" }
+            ],
+            "title": "Content Type"
+          },
+          "content_filename": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Content Filename"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["type", "target_key", "created_at"],
+        "title": "ConfigurationMetadata",
+        "description": "Model for configuration metadata with versioning and checksum."
+      },
+      "ConfigurationMetadataInsert": {
+        "properties": {
+          "valid_from": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Valid From"
+          },
+          "category": { "type": "string", "title": "Category", "default": "" },
+          "type": { "type": "string", "title": "Type" },
+          "target_key": { "type": "string", "title": "Target Key" }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["type", "target_key"],
+        "title": "ConfigurationMetadataInsert",
+        "description": "Model for inserting configuration metadata."
+      },
+      "ConfigurationMetadataUpdate": {
+        "properties": {
+          "valid_from": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Valid From"
+          },
+          "category": { "type": "string", "title": "Category", "default": "" }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ConfigurationMetadataUpdate",
+        "description": "Model for updating configuration metadata."
+      },
+      "ConfigurationResponse": {
+        "properties": {
+          "id": { "type": "string", "title": "Id" },
+          "metadata": { "$ref": "#/components/schemas/ConfigurationMetadata" }
+        },
+        "type": "object",
+        "required": ["id", "metadata"],
+        "title": "ConfigurationResponse",
+        "description": "API response model for a configuration (without content)."
+      },
+      "ConfigurationUpdate": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/ConfigurationMetadataUpdate",
+            "default": { "category": "" }
+          },
+          "content": {
+            "anyOf": [
+              { "additionalProperties": true, "type": "object" },
+              { "type": "null" }
+            ],
+            "title": "Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ConfigurationUpdate",
+        "description": "Model for updating an existing configuration."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": { "$ref": "#/components/schemas/ValidationError" },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ItemsResponse_ConfigurationResponse_": {
+        "properties": {
+          "data": {
+            "items": { "$ref": "#/components/schemas/ConfigurationResponse" },
+            "type": "array",
+            "title": "Data"
+          },
+          "links": {
+            "additionalProperties": { "type": "string" },
+            "type": "object",
+            "title": "Links",
+            "default": {}
+          },
+          "count": { "type": "integer", "title": "Count", "default": 10 }
+        },
+        "type": "object",
+        "title": "ItemsResponse[ConfigurationResponse]"
+      },
+      "Response_ConfigurationResponse_": {
+        "properties": {
+          "data": { "$ref": "#/components/schemas/ConfigurationResponse" },
+          "links": {
+            "additionalProperties": { "type": "string" },
+            "type": "object",
+            "title": "Links",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": ["data"],
+        "title": "Response[ConfigurationResponse]"
+      },
+      "Response_SearchMetadata_": {
+        "properties": {
+          "data": { "$ref": "#/components/schemas/SearchMetadata" },
+          "links": {
+            "additionalProperties": { "type": "string" },
+            "type": "object",
+            "title": "Links",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": ["data"],
+        "title": "Response[SearchMetadata]"
+      },
+      "SearchMetadata": {
+        "properties": {
+          "types": {
+            "items": { "type": "string" },
+            "type": "array",
+            "title": "Types"
+          },
+          "target_keys": {
+            "items": { "type": "string" },
+            "type": "array",
+            "title": "Target Keys"
+          },
+          "categories": {
+            "items": { "type": "string" },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "title": "SearchMetadata",
+        "description": "Model for search metadata results (types, target_keys, categories)."
+      },
+      "SearchQuery": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "Type of the configuration"
+          },
+          "type__operator": {
+            "type": "string",
+            "enum": ["$match", "$regex"],
+            "title": "Type  Operator",
+            "description": "Operator for the type",
+            "default": "$match"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "description": "Category of the configuration"
+          },
+          "category__operator": {
+            "type": "string",
+            "enum": ["$match", "$regex"],
+            "title": "Category  Operator",
+            "description": "Operator for the category",
+            "default": "$match"
+          },
+          "target_key": {
+            "type": "string",
+            "title": "Target Key",
+            "description": "Target key of the configuration"
+          },
+          "target_key__operator": {
+            "type": "string",
+            "enum": ["$match", "$regex"],
+            "title": "Target Key  Operator",
+            "description": "Operator for the target_key",
+            "default": "$match"
+          },
+          "content_filename": {
+            "type": "string",
+            "title": "Content Filename",
+            "description": "Content filename of the configuration"
+          },
+          "content_filename__operator": {
+            "type": "string",
+            "enum": ["$match", "$regex"],
+            "title": "Content Filename  Operator",
+            "description": "Operator for the content_filename",
+            "default": "$match"
+          },
+          "valid_from": {
+            "anyOf": [
+              { "type": "string", "const": "null" },
+              { "type": "string", "format": "date-time" }
+            ],
+            "title": "Valid From",
+            "description": "Valid from date of the configuration"
+          },
+          "valid_from__operator": {
+            "type": "string",
+            "enum": ["$lt", "$lte", "$gt", "$gte"],
+            "title": "Valid From  Operator",
+            "description": "Operator for the valid_from date",
+            "default": "$gte"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "Version of the configuration"
+          },
+          "version__operator": {
+            "type": "string",
+            "enum": ["$eq", "$neq", "$lt", "$lte", "$gt", "$gte"],
+            "title": "Version  Operator",
+            "description": "Operator for the version",
+            "default": "$eq"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Limit",
+            "description": "Limit the number of configurations returned (0 for default)",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "created_at",
+              "version",
+              "valid_from",
+              "type",
+              "category",
+              "target_key"
+            ],
+            "title": "Sort",
+            "description": "Field to sort the configurations by",
+            "default": "created_at"
+          },
+          "sort_direction": {
+            "type": "string",
+            "enum": ["asc", "desc"],
+            "title": "Sort Direction",
+            "description": "Sort direction",
+            "default": "desc"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "description": "Offset for pagination",
+            "default": 0
+          },
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "ID of the configuration"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SearchQuery",
+        "description": "Query model for searching configurations with additional filters."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": { "anyOf": [{ "type": "string" }, { "type": "integer" }] },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": { "type": "string", "title": "Message" },
+          "type": { "type": "string", "title": "Error Type" }
+        },
+        "type": "object",
+        "required": ["loc", "msg", "type"],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

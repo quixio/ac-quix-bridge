@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Generator, ContextManager
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 from quixportal import get_filesystem
@@ -92,125 +91,29 @@ def fs(blob_storage: None) -> Any:
 
 @pytest.fixture(scope="session")
 def mock_config_app():
-    """In-memory mock of the Dynamic Config Manager API.
+    """Load the standalone mock DCM app from mock_config_api/."""
+    import importlib.util
 
-    Supports the endpoints used by the test-manager-backend:
-      POST   /api/v1/configurations          — create/replace config
-      GET    /api/v1/configurations/{id}/content — latest version content
-      GET    /api/v1/configurations/{id}/versions/{v}/content — specific version
-      GET    /api/v1/configurations/{id}     — config metadata
-      DELETE /api/v1/configurations/{id}/versions/{v} — delete version
-    """
-    from fastapi import Body, FastAPI, HTTPException
-
-    app = FastAPI()
-    configs: dict[str, dict] = {}  # id -> {metadata, versions: {v: content}}
-    _next_id = [0]
-
-    @app.post("/api/v1/configurations")
-    def create_config(body: dict = Body(...)):
-        metadata = body.get("metadata", {})
-        content = body.get("content", {})
-        replace = body.get("replace", False)
-
-        # Find existing config by target_key + type if replace=True
-        config_id = None
-        if replace:
-            for cid, cfg in configs.items():
-                if (cfg["metadata"].get("target_key") == metadata.get("target_key")
-                        and cfg["metadata"].get("type") == metadata.get("type")):
-                    config_id = cid
-                    break
-
-        if config_id:
-            cfg = configs[config_id]
-            version = max(cfg["versions"].keys()) + 1
-            cfg["versions"][version] = content
-            cfg["metadata"]["version"] = version
-        else:
-            _next_id[0] += 1
-            config_id = f"cfg-{_next_id[0]:04d}"
-            version = 1
-            configs[config_id] = {
-                "metadata": {**metadata, "version": version},
-                "versions": {version: content},
-            }
-
-        return {
-            "data": {
-                "id": config_id,
-                "metadata": {**configs[config_id]["metadata"], "version": version},
-            }
-        }
-
-    @app.get("/api/v1/configurations/{config_id}")
-    def get_config(config_id: str):
-        if config_id not in configs:
-            raise HTTPException(status_code=404, detail="Not found")
-        cfg = configs[config_id]
-        return {"data": {"id": config_id, "metadata": cfg["metadata"]}}
-
-    @app.get("/api/v1/configurations/{config_id}/content")
-    def get_config_content(config_id: str):
-        if config_id not in configs:
-            raise HTTPException(status_code=404, detail="Not found")
-        cfg = configs[config_id]
-        latest = max(cfg["versions"].keys())
-        return cfg["versions"][latest]
-
-    @app.get("/api/v1/configurations/{config_id}/versions/{version}/content")
-    def get_version_content(config_id: str, version: int):
-        if config_id not in configs:
-            raise HTTPException(status_code=404, detail="Not found")
-        cfg = configs[config_id]
-        if version not in cfg["versions"]:
-            raise HTTPException(status_code=404, detail="Version not found")
-        return cfg["versions"][version]
-
-    @app.delete("/api/v1/configurations/{config_id}/versions/{version}")
-    def delete_version(config_id: str, version: int):
-        if config_id not in configs:
-            raise HTTPException(status_code=404, detail="Not found")
-        cfg = configs[config_id]
-        if version not in cfg["versions"]:
-            raise HTTPException(status_code=404, detail="Version not found")
-        del cfg["versions"][version]
-        if not cfg["versions"]:
-            del configs[config_id]
-
-    return app
+    mock_main = Path(__file__).parent.parent.parent / "mock_config_api" / "main.py"
+    spec = importlib.util.spec_from_file_location("mock_config_main", mock_main)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.app, mod.configs
 
 
 @pytest.fixture()
 def config_api(
-    mock_config_app,
+    mock_config_app: tuple,
     monkeypatch: pytest.MonkeyPatch,
-) -> Generator[httpx.Client, None, None]:
-    # Create a test client for the mock config API
-    mock_test_client = TestClient(mock_config_app)
+) -> Generator[TestClient, None, None]:
+    app, configs = mock_config_app
+    configs.clear()
 
     monkeypatch.setenv("CONFIG_API_URL", "http://test-mock")
     monkeypatch.setenv("Quix__Sdk__Token", "test")
 
-    class MockConfigClient:
-        """Wrapper that behaves like httpx.Client but uses TestClient."""
-
-        def __init__(self, tc: TestClient):
-            self._tc = tc
-
-        def get(self, url: str):
-            return self._tc.get(url)
-
-        def post(self, url: str, json=None):
-            return self._tc.post(url, json=json)
-
-        def put(self, url: str, json=None):
-            return self._tc.put(url, json=json)
-
-        def delete(self, url: str):
-            return self._tc.delete(url)
-
-    yield MockConfigClient(mock_test_client)
+    yield TestClient(app)
 
 
 @pytest.fixture()
@@ -236,7 +139,7 @@ def override_settings(
 def client(
     mongo: None,
     blob_storage: None,
-    config_api: httpx.Client,
+    config_api: TestClient,
     portal_api_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[TestClient, None, None]:
