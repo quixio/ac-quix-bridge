@@ -1,22 +1,15 @@
 import subprocess
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Generator, ContextManager
 
 import httpx
-import requests
-from influxdb import InfluxDBClient
 import pytest
 from fastapi.testclient import TestClient
 from quixportal import get_filesystem
 from testcontainers.mongodb import MongoDbContainer
-from testcontainers.kafka import KafkaContainer
-from testcontainers.influxdb import InfluxDbContainer
-from testcontainers.core.generic import DockerContainer
 from testcontainers.core.network import Network
-from testcontainers.core.waiting_utils import wait_for_logs
 
 from api.app import create_app
 from api.settings import Settings, get_settings
@@ -24,9 +17,11 @@ from api.settings import Settings, get_settings
 from tests.utils import find_free_port
 
 TestFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
+DeviceFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
+EnvironmentFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
+DriverFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 
 PORTAL_API_PORT = find_free_port()
-CONFIG_API_PORT = find_free_port()
 
 
 @pytest.fixture(scope="session")
@@ -96,32 +91,94 @@ def fs(blob_storage: None) -> Any:
 
 
 @pytest.fixture(scope="session")
-def kafka_container(network: Network) -> Generator[KafkaContainer, None, None]:
-    with KafkaContainer(name="test-manager-kafka", network=network) as kafka:
-        yield kafka
-
-
-@pytest.fixture(scope="session")
 def mock_config_app():
+    """In-memory mock of the Dynamic Config Manager API.
+
+    Supports the endpoints used by the test-manager-backend:
+      POST   /api/v1/configurations          — create/replace config
+      GET    /api/v1/configurations/{id}/content — latest version content
+      GET    /api/v1/configurations/{id}/versions/{v}/content — specific version
+      GET    /api/v1/configurations/{id}     — config metadata
+      DELETE /api/v1/configurations/{id}/versions/{v} — delete version
     """
-    Get the mock configuration API app for testing.
+    from fastapi import Body, FastAPI, HTTPException
 
-    Uses the shared mock implementation from mock_config_api.main
-    to avoid code duplication between dev and test environments.
-    """
-    import sys
-    from pathlib import Path
+    app = FastAPI()
+    configs: dict[str, dict] = {}  # id -> {metadata, versions: {v: content}}
+    _next_id = [0]
 
-    # Add mock_config_api directory to Python path
-    mock_config_api_dir = Path(__file__).parent.parent.parent / "mock_config_api"
-    sys.path.insert(0, str(mock_config_api_dir))
+    @app.post("/api/v1/configurations")
+    def create_config(body: dict = Body(...)):
+        metadata = body.get("metadata", {})
+        content = body.get("content", {})
+        replace = body.get("replace", False)
 
-    try:
-        from main import app
-        return app
-    finally:
-        # Clean up sys.path
-        sys.path.remove(str(mock_config_api_dir))
+        # Find existing config by target_key + type if replace=True
+        config_id = None
+        if replace:
+            for cid, cfg in configs.items():
+                if (cfg["metadata"].get("target_key") == metadata.get("target_key")
+                        and cfg["metadata"].get("type") == metadata.get("type")):
+                    config_id = cid
+                    break
+
+        if config_id:
+            cfg = configs[config_id]
+            version = max(cfg["versions"].keys()) + 1
+            cfg["versions"][version] = content
+            cfg["metadata"]["version"] = version
+        else:
+            _next_id[0] += 1
+            config_id = f"cfg-{_next_id[0]:04d}"
+            version = 1
+            configs[config_id] = {
+                "metadata": {**metadata, "version": version},
+                "versions": {version: content},
+            }
+
+        return {
+            "data": {
+                "id": config_id,
+                "metadata": {**configs[config_id]["metadata"], "version": version},
+            }
+        }
+
+    @app.get("/api/v1/configurations/{config_id}")
+    def get_config(config_id: str):
+        if config_id not in configs:
+            raise HTTPException(status_code=404, detail="Not found")
+        cfg = configs[config_id]
+        return {"data": {"id": config_id, "metadata": cfg["metadata"]}}
+
+    @app.get("/api/v1/configurations/{config_id}/content")
+    def get_config_content(config_id: str):
+        if config_id not in configs:
+            raise HTTPException(status_code=404, detail="Not found")
+        cfg = configs[config_id]
+        latest = max(cfg["versions"].keys())
+        return cfg["versions"][latest]
+
+    @app.get("/api/v1/configurations/{config_id}/versions/{version}/content")
+    def get_version_content(config_id: str, version: int):
+        if config_id not in configs:
+            raise HTTPException(status_code=404, detail="Not found")
+        cfg = configs[config_id]
+        if version not in cfg["versions"]:
+            raise HTTPException(status_code=404, detail="Version not found")
+        return cfg["versions"][version]
+
+    @app.delete("/api/v1/configurations/{config_id}/versions/{version}")
+    def delete_version(config_id: str, version: int):
+        if config_id not in configs:
+            raise HTTPException(status_code=404, detail="Not found")
+        cfg = configs[config_id]
+        if version not in cfg["versions"]:
+            raise HTTPException(status_code=404, detail="Version not found")
+        del cfg["versions"][version]
+        if not cfg["versions"]:
+            del configs[config_id]
+
+    return app
 
 
 @pytest.fixture()
@@ -129,94 +186,31 @@ def config_api(
     mock_config_app,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[httpx.Client, None, None]:
-    from fastapi.testclient import TestClient
-    
     # Create a test client for the mock config API
-    test_client = TestClient(mock_config_app)
-    
-    # Mock the CONFIG_API_URL environment variable
+    mock_test_client = TestClient(mock_config_app)
+
     monkeypatch.setenv("CONFIG_API_URL", "http://test-mock")
     monkeypatch.setenv("Quix__Sdk__Token", "test")
-    
-    # Create a wrapper that behaves like httpx.Client but uses TestClient
+
     class MockConfigClient:
-        def __init__(self, test_client):
-            self._test_client = test_client
-        
+        """Wrapper that behaves like httpx.Client but uses TestClient."""
+
+        def __init__(self, tc: TestClient):
+            self._tc = tc
+
         def get(self, url: str):
-            response = self._test_client.get(url)
-            # Store the original json method to avoid recursion
-            original_json = response.json
-            response.json = lambda: original_json()
-            return response
-        
+            return self._tc.get(url)
+
         def post(self, url: str, json=None):
-            response = self._test_client.post(url, json=json)
-            original_json = response.json
-            response.json = lambda: original_json()
-            return response
-        
+            return self._tc.post(url, json=json)
+
         def put(self, url: str, json=None):
-            response = self._test_client.put(url, json=json)
-            original_json = response.json
-            response.json = lambda: original_json()
-            return response
-        
+            return self._tc.put(url, json=json)
+
         def delete(self, url: str):
-            response = self._test_client.delete(url)
-            original_json = response.json
-            response.json = lambda: original_json()
-            return response
+            return self._tc.delete(url)
 
-    client = MockConfigClient(test_client)
-    yield client
-    
-    # No cleanup needed for in-memory mock
-
-
-@pytest.fixture(scope="session")
-def influx_container(network: Network) -> Generator[InfluxDbContainer, None, None]:
-    env = {
-        "INFLUXDB_ADMIN_USER": "test",
-        "INFLUXDB_ADMIN_PASSWORD": "test",
-    }
-    with InfluxDbContainer(
-        "influxdb:1.11",
-        name="test-manager-influx",
-        env=env,
-        network=network,
-    ) as influx:
-        yield influx
-
-
-@pytest.fixture()
-def influx(
-    monkeypatch: pytest.MonkeyPatch, influx_container: InfluxDbContainer
-) -> Generator[InfluxDBClient, None, None]:
-    host = influx_container.get_container_host_ip()
-    port = str(influx_container.get_exposed_port(8086))
-    user = influx_container.env["INFLUXDB_ADMIN_USER"]
-    password = influx_container.env["INFLUXDB_ADMIN_PASSWORD"]
-    database = "test_manager"
-
-    monkeypatch.setenv("INFLUXDB_HOST", host)
-    monkeypatch.setenv("INFLUXDB_PORT", port)
-    monkeypatch.setenv("INFLUXDB_USER", user)
-    monkeypatch.setenv("INFLUXDB_PASSWORD", password)
-
-    _client = InfluxDBClient(
-        host=host,
-        port=port,
-        username=user,
-        password=password,
-        database=database,
-    )
-
-    yield _client
-
-    for measurement in _client.get_list_measurements():
-        _client.query(f'DROP SERIES FROM "{measurement["name"]}"')
-    _client.close()
+    yield MockConfigClient(mock_test_client)
 
 
 @pytest.fixture()
@@ -241,77 +235,109 @@ def override_settings(
 @pytest.fixture()
 def client(
     mongo: None,
-    influx: InfluxDBClient,
     blob_storage: None,
     config_api: httpx.Client,
     portal_api_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[TestClient, None, None]:
     from api.config_api import get_config_api_client
-    
+
     monkeypatch.setenv("Quix__Portal__Api", portal_api_url)
     monkeypatch.setenv("API_AUTH_ACTIVE", "false")  # Disable auth for tests
-    
+
     app = create_app()
     # Override the config API client dependency with our mock
     app.dependency_overrides[get_config_api_client] = lambda: config_api
-    
+
     with TestClient(app) as c:
         yield c
 
 
 @pytest.fixture
-def create_dac(client: TestClient) -> Callable[..., tuple[dict[str, Any], dict[str, Any]]]:
+def create_device(client: TestClient) -> DeviceFactory:
     """Helper fixture to create a Device for testing."""
-    def _create_dac(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _create_device(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         input_data = {
-            "device_id": "dac1",
-            "manufacturer": "Acme Corp",
-            "product_category": "WP",
-            "product_name": "Vitocal 200-S",
-            "sample_type": "PFP",
-            "sample_nr": "1",
-            "location": "Bench 3",
-            "creator": "Test User",
+            "category": "pc",
+            "name": "Test PC",
+            "status": "active",
         }
         input_data.update(kwargs)
         response = client.post("/api/v1/devices", json=input_data)
         assert response.status_code == 200
         return input_data, response.json()
 
-    return _create_dac
+    return _create_device
 
 
 @pytest.fixture
-def create_test(client: TestClient, create_dac: Callable[..., tuple[dict[str, Any], dict[str, Any]]]) -> TestFactory:
-    def _create_test(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-        # Create a Device first if not provided
-        if "devices" not in kwargs:
-            # Use test_id to create unique Device ID, or fallback to provided device_id
-            test_id = kwargs.get("test_id", "test1")
-            device_id = kwargs.get("device_id", f"device-for-{test_id}")
-            _, created_dac = create_dac(device_id=device_id)
-            kwargs["devices"] = [{"device_id": device_id, "device_version": None}]
-
+def create_environment(client: TestClient) -> EnvironmentFactory:
+    """Helper fixture to create an Environment for testing."""
+    def _create_environment(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         input_data = {
-            "test_id": "test1",
-            "campaign_id": "campaign1",
-            "environment_id": "tec1",
-            "operator": "John Doe",
-            "status": "draft",
-            "start": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc).isoformat(),
-            "end": datetime(2024, 1, 15, 16, 45, 0, tzinfo=timezone.utc).isoformat(),
-            "sensors": {
-                "T1100": {
-                    "mp": "t_A_ODU_out_1",
-                    "unit": "°C",
-                    "description": "Temperatur 1 Kammer",
-                    "sensor_id": "P110884",
-                    "type": "AI",
-                    "source": "EPE",
-                    "csv_col": "AI_T1100",
-                }
-            },
+            "name": "Test Environment",
+            "location": "Test Location",
+            "status": "active",
+        }
+        input_data.update(kwargs)
+        response = client.post("/api/v1/environments", json=input_data)
+        assert response.status_code == 200
+        return input_data, response.json()
+
+    return _create_environment
+
+
+@pytest.fixture
+def create_driver(client: TestClient) -> DriverFactory:
+    """Helper fixture to create a Driver for testing."""
+    def _create_driver(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        input_data = {
+            "name": "Test Driver",
+        }
+        input_data.update(kwargs)
+        response = client.post("/api/v1/drivers", json=input_data)
+        assert response.status_code == 200
+        return input_data, response.json()
+
+    return _create_driver
+
+
+@pytest.fixture
+def create_test(
+    client: TestClient,
+    create_device: DeviceFactory,
+    create_environment: EnvironmentFactory,
+) -> TestFactory:
+    """Helper fixture to create a Test for testing.
+
+    Auto-creates a PC device, test rig device, and environment if not provided.
+    """
+    _counter = [0]
+
+    def _create_test(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        _counter[0] += 1
+        suffix = _counter[0]
+
+        # Create dependencies if not provided
+        if "pc_device_id" not in kwargs:
+            _, pc = create_device(name=f"Test PC {suffix}", category="pc")
+            kwargs["pc_device_id"] = pc["device_id"]
+
+        if "test_rig_device_id" not in kwargs:
+            _, rig = create_device(name=f"Test Rig {suffix}", category="test_rig")
+            kwargs["test_rig_device_id"] = rig["device_id"]
+
+        if "environment_id" not in kwargs:
+            _, env = create_environment(name=f"Test Env {suffix}")
+            kwargs["environment_id"] = env["environment_id"]
+
+        input_data: dict[str, Any] = {
+            "experiment_id": "test-experiment",
+            "pc_device_id": kwargs.pop("pc_device_id"),
+            "test_rig_device_id": kwargs.pop("test_rig_device_id"),
+            "environment_id": kwargs.pop("environment_id"),
+            "driver": "Test Driver",
+            "requirements": "",
         }
         input_data.update(kwargs)
         response = client.post("/api/v1/tests", json=input_data)

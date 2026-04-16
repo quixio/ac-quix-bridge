@@ -11,6 +11,7 @@ certificates/
 ac-machine-secrets/
 recordings/
 .DS_Store
+.claude/settings.local.json
 
 # Reference repo (test manager source)
 quixers-testmanager-standalone/
