@@ -36,12 +36,14 @@
       height: var(--topbar-height);
       display: grid;
       grid-template-columns: 65fr 35fr;
+      grid-template-rows: 1fr;
       gap: 12px;
       padding: 12px 16px;
       background: var(--bg);
       border-bottom: 1px solid var(--border);
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
       z-index: 100;
+      transition: height 0.2s ease;
     }
     .topbar-panel {
       background: var(--surface);
@@ -68,6 +70,7 @@
       min-height: 0;
     }
     .topbar-panel.collapsed .topbar-body { display: none; }
+    .topbar-panel.collapsed { align-self: start; }
 
     /* ---- Track map in top-bar context ---- */
     .map-panel .topbar-body { padding: 6px 8px 8px; gap: 0.3rem; }
@@ -420,23 +423,25 @@
   <div class="topbar-panel" id="topbar-video">
     <div class="topbar-head">
       <div class="panel-title">Video</div>
-      <div class="video-controls" id="video-controls" style="display:none">
-        <select id="video-lap-select" class="video-lap-select" disabled
-                onchange="onVideoLapChange(this.value)">
-          <option value="">— pick laps and Plot —</option>
-        </select>
-        <label class="video-speed-label">Speed
-          <select id="video-speed" class="video-lap-select"
-                  onchange="onVideoSpeedChange(this.value)">
-            <option value="1" selected>Realtime</option>
-            <option value="2">2x</option>
-            <option value="5">5x</option>
+      <div style="display:flex;gap:0.4rem;align-items:center;">
+        <div class="video-controls" id="video-controls" style="display:none">
+          <select id="video-lap-select" class="video-lap-select" disabled
+                  onchange="onVideoLapChange(this.value)">
+            <option value="">— pick laps and Plot —</option>
           </select>
-        </label>
-        <div id="video-status" class="video-status"></div>
-        <button class="panel-collapse-btn"
-                onclick="document.getElementById('topbar-video').classList.toggle('collapsed')"
-                title="Collapse">−</button>
+          <label class="video-speed-label">Speed
+            <select id="video-speed" class="video-lap-select"
+                    onchange="onVideoSpeedChange(this.value)">
+              <option value="1" selected>Realtime</option>
+              <option value="2">2x</option>
+              <option value="5">5x</option>
+            </select>
+          </label>
+          <div id="video-status" class="video-status"></div>
+        </div>
+        <button class="panel-collapse-btn" id="btn-collapse-video"
+                onclick="toggleTopbarPanel('topbar-video', this)"
+                title="Collapse">-</button>
       </div>
     </div>
     <div class="topbar-body">
@@ -450,9 +455,9 @@
   <div class="topbar-panel map-panel" id="topbar-map">
     <div class="topbar-head">
       <div class="panel-title">Track Map</div>
-      <button class="panel-collapse-btn"
-              onclick="document.getElementById('topbar-map').classList.toggle('collapsed')"
-              title="Collapse">−</button>
+      <button class="panel-collapse-btn" id="btn-collapse-map"
+              onclick="toggleTopbarPanel('topbar-map', this)"
+              title="Collapse">-</button>
     </div>
     <div class="topbar-body">
       <div id="track-map"></div>
@@ -479,7 +484,7 @@
   <div class="panel" id="panel-sessions">
     <div class="panel-header">
       <div class="panel-title">Select sessions and laps to overlay</div>
-      <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">− Hide</button>
+      <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">-</button>
     </div>
     <div class="panel-body">
       <div class="selections" id="selections"></div>
@@ -494,7 +499,7 @@
   <div class="panel" id="panel-signals">
     <div class="panel-header">
       <div class="panel-title">Signals</div>
-      <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">− Hide</button>
+      <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">-</button>
     </div>
     <div class="panel-body">
       <div id="signal-container">Loading channels...</div>
@@ -1361,11 +1366,27 @@ function downsample(x, y, maxPoints = 1500) {
   return { x: nx, y: ny };
 }
 
+function toggleTopbarPanel(panelId, btn) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  panel.classList.toggle('collapsed');
+  btn.textContent = panel.classList.contains('collapsed') ? '+' : '-';
+  const topbar = document.getElementById('topbar');
+  const allCollapsed = topbar.querySelectorAll('.topbar-panel:not(.collapsed)').length === 0;
+  topbar.style.height = allCollapsed ? 'auto' : '';
+  requestAnimationFrame(() => {
+    const h = topbar.offsetHeight;
+    document.body.style.paddingTop = h + 'px';
+    const strip = document.querySelector('.readout-strip');
+    if (strip) strip.style.top = h + 'px';
+  });
+}
+
 function togglePanel(panelId, btn) {
   const p = document.getElementById(panelId);
   if (!p) return;
   p.classList.toggle('collapsed');
-  btn.textContent = p.classList.contains('collapsed') ? '+ Show' : '− Hide';
+  btn.textContent = p.classList.contains('collapsed') ? '+' : '-';
 }
 
 function attachMarkerDrag(div) {
