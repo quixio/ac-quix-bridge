@@ -62,7 +62,8 @@
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_evaluate",
       "mcp__playwright__browser_resize",
-      "mcp__playwright__browser_close"
+      "mcp__playwright__browser_close",
+      "Bash(node -e \"require\\('fs'\\).readFileSync\\('C:/repos/ac-quix-bridge/telemetry-comparison/static/index.html','utf8'\\)\")"
     ],
     "deny": [],
     "ask": []

@@ -557,16 +557,16 @@ let videoState = {
   frames: null,         // sorted-by-t_ms array of {t_ms, normPos} for the loaded lap
   framesByNd: null,
   isPlaying: false,     // true between 'play' and 'pause'/'ended' events
-  rafId: null,          // requestAnimationFrame id (active while playing)
-  lastRafUpdate: 0,     // performance.now() timestamp of last marker update
   blobUrl: null,        // object URL for fully-buffered MP4
 };
 
-// Throttle rAF-driven marker updates so Plotly relayouts don't pile up.
-// Browser native timeupdate fires ~4Hz which causes visible stutter in the
-// marker line and red dot. Reading video.currentTime via rAF gives us a
-// continuously updating value; we cap Plotly load at ~30Hz which still feels
-// fluid to the eye but doesn't choke on multi-plot relayouts.
+// Video-frame-accurate sync: use requestVideoFrameCallback when available.
+// It fires once per displayed frame with the exact mediaTime of that frame,
+// eliminating drift from rAF polling + browser decode lag.
+const HAS_RVFC = typeof HTMLVideoElement !== 'undefined'
+  && 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+
+// Fallback: if requestVideoFrameCallback is absent, poll via rAF at ~30Hz.
 const VIDEO_RAF_INTERVAL_MS = 1000 / 30;
 
 const MAX_READOUTS = 6;
@@ -1704,20 +1704,54 @@ function syncVideoFromMarker(nd, source) {
   }
 }
 
+// ---------- requestVideoFrameCallback path (frame-accurate) ----------------
+function _onVideoFrame(_now, metadata) {
+  if (!videoState.isPlaying || !videoState.frames || !videoState.element) return;
+  const nd = lookupNormPosForTms(metadata.mediaTime * 1000);
+  if (nd != null) {
+    updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
+  }
+  // Re-register for the next displayed frame while still playing.
+  if (videoState.isPlaying) {
+    videoState.element.requestVideoFrameCallback(_onVideoFrame);
+  }
+}
+
+// ---------- rAF fallback path (old browsers without RVFC) ------------------
 function _videoRafLoop() {
   if (!videoState.isPlaying || !videoState.frames || !videoState.element) {
-    videoState.rafId = null;
+    videoState._rafId = null;
     return;
   }
   const now = performance.now();
-  if (now - videoState.lastRafUpdate >= VIDEO_RAF_INTERVAL_MS) {
+  if (now - videoState._lastRafUpdate >= VIDEO_RAF_INTERVAL_MS) {
     const nd = lookupNormPosForTms(videoState.element.currentTime * 1000);
     if (nd != null) {
       updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
     }
-    videoState.lastRafUpdate = now;
+    videoState._lastRafUpdate = now;
   }
-  videoState.rafId = requestAnimationFrame(_videoRafLoop);
+  videoState._rafId = requestAnimationFrame(_videoRafLoop);
+}
+
+function _startVideoSync(v) {
+  if (HAS_RVFC) {
+    v.requestVideoFrameCallback(_onVideoFrame);
+  } else {
+    if (videoState._rafId == null) {
+      videoState._lastRafUpdate = 0;
+      videoState._rafId = requestAnimationFrame(_videoRafLoop);
+    }
+  }
+}
+
+function _stopVideoSync() {
+  if (!HAS_RVFC && videoState._rafId != null) {
+    cancelAnimationFrame(videoState._rafId);
+    videoState._rafId = null;
+  }
+  // RVFC path stops automatically: _onVideoFrame checks isPlaying before
+  // re-registering, so no explicit cancel is needed.
 }
 
 function _wireVideoElement() {
@@ -1727,24 +1761,15 @@ function _wireVideoElement() {
 
   v.addEventListener('play', () => {
     videoState.isPlaying = true;
-    if (videoState.rafId == null) {
-      videoState.lastRafUpdate = 0;
-      videoState.rafId = requestAnimationFrame(_videoRafLoop);
-    }
+    _startVideoSync(v);
   });
   v.addEventListener('pause', () => {
     videoState.isPlaying = false;
-    if (videoState.rafId != null) {
-      cancelAnimationFrame(videoState.rafId);
-      videoState.rafId = null;
-    }
+    _stopVideoSync();
   });
   v.addEventListener('ended', () => {
     videoState.isPlaying = false;
-    if (videoState.rafId != null) {
-      cancelAnimationFrame(videoState.rafId);
-      videoState.rafId = null;
-    }
+    _stopVideoSync();
   });
 
   // While paused, native HTML5 video controls (or the user's marker drag)
