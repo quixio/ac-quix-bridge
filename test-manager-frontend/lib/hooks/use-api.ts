@@ -36,7 +36,6 @@ import { ApiError } from "../api/client";
 import { devicesApi as devicesApiRaw } from "../api/devices";
 import { testsApi as testsApiRaw } from "../api/tests";
 import { logbookApi as logbookApiRaw } from "../api/logbook";
-import { adminApi as adminApiRaw } from "../api/admin";
 import { integrationsApi as integrationsApiRaw } from "../api/integrations";
 import { settingsApi as settingsApiRaw } from "../api/settings";
 import { portalApi as portalApiRaw } from "../api/portal";
@@ -131,17 +130,6 @@ export const useTestsApi = createAuthenticatedApi(testsApiRaw);
  * ```
  */
 export const useLogbookApi = createAuthenticatedApi(logbookApiRaw);
-
-/**
- * Authenticated Admin API Hook
- *
- * @example
- * ```typescript
- * const adminApi = useAdminApi()
- * await adminApi.seedTestData({ num_dacs: 10, num_tests: 20 })
- * ```
- */
-export const useAdminApi = createAuthenticatedApi(adminApiRaw);
 
 /**
  * Authenticated Integrations API Hook
