@@ -505,16 +505,22 @@ def test_rows_sorted_by_best_lap_ms_ascending(app_with_overrides: Callable) -> N
 # ---------------------------------------------------------------------------
 
 
-def test_missing_measurements_config_returns_501(app_with_overrides: Callable) -> None:
-    """Validates spec §7.4 ("501 Not Implemented ... Measurements service not
-    configured") and S7 empty-state.
+def test_missing_measurements_config_falls_back_to_hardcoded_url(
+    app_with_overrides: Callable,
+) -> None:
+    """With no `measurements_deployment` configured (and no `measurements_url`
+    env var), the endpoint now falls back to the module-level hardcoded URL
+    defined in `leaderboard._FALLBACK_MEASUREMENTS_URL` rather than returning
+    501. This is the intentional dev-mode behaviour — the value matches the
+    `MEASUREMENTS_URL` defaultValue in `test-manager-backend/app.yaml`.
     """
-    _, client, _ = app_with_overrides(measurements_url=None)
+    from api.routes.leaderboard import _FALLBACK_MEASUREMENTS_URL
+
+    _, client, captured = app_with_overrides(measurements_url=None)
     resp = client.get("/api/v1/leaderboard/best-laps")
-    assert resp.status_code == 501, f"expected 501, got {resp.status_code} body={resp.text}"
-    detail = resp.json().get("detail", "")
-    assert "Measurements service not configured" in detail, (
-        f"501 detail missing expected text: {detail!r}"
+    assert resp.status_code == 200, f"expected 200, got {resp.status_code} body={resp.text}"
+    assert captured["request_url"] == f"{_FALLBACK_MEASUREMENTS_URL}/api/query", (
+        f"expected fallback URL, got {captured['request_url']!r}"
     )
 
 

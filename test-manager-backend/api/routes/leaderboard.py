@@ -36,6 +36,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
 
 
+# Dev-mode hardcoded fallback — same literal as `test-manager-backend/app.yaml`
+# `MEASUREMENTS_URL` defaultValue. Lets the leaderboard work locally without
+# requiring a user to configure `measurements_deployment` via Settings UI.
+# Why: the Settings flow requires picking a deployment reference from the Quix
+# portal, which is heavyweight for local development. The URL already lives
+# in the repo; we reuse it.
+_FALLBACK_MEASUREMENTS_URL = "https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io"
+
+
 # The lake's Hive partitions are (environment, test_rig, experiment, driver,
 # track, carModel, session_id, lap) — see quix.yaml:127. `iLastTime` is AC's
 # "last completed lap time in ms" from the Graphics struct — constant within
@@ -143,14 +152,18 @@ async def get_best_laps(
     settings = get_settings()
     integration_settings = get_effective_integration_settings()
 
-    measurements_url = get_measurements_url_base(integration_settings)
-    if not measurements_url:
-        raise HTTPException(
-            status_code=501,
-            detail="Measurements service not configured. Configure it in Settings.",
+    measurements_url = (
+        get_measurements_url_base(integration_settings)
+        or settings.measurements_url
+        or _FALLBACK_MEASUREMENTS_URL
+    )
+    if measurements_url is _FALLBACK_MEASUREMENTS_URL:
+        logger.info(
+            "No measurements deployment configured; using hardcoded fallback URL."
         )
 
-    api_url = f"{measurements_url}/api/query"
+    # Strip a single trailing slash so the `/api/query` suffix never doubles up.
+    api_url = f"{measurements_url.rstrip('/')}/api/query"
 
     try:
         async with httpx.AsyncClient() as client:
