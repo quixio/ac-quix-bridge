@@ -50,8 +50,10 @@ export default function AddTestPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
 
   useEffect(() => {
+    console.log("[AddTest] effect fired");
     const fetchData = async () => {
       try {
+        console.log("[AddTest] fetching 4 lists...");
         const [pcRes, rigRes, drvRes, envRes] = await Promise.all([
           devicesApi.list({ category: DeviceCategory.PC, page_size: 100 }),
           devicesApi.list({
@@ -61,20 +63,31 @@ export default function AddTestPage() {
           driversApi.list({ page_size: 100 }),
           environmentsApi.list({ page_size: 100 }),
         ]);
+        console.log("[AddTest] lists resolved:", {
+          pc: pcRes.items.length,
+          rig: rigRes.items.length,
+          drv: drvRes.items.length,
+          env: envRes.items.length,
+          pcFirst: pcRes.items[0],
+        });
         setPcDevices(pcRes.items);
         setTestRigDevices(rigRes.items);
         setDrivers(drvRes.items);
         setEnvironments(envRes.items);
 
         // Auto-select first item in each dropdown
-        if (pcRes.items.length > 0) setPcDeviceId(pcRes.items[0].device_id);
+        if (pcRes.items.length > 0) {
+          console.log("[AddTest] setPcDeviceId ->", pcRes.items[0].device_id);
+          setPcDeviceId(pcRes.items[0].device_id);
+        }
         if (rigRes.items.length > 0)
           setTestRigDeviceId(rigRes.items[0].device_id);
         if (drvRes.items.length > 0) setDriver(drvRes.items[0].name);
         if (envRes.items.length > 0)
           setEnvironmentId(envRes.items[0].environment_id);
+        console.log("[AddTest] setState calls complete");
       } catch (error) {
-        console.error("Failed to fetch dropdown data:", error);
+        console.error("[AddTest] Failed to fetch dropdown data:", error);
       }
     };
     fetchData();
