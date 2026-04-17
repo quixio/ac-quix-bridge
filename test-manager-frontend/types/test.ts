@@ -10,25 +10,6 @@ export interface DeviceReference {
   device_version: string | null;
 }
 
-export interface File {
-  id: string;
-  name: string;
-  url: string;
-  size: number;
-  uploaded_at: string;
-}
-
-export interface Link {
-  id: string;
-  url: string;
-  label: string;
-}
-
-export interface LinkCreate {
-  url: string;
-  label: string;
-}
-
 export interface SessionInfo {
   session_id: string;
   track: string;
@@ -83,9 +64,7 @@ export interface TestQuery extends PaginationParams {
 
 export interface TestFullData {
   test: Test;
-  files: File[];
   logbook: LogbookEntry[];
-  links: Link[];
 }
 
 export interface LogbookEntry {

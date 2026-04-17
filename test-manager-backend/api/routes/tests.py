@@ -16,8 +16,6 @@ from ..models import (
     TestUpdate,
     TestFullData,
     SessionInfo,
-    File,
-    Link,
     LogbookEntry,
     PaginatedResponse,
 )
@@ -251,15 +249,12 @@ def get_test_full(
         raise HTTPException(status_code=404, detail="Test not found")
 
     test = resolve_test_names(Test(**test_doc), mongo)
-    files_dict = test_doc.get("files", {})
-    files = [File(**f) for f in files_dict.values()]
     logbook = [
         LogbookEntry(**e)
         for e in mongo.logbook.find({"test_id": test_id}).sort("timestamp", -1)
     ]
-    links = [Link(**link) for link in test_doc.get("links", [])]
 
-    return TestFullData(test=test, files=files, logbook=logbook, links=links)
+    return TestFullData(test=test, logbook=logbook)
 
 
 @router.put("/tests/{test_id}", response_model=Test, response_model_by_alias=False)
@@ -345,7 +340,7 @@ def update_test(
         )
 
     config_response = response.json()["data"]
-    mongo.tests.update_one(
+    updated = mongo.tests.find_one_and_update(
         {"_id": test_id},
         {
             "$set": {
@@ -355,9 +350,10 @@ def update_test(
                 "config_version": config_response["metadata"]["version"],
             }
         },
+        return_document=ReturnDocument.AFTER,
     )
-
-    return resolve_test_names(Test(**mongo.tests.find_one({"_id": test_id})), mongo)
+    assert updated is not None  # guarded by the find_one at the top of the function
+    return resolve_test_names(Test(**updated), mongo)
 
 
 @router.get("/tests/{test_id}/telemetry-params", response_model_by_alias=False)
@@ -436,6 +432,7 @@ def add_session(
     )
 
     updated = mongo.tests.find_one({"_id": test_id})
+    assert updated is not None  # we just found it at the top and only appended to it
     return resolve_test_names(Test(**updated), mongo)
 
 

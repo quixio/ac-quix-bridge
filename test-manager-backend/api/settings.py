@@ -1,5 +1,4 @@
 from functools import lru_cache
-import secrets
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,15 +36,6 @@ class Settings(BaseSettings):
     )
     sdk_token: str = Field(alias="Quix__Sdk__Token", description="SDK token")
 
-    # Blob storage settings
-    secret_key: str = Field(
-        default_factory=lambda: secrets.token_hex(32),
-        description="Secret key for signing URLs",
-    )
-    file_signature_expiration_seconds: int = Field(
-        30, description="File upload signature expiration time in seconds"
-    )
-
     # Configuration API settings
     config_api_url: str = Field(..., description="Configuration API URL")
 
@@ -57,16 +47,19 @@ class Settings(BaseSettings):
         None, description="Analytics/Notebook service URL"
     )
     measurements_workspace_id: str | None = Field(
-        None, description="Workspace ID for measurements services (defaults to current workspace)"
+        None,
+        description="Workspace ID for measurements services (defaults to current workspace)",
     )
     measurements_topic_name: str | None = Field(
         None, description="Topic/table name for test measurements in the Data Lake"
     )
 
     # Nested settings
-    mongo: MongoSettings = Field(default_factory=MongoSettings)  # type: ignore[arg-type]
+    mongo: MongoSettings = Field(default_factory=MongoSettings)
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    # pydantic-settings loads required Quix__Workspace__Id / Quix__Sdk__Token
+    # from environment via aliases; ty can't see that.
+    return Settings()  # ty: ignore[missing-argument]

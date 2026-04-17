@@ -151,11 +151,10 @@ def test_get_test_found(create_test: TestFactory, client: TestClient) -> None:
 
 
 def test_get_test_full(create_test: TestFactory, client: TestClient) -> None:
-    """Test the full endpoint returns test with logbook, files, links."""
+    """Test the full endpoint returns test with logbook."""
     _, created = create_test()
     test_id = created["test_id"]
 
-    # Add a logbook entry
     client.post(f"/api/v1/tests/{test_id}/logbook", json={"content": "Test note"})
 
     response = client.get(f"/api/v1/tests/{test_id}/full")
@@ -163,9 +162,7 @@ def test_get_test_full(create_test: TestFactory, client: TestClient) -> None:
     data = response.json()
 
     assert "test" in data
-    assert "files" in data
     assert "logbook" in data
-    assert "links" in data
     assert data["test"]["test_id"] == test_id
     assert len(data["logbook"]) == 1
 

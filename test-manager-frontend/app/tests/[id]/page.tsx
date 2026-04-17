@@ -41,9 +41,7 @@ import {
   Zap,
 } from "lucide-react";
 import type {
-  File,
   LogbookEntry,
-  Link,
   LogbookEntryCreate,
   LogbookEntryUpdate,
 } from "@/types/test";
@@ -97,7 +95,7 @@ export default function TestDetailPage() {
   }
 
   // Destructure testFull for easier access
-  const { test, files, logbook, links } = testFull;
+  const { test, logbook } = testFull;
 
   const handleActivate = async () => {
     setIsActivating(true);

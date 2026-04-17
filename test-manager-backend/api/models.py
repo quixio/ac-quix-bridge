@@ -38,7 +38,9 @@ class PaginatedResponse(BaseModel, Generic[T]):
     total_pages: int = Field(description="Total number of pages")
 
     @classmethod
-    def create(cls, items: list[T], total: int, page: int, page_size: int) -> "PaginatedResponse[T]":
+    def create(
+        cls, items: list[T], total: int, page: int, page_size: int
+    ) -> "PaginatedResponse[T]":
         """Helper method to create a paginated response."""
         total_pages = ceil(total / page_size) if page_size > 0 else 0
         return cls(
@@ -60,40 +62,9 @@ class DeviceReference(BaseModel):
     """Reference to a Device with its version snapshot."""
 
     device_id: str
-    device_version: str | None = None  # UUID of DeviceJournalEntry, set when test starts
-
-
-class File(BaseModel):
-    """Represents a file in blob storage."""
-
-    id: str
-    name: str
-    url: str
-    size: int
-    uploaded_at: datetime = Field(default_factory=now)
-
-
-class PresignedUploadResponse(BaseModel):
-    url: str
-
-
-class PresignedUploadRequest(BaseModel):
-    filename: str
-
-
-class Link(BaseModel):
-    """Represents an external link."""
-
-    id: str
-    url: str
-    label: str
-
-
-class LinkCreate(BaseModel):
-    """Represents the data to create a link."""
-
-    url: str
-    label: str
+    device_version: str | None = (
+        None  # UUID of DeviceJournalEntry, set when test starts
+    )
 
 
 class SessionInfo(BaseModel):
@@ -159,12 +130,10 @@ class TestQuery(PaginationParams):
 
 
 class TestFullData(BaseModel):
-    """Represents a test with all its related data (files, logbook, links)."""
+    """A test with its related data."""
 
     test: Test
-    files: list[File]
     logbook: list["LogbookEntry"]
-    links: list[Link]
 
 
 class LogbookEntry(BaseModel):

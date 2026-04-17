@@ -21,9 +21,6 @@ import type {
   LogbookEntry,
   LogbookEntryCreate,
   LogbookEntryUpdate,
-  Link,
-  LinkCreate,
-  File,
 } from "@/types/test";
 import type { PaginatedResponse } from "@/types/pagination";
 
@@ -222,105 +219,6 @@ export const testsApi = {
       token,
       refreshToken,
     );
-  },
-
-  // ========================================================================
-  // Links
-  // ========================================================================
-
-  /**
-   * Add a link to a test
-   */
-  addLink: (
-    testId: string,
-    data: LinkCreate,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    return apiPost<Link>(`/tests/${testId}/links`, data, token, refreshToken);
-  },
-
-  /**
-   * Delete a link from a test
-   */
-  deleteLink: (
-    testId: string,
-    linkId: string,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    return apiDelete(`/tests/${testId}/links/${linkId}`, token, refreshToken);
-  },
-
-  // ========================================================================
-  // Files
-  // ========================================================================
-
-  /**
-   * List files for a test
-   */
-  listFiles: (
-    testId: string,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    return apiGet<File[]>(
-      `/tests/${testId}/files`,
-      undefined,
-      token,
-      refreshToken,
-    );
-  },
-
-  /**
-   * Get presigned URL for file upload
-   */
-  getUploadUrl: (
-    testId: string,
-    filename: string,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    return apiPost<{ url: string }>(
-      `/tests/${testId}/files/presigned-upload`,
-      {
-        filename,
-      },
-      token,
-      refreshToken,
-    );
-  },
-
-  /**
-   * Confirm file upload (register file with test after upload)
-   */
-  confirmUpload: (
-    testId: string,
-    fileId: string,
-    filename: string,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    return apiPost<File>(
-      `/tests/${testId}/files/${fileId}`,
-      {
-        filename,
-      },
-      token,
-      refreshToken,
-    );
-  },
-
-  /**
-   * Delete a file from a test
-   */
-  deleteFile: (
-    testId: string,
-    fileId: string,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    return apiDelete(`/tests/${testId}/files/${fileId}`, token, refreshToken);
   },
 
   // ========================================================================

@@ -1,8 +1,7 @@
 import subprocess
 import time
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Generator, ContextManager
+from typing import Any, Callable, Generator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,7 +10,6 @@ from testcontainers.mongodb import MongoDbContainer
 from testcontainers.core.network import Network
 
 from api.app import create_app
-from api.settings import Settings, get_settings
 
 from tests.utils import find_free_port
 
@@ -117,25 +115,6 @@ def config_api(
 
 
 @pytest.fixture()
-def override_settings(
-    client: TestClient,
-) -> Callable[[int], ContextManager[None]]:
-    @contextmanager
-    def _override_settings(
-        file_signature_expiration_seconds: int,
-    ) -> Generator[None, None, None]:
-        settings = Settings(  # ty: ignore[missing-argument]
-            file_signature_expiration_seconds=file_signature_expiration_seconds,
-        )
-        app = client.app
-        app.dependency_overrides[get_settings] = lambda: settings  # ty: ignore[unresolved-attribute]
-        yield
-        app.dependency_overrides.clear()  # ty: ignore[unresolved-attribute]
-
-    return _override_settings
-
-
-@pytest.fixture()
 def client(
     mongo: None,
     blob_storage: None,
@@ -159,6 +138,7 @@ def client(
 @pytest.fixture
 def create_device(client: TestClient) -> DeviceFactory:
     """Helper fixture to create a Device for testing."""
+
     def _create_device(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         input_data = {
             "category": "pc",
@@ -176,6 +156,7 @@ def create_device(client: TestClient) -> DeviceFactory:
 @pytest.fixture
 def create_environment(client: TestClient) -> EnvironmentFactory:
     """Helper fixture to create an Environment for testing."""
+
     def _create_environment(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         input_data = {
             "name": "Test Environment",
@@ -193,6 +174,7 @@ def create_environment(client: TestClient) -> EnvironmentFactory:
 @pytest.fixture
 def create_driver(client: TestClient) -> DriverFactory:
     """Helper fixture to create a Driver for testing."""
+
     def _create_driver(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         input_data = {
             "name": "Test Driver",
