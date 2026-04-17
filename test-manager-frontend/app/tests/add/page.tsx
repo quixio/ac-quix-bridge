@@ -49,18 +49,9 @@ export default function AddTestPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
 
-  console.log(
-    "[AddTest] render — pcDeviceId=",
-    pcDeviceId,
-    "pcDevices.len=",
-    pcDevices.length,
-  );
-
   useEffect(() => {
-    console.log("[AddTest] effect fired (mount)");
     const fetchData = async () => {
       try {
-        console.log("[AddTest] fetching 4 lists...");
         const [pcRes, rigRes, drvRes, envRes] = await Promise.all([
           devicesApi.list({ category: DeviceCategory.PC, page_size: 100 }),
           devicesApi.list({
@@ -70,38 +61,41 @@ export default function AddTestPage() {
           driversApi.list({ page_size: 100 }),
           environmentsApi.list({ page_size: 100 }),
         ]);
-        console.log("[AddTest] lists resolved:", {
-          pc: pcRes.items.length,
-          rig: rigRes.items.length,
-          drv: drvRes.items.length,
-          env: envRes.items.length,
-          pcFirst: pcRes.items[0],
-        });
         setPcDevices(pcRes.items);
         setTestRigDevices(rigRes.items);
         setDrivers(drvRes.items);
         setEnvironments(envRes.items);
-
-        // Auto-select first item in each dropdown
-        if (pcRes.items.length > 0) {
-          console.log("[AddTest] setPcDeviceId ->", pcRes.items[0].device_id);
-          setPcDeviceId(pcRes.items[0].device_id);
-        }
-        if (rigRes.items.length > 0)
-          setTestRigDeviceId(rigRes.items[0].device_id);
-        if (drvRes.items.length > 0) setDriver(drvRes.items[0].name);
-        if (envRes.items.length > 0)
-          setEnvironmentId(envRes.items[0].environment_id);
-        console.log("[AddTest] setState calls complete");
       } catch (error) {
-        console.error("[AddTest] Failed to fetch dropdown data:", error);
+        console.error("Failed to fetch dropdown data:", error);
       }
     };
     fetchData();
-    return () => {
-      console.log("[AddTest] effect cleanup (unmount)");
-    };
   }, []);
+
+  // Preselect first option once items mount. Must run AFTER the render that
+  // mounts the SelectItems, otherwise Radix Select can't match the value to
+  // an item and resets via onValueChange(""). Prod-only race observed on
+  // cloud; dev worked because StrictMode re-renders masked the timing.
+  useEffect(() => {
+    if (pcDevices.length > 0 && !pcDeviceId) {
+      setPcDeviceId(pcDevices[0].device_id);
+    }
+  }, [pcDevices, pcDeviceId]);
+  useEffect(() => {
+    if (testRigDevices.length > 0 && !testRigDeviceId) {
+      setTestRigDeviceId(testRigDevices[0].device_id);
+    }
+  }, [testRigDevices, testRigDeviceId]);
+  useEffect(() => {
+    if (drivers.length > 0 && !driver) {
+      setDriver(drivers[0].name);
+    }
+  }, [drivers, driver]);
+  useEffect(() => {
+    if (environments.length > 0 && !environmentId) {
+      setEnvironmentId(environments[0].environment_id);
+    }
+  }, [environments, environmentId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
