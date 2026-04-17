@@ -424,6 +424,35 @@ class DriverQuery(PaginationParams):
 
 
 # ---------------------------------------------------------------------------
+# Leaderboard
+# ---------------------------------------------------------------------------
+
+
+class BestLapEntry(BaseModel):
+    """A single row in the leaderboard: one driver's best lap within a
+    (track, car, experiment) scope.
+
+    `best_lap_ms` is the fastest `iLastTime` value (in milliseconds) observed
+    across every lap-partition for this (track, car, experiment, driver),
+    filtered to `lap > 1` (out-lap excluded) and `iLastTime > 0` (stale /
+    zero-init rows excluded).
+
+    The `session_id` / `lap_number` / `achieved_at` fields are reserved for
+    V2 extensions (deep-link to Compare, date achieved column) and are always
+    `None` in V1.
+    """
+
+    track: str
+    car: str
+    experiment: str
+    driver: str
+    best_lap_ms: int
+    session_id: str | None = None
+    lap_number: int | None = None
+    achieved_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
 
