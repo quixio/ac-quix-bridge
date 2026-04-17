@@ -40,19 +40,28 @@ export async function waitForToast(page: any, expectedText?: string) {
 }
 
 /**
- * Helper function to fill test form with valid data
+ * Fill the create-test form with valid data. Selects the first available
+ * option in each of the four dropdowns (PC, Test Rig, Environment, Driver),
+ * then fills the experiment_id input and optional requirements textarea.
+ *
+ * Assumes the backend already has at least one device/env/driver of each
+ * kind seeded (e.g. via `scripts/load_snapshot.py`).
  */
-export async function fillTestForm(
+export async function fillCreateTestForm(
   page: any,
   data: {
-    test_id: string;
-    campaign_id: string;
-    environment_id: string;
-    operator: string;
+    experimentId: string;
+    requirements?: string;
   },
 ) {
-  await page.fill("#test_id", data.test_id);
-  await page.fill("#campaign_id", data.campaign_id);
-  await page.fill("#environment_id", data.environment_id);
-  await page.fill("#operator", data.operator);
+  // Four Radix Selects in DOM order: PC, Test Rig, Environment, Driver.
+  const selects = page.getByRole("combobox");
+  for (let i = 0; i < 4; i++) {
+    await selects.nth(i).click();
+    await page.getByRole("option").first().click();
+  }
+  await page.locator("#experiment_id").fill(data.experimentId);
+  if (data.requirements) {
+    await page.locator("#requirements").fill(data.requirements);
+  }
 }
