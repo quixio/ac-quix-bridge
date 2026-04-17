@@ -265,6 +265,71 @@ def test_delete_test_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+# ============================================================================
+# Requirements field — AI prompt pipeline will read this, so pin the contract.
+# ============================================================================
+
+
+MULTILINE_REQS = (
+    "The driver shall finish Monza under 55.250s.\n"
+    "The car shall not exceed 3.5G longitudinal.\n"
+    "Tyre temperature shall stay below 80°C."
+)
+
+
+def test_create_test_with_requirements(
+    create_test: TestFactory, config_api: httpx.Client
+) -> None:
+    """Multi-line requirements round-trip through create + DCM config content."""
+    _, created = create_test(requirements=MULTILINE_REQS)
+
+    assert created["requirements"] == MULTILINE_REQS
+
+    content = config_api.get(
+        f"/api/v1/configurations/{created['config_id']}/versions/{created['config_version']}/content"
+    ).json()
+    assert content["requirements"] == MULTILINE_REQS
+
+
+def test_update_test_requirements(
+    create_test: TestFactory, client: TestClient, config_api: httpx.Client
+) -> None:
+    """PUT replaces requirements and a new DCM version carries the new value."""
+    _, created = create_test(requirements="old requirements")
+    test_id = created["test_id"]
+
+    response = client.put(
+        f"/api/v1/tests/{test_id}", json={"requirements": MULTILINE_REQS}
+    )
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["requirements"] == MULTILINE_REQS
+    assert updated["config_version"] == created["config_version"] + 1
+
+    content = config_api.get(
+        f"/api/v1/configurations/{updated['config_id']}/versions/{updated['config_version']}/content"
+    ).json()
+    assert content["requirements"] == MULTILINE_REQS
+
+
+def test_activate_preserves_requirements_in_dcm(
+    create_test: TestFactory, client: TestClient, config_api: httpx.Client
+) -> None:
+    """Activate pushes a fresh DCM version that still carries requirements."""
+    _, created = create_test(requirements=MULTILINE_REQS)
+    test_id = created["test_id"]
+
+    response = client.post(f"/api/v1/tests/{test_id}/activate")
+    assert response.status_code == 200
+    activated = response.json()
+    assert activated["config_version"] == created["config_version"] + 1
+
+    content = config_api.get(
+        f"/api/v1/configurations/{activated['config_id']}/versions/{activated['config_version']}/content"
+    ).json()
+    assert content["requirements"] == MULTILINE_REQS
+
+
 def test_delete_cleans_all_orphan_versions_of_that_test(
     create_test: TestFactory,
     create_device: DeviceFactory,
