@@ -113,7 +113,9 @@ test.describe("Tests Management", () => {
   test("should edit an existing test", async ({ page }) => {
     // Create a throwaway test so the run is self-contained.
     await page.goto("/tests/add");
-    await fillCreateTestForm(page, { experimentId: generateTestId("e2e-edit") });
+    await fillCreateTestForm(page, {
+      experimentId: generateTestId("e2e-edit"),
+    });
     await page.getByRole("button", { name: "Create Test" }).click();
     await page.waitForURL(/\/tests\/TST-\d+$/);
 
@@ -311,7 +313,9 @@ test.describe("Sessions on a test", () => {
   }) => {
     // Create a fresh test via the UI so this run is self-contained.
     await page.goto("/tests/add");
-    await fillCreateTestForm(page, { experimentId: generateTestId("e2e-sess") });
+    await fillCreateTestForm(page, {
+      experimentId: generateTestId("e2e-sess"),
+    });
     await page.getByRole("button", { name: "Create Test" }).click();
     await page.waitForURL(/\/tests\/TST-\d+$/);
     const testId = page.url().split("/").pop()!;
@@ -345,14 +349,6 @@ test.describe("Activate and dirty-check", () => {
   // These tests mutate shared local DB/DCM state and can't run in parallel.
   test.describe.configure({ mode: "serial" });
 
-  // Picks any pre-seeded test via the tests list rather than a hardcoded id.
-  async function openFirstTestDetail(page: any): Promise<void> {
-    await page.goto("/tests");
-    await page.waitForSelector("table tbody tr", { timeout: 10000 });
-    await page.locator("table tbody tr").first().click();
-    await page.waitForURL(/\/tests\/TST-/);
-  }
-
   test("activate button bumps config_version", async ({ page, request }) => {
     // Create an isolated test so the config_version delta is unambiguous.
     await page.goto("/tests/add");
@@ -373,21 +369,26 @@ test.describe("Activate and dirty-check", () => {
   });
 
   test("save button is disabled until the form is dirty", async ({ page }) => {
-    await openFirstTestDetail(page);
+    // Create an isolated test (empty requirements baseline) so the revert-
+    // to-empty assertion is unambiguous — otherwise prior runs may have
+    // saved requirements on the first seeded test.
+    await page.goto("/tests/add");
+    await fillCreateTestForm(page, {
+      experimentId: generateTestId("e2e-dirty"),
+    });
+    await page.getByRole("button", { name: "Create Test" }).click();
+    await page.waitForURL(/\/tests\/TST-\d+$/);
+    const testId = page.url().split("/").pop()!;
 
-    const url = page.url();
-    const testId = url.split("/").pop()!;
     await page.goto(`/tests/${testId}/edit`);
 
     const save = page.getByTestId("save-test");
     await expect(save).toBeDisabled();
 
-    // Tweak the requirements textarea to dirty the form.
     const requirements = page.locator("#requirements");
     await requirements.fill("dirty-change");
     await expect(save).toBeEnabled();
 
-    // Revert and it should be disabled again.
     await requirements.fill("");
     await expect(save).toBeDisabled();
   });

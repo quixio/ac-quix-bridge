@@ -239,9 +239,11 @@ export default function EditTestPage() {
                   id="requirements"
                   value={formRequirements}
                   onChange={(e) => setRequirements(e.target.value)}
-                  placeholder="e.g. The system shall complete a lap in under 2 minutes."
+                  placeholder={`The driver shall finish Monza under 55.250s.
+The car shall not exceed 3.5G longitudinal.
+Tyre temperature shall stay below 80°C.`}
                   disabled={isSubmitting}
-                  rows={3}
+                  rows={5}
                 />
               </div>
 

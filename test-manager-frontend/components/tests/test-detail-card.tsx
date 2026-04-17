@@ -8,34 +8,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useIntegrationsApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
-import { downloadCsv } from "@/lib/utils/csv";
 import type { Test } from "@/types/test";
-import {
-  ExternalLink,
-  Sliders,
-  Database,
-  BarChart3,
-  LineChart,
-  Download,
-  TrendingUp,
-} from "lucide-react";
+import { ExternalLink, TrendingUp } from "lucide-react";
 
 interface TestDetailCardProps {
   test: Test;
-  onTestUpdated?: () => void;
   resolvedNames?: { pcName: string; rigName: string; envName: string };
 }
 
-export function TestDetailCard({
-  test,
-  onTestUpdated,
-  resolvedNames,
-}: TestDetailCardProps) {
+export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
   const integrationsApi = useIntegrationsApi();
   const { formatDateTime } = useDateFormatter();
   const [isLoadingConfigUrl, setIsLoadingConfigUrl] = useState(false);
-  const [isLoadingDataLakeUrl, setIsLoadingDataLakeUrl] = useState(false);
-  const [isLoadingDownload, setIsLoadingDownload] = useState(false);
   const { toast } = useToast();
 
   const handleOpenConfigManager = async () => {
@@ -54,71 +38,6 @@ export function TestDetailCard({
       setIsLoadingConfigUrl(false);
     }
   };
-
-  const handleOpenDataLake = async () => {
-    setIsLoadingDataLakeUrl(true);
-    try {
-      const { url } = await integrationsApi.getDataLakeUrl(test.test_id);
-      window.open(url, "_blank");
-    } catch (error) {
-      toast({
-        title: "Error loading Data Lake",
-        description:
-          error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingDataLakeUrl(false);
-    }
-  };
-
-  const handleDownloadData = async () => {
-    setIsLoadingDownload(true);
-    try {
-      const csvContent = await integrationsApi.downloadTestData(
-        test.test_id,
-        test.experiment_id,
-        test.environment_id,
-      );
-
-      if (!csvContent || csvContent.trim() === "") {
-        toast({
-          title: "No data available",
-          description: "No measurement data found for this test.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const timestamp = new Date()
-        .toISOString()
-        .replace(/[:.]/g, "-")
-        .slice(0, -5);
-      const filename = `test_data_${test.test_id}_${timestamp}.csv`;
-      downloadCsv(csvContent, filename);
-
-      toast({
-        title: "Download started",
-        description: `Downloading ${filename}`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error downloading data",
-        description:
-          error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingDownload(false);
-    }
-  };
-
-  const configManagerUrl =
-    test.config_id &&
-    test.config_version !== null &&
-    test.config_version !== undefined
-      ? `/config-manager?config_id=${test.config_id}&config_version=${test.config_version}`
-      : `/config-manager`;
 
   return (
     <div className="space-y-6">
@@ -158,7 +77,14 @@ export function TestDetailCard({
             value: resolvedNames?.envName || test.environment_id,
           },
           ...(test.requirements
-            ? [{ label: "Requirements", value: test.requirements }]
+            ? [
+                {
+                  label: "Requirements",
+                  value: test.requirements,
+                  className: "sm:col-span-2",
+                  valueClassName: "whitespace-pre-line",
+                },
+              ]
             : []),
         ]}
       />
