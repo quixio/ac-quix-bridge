@@ -28,7 +28,10 @@ def main() -> int:
             host=settings.api_host,
             port=settings.api_port,
             reload=True,  # Auto-reload when code changes
-            reload_dirs=["/app"],  # Watch /app directory
+            # Only watch api/ (source). Excluding scripts/ and bytecode avoids
+            # spurious restarts when ad-hoc scripts compile .pyc files.
+            reload_dirs=["/app/api"],
+            reload_excludes=["*.pyc", "**/__pycache__/**"],
         )
     else:
         # In production: use app object with multiple workers
