@@ -124,13 +124,13 @@ def override_settings(
     def _override_settings(
         file_signature_expiration_seconds: int,
     ) -> Generator[None, None, None]:
-        settings = Settings(  # type: ignore[call-arg]
+        settings = Settings(  # ty: ignore[missing-argument]
             file_signature_expiration_seconds=file_signature_expiration_seconds,
         )
         app = client.app
-        app.dependency_overrides[get_settings] = lambda: settings  # type: ignore[attr-defined]
+        app.dependency_overrides[get_settings] = lambda: settings  # ty: ignore[unresolved-attribute]
         yield
-        app.dependency_overrides.clear()  # type: ignore[attr-defined]
+        app.dependency_overrides.clear()  # ty: ignore[unresolved-attribute]
 
     return _override_settings
 

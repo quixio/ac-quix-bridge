@@ -34,13 +34,17 @@ def test_create_test(create_test: TestFactory, config_api: httpx.Client) -> None
 
     # Verify config was created in DCM
     config_id = output_data["config_id"]
-    config_content = config_api.get(f"/api/v1/configurations/{config_id}/content").json()
+    config_content = config_api.get(
+        f"/api/v1/configurations/{config_id}/content"
+    ).json()
     assert config_content["test_id"] == output_data["test_id"]
     assert config_content["experiment_id"] == input_data["experiment_id"]
     assert config_content["driver"] == input_data["driver"].lower()
 
 
-def test_create_test_auto_increment_ids(create_test: TestFactory, client: TestClient) -> None:
+def test_create_test_auto_increment_ids(
+    create_test: TestFactory, client: TestClient
+) -> None:
     """Test that test IDs auto-increment."""
     _, t1 = create_test()
     _, t2 = create_test()
@@ -50,13 +54,16 @@ def test_create_test_auto_increment_ids(create_test: TestFactory, client: TestCl
 
 def test_create_test_device_not_found(client: TestClient) -> None:
     """Test that creating a test with non-existent device returns 404."""
-    response = client.post("/api/v1/tests", json={
-        "experiment_id": "exp1",
-        "pc_device_id": "nonexistent",
-        "test_rig_device_id": "also-nonexistent",
-        "environment_id": "env1",
-        "driver": "Tomas",
-    })
+    response = client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": "exp1",
+            "pc_device_id": "nonexistent",
+            "test_rig_device_id": "also-nonexistent",
+            "environment_id": "env1",
+            "driver": "Tomas",
+        },
+    )
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
 
@@ -178,10 +185,13 @@ def test_update_test(
     test_id = created["test_id"]
     original_created_at = created["created_at"]
 
-    response = client.put(f"/api/v1/tests/{test_id}", json={
-        "experiment_id": "updated-exp",
-        "driver": "Bob",
-    })
+    response = client.put(
+        f"/api/v1/tests/{test_id}",
+        json={
+            "experiment_id": "updated-exp",
+            "driver": "Bob",
+        },
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["experiment_id"] == "updated-exp"
@@ -194,7 +204,9 @@ def test_update_test(
 
     # Verify config updated in DCM
     config_id = data["config_id"]
-    config_content = config_api.get(f"/api/v1/configurations/{config_id}/content").json()
+    config_content = config_api.get(
+        f"/api/v1/configurations/{config_id}/content"
+    ).json()
     assert config_content["experiment_id"] == "updated-exp"
     assert config_content["driver"] == "bob"  # lowercased
 
@@ -256,6 +268,72 @@ def test_delete_test_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_delete_one_test_preserves_siblings_on_same_hostname(
+    create_test: TestFactory,
+    create_device: DeviceFactory,
+    create_environment: EnvironmentFactory,
+    client: TestClient,
+    config_api: httpx.Client,
+) -> None:
+    """Regression test for the 2026-04-15 bug where deleting one test nuked the
+    entire shared DCM config, wiping sibling tests' history.
+
+    Multiple tests targeting the same PC (same target_key) share one DCM
+    config_id; each test owns a distinct version. Deleting one test must
+    remove only its own version — sibling tests' versions and the config
+    itself must stay intact and resolvable via /telemetry-params.
+    """
+    _, pc = create_device(name="SharedPC", category="pc")
+    _, rig = create_device(name="SharedRig", category="test_rig")
+    _, env = create_environment(name="SharedEnv")
+
+    siblings = []
+    for i in range(3):
+        _, t = create_test(
+            pc_device_id=pc["device_id"],
+            test_rig_device_id=rig["device_id"],
+            environment_id=env["environment_id"],
+            experiment_id=f"exp-{i}",
+        )
+        siblings.append(t)
+
+    # All siblings should share one config_id but hold distinct versions.
+    shared_config_id = siblings[0]["config_id"]
+    assert all(s["config_id"] == shared_config_id for s in siblings)
+    versions = [s["config_version"] for s in siblings]
+    assert len(set(versions)) == 3
+
+    victim, survivor_a, survivor_b = siblings
+
+    # Delete the middle test.
+    assert client.delete(f"/api/v1/tests/{victim['test_id']}").status_code == 204
+
+    # Victim's specific version is gone.
+    resp = config_api.get(
+        f"/api/v1/configurations/{shared_config_id}/versions/{victim['config_version']}/content"
+    )
+    assert resp.status_code == 404
+
+    # Survivors' specific versions still resolve.
+    for s in (survivor_a, survivor_b):
+        resp = config_api.get(
+            f"/api/v1/configurations/{shared_config_id}/versions/{s['config_version']}/content"
+        )
+        assert resp.status_code == 200
+        assert resp.json()["test_id"] == s["test_id"]
+
+    # /telemetry-params still works end-to-end for survivors.
+    for s in (survivor_a, survivor_b):
+        resp = client.get(f"/api/v1/tests/{s['test_id']}/telemetry-params")
+        assert resp.status_code == 200
+        assert resp.json()["experiment"] == s["experiment_id"]
+
+    # The shared config itself must still exist.
+    assert (
+        config_api.get(f"/api/v1/configurations/{shared_config_id}").status_code == 200
+    )
+
+
 # ============================================================================
 # Config API error handling
 # ============================================================================
@@ -281,20 +359,23 @@ def test_create_test_config_api_error(
     mock_client = Mock()
     mock_client.post.return_value = mock_response
 
-    client.app.dependency_overrides[get_config_api_client] = lambda: mock_client  # type: ignore
+    client.app.dependency_overrides[get_config_api_client] = lambda: mock_client  # ty: ignore[unresolved-attribute]
 
     try:
-        response = client.post("/api/v1/tests", json={
-            "experiment_id": "exp1",
-            "pc_device_id": pc["device_id"],
-            "test_rig_device_id": rig["device_id"],
-            "environment_id": env["environment_id"],
-            "driver": "Tomas",
-        })
+        response = client.post(
+            "/api/v1/tests",
+            json={
+                "experiment_id": "exp1",
+                "pc_device_id": pc["device_id"],
+                "test_rig_device_id": rig["device_id"],
+                "environment_id": env["environment_id"],
+                "driver": "Tomas",
+            },
+        )
         assert response.status_code == 424
         assert "Failed to create configuration" in response.json()["detail"]
     finally:
-        client.app.dependency_overrides.clear()  # type: ignore
+        client.app.dependency_overrides.clear()  # ty: ignore[unresolved-attribute]
 
 
 # ============================================================================
@@ -351,11 +432,14 @@ def test_get_telemetry_params(
     test_id = created["test_id"]
 
     # Add a session so track/carModel come from it
-    client.post(f"/api/v1/tests/{test_id}/sessions", json={
-        "session_id": "session-1",
-        "track": "monza",
-        "car_model": "ferrari_488",
-    })
+    client.post(
+        f"/api/v1/tests/{test_id}/sessions",
+        json={
+            "session_id": "session-1",
+            "track": "monza",
+            "car_model": "ferrari_488",
+        },
+    )
 
     response = client.get(f"/api/v1/tests/{test_id}/telemetry-params")
     assert response.status_code == 200
@@ -412,7 +496,9 @@ def test_pagination(create_test: TestFactory, client: TestClient) -> None:
     assert len(data["items"]) == 5
 
 
-def test_pagination_multiple_pages(create_test: TestFactory, client: TestClient) -> None:
+def test_pagination_multiple_pages(
+    create_test: TestFactory, client: TestClient
+) -> None:
     """Test pagination across multiple pages."""
     for i in range(25):
         create_test(experiment_id=f"exp-{i:03d}")
