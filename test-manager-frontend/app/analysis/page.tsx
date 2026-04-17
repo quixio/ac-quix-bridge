@@ -189,32 +189,27 @@ function AnalysisPageContent() {
   }
 
   return (
-    <MainLayout>
-      <div className="max-w-7xl">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight">Analysis</h1>
-          <p className="text-muted-foreground">
-            Performance analysis tools for test data
-          </p>
-        </div>
-
-        {testId && (
-          <div className="mb-4 flex gap-2 text-sm">
-            <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
-              Test: {testId}
-            </span>
-          </div>
-        )}
+    <MainLayout noPadding>
+      <div className="max-w-7xl px-6 pt-3 pb-6">
+        <h1 className="mb-3 text-3xl font-bold tracking-tight">Analysis</h1>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList>
-            {ANALYSIS_TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
-                <tab.icon className="mr-2 h-4 w-4" />
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="flex items-center justify-between gap-4">
+            <TabsList>
+              {ANALYSIS_TABS.map((tab) => (
+                <TabsTrigger key={tab.value} value={tab.value}>
+                  <tab.icon className="mr-2 h-4 w-4" />
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {testId && (
+              <span className="rounded-md bg-muted px-2 py-1 text-sm text-muted-foreground">
+                Test: {testId}
+              </span>
+            )}
+          </div>
 
           <TabsContent value="compare">
             <CompareTab testId={testId} />

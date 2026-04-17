@@ -50,7 +50,7 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
   api: T
 ) {
   return function useAuthenticatedApiHook() {
-    const { token, refreshToken, clearTokenAndPrompt, isEmbedded } = useQuixAuth()
+    const { token, refreshToken, clearTokenAndPrompt, isEmbedded, isLoading } = useQuixAuth()
 
     // Memoize the authenticated API object to prevent infinite re-renders
     // Only recreate when token or refreshToken changes
@@ -63,18 +63,16 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
         const originalFn = api[key]
         // @ts-ignore - Dynamic function wrapping
         apiObj[key] = async (...args: any[]) => {
-          // If no token yet in embedded mode, request one from Portal first.
-          // This avoids the race where components fire requests on mount before
-          // the postMessage handshake with the Quix Portal has completed.
-          let activeToken = token
-          if (!activeToken && isEmbedded) {
-            activeToken = await refreshToken()
-          }
+          // MainLayout gates rendering on auth-ready, so by the time any
+          // component fires an API call, the token is already in place.
           try {
-            return await originalFn(...args, activeToken, refreshToken)
+            return await originalFn(...args, token, refreshToken)
           } catch (error) {
-            // In standalone mode, if auth fails after retry, prompt for new token
+            // Only prompt for a new token in standalone mode AND after the auth
+            // context has finished initializing. This avoids a race during embedded
+            // mount where isEmbedded is still false from its initial useRef value.
             if (
+              !isLoading &&
               !isEmbedded &&
               error instanceof ApiError &&
               (error.status === 401 || error.status === 403)
@@ -87,7 +85,7 @@ function createAuthenticatedApi<T extends Record<string, (...args: any[]) => any
       }
 
       return apiObj
-    }, [token, refreshToken, clearTokenAndPrompt, isEmbedded])
+    }, [token, refreshToken, clearTokenAndPrompt, isEmbedded, isLoading])
 
     return authenticatedApi
   }

@@ -5,6 +5,7 @@ import { SidebarProvider } from "@/lib/contexts/sidebar-context"
 import { ThemeContextProvider } from "@/lib/contexts/theme-context"
 import { QuixAuthProvider } from "@/lib/contexts/quix-auth-context"
 import { AuthTokenDialog } from "@/components/auth/auth-token-dialog"
+import { AuthGate } from "@/components/auth/auth-gate"
 
 export const metadata: Metadata = {
   title: "Test Manager",
@@ -27,7 +28,7 @@ export default function RootLayout({
           <AuthTokenDialog />
           <ThemeContextProvider>
             <SidebarProvider>
-              {children}
+              <AuthGate>{children}</AuthGate>
               <Toaster />
             </SidebarProvider>
           </ThemeContextProvider>
