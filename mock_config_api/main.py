@@ -20,24 +20,68 @@ Each version is independently addressable and deletable.
 
 import hashlib
 import json
+import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException
 from pydantic import BaseModel
 
+# ---------------------------------------------------------------------------
+# Storage (in-memory, optionally file-backed via DCM_PERSIST_PATH)
+# ---------------------------------------------------------------------------
+
+configs: dict[str, dict[str, Any]] = {}
+
+_PERSIST_PATH = os.environ.get("DCM_PERSIST_PATH")
+
+
+def _persist() -> None:
+    """Serialize configs to disk if DCM_PERSIST_PATH is set. No-op otherwise."""
+    if not _PERSIST_PATH:
+        return
+    path = Path(_PERSIST_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    serializable = {
+        cid: {**cfg, "versions": {str(v): data for v, data in cfg["versions"].items()}}
+        for cid, cfg in configs.items()
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(serializable, indent=2))
+    tmp.replace(path)
+
+
+def _load() -> None:
+    """Load configs from disk if DCM_PERSIST_PATH is set and the file exists."""
+    if not _PERSIST_PATH:
+        return
+    path = Path(_PERSIST_PATH)
+    if not path.exists():
+        return
+    try:
+        raw = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return
+    configs.clear()
+    for cid, cfg in raw.items():
+        configs[cid] = {**cfg, "versions": {int(v): data for v, data in cfg["versions"].items()}}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _load()
+    yield
+
+
 app = FastAPI(
     title="Mock Configuration API",
     version="0.1.0",
     description="Mock of Quix Dynamic Configuration Manager for local dev/testing",
+    lifespan=lifespan,
 )
-
-# ---------------------------------------------------------------------------
-# In-memory storage
-# ---------------------------------------------------------------------------
-
-configs: dict[str, dict[str, Any]] = {}
 
 
 def _now_iso() -> str:
@@ -128,6 +172,7 @@ def create_configuration(body: ConfigInsert = Body(...)):
             "sha256sum": sha,
         }
         cfg["category"] = body.metadata.category
+        _persist()
         return {"data": _version_metadata(existing_id, cfg, new_version), "links": {}}
     else:
         config_id = str(uuid.uuid4())
@@ -144,6 +189,7 @@ def create_configuration(body: ConfigInsert = Body(...)):
                 }
             },
         }
+        _persist()
         return {
             "data": _version_metadata(config_id, configs[config_id], 1),
             "links": {},
@@ -331,6 +377,7 @@ def update_configuration(
         if body.metadata.category:
             cfg["category"] = body.metadata.category
 
+    _persist()
     return {"data": _version_metadata(config_id, cfg, v), "links": {}}
 
 
@@ -360,6 +407,7 @@ def update_configuration_version(
         if body.metadata.category:
             cfg["category"] = body.metadata.category
 
+    _persist()
     return {"data": _version_metadata(config_id, cfg, version), "links": {}}
 
 
@@ -382,6 +430,7 @@ def delete_configuration(config_id: str, version: int | None = None):
         del cfg["versions"][version]
         if not cfg["versions"]:
             del configs[config_id]
+        _persist()
         return {"data": [meta], "links": {}, "count": 1}
     else:
         results = [
@@ -389,6 +438,7 @@ def delete_configuration(config_id: str, version: int | None = None):
             for v in sorted(cfg["versions"].keys())
         ]
         del configs[config_id]
+        _persist()
         return {"data": results, "links": {}, "count": len(results)}
 
 
@@ -411,6 +461,7 @@ def delete_configuration_version(config_id: str, version: int):
     if not cfg["versions"]:
         del configs[config_id]
 
+    _persist()
     return {"data": [meta], "links": {}, "count": 1}
 
 

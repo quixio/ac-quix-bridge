@@ -24,6 +24,10 @@ services:
     container_name: ac-quix-config-api
     ports:
       - "8001:8001"
+    environment:
+      DCM_PERSIST_PATH: /data/configs.json
+    volumes:
+      - config_api_data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 10s
@@ -91,3 +95,4 @@ volumes:
   backend_storage:
   frontend_node_modules:
   frontend_cache:
+  config_api_data:
