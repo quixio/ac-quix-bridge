@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 import logging
 import os
-from typing import AsyncGenerator
+from collections.abc import Sequence
+from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,7 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     mongo.disconnect()
 
 
-def format_validation_error(errors: list[dict]) -> str:
+def format_validation_error(errors: Sequence[Any]) -> str:
     """
     Transform Pydantic validation errors into user-friendly messages.
 
@@ -148,8 +149,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Register custom exception handler for validation errors
-    application.add_exception_handler(RequestValidationError, validation_exception_handler)
+    # Register custom exception handler for validation errors.
+    # ty flags the handler's param type (RequestValidationError) as narrower than
+    # Starlette's ExceptionHandler signature — this is the documented FastAPI pattern.
+    application.add_exception_handler(RequestValidationError, validation_exception_handler)  # ty: ignore[invalid-argument-type]
 
     application.include_router(tests_router, tags=["tests"], prefix="/api/v1")
     application.include_router(devices_router, tags=["devices"], prefix="/api/v1")
