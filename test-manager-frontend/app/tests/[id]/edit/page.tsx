@@ -85,6 +85,14 @@ export default function EditTestPage() {
   const formDriver = driver ?? test?.driver ?? "";
   const formRequirements = requirements ?? test?.requirements ?? "";
 
+  const isDirty =
+    formExperimentId !== (test?.experiment_id ?? "") ||
+    formPcDeviceId !== (test?.pc_device_id ?? "") ||
+    formTestRigDeviceId !== (test?.test_rig_device_id ?? "") ||
+    formEnvironmentId !== (test?.environment_id ?? "") ||
+    formDriver !== (test?.driver ?? "") ||
+    formRequirements !== (test?.requirements ?? "");
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -238,7 +246,11 @@ export default function EditTestPage() {
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button type="submit" disabled={isSubmitting}>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || !isDirty}
+                  data-testid="save-test"
+                >
                   {isSubmitting ? "Saving..." : "Save Changes"}
                 </Button>
                 <Button

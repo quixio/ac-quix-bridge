@@ -268,6 +268,93 @@ def test_delete_test_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+
+# ============================================================================
+# Activate
+# ============================================================================
+
+
+def test_activate_test_creates_new_dcm_version(
+    create_test: TestFactory,
+    client: TestClient,
+    config_api: httpx.Client,
+) -> None:
+    """Activating bumps the test's config_version to a new DCM version.
+
+    The previous version stays in DCM (orphaned); new version carries the
+    current test content, making it the latest for bridge enrichment.
+    """
+    _, created = create_test(experiment_id="my-exp", driver="Daniel")
+    test_id = created["test_id"]
+    old_config_id = created["config_id"]
+    old_version = created["config_version"]
+
+    response = client.post(f"/api/v1/tests/{test_id}/activate")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["config_id"] == old_config_id
+    assert data["config_version"] == old_version + 1
+
+    # Old version still exists (orphan).
+    assert (
+        config_api.get(
+            f"/api/v1/configurations/{old_config_id}/versions/{old_version}/content"
+        ).status_code
+        == 200
+    )
+    # New version has the current test's content.
+    new_content = config_api.get(
+        f"/api/v1/configurations/{old_config_id}/versions/{data['config_version']}/content"
+    ).json()
+    assert new_content["test_id"] == test_id
+    assert new_content["experiment_id"] == "my-exp"
+    assert new_content["driver"] == "daniel"
+
+
+def test_activate_test_not_found(client: TestClient) -> None:
+    """Activating a non-existent test returns 404."""
+    response = client.post("/api/v1/tests/TST-9999/activate")
+    assert response.status_code == 404
+
+
+def test_activate_preserves_sibling_versions(
+    create_test: TestFactory,
+    create_device: DeviceFactory,
+    create_environment: EnvironmentFactory,
+    client: TestClient,
+    config_api: httpx.Client,
+) -> None:
+    """Activating one test leaves sibling tests on the same hostname untouched."""
+    _, pc = create_device(name="SharedPC", category="pc")
+    _, rig = create_device(name="SharedRig", category="test_rig")
+    _, env = create_environment(name="SharedEnv")
+
+    _, a = create_test(
+        pc_device_id=pc["device_id"],
+        test_rig_device_id=rig["device_id"],
+        environment_id=env["environment_id"],
+        experiment_id="a",
+    )
+    _, b = create_test(
+        pc_device_id=pc["device_id"],
+        test_rig_device_id=rig["device_id"],
+        environment_id=env["environment_id"],
+        experiment_id="b",
+    )
+    assert a["config_id"] == b["config_id"]
+
+    # Activate A; B must not change.
+    client.post(f"/api/v1/tests/{a['test_id']}/activate").raise_for_status()
+
+    b_refreshed = client.get(f"/api/v1/tests/{b['test_id']}").json()
+    assert b_refreshed["config_version"] == b["config_version"]
+
+    # B's telemetry-params still resolve.
+    assert (
+        client.get(f"/api/v1/tests/{b['test_id']}/telemetry-params").status_code == 200
+    )
+
+
 def test_delete_one_test_preserves_siblings_on_same_hostname(
     create_test: TestFactory,
     create_device: DeviceFactory,
@@ -416,6 +503,72 @@ def test_add_session_deduplicate(create_test: TestFactory, client: TestClient) -
 
     response = client.get(f"/api/v1/tests/{test_id}")
     assert len(response.json()["sessions"]) == 1
+
+
+def test_add_multiple_sessions(create_test: TestFactory, client: TestClient) -> None:
+    """Distinct sessions append in order; telemetry-params keys off sessions[0]."""
+    _, created = create_test()
+    test_id = created["test_id"]
+
+    sessions = [
+        {
+            "session_id": "2026-04-16T09:00:00Z",
+            "track": "monza",
+            "car_model": "ferrari_488",
+        },
+        {"session_id": "2026-04-16T10:00:00Z", "track": "spa", "car_model": "bmw_1m"},
+        {
+            "session_id": "2026-04-16T11:00:00Z",
+            "track": "nurburgring",
+            "car_model": "mclaren_720s",
+        },
+    ]
+    for s in sessions:
+        r = client.post(f"/api/v1/tests/{test_id}/sessions", json=s)
+        assert r.status_code == 200
+
+    data = client.get(f"/api/v1/tests/{test_id}").json()
+    assert [s["session_id"] for s in data["sessions"]] == [
+        s["session_id"] for s in sessions
+    ]
+
+    params = client.get(f"/api/v1/tests/{test_id}/telemetry-params").json()
+    assert params["track"] == "monza"
+    assert params["carModel"] == "ferrari_488"
+    assert params["session_ids"] == [s["session_id"] for s in sessions]
+
+
+def test_add_session_test_not_found(client: TestClient) -> None:
+    """Adding a session to a non-existent test returns 404."""
+    response = client.post(
+        "/api/v1/tests/TST-9999/sessions",
+        json={"session_id": "s-1", "track": "monza", "car_model": "ferrari_488"},
+    )
+    assert response.status_code == 404
+
+
+def test_edit_test_preserves_sessions(
+    create_test: TestFactory, client: TestClient
+) -> None:
+    """Updating a test must not drop its sessions array."""
+    _, created = create_test()
+    test_id = created["test_id"]
+
+    client.post(
+        f"/api/v1/tests/{test_id}/sessions",
+        json={"session_id": "s-1", "track": "monza", "car_model": "ferrari_488"},
+    )
+    client.post(
+        f"/api/v1/tests/{test_id}/sessions",
+        json={"session_id": "s-2", "track": "spa", "car_model": "bmw_1m"},
+    )
+
+    # Edit the test — this re-pushes config to DCM and overwrites test doc fields.
+    r = client.put(f"/api/v1/tests/{test_id}", json={"driver": "Someone"})
+    assert r.status_code == 200
+
+    sessions = client.get(f"/api/v1/tests/{test_id}").json()["sessions"]
+    assert [s["session_id"] for s in sessions] == ["s-1", "s-2"]
 
 
 # ============================================================================

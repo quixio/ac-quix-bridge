@@ -347,3 +347,60 @@ test.describe("Tests Table Features", () => {
     }
   });
 });
+
+test.describe("Activate and dirty-check", () => {
+  // These tests mutate shared local DB/DCM state and can't run in parallel.
+  test.describe.configure({ mode: "serial" });
+
+  // Picks any pre-seeded test via the tests list rather than a hardcoded id.
+  async function openFirstTestDetail(page: any): Promise<void> {
+    await page.goto("/tests");
+    await page.waitForSelector("table tbody tr", { timeout: 10000 });
+    await page.locator("table tbody tr").first().click();
+    await page.waitForURL(/\/tests\/TST-/);
+  }
+
+  test("activate button bumps config_version", async ({ page }) => {
+    await openFirstTestDetail(page);
+
+    // Read config_version from detail card (rendered as "Version N" or similar).
+    const url = page.url();
+    const testId = url.split("/").pop()!;
+    const apiUrl = `${url.replace(`/tests/${testId}`, "")}/api/v1/tests/${testId}`;
+    const before = await page.evaluate(
+      (u) => fetch(u).then((r) => r.json()),
+      apiUrl,
+    );
+
+    await page.getByTestId("activate-test").click();
+    await waitForToast(page, "Test activated");
+
+    const after = await page.evaluate(
+      (u) => fetch(u).then((r) => r.json()),
+      apiUrl,
+    );
+    expect(after.config_version).toBe(before.config_version + 1);
+    expect(after.config_id).toBe(before.config_id);
+  });
+
+  test("save button is disabled until the form is dirty", async ({ page }) => {
+    await openFirstTestDetail(page);
+
+    const url = page.url();
+    const testId = url.split("/").pop()!;
+    await page.goto(`/tests/${testId}/edit`);
+
+    const save = page.getByTestId("save-test");
+    await expect(save).toBeDisabled();
+
+    // Tweak the requirements textarea to dirty the form.
+    const requirements = page.locator("#requirements");
+    await requirements.fill("dirty-change");
+    await expect(save).toBeEnabled();
+
+    // Revert and it should be disabled again.
+    await requirements.fill("");
+    await expect(save).toBeDisabled();
+  });
+
+});

@@ -38,6 +38,7 @@ import {
   FileText,
   Settings,
   Plus,
+  Zap,
 } from "lucide-react";
 import type {
   File,
@@ -57,6 +58,7 @@ export default function TestDetailPage() {
 
   const { testFull, loading, error, refetch } = useTestFull(testId);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Logbook state
@@ -96,6 +98,27 @@ export default function TestDetailPage() {
 
   // Destructure testFull for easier access
   const { test, files, logbook, links } = testFull;
+
+  const handleActivate = async () => {
+    setIsActivating(true);
+    try {
+      const updated = await testsApi.activate(testId);
+      toast({
+        title: "Test activated",
+        description: `${testId} is now the active config (v${updated.config_version}).`,
+      });
+      refetch();
+    } catch (error) {
+      toast({
+        title: "Error activating test",
+        description:
+          error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsActivating(false);
+    }
+  };
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -191,6 +214,15 @@ export default function TestDetailPage() {
               <p className="text-muted-foreground">Test execution details</p>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="default"
+                onClick={handleActivate}
+                disabled={isActivating}
+                data-testid="activate-test"
+              >
+                <Zap className="mr-2 h-4 w-4" />
+                {isActivating ? "Activating..." : "Activate"}
+              </Button>
               <NavigationButton
                 variant="outline"
                 href={`/tests/${testId}/edit`}

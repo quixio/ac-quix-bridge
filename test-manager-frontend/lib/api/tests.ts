@@ -107,6 +107,18 @@ export const testsApi = {
   },
 
   /**
+   * Activate a test — push its current content as a new DCM version so it
+   * becomes the latest for bridge enrichment. No content change required.
+   */
+  activate: (
+    testId: string,
+    token?: string | null,
+    refreshToken?: () => Promise<string | null>,
+  ) => {
+    return apiPost<Test>(`/tests/${testId}/activate`, {}, token, refreshToken);
+  },
+
+  /**
    * Get Quix Lake partition parameters for a test (from Dynamic Config Manager)
    */
   getTelemetryParams: (

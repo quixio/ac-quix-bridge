@@ -48,7 +48,9 @@ def resolve_test_names(test: Test, mongo: Database[dict[str, Any]]) -> Test:
     return test
 
 
-def resolve_tests_names(tests: list[Test], mongo: Database[dict[str, Any]]) -> list[Test]:
+def resolve_tests_names(
+    tests: list[Test], mongo: Database[dict[str, Any]]
+) -> list[Test]:
     """Batch-resolve display names for a list of Tests."""
     if not tests:
         return tests
@@ -62,8 +64,14 @@ def resolve_tests_names(tests: list[Test], mongo: Database[dict[str, Any]]) -> l
         env_ids.add(t.environment_id)
 
     # Batch fetch
-    device_map = {d["_id"]: d["name"] for d in mongo.devices.find({"_id": {"$in": list(device_ids)}}, {"name": 1})}
-    env_map = {e["_id"]: e["name"] for e in mongo.environments.find({"_id": {"$in": list(env_ids)}}, {"name": 1})}
+    device_map = {
+        d["_id"]: d["name"]
+        for d in mongo.devices.find({"_id": {"$in": list(device_ids)}}, {"name": 1})
+    }
+    env_map = {
+        e["_id"]: e["name"]
+        for e in mongo.environments.find({"_id": {"$in": list(env_ids)}}, {"name": 1})
+    }
 
     for t in tests:
         t.pc_device_name = device_map.get(t.pc_device_id)
@@ -95,7 +103,9 @@ def create_test(
     )
     missing = set(device_ids) - existing
     if missing:
-        raise HTTPException(status_code=404, detail=f"Devices not found: {', '.join(missing)}")
+        raise HTTPException(
+            status_code=404, detail=f"Devices not found: {', '.join(missing)}"
+        )
 
     # Get PC device name for target_key
     pc_device = mongo.devices.find_one({"_id": test_data.pc_device_id})
@@ -103,11 +113,19 @@ def create_test(
 
     # Get test rig device name
     rig_device = mongo.devices.find_one({"_id": test_data.test_rig_device_id})
-    rig_name = rig_device["name"].lower().replace(" ", "_") if rig_device else test_data.test_rig_device_id
+    rig_name = (
+        rig_device["name"].lower().replace(" ", "_")
+        if rig_device
+        else test_data.test_rig_device_id
+    )
 
     # Get environment name
     env = mongo.environments.find_one({"_id": test_data.environment_id})
-    env_name = env["name"].lower().replace(" ", "_").replace("'", "") if env else test_data.environment_id
+    env_name = (
+        env["name"].lower().replace(" ", "_").replace("'", "")
+        if env
+        else test_data.environment_id
+    )
 
     # Send config to Dynamic Config Manager
     valid_from = datetime.now(timezone.utc).isoformat()
@@ -151,11 +169,18 @@ def create_test(
         config_version=config_metadata["version"],
         **test_data.model_dump(),
     )
-    mongo.tests.insert_one(test.model_dump(by_alias=True, exclude={"pc_device_name", "test_rig_device_name", "environment_name"}))
+    mongo.tests.insert_one(
+        test.model_dump(
+            by_alias=True,
+            exclude={"pc_device_name", "test_rig_device_name", "environment_name"},
+        )
+    )
     return resolve_test_names(test, mongo)
 
 
-@router.get("/tests", response_model=PaginatedResponse[Test], response_model_by_alias=False)
+@router.get(
+    "/tests", response_model=PaginatedResponse[Test], response_model_by_alias=False
+)
 def list_tests(
     query_params: TestQuery = Depends(),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -168,7 +193,10 @@ def list_tests(
     query: dict[str, Any] = {}
 
     if query_params.experiment_id:
-        query["experiment_id"] = {"$regex": re.escape(query_params.experiment_id), "$options": "i"}
+        query["experiment_id"] = {
+            "$regex": re.escape(query_params.experiment_id),
+            "$options": "i",
+        }
 
     if query_params.environment_id:
         query["environment_id"] = query_params.environment_id
@@ -183,9 +211,9 @@ def list_tests(
             search_fields = ["_id", "experiment_id", "environment_id", "driver"]
             for word in words:
                 word_pattern = {"$regex": re.escape(word), "$options": "i"}
-                word_conditions.append({
-                    "$or": [{field: word_pattern} for field in search_fields]
-                })
+                word_conditions.append(
+                    {"$or": [{field: word_pattern} for field in search_fields]}
+                )
             query["$and"] = word_conditions
 
     total = mongo.tests.count_documents(query)
@@ -195,7 +223,9 @@ def list_tests(
         for t in mongo.tests.find(query).sort("_id", 1).skip(skip).limit(page_size)
     ]
     resolve_tests_names(tests, mongo)
-    return PaginatedResponse.create(items=tests, total=total, page=page, page_size=page_size)
+    return PaginatedResponse.create(
+        items=tests, total=total, page=page, page_size=page_size
+    )
 
 
 @router.get("/tests/{test_id}", response_model=Test, response_model_by_alias=False)
@@ -209,7 +239,9 @@ def get_test(
     return resolve_test_names(Test(**test), mongo)
 
 
-@router.get("/tests/{test_id}/full", response_model=TestFullData, response_model_by_alias=False)
+@router.get(
+    "/tests/{test_id}/full", response_model=TestFullData, response_model_by_alias=False
+)
 def get_test_full(
     test_id: str,
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -221,7 +253,10 @@ def get_test_full(
     test = resolve_test_names(Test(**test_doc), mongo)
     files_dict = test_doc.get("files", {})
     files = [File(**f) for f in files_dict.values()]
-    logbook = [LogbookEntry(**e) for e in mongo.logbook.find({"test_id": test_id}).sort("timestamp", -1)]
+    logbook = [
+        LogbookEntry(**e)
+        for e in mongo.logbook.find({"test_id": test_id}).sort("timestamp", -1)
+    ]
     links = [Link(**link) for link in test_doc.get("links", [])]
 
     return TestFullData(test=test, files=files, logbook=logbook, links=links)
@@ -248,7 +283,9 @@ def update_test(
     for field in ["pc_device_id", "test_rig_device_id"]:
         if field in update_data:
             if not mongo.devices.find_one({"_id": update_data[field]}):
-                raise HTTPException(status_code=404, detail=f"Device not found: {update_data[field]}")
+                raise HTTPException(
+                    status_code=404, detail=f"Device not found: {update_data[field]}"
+                )
 
     update_data["updated_at"] = datetime.now(timezone.utc)
 
@@ -266,9 +303,17 @@ def update_test(
     pc_device = mongo.devices.find_one({"_id": test.pc_device_id})
     pc_hostname = pc_device["name"] if pc_device else test.pc_device_id
     rig_device = mongo.devices.find_one({"_id": test.test_rig_device_id})
-    rig_name = rig_device["name"].lower().replace(" ", "_") if rig_device else test.test_rig_device_id
+    rig_name = (
+        rig_device["name"].lower().replace(" ", "_")
+        if rig_device
+        else test.test_rig_device_id
+    )
     env = mongo.environments.find_one({"_id": test.environment_id})
-    env_name = env["name"].lower().replace(" ", "_").replace("'", "") if env else test.environment_id
+    env_name = (
+        env["name"].lower().replace(" ", "_").replace("'", "")
+        if env
+        else test.environment_id
+    )
 
     valid_from = datetime.now(timezone.utc).isoformat()
     response = config_api.post(
@@ -302,12 +347,14 @@ def update_test(
     config_response = response.json()["data"]
     mongo.tests.update_one(
         {"_id": test_id},
-        {"$set": {
-            "config_id": config_response["id"],
-            "config_type": config_response["metadata"]["type"],
-            "target_key": config_response["metadata"]["target_key"],
-            "config_version": config_response["metadata"]["version"],
-        }}
+        {
+            "$set": {
+                "config_id": config_response["id"],
+                "config_type": config_response["metadata"]["type"],
+                "target_key": config_response["metadata"]["target_key"],
+                "config_version": config_response["metadata"]["version"],
+            }
+        },
     )
 
     return resolve_test_names(Test(**mongo.tests.find_one({"_id": test_id})), mongo)
@@ -363,7 +410,9 @@ def get_telemetry_params(
     }
 
 
-@router.post("/tests/{test_id}/sessions", response_model=Test, response_model_by_alias=False)
+@router.post(
+    "/tests/{test_id}/sessions", response_model=Test, response_model_by_alias=False
+)
 def add_session(
     test_id: str,
     session: SessionInfo = Body(...),
@@ -387,6 +436,87 @@ def add_session(
     )
 
     updated = mongo.tests.find_one({"_id": test_id})
+    return resolve_test_names(Test(**updated), mongo)
+
+
+@router.post(
+    "/tests/{test_id}/activate", response_model=Test, response_model_by_alias=False
+)
+def activate_test(
+    test_id: str,
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    config_api: httpx.Client = Depends(get_config_api_client),
+    _: None = Depends(update_permission),
+) -> Test:
+    """Push the test's current content as a new DCM version.
+
+    No content changes. The new version becomes the latest for this hostname,
+    making this test the one the AC bridge enriches telemetry against.
+    Sibling tests on the same hostname are untouched.
+    """
+    current = mongo.tests.find_one({"_id": test_id})
+    if not current:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    test = Test(**current)
+
+    pc_device = mongo.devices.find_one({"_id": test.pc_device_id})
+    pc_hostname = pc_device["name"] if pc_device else test.pc_device_id
+    rig_device = mongo.devices.find_one({"_id": test.test_rig_device_id})
+    rig_name = (
+        rig_device["name"].lower().replace(" ", "_")
+        if rig_device
+        else test.test_rig_device_id
+    )
+    env = mongo.environments.find_one({"_id": test.environment_id})
+    env_name = (
+        env["name"].lower().replace(" ", "_").replace("'", "")
+        if env
+        else test.environment_id
+    )
+
+    valid_from = datetime.now(timezone.utc).isoformat()
+    response = config_api.post(
+        "/api/v1/configurations",
+        json={
+            "metadata": {
+                "type": "experiment",
+                "target_key": pc_hostname,
+                "category": "ac-telemetry",
+                "valid_from": valid_from,
+            },
+            "content": {
+                "test_id": test.test_id,
+                "environment": env_name,
+                "test_rig": rig_name,
+                "experiment_id": test.experiment_id,
+                "driver": test.driver.lower(),
+                "requirements": test.requirements,
+            },
+            "replace": True,
+        },
+    )
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=424,
+            detail=f"Failed to activate configuration: {e.response.status_code} {e.response.text}",
+        )
+
+    config_response = response.json()["data"]
+    updated = mongo.tests.find_one_and_update(
+        {"_id": test_id},
+        {
+            "$set": {
+                "config_id": config_response["id"],
+                "config_version": config_response["metadata"]["version"],
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    assert updated is not None  # guarded by the find_one at the top
     return resolve_test_names(Test(**updated), mongo)
 
 
