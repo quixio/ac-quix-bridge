@@ -1,3 +1,4 @@
+
 """
 QuixStreams Source that captures Assetto Corsa gameplay video.
 
