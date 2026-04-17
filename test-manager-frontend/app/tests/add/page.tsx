@@ -49,8 +49,15 @@ export default function AddTestPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
 
+  console.log(
+    "[AddTest] render — pcDeviceId=",
+    pcDeviceId,
+    "pcDevices.len=",
+    pcDevices.length,
+  );
+
   useEffect(() => {
-    console.log("[AddTest] effect fired");
+    console.log("[AddTest] effect fired (mount)");
     const fetchData = async () => {
       try {
         console.log("[AddTest] fetching 4 lists...");
@@ -91,6 +98,9 @@ export default function AddTestPage() {
       }
     };
     fetchData();
+    return () => {
+      console.log("[AddTest] effect cleanup (unmount)");
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
