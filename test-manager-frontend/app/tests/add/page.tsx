@@ -225,7 +225,8 @@ export default function AddTestPage() {
                   id="requirements"
                   value={requirements}
                   onChange={(e) => setRequirements(e.target.value)}
-                  placeholder={`The driver shall finish Monza under 55.250s.
+                  placeholder={`e.g.
+The driver shall finish Monza under 55.250s.
 The car shall not exceed 3.5G longitudinal.
 Tyre temperature shall stay below 80°C.`}
                   disabled={isSubmitting}
