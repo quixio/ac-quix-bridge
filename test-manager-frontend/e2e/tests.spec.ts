@@ -403,4 +403,70 @@ test.describe("Activate and dirty-check", () => {
     await expect(save).toBeDisabled();
   });
 
+  test("delete cleans every DCM version of the deleted test", async ({
+    page,
+    request,
+  }) => {
+    const DCM = "http://localhost:8001";
+
+    async function countVersionsForTest(testId: string): Promise<{
+      cid: string;
+      count: number;
+    }> {
+      const cfgs = await request
+        .get(`${DCM}/api/v1/configurations?type=experiment`)
+        .then((r) => r.json());
+      const cid = cfgs.data[0].id;
+      const versions = await request
+        .get(`${DCM}/api/v1/configurations/${cid}/versions`)
+        .then((r) => r.json());
+      let count = 0;
+      for (const v of versions.data) {
+        const content = await request
+          .get(
+            `${DCM}/api/v1/configurations/${cid}/versions/${v.metadata.version}/content`,
+          )
+          .then((r) => r.json());
+        if (content.test_id === testId) count++;
+      }
+      return { cid, count };
+    }
+
+    // Pick the last live test (least likely to have been touched by earlier tests)
+    // so this test remains idempotent across runs.
+    const list = await request
+      .get("http://localhost:8080/api/v1/tests?page_size=20")
+      .then((r) => r.json());
+    const testId = list.items[list.items.length - 1].test_id;
+
+    await page.goto(`/tests/${testId}`);
+    await page.waitForSelector('[data-testid="activate-test"]');
+
+    // Simulate a busy session: two activates to pile orphans.
+    await page.getByTestId("activate-test").click();
+    await waitForToast(page, "Test activated");
+    await page.waitForTimeout(300);
+    await page.getByTestId("activate-test").click();
+    await waitForToast(page, "Test activated");
+
+    // Edit → change requirements → save (creates another version).
+    await page.getByRole("link", { name: /Edit Test/ }).click();
+    await page.waitForURL(new RegExp(`/tests/${testId}/edit`));
+    await expect(page.getByTestId("save-test")).toBeDisabled();
+    await page.locator("#requirements").fill("churn-before-delete");
+    await expect(page.getByTestId("save-test")).toBeEnabled();
+    await page.getByTestId("save-test").click();
+    await page.waitForURL(new RegExp(`/tests/${testId}$`));
+
+    const before = await countVersionsForTest(testId);
+    expect(before.count).toBeGreaterThanOrEqual(3);
+
+    // Delete via the UI.
+    await page.getByRole("button", { name: "Delete Test" }).click();
+    await page.getByRole("button", { name: "Delete" }).click();
+    await page.waitForURL("**/tests");
+
+    const after = await countVersionsForTest(testId);
+    expect(after.count).toBe(0);
+  });
 });

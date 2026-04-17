@@ -530,15 +530,34 @@ def delete_test(
     if not (test := mongo.tests.find_one({"_id": test_id})):
         raise HTTPException(status_code=404, detail="Test not found")
 
-    # Delete only this test's version of the experiment config. Other tests on
-    # the same hostname share the same config_id (one config per target_key,
-    # one version per test), so deleting the whole config would wipe their history.
-    try:
-        config_api.delete(
-            f"/api/v1/configurations/{test['config_id']}/versions/{test['config_version']}"
-        ).raise_for_status()
-    except httpx.HTTPStatusError:
-        pass  # Version may already be deleted
+    # Remove every DCM version belonging to this test (current pointer + any
+    # orphans left behind by earlier activates/edits). Leaving an orphan with
+    # this test_id in place risks it becoming the max version on the shared
+    # config_id, in which case the AC bridge would enrich new telemetry with
+    # a deleted test's content. Sibling tests' versions (different test_id in
+    # content) stay untouched.
+    config_id = test.get("config_id")
+    if config_id:
+        try:
+            versions_resp = config_api.get(
+                f"/api/v1/configurations/{config_id}/versions"
+            )
+            versions_resp.raise_for_status()
+            for v in versions_resp.json().get("data", []):
+                vnum = v.get("metadata", {}).get("version")
+                if vnum is None:
+                    continue
+                content_resp = config_api.get(
+                    f"/api/v1/configurations/{config_id}/versions/{vnum}/content"
+                )
+                if content_resp.status_code != 200:
+                    continue
+                if content_resp.json().get("test_id") == test_id:
+                    config_api.delete(
+                        f"/api/v1/configurations/{config_id}/versions/{vnum}"
+                    )
+        except httpx.HTTPStatusError:
+            pass  # Best-effort cleanup; proceed with Mongo delete regardless.
 
     mongo.logbook.delete_many({"test_id": test_id})
     mongo.tests.delete_one({"_id": test_id})

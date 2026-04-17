@@ -268,6 +268,84 @@ def test_delete_test_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_delete_cleans_all_orphan_versions_of_that_test(
+    create_test: TestFactory,
+    create_device: DeviceFactory,
+    create_environment: EnvironmentFactory,
+    client: TestClient,
+    config_api: httpx.Client,
+) -> None:
+    """Delete must clean EVERY DCM version belonging to the deleted test.
+
+    Regression for the orphan-becomes-latest scenario observed in local dev:
+    Activate-then-Edit leaves an earlier version orphaned. Deleting the test
+    only removed the *current* pointer, so an orphan could bubble up to be the
+    max version — the AC bridge then enriches new telemetry with the deleted
+    test's content. Fix: on delete, remove every version whose content.test_id
+    matches the one being deleted.
+    """
+    _, pc = create_device(name="SharedPC", category="pc")
+    _, rig = create_device(name="SharedRig", category="test_rig")
+    _, env = create_environment(name="SharedEnv")
+
+    # B is the sibling whose version must end up as the latest.
+    _, b = create_test(
+        pc_device_id=pc["device_id"],
+        test_rig_device_id=rig["device_id"],
+        environment_id=env["environment_id"],
+        experiment_id="b",
+    )
+    _, a = create_test(
+        pc_device_id=pc["device_id"],
+        test_rig_device_id=rig["device_id"],
+        environment_id=env["environment_id"],
+        experiment_id="a",
+    )
+    config_id = a["config_id"]
+    assert b["config_id"] == config_id
+
+    # Activate A (creates another A-version) then Edit (creates yet another).
+    client.post(f"/api/v1/tests/{a['test_id']}/activate").raise_for_status()
+    client.put(
+        f"/api/v1/tests/{a['test_id']}", json={"experiment_id": "a-edited"}
+    ).raise_for_status()
+
+    # Now: the config should have >= 4 versions, with ≥3 belonging to A
+    # (create, activate, edit) and 1 to B.
+    versions_before = config_api.get(
+        f"/api/v1/configurations/{config_id}/versions"
+    ).json()["data"]
+    a_versions_before = [
+        v["metadata"]["version"]
+        for v in versions_before
+        if config_api.get(
+            f"/api/v1/configurations/{config_id}/versions/{v['metadata']['version']}/content"
+        ).json()["test_id"]
+        == a["test_id"]
+    ]
+    assert len(a_versions_before) >= 3
+
+    # Delete A.
+    assert client.delete(f"/api/v1/tests/{a['test_id']}").status_code == 204
+
+    # Zero versions carrying A's test_id may remain.
+    versions_after = config_api.get(
+        f"/api/v1/configurations/{config_id}/versions"
+    ).json()["data"]
+    for v in versions_after:
+        vnum = v["metadata"]["version"]
+        content = config_api.get(
+            f"/api/v1/configurations/{config_id}/versions/{vnum}/content"
+        ).json()
+        assert content["test_id"] != a["test_id"], (
+            f"orphan v{vnum} for deleted test {a['test_id']} survived"
+        )
+
+    # B's telemetry-params must still resolve (max version = B's).
+    params = client.get(f"/api/v1/tests/{b['test_id']}/telemetry-params")
+    assert params.status_code == 200
+    assert params.json()["experiment"] == "b"
+
 
 # ============================================================================
 # Activate
