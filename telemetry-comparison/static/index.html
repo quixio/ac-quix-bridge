@@ -36,12 +36,14 @@
       height: var(--topbar-height);
       display: grid;
       grid-template-columns: 65fr 35fr;
+      grid-template-rows: 1fr;
       gap: 12px;
       padding: 12px 16px;
       background: var(--bg);
       border-bottom: 1px solid var(--border);
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
       z-index: 100;
+      transition: height 0.2s ease;
     }
     .topbar-panel {
       background: var(--surface);
@@ -68,10 +70,52 @@
       min-height: 0;
     }
     .topbar-panel.collapsed .topbar-body { display: none; }
+    .topbar-panel.collapsed { align-self: start; }
 
     /* ---- Track map in top-bar context ---- */
-    .map-panel .topbar-body { padding: 6px 8px 8px; gap: 0.3rem; }
+    .map-panel .topbar-body {
+      padding: 6px 8px 8px;
+      gap: 0.3rem;
+      display: flex;
+      flex-direction: column;
+    }
+    .map-body-row {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      gap: 6px;
+    }
     #track-map { flex: 1; min-height: 0; }
+    #corner-legend {
+      width: 160px;
+      flex-shrink: 0;
+      overflow-y: auto;
+      border-left: 1px solid var(--border);
+      padding: 4px 6px;
+      font-size: 10px;
+      line-height: 1.6;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .legend-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .legend-label {
+      font-family: monospace;
+      color: var(--text);
+    }
+    .legend-name {
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
     /* ======= READOUT STRIP (sticky just below top bar) ======= */
     .readout-strip {
@@ -420,23 +464,25 @@
   <div class="topbar-panel" id="topbar-video">
     <div class="topbar-head">
       <div class="panel-title">Video</div>
-      <div class="video-controls" id="video-controls" style="display:none">
-        <select id="video-lap-select" class="video-lap-select" disabled
-                onchange="onVideoLapChange(this.value)">
-          <option value="">— pick laps and Plot —</option>
-        </select>
-        <label class="video-speed-label">Speed
-          <select id="video-speed" class="video-lap-select"
-                  onchange="onVideoSpeedChange(this.value)">
-            <option value="1" selected>Realtime</option>
-            <option value="2">2x</option>
-            <option value="5">5x</option>
+      <div style="display:flex;gap:0.4rem;align-items:center;">
+        <div class="video-controls" id="video-controls" style="display:none">
+          <select id="video-lap-select" class="video-lap-select" disabled
+                  onchange="onVideoLapChange(this.value)">
+            <option value="">— pick laps and Plot —</option>
           </select>
-        </label>
-        <div id="video-status" class="video-status"></div>
-        <button class="panel-collapse-btn"
-                onclick="document.getElementById('topbar-video').classList.toggle('collapsed')"
-                title="Collapse">−</button>
+          <label class="video-speed-label">Speed
+            <select id="video-speed" class="video-lap-select"
+                    onchange="onVideoSpeedChange(this.value)">
+              <option value="1" selected>Realtime</option>
+              <option value="2">2x</option>
+              <option value="5">5x</option>
+            </select>
+          </label>
+          <div id="video-status" class="video-status"></div>
+        </div>
+        <button class="panel-collapse-btn" id="btn-collapse-video"
+                onclick="toggleTopbarPanel('topbar-video', this)"
+                title="Collapse">-</button>
       </div>
     </div>
     <div class="topbar-body">
@@ -450,12 +496,15 @@
   <div class="topbar-panel map-panel" id="topbar-map">
     <div class="topbar-head">
       <div class="panel-title">Track Map</div>
-      <button class="panel-collapse-btn"
-              onclick="document.getElementById('topbar-map').classList.toggle('collapsed')"
-              title="Collapse">−</button>
+      <button class="panel-collapse-btn" id="btn-collapse-map"
+              onclick="toggleTopbarPanel('topbar-map', this)"
+              title="Collapse">-</button>
     </div>
     <div class="topbar-body">
-      <div id="track-map"></div>
+      <div class="map-body-row">
+        <div id="track-map"></div>
+        <div id="corner-legend"></div>
+      </div>
       <div class="zoom-row">
         <span>Zoom</span>
         <input type="range" id="track-zoom" min="1" max="8" step="0.1" value="1"
@@ -479,7 +528,7 @@
   <div class="panel" id="panel-sessions">
     <div class="panel-header">
       <div class="panel-title">Select sessions and laps to overlay</div>
-      <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">− Hide</button>
+      <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">-</button>
     </div>
     <div class="panel-body">
       <div class="selections" id="selections"></div>
@@ -494,7 +543,7 @@
   <div class="panel" id="panel-signals">
     <div class="panel-header">
       <div class="panel-title">Signals</div>
-      <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">− Hide</button>
+      <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">-</button>
     </div>
     <div class="panel-body">
       <div id="signal-container">Loading channels...</div>
@@ -557,16 +606,16 @@ let videoState = {
   frames: null,         // sorted-by-t_ms array of {t_ms, normPos} for the loaded lap
   framesByNd: null,
   isPlaying: false,     // true between 'play' and 'pause'/'ended' events
-  rafId: null,          // requestAnimationFrame id (active while playing)
-  lastRafUpdate: 0,     // performance.now() timestamp of last marker update
   blobUrl: null,        // object URL for fully-buffered MP4
 };
 
-// Throttle rAF-driven marker updates so Plotly relayouts don't pile up.
-// Browser native timeupdate fires ~4Hz which causes visible stutter in the
-// marker line and red dot. Reading video.currentTime via rAF gives us a
-// continuously updating value; we cap Plotly load at ~30Hz which still feels
-// fluid to the eye but doesn't choke on multi-plot relayouts.
+// Video-frame-accurate sync: use requestVideoFrameCallback when available.
+// It fires once per displayed frame with the exact mediaTime of that frame,
+// eliminating drift from rAF polling + browser decode lag.
+const HAS_RVFC = typeof HTMLVideoElement !== 'undefined'
+  && 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+
+// Fallback: if requestVideoFrameCallback is absent, poll via rAF at ~30Hz.
 const VIDEO_RAF_INTERVAL_MS = 1000 / 30;
 
 const MAX_READOUTS = 6;
@@ -621,7 +670,7 @@ function renderTrackMap() {
   //    Ensures the track never shows gaps regardless of severity transitions.
   traces.push({
     x: pts.map(p => p.x),
-    y: pts.map(p => p.z),
+    y: pts.map(p => -p.z),
     mode: 'lines', type: 'scatter',
     line: { color: '#3a3f55', width: 5, shape: 'spline', smoothing: 0.7 },
     hoverinfo: 'skip',
@@ -644,11 +693,11 @@ function renderTrackMap() {
       // Prepend the previous point so this segment starts where the last ended
       if (i > 0) {
         curRun.x.push(pts[i - 1].x);
-        curRun.z.push(pts[i - 1].z);
+        curRun.z.push(-pts[i - 1].z);
       }
     }
     curRun.x.push(p.x);
-    curRun.z.push(p.z);
+    curRun.z.push(-p.z);
   }
   if (curRun && curRun.x.length) runs[curRun.severity].push(curRun);
 
@@ -671,20 +720,20 @@ function renderTrackMap() {
   // 3) Corner number badges
   trackData.corners.forEach(c => {
     traces.push({
-      x: [c.mid_x], y: [c.mid_z],
+      x: [c.mid_x], y: [-c.mid_z],
       mode: 'markers+text', type: 'scatter',
       marker: { color: colors[c.severity], size: 16, line: { color: '#0f1117', width: 1.5 } },
       text: [c.label],
       textfont: { color: '#fff', size: 9, family: 'monospace' },
       hoverinfo: 'text',
-      hovertext: `${c.label} — ${c.severity} (R=${c.min_radius_m}m)`,
+      hovertext: `${c.label}: ${c.name || ''} (R=${c.min_radius_m}m)`,
       showlegend: false,
     });
   });
 
   // 4) Start/Finish
   traces.push({
-    x: [pts[0].x], y: [pts[0].z],
+    x: [pts[0].x], y: [-pts[0].z],
     mode: 'markers', type: 'scatter',
     marker: { color: colors.start_finish, size: 11, symbol: 'square', line: { color: '#000', width: 1 } },
     hoverinfo: 'text',
@@ -696,7 +745,7 @@ function renderTrackMap() {
   // 5) Moving position dot — distinct color from the marker line so the
   //    cream-on-plot line and the red-on-track dot read as separate cues.
   traces.push({
-    x: [pts[0].x], y: [pts[0].z],
+    x: [pts[0].x], y: [-pts[0].z],
     mode: 'markers', type: 'scatter',
     marker: {
       color: colors.track_dot || colors.marker,
@@ -713,7 +762,7 @@ function renderTrackMap() {
   // Compute and cache base ranges for zoom math.
   // Use a square bounding box centered on the track so scaleanchor fits
   // the whole track regardless of container aspect.
-  const xs = pts.map(p => p.x), zs = pts.map(p => p.z);
+  const xs = pts.map(p => p.x), zs = pts.map(p => -p.z);
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   const zMin = Math.min(...zs), zMax = Math.max(...zs);
   const cx = (xMin + xMax) / 2;
@@ -765,6 +814,19 @@ function renderTrackMap() {
   });
   updateMarker(markerPosition, true);
   applyZoom();
+
+  // Populate corner legend table
+  const legendEl = document.getElementById('corner-legend');
+  if (legendEl && trackData.corners.length) {
+    legendEl.innerHTML = trackData.corners.map(c => {
+      const dotColor = colors[c.severity] || '#888';
+      return `<div class="legend-row">` +
+        `<span class="legend-dot" style="background:${dotColor}"></span>` +
+        `<span class="legend-label">${c.label}</span>` +
+        `<span class="legend-name">${c.name || ''}</span>` +
+        `</div>`;
+    }).join('');
+  }
 }
 
 function onZoomChange(v) {
@@ -778,7 +840,6 @@ function applyZoom() {
   const div = document.getElementById('track-map');
   if (!div || !div.layout) return;
 
-  // At zoom=1, always show the full track bounding box (don't follow dot)
   if (trackZoom <= 1.02) {
     Plotly.relayout(div, {
       'xaxis.range': [trackBaseRange.xMin, trackBaseRange.xMax],
@@ -787,10 +848,9 @@ function applyZoom() {
     return;
   }
 
-  // Zoomed in: center on the red dot
   const p = trackPointAtNorm(markerPosition);
   const cx = p ? p.x : (trackBaseRange.xMin + trackBaseRange.xMax) / 2;
-  const cz = p ? p.z : (trackBaseRange.zMin + trackBaseRange.zMax) / 2;
+  const cz = p ? -p.z : (trackBaseRange.zMin + trackBaseRange.zMax) / 2;
   const fullW = trackBaseRange.xMax - trackBaseRange.xMin;
   const fullH = trackBaseRange.zMax - trackBaseRange.zMin;
   const w = fullW / trackZoom;
@@ -826,7 +886,7 @@ function updateMarker(nd, forceTrack, source) {
     if (p && window._markerTraceIdx !== undefined) {
       const div = document.getElementById('track-map');
       if (div && div.data) {
-        Plotly.restyle(div, { x: [[p.x]], y: [[p.z]] }, [window._markerTraceIdx]);
+        Plotly.restyle(div, { x: [[p.x]], y: [[-p.z]] }, [window._markerTraceIdx]);
         // Re-center zoom window on the dot ONLY when zoomed in
         if (trackZoom > 1.02) applyZoom();
       }
@@ -845,16 +905,19 @@ function updateMarker(nd, forceTrack, source) {
 
     // Stack annotations vertically in a fixed column next to the marker line
     // so they never overlap regardless of where the trace values fall.
+    // Selected (highlighted) annotation renders last so it draws on top.
     const ROW_H = 18; // px between stacked labels
+    let hlAnn = null;
     for (let k = 0; k < shown; k++) {
       const t = traces[k];
       const v = interpolateAt(t.x, t.y, nd);
       if (v === null || !isFinite(v)) continue;
       const valStr = (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
-      valueAnn.push({
+      const isHL = _highlightedLabel && t.label === _highlightedLabel;
+      const ann = {
         xref: 'x', yref: 'paper',
         x: nd, y: 1,
-        text: valStr,
+        text: isHL ? `<b>${valStr}</b>` : valStr,
         showarrow: false,
         xanchor: 'left',
         yanchor: 'top',
@@ -863,10 +926,13 @@ function updateMarker(nd, forceTrack, source) {
         font: { color: t.color, size: 11, family: 'monospace' },
         bgcolor: 'rgba(15,17,23,0.9)',
         bordercolor: t.color,
-        borderwidth: 1,
+        borderwidth: isHL ? 2 : 1,
         borderpad: 2,
-      });
+        opacity: 1,
+      };
+      if (isHL) { hlAnn = ann; } else { valueAnn.push(ann); }
     }
+    if (hlAnn) valueAnn.push(hlAnn);
 
     if (traces.length > MAX_TRACE_ANNOTATIONS) {
       valueAnn.push({
@@ -1346,6 +1412,123 @@ async function plot() {
 }
 
 // ---------------------------------------------------------------------------
+// Neon highlight for video-selected lap trace
+// ---------------------------------------------------------------------------
+
+let _highlightedLabel = null;
+
+function highlightVideoLapTrace(label) {
+  _highlightedLabel = label;
+  if (!plotDivs.length || !plotTraces.length) return;
+  const matchIdx = plotTraces[0]?.findIndex(t => t.label === label) ?? -1;
+  const selColor = plotTraces[0]?.[matchIdx]?.color;
+
+  plotDivs.forEach((div, pi) => {
+    const traces = plotTraces[pi];
+    if (!traces || !div.data) return;
+
+    // 1) Remove old halos FIRST so trace indices are clean
+    const haloIdxs = [];
+    div.data.forEach((d, i) => { if (d.name === '_halo') haloIdxs.push(i); });
+    for (let i = haloIdxs.length - 1; i >= 0; i--) Plotly.deleteTraces(div, haloIdxs[i]);
+
+    // 2) Width: selected bolder, ALL others back to normal
+    traces.forEach((t, i) => {
+      Plotly.restyle(div, { 'line.width': t.label === label ? 3 : 1.5, opacity: t.label === label ? 1 : 0.7 }, [i]);
+    });
+  });
+
+  // 3) DOM: move selected trace SVG to front + highlight legend + annotations
+  // Only target chart plots (plotDivs), not the track map
+  setTimeout(() => {
+    plotDivs.forEach(plot => {
+      // Bring selected trace to front
+      const layer = plot.querySelector('.scatterlayer');
+      if (layer) {
+        layer.querySelectorAll('.trace').forEach(tr => {
+          const path = tr.querySelector('path.js-line');
+          if (path) {
+            const w = parseFloat(path.getAttribute('stroke-width') || '1');
+            if (w >= 2.5) layer.appendChild(tr);
+          }
+        });
+      }
+
+      // Legend highlight
+      const legendEntries = plot.querySelectorAll('.legend .traces');
+      legendEntries.forEach((entry, i) => {
+        const isMatch = i === matchIdx;
+        entry.querySelectorAll('text').forEach(t => {
+          t.style.fontWeight = isMatch ? 'bold' : '';
+          t.style.opacity = isMatch ? '1' : '0.5';
+          t.style.filter = isMatch ? `drop-shadow(0 0 6px ${selColor || '#fff'})` : '';
+        });
+        entry.querySelectorAll('path, line, rect').forEach(l => {
+          l.style.opacity = isMatch ? '1' : '0.5';
+          l.style.filter = isMatch ? `drop-shadow(0 0 6px ${selColor || '#fff'})` : '';
+        });
+      });
+
+      // Annotation highlight handled via Plotly layout in updateMarker()
+      // Force a marker update to re-render annotations with highlight
+      updateMarker(markerPosition, false);
+    });
+  }, 150);
+}
+
+function _highlightAnnotations(plot, matchIdx, selColor) {
+  const annotations = plot.querySelectorAll('.annotation');
+  annotations.forEach((ann, i) => {
+    const bg = ann.querySelector('rect');
+    const txt = ann.querySelector('text');
+    if (!bg || !txt) return;
+    const isMatch = i === matchIdx;
+    if (isMatch) {
+      txt.style.fontWeight = 'bold';
+      txt.style.fontSize = '13px';
+      txt.style.opacity = '1';
+      bg.style.opacity = '1';
+      bg.style.filter = selColor ? `drop-shadow(0 0 4px ${selColor})` : '';
+    } else {
+      txt.style.fontWeight = '';
+      txt.style.fontSize = '';
+      txt.style.opacity = '0.5';
+      bg.style.opacity = '0.5';
+      bg.style.filter = '';
+    }
+  });
+}
+
+function clearTraceHighlight() {
+  _highlightedLabel = null;
+  if (!plotDivs.length || !plotTraces.length) return;
+  plotDivs.forEach((div, pi) => {
+    const traces = plotTraces[pi];
+    if (!traces || !div.data) return;
+    traces.forEach((t, i) => {
+      Plotly.restyle(div, { 'line.width': 1.5, opacity: 1 }, [i]);
+    });
+    // Remove halo traces
+    const haloIdxs = [];
+    div.data.forEach((d, i) => { if (d.name === '_halo') haloIdxs.push(i); });
+    for (let i = haloIdxs.length - 1; i >= 0; i--) Plotly.deleteTraces(div, haloIdxs[i]);
+  });
+  // Reset legend styles — only chart plots, not track map
+  plotDivs.forEach(plot => {
+    plot.querySelectorAll('.legend .traces').forEach(entry => {
+      entry.querySelectorAll('text, path, line, rect').forEach(el => {
+        el.style.fontWeight = '';
+        el.style.opacity = '';
+        el.style.filter = '';
+      });
+    });
+  });
+  // Refresh annotations without highlight
+  updateMarker(markerPosition, false);
+}
+
+
+// ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
 
@@ -1361,11 +1544,27 @@ function downsample(x, y, maxPoints = 1500) {
   return { x: nx, y: ny };
 }
 
+function toggleTopbarPanel(panelId, btn) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  panel.classList.toggle('collapsed');
+  btn.textContent = panel.classList.contains('collapsed') ? '+' : '-';
+  const topbar = document.getElementById('topbar');
+  const allCollapsed = topbar.querySelectorAll('.topbar-panel:not(.collapsed)').length === 0;
+  topbar.style.height = allCollapsed ? 'auto' : '';
+  requestAnimationFrame(() => {
+    const h = topbar.offsetHeight;
+    document.body.style.paddingTop = h + 'px';
+    const strip = document.querySelector('.readout-strip');
+    if (strip) strip.style.top = h + 'px';
+  });
+}
+
 function togglePanel(panelId, btn) {
   const p = document.getElementById(panelId);
   if (!p) return;
   p.classList.toggle('collapsed');
-  btn.textContent = p.classList.contains('collapsed') ? '+ Show' : '− Hide';
+  btn.textContent = p.classList.contains('collapsed') ? '+' : '-';
 }
 
 function attachMarkerDrag(div) {
@@ -1474,7 +1673,7 @@ function hideVideoElement(emptyMsg) {
     e.textContent = emptyMsg || 'No video for this lap';
     e.style.display = 'flex';
   }
-  if (c) c.style.display = 'none';
+  // Keep video controls visible so user can switch laps even when current has no video
   videoState.frames = null;
   videoState.framesByNd = null;
   videoState.isPlaying = false;
@@ -1515,6 +1714,8 @@ function populateVideoLapPicker(selections) {
     select.appendChild(new Option(text, String(i)));
   });
   select.disabled = false;
+  const vc = document.getElementById('video-controls');
+  if (vc) vc.style.display = 'flex';
 
   // Auto-load the first lap if nothing was loaded yet (preserve user's choice
   // across re-plots if the same lap is still in the list).
@@ -1537,6 +1738,7 @@ async function loadVideoForLapIdx(idx) {
   const sel = videoState.laps[idx];
   if (!sel) return;
   videoState.currentLapIdx = idx;
+  highlightVideoLapTrace(sel.label);
 
   const sid = sel.key.session_id;
   const lap = sel.lap;
@@ -1624,6 +1826,15 @@ async function loadVideoForLapIdx(idx) {
     }
     video.currentTime = 0;
     video.playbackRate = _currentVideoSpeed();
+    // Compute timebase correction once MP4 metadata loads
+    video.addEventListener('loadedmetadata', function _onMeta() {
+      video.removeEventListener('loadedmetadata', _onMeta);
+      const mp4Dur = video.duration * 1000;
+      if (videoState.sidecarDurationMs > 0 && mp4Dur > 0) {
+        videoState.timeScale = videoState.sidecarDurationMs / mp4Dur;
+      }
+    }, { once: true });
+    video.play().catch(() => {});
 
     if (videoState.frames) {
       const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
@@ -1656,6 +1867,9 @@ function buildSyncLookups(sync) {
   // either the first or last frame.
   videoState.frames = valid.slice().sort((a, b) => a.t_ms - b.t_ms);
   videoState.framesByNd = valid.slice().sort((a, b) => a.normPos - b.normPos);
+  // Sidecar duration for timebase correction (MP4 duration may differ)
+  videoState.sidecarDurationMs = valid.length ? valid[valid.length - 1].t_ms : 0;
+  videoState.timeScale = 1; // updated once video metadata loads
 }
 
 function _interp(arr, keyFn, valFn, target) {
@@ -1695,7 +1909,8 @@ function syncVideoFromMarker(nd, source) {
   }
   const t_ms = lookupTmsForNormPos(nd);
   if (t_ms == null) return;
-  const target = t_ms / 1000;
+  const scale = videoState.timeScale || 1;
+  const target = (t_ms / scale) / 1000;
   // Smaller-than-frame deltas would just churn the video element. At 30 fps
   // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
   // dragging.
@@ -1704,20 +1919,56 @@ function syncVideoFromMarker(nd, source) {
   }
 }
 
+// ---------- requestVideoFrameCallback path (frame-accurate) ----------------
+function _onVideoFrame(_now, metadata) {
+  if (!videoState.isPlaying || !videoState.frames || !videoState.element) return;
+  const scale = videoState.timeScale || 1;
+  const nd = lookupNormPosForTms(metadata.mediaTime * 1000 * scale);
+  if (nd != null) {
+    updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
+  }
+  // Re-register for the next displayed frame while still playing.
+  if (videoState.isPlaying) {
+    videoState.element.requestVideoFrameCallback(_onVideoFrame);
+  }
+}
+
+// ---------- rAF fallback path (old browsers without RVFC) ------------------
 function _videoRafLoop() {
   if (!videoState.isPlaying || !videoState.frames || !videoState.element) {
-    videoState.rafId = null;
+    videoState._rafId = null;
     return;
   }
   const now = performance.now();
-  if (now - videoState.lastRafUpdate >= VIDEO_RAF_INTERVAL_MS) {
-    const nd = lookupNormPosForTms(videoState.element.currentTime * 1000);
+  if (now - videoState._lastRafUpdate >= VIDEO_RAF_INTERVAL_MS) {
+    const rafScale = videoState.timeScale || 1;
+    const nd = lookupNormPosForTms(videoState.element.currentTime * 1000 * rafScale);
     if (nd != null) {
       updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
     }
-    videoState.lastRafUpdate = now;
+    videoState._lastRafUpdate = now;
   }
-  videoState.rafId = requestAnimationFrame(_videoRafLoop);
+  videoState._rafId = requestAnimationFrame(_videoRafLoop);
+}
+
+function _startVideoSync(v) {
+  if (HAS_RVFC) {
+    v.requestVideoFrameCallback(_onVideoFrame);
+  } else {
+    if (videoState._rafId == null) {
+      videoState._lastRafUpdate = 0;
+      videoState._rafId = requestAnimationFrame(_videoRafLoop);
+    }
+  }
+}
+
+function _stopVideoSync() {
+  if (!HAS_RVFC && videoState._rafId != null) {
+    cancelAnimationFrame(videoState._rafId);
+    videoState._rafId = null;
+  }
+  // RVFC path stops automatically: _onVideoFrame checks isPlaying before
+  // re-registering, so no explicit cancel is needed.
 }
 
 function _wireVideoElement() {
@@ -1727,31 +1978,23 @@ function _wireVideoElement() {
 
   v.addEventListener('play', () => {
     videoState.isPlaying = true;
-    if (videoState.rafId == null) {
-      videoState.lastRafUpdate = 0;
-      videoState.rafId = requestAnimationFrame(_videoRafLoop);
-    }
+    _startVideoSync(v);
   });
   v.addEventListener('pause', () => {
     videoState.isPlaying = false;
-    if (videoState.rafId != null) {
-      cancelAnimationFrame(videoState.rafId);
-      videoState.rafId = null;
-    }
+    _stopVideoSync();
   });
   v.addEventListener('ended', () => {
     videoState.isPlaying = false;
-    if (videoState.rafId != null) {
-      cancelAnimationFrame(videoState.rafId);
-      videoState.rafId = null;
-    }
+    _stopVideoSync();
   });
 
   // While paused, native HTML5 video controls (or the user's marker drag)
   // can step the frame; reflect any seek in the marker so the dot follows.
   v.addEventListener('seeked', () => {
     if (videoState.isPlaying || !videoState.frames) return;
-    const nd = lookupNormPosForTms(v.currentTime * 1000);
+    const seekScale = videoState.timeScale || 1;
+    const nd = lookupNormPosForTms(v.currentTime * 1000 * seekScale);
     if (nd == null) return;
     updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
   });

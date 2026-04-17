@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Telemetry Explorer — Proposed Layout Mockup</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2d3047;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --accent: #4f8ef7;
+      --green: #34d399;
+      --orange: #f59e0b;
+      --red: #f87171;
+      --topbar-height: 340px;
+      --readout-height: 44px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      padding-top: var(--topbar-height);
+    }
+
+    /* ======= TOP BAR (fixed) ======= */
+    .topbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--topbar-height);
+      display: grid;
+      grid-template-columns: 65fr 35fr;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      z-index: 100;
+    }
+    .topbar-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .topbar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+    }
+    .panel-title span.badge {
+      color: var(--accent);
+      font-size: 0.65rem;
+      letter-spacing: 0;
+      text-transform: none;
+      opacity: 0.8;
+      margin-left: 0.4rem;
+    }
+    .topbar-body {
+      flex: 1;
+      padding: 8px 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-height: 0;
+    }
+
+    /* ---- Video panel (left of top bar) ---- */
+    .video-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      border-radius: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+    .video-fake {
+      width: 100%; height: 100%;
+      background:
+        linear-gradient(135deg, rgba(79,142,247,0.14), rgba(52,211,153,0.08) 40%, rgba(15,17,23,0.6) 80%),
+        radial-gradient(ellipse at 30% 40%, rgba(245,158,11,0.22), transparent 55%),
+        linear-gradient(180deg, #1f2232, #0b0d13);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      letter-spacing: 0.04em;
+      position: relative;
+    }
+    .video-fake::before {
+      content: '';
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.2);
+      display: block;
+      position: absolute;
+      box-shadow: inset -12px 0 0 -8px rgba(255,255,255,0.2);
+    }
+    .video-fake::after {
+      content: '';
+      border-left: 14px solid rgba(255,255,255,0.7);
+      border-top: 9px solid transparent;
+      border-bottom: 9px solid transparent;
+      position: absolute;
+      margin-left: 6px;
+    }
+    .video-overlay {
+      position: absolute;
+      top: 8px; left: 8px;
+      background: rgba(0,0,0,0.55);
+      color: #f1f5f9;
+      font-family: monospace;
+      font-size: 0.7rem;
+      padding: 3px 6px;
+      border-radius: 3px;
+      pointer-events: none;
+    }
+    .video-overlay-right {
+      position: absolute;
+      bottom: 8px; right: 10px;
+      color: rgba(255,255,255,0.85);
+      font-size: 0.72rem;
+      font-family: monospace;
+    }
+    .video-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+    .video-controls select {
+      background: #0b0d13;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.22rem 0.4rem;
+      color: var(--text);
+      font-size: 0.72rem;
+    }
+    .video-controls .status {
+      margin-left: auto;
+      font-size: 0.65rem;
+      opacity: 0.7;
+    }
+
+    /* ---- Track map (right of top bar) ---- */
+    .map-panel .topbar-body { padding: 6px 8px 8px; gap: 0.3rem; }
+    #track-map { flex: 1; min-height: 0; }
+    .zoom-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      padding: 0 4px;
+    }
+    .zoom-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+
+    /* ======= READOUT STRIP (sticky just below top bar) ======= */
+    .readout-strip {
+      position: sticky;
+      top: var(--topbar-height);
+      z-index: 50;
+      background: rgba(15,17,23,0.85);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 20px;
+      display: flex;
+      gap: 1.2rem;
+      align-items: center;
+      font-size: 0.72rem;
+      overflow-x: auto;
+    }
+    .readout-item { display: flex; gap: 0.3rem; white-space: nowrap; }
+    .readout-item .lbl { color: var(--text-muted); }
+    .readout-item .val { color: var(--text); font-variant-numeric: tabular-nums; }
+    .readout-item .unit { color: var(--text-muted); font-size: 0.65rem; margin-left: 0.1rem; }
+    .readout-pos { color: var(--accent); font-weight: 600; }
+
+    /* ======= SCROLLING CONTENT ======= */
+    .content { padding: 16px 20px 40px; }
+    h1 { font-size: 1.15rem; font-weight: 600; margin-bottom: 0.9rem; }
+    h1 span { color: var(--accent); }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem 1.1rem;
+      margin-bottom: 0.9rem;
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .selection-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.5rem;
+    }
+    .selection-row:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+    .color-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .fake-select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.3rem 0.6rem;
+      color: var(--text);
+      font-size: 0.78rem;
+    }
+    .lap-cb {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .lap-cb.checked {
+      background: rgba(79,142,247,0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .chip {
+      padding: 0.22rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.73rem;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      display: inline-block;
+      margin: 0.2rem 0.2rem 0 0;
+    }
+    .chip.active {
+      background: rgba(79,142,247,0.2);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .cat-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      opacity: 0.6;
+      margin-top: 0.5rem;
+      display: block;
+    }
+
+    .chart-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.4rem;
+      margin-bottom: 0.3rem;
+    }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 0.5rem 0.2rem 0.5rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .chart-header label { display: flex; align-items: center; cursor: pointer; }
+
+    .annotation {
+      position: fixed;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.62rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
+      z-index: 200;
+      pointer-events: none;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+    .annotation::before {
+      content: '';
+      position: absolute;
+      border: 5px solid transparent;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ============ TOP BAR (fixed) ============ -->
+<div class="topbar">
+  <!-- VIDEO panel (65%) -->
+  <div class="topbar-panel">
+    <div class="topbar-head">
+      <div class="panel-title">Video <span class="badge">L2 · Realtime</span></div>
+      <div class="video-controls">
+        <select class="fake-select">
+          <option>L2 · 1:34.221</option>
+        </select>
+        <select class="fake-select">
+          <option>Realtime</option>
+        </select>
+        <span class="status">12.4 MB · sync 237 pts</span>
+        <button style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; padding: 0 0.3rem;" title="Collapse">−</button>
+      </div>
+    </div>
+    <div class="topbar-body" style="padding: 8px 10px;">
+      <div class="video-wrap">
+        <div class="video-fake">
+          <div class="video-overlay">normPos: 0.4231 · lap 2 · 00:39.842</div>
+          <div class="video-overlay-right">1280 × 720 · 15 fps</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRACK MAP panel (35%) -->
+  <div class="topbar-panel map-panel">
+    <div class="topbar-head">
+      <div class="panel-title">Track Map <span class="badge">ks_nurburgring</span></div>
+      <div style="display: flex; align-items: center; gap: 0.4rem;">
+        <span style="color: var(--text-muted); font-size: 0.7rem;">42.3 %</span>
+        <button style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; padding: 0 0.3rem;" title="Collapse">−</button>
+      </div>
+    </div>
+    <div class="topbar-body">
+      <div id="track-map"></div>
+      <div class="zoom-row">
+        <span>Zoom</span>
+        <input type="range" min="1" max="8" step="0.1" value="1.8">
+        <span style="color: var(--text); min-width: 2.2rem; text-align: right;">1.8x</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ READOUT STRIP (sticky) — matches production single-row readout ============ -->
+<div class="readout-strip">
+  <div class="readout-item readout-pos">
+    <span class="lbl">Position</span><span class="val">42.3% @ 8642m</span>
+  </div>
+  <div class="readout-item" style="margin-left: auto; opacity: 0.6; font-size: 0.65rem;">
+    <span class="lbl">per-trace values render on each chart's marker ↓</span>
+  </div>
+</div>
+
+<!-- ============ SCROLL BODY ============ -->
+<div class="content">
+  <h1>Telemetry <span>Explorer</span></h1>
+
+  <!-- Session picker -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Select sessions and laps to overlay</span>
+      <span style="color: var(--text-muted); font-size: 0.7rem;">− Hide</span>
+    </div>
+    <div class="selection-row">
+      <span class="color-dot" style="background:#4f8ef7"></span>
+      <span class="fake-select">Env: quix-dev</span>
+      <span class="fake-select">Rig: main-rig</span>
+      <span class="fake-select">Exp: endurance-test</span>
+      <span class="fake-select">Driver: Ludvik</span>
+      <span class="fake-select">Track: ks_nurburgring</span>
+      <span class="fake-select">Car: bmw_m3_gt2</span>
+      <span class="fake-select">Session: 2026-04-15 11:20</span>
+      <span class="lap-cb" style="border-style: dashed;">all</span>
+      <span class="lap-cb checked">L1</span>
+      <span class="lap-cb checked">L2</span>
+      <span class="lap-cb">L3</span>
+      <span class="lap-cb">L4</span>
+      <span style="margin-left:auto;"></span>
+      <span class="chip" style="background: var(--red); color: #fff; border-color: var(--red); padding: 0.12rem 0.45rem; font-size: 0.7rem; cursor: pointer;">×</span>
+    </div>
+    <div class="selection-row">
+      <span class="color-dot" style="background:#f59e0b"></span>
+      <span class="fake-select">Env: quix-dev</span>
+      <span class="fake-select">Rig: main-rig</span>
+      <span class="fake-select">Exp: warmup-check</span>
+      <span class="fake-select">Driver: Ludvik</span>
+      <span class="fake-select">Track: ks_nurburgring</span>
+      <span class="fake-select">Car: bmw_m3_gt2</span>
+      <span class="fake-select">Session: 2026-04-14 09:05</span>
+      <span class="lap-cb" style="border-style: dashed;">all</span>
+      <span class="lap-cb checked">L1</span>
+      <span class="lap-cb">L2</span>
+      <span style="margin-left:auto;"></span>
+      <span class="chip" style="background: var(--red); color: #fff; border-color: var(--red); padding: 0.12rem 0.45rem; font-size: 0.7rem; cursor: pointer;">×</span>
+    </div>
+    <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+      <span class="chip" style="background: var(--green); color: #fff; border-color: var(--green);">+ Add Session</span>
+      <span class="chip" style="background: var(--accent); color: #fff; border-color: var(--accent);">Plot</span>
+    </div>
+  </div>
+
+  <!-- Signal picker -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Signals</span>
+      <span style="color: var(--text-muted); font-size: 0.7rem;">− Hide</span>
+    </div>
+    <span class="cat-label">Drivetrain</span>
+    <span class="chip active">Speed</span>
+    <span class="chip active">RPM</span>
+    <span class="chip active">Gear</span>
+    <span class="chip">Clutch</span>
+    <span class="cat-label">Inputs</span>
+    <span class="chip active">Throttle</span>
+    <span class="chip">Brake</span>
+    <span class="chip">Steer</span>
+    <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+      <span class="cat-label" style="margin-top: 0;">Tyres</span>
+      <button class="cat-toggle" style="background: none; border: none; color: var(--text-muted); font-size: 0.62rem; opacity: 0.6; cursor: pointer; text-decoration: underline;">show all 12</button>
+    </div>
+    <span class="chip">Tyre Temp FL</span>
+    <span class="chip">Tyre Temp FR</span>
+    <span class="chip">Tyre Temp RL</span>
+    <span class="chip">Tyre Temp RR</span>
+    <span class="chip">Pressure FL</span>
+    <span class="chip">Pressure FR</span>
+    <span class="chip">Pressure RL</span>
+    <span class="chip">Pressure RR</span>
+    <span class="cat-label">Suspension</span>
+    <span class="chip">Travel FL</span>
+    <span class="chip">Travel FR</span>
+    <span class="chip">Travel RL</span>
+    <span class="chip">Travel RR</span>
+  </div>
+
+  <!-- Charts -->
+  <div id="charts"></div>
+
+  <!-- Status bar -->
+  <div class="status-bar" id="status" style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.75rem; padding: 0.5rem 0;">
+    Loaded 2,478 points across 3 trace(s) · marker at 42.3 %
+  </div>
+
+</div>
+
+<!-- Callouts (annotations) -->
+<div class="annotation" style="top: 14px; left: 18px;">① Top bar FIXED · video 65% + map 35%</div>
+<div class="annotation" style="top: calc(var(--topbar-height) + 6px); left: 18px;">② Live readout sticks below top bar</div>
+<div class="annotation" style="top: calc(var(--topbar-height) + 64px); right: 20px;">③ Session &amp; signal pickers scroll normally</div>
+
+<script>
+/* ===== Build fake track map (Plotly — close-enough shape) ===== */
+const tPts = 240;
+const track = [];
+for (let i = 0; i < tPts; i++) {
+  const u = i / tPts;
+  // Nurburgring-esque organic loop
+  const x = 300 * Math.sin(u * 2 * Math.PI) + 120 * Math.sin(u * 6 * Math.PI + 1.3) - 60 * Math.cos(u * 10 * Math.PI);
+  const z = 220 * Math.cos(u * 2 * Math.PI) + 90 * Math.cos(u * 4 * Math.PI + 0.7) + 50 * Math.sin(u * 8 * Math.PI);
+  track.push({ x, z });
+}
+const xs = track.map(p => p.x), zs = track.map(p => p.z);
+const markerIdx = Math.floor(0.423 * track.length);
+
+/* ===== Multi-severity coloring (matches production corner thresholds) ===== */
+// Fake severity per index: corners at indices ~20-40, 70-90, 130-155, 190-215 are "tight/hairpin"
+const SEV_COLOR = {
+  straight: '#4f8ef7',
+  sweeper: '#34d399',
+  tight: '#f59e0b',
+  hairpin: '#ef4444',
+};
+function fakeSev(i) {
+  if (i >= 18 && i < 42) return 'hairpin';
+  if (i >= 65 && i < 92) return 'tight';
+  if (i >= 125 && i < 158) return 'sweeper';
+  if (i >= 188 && i < 216) return 'tight';
+  return 'straight';
+}
+// Build contiguous colored segments bridging the next point for pixel-perfect continuity
+const severityTraces = [];
+{
+  let cur = null;
+  for (let i = 0; i < track.length; i++) {
+    const sev = fakeSev(i);
+    if (!cur || cur.sev !== sev) {
+      if (cur && cur.x.length) severityTraces.push(cur);
+      cur = { sev, x: [], y: [] };
+      if (i > 0) { cur.x.push(xs[i-1]); cur.y.push(zs[i-1]); }
+    }
+    cur.x.push(xs[i]); cur.y.push(zs[i]);
+  }
+  if (cur && cur.x.length) severityTraces.push(cur);
+}
+
+Plotly.newPlot('track-map', [
+  // Neutral base line first — guarantees continuity
+  { x: xs, y: zs, mode: 'lines', type: 'scatter',
+    line: { color: '#3a3f55', width: 5, shape: 'spline', smoothing: 0.7 },
+    hoverinfo: 'skip', showlegend: false },
+  // Severity-colored overlays
+  ...severityTraces.map(t => ({
+    x: t.x, y: t.y, mode: 'lines', type: 'scatter',
+    line: { color: SEV_COLOR[t.sev], width: 4, shape: 'spline', smoothing: 0.7 },
+    hoverinfo: 'skip', showlegend: false,
+  })),
+  { x: [xs[0]], y: [zs[0]], mode: 'markers', type: 'scatter',
+    marker: { color: '#34d399', size: 10, symbol: 'square', line: { color: '#000', width: 1 } },
+    hoverinfo: 'skip', showlegend: false },
+  { x: [xs[markerIdx]], y: [zs[markerIdx]], mode: 'markers', type: 'scatter',
+    marker: { color: '#ef4444', size: 12, line: { color: '#fff', width: 2 } },
+    hoverinfo: 'skip', showlegend: false },
+  // Fake corner labels
+  { x: [xs[30], xs[80], xs[140], xs[200]],
+    y: [zs[30], zs[80], zs[140], zs[200]],
+    mode: 'markers+text', type: 'scatter',
+    marker: { color: '#f59e0b', size: 14, line: { color: '#0f1117', width: 1 } },
+    text: ['T1','T2','T3','T4'],
+    textfont: { color: '#fff', size: 8, family: 'monospace' },
+    hoverinfo: 'skip', showlegend: false },
+], {
+  paper_bgcolor: '#1a1d27',
+  plot_bgcolor: '#1a1d27',
+  margin: { t: 4, r: 4, b: 4, l: 4 },
+  showlegend: false,
+  xaxis: { visible: false, scaleanchor: 'y', scaleratio: 1, fixedrange: true },
+  yaxis: { visible: false, fixedrange: true },
+  dragmode: false,
+}, { responsive: true, displayModeBar: false, staticPlot: true });
+
+/* ===== Build 3 fake signal plots (220 px tall, legend=Lx, narrow right margin) ===== */
+function fakeSeries(phase, noise, scale, base) {
+  const n = 300;
+  const x = [], y = [];
+  for (let i = 0; i < n; i++) {
+    const u = i / n;
+    x.push(u);
+    y.push(base + scale * Math.sin(u * 4 * Math.PI + phase) + scale * 0.3 * Math.sin(u * 11 * Math.PI + phase * 2) + (Math.random() - 0.5) * noise);
+  }
+  return { x, y };
+}
+const markerX = 0.423;
+const COMMON_LAYOUT = {
+  paper_bgcolor: '#1a1d27',
+  plot_bgcolor: '#1a1d27',
+  font: { color: '#e2e8f0', size: 10 },
+  legend: { orientation: 'v', x: 1.01, y: 1, font: { size: 8, color: '#e2e8f0' }, bgcolor: 'rgba(0,0,0,0)' },
+  margin: { t: 8, r: 60, b: 28, l: 50 },
+  height: 240,
+  xaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047', range: [0, 1] },
+  yaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047' },
+};
+const MARKER_SHAPE = (x) => ({
+  type: 'line', xref: 'x', yref: 'paper',
+  x0: x, x1: x, y0: 0, y1: 1,
+  line: { color: '#ffffff', width: 1.6 },
+});
+
+// Build a per-trace value tag at the marker x (interpolated Y).
+// Rendered as Plotly annotations so they anchor to the marker x and each trace's color.
+function markerAnnotations(traces, markerX) {
+  return traces.map((t, i) => {
+    // Find bracketing indices around markerX in t.x (ascending)
+    const xs = t.x, ys = t.y;
+    let lo = 0, hi = xs.length - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (xs[mid] <= markerX) lo = mid; else hi = mid;
+    }
+    const frac = (markerX - xs[lo]) / (xs[hi] - xs[lo] || 1);
+    const y = ys[lo] + frac * (ys[hi] - ys[lo]);
+    // Stagger vertically so tags don't collide
+    return {
+      x: markerX,
+      y: 1,
+      xref: 'x', yref: 'paper',
+      text: `<b>${t.name}</b> ${y.toFixed(y > 100 ? 0 : 1)}`,
+      showarrow: false,
+      xanchor: 'left',
+      yanchor: 'top',
+      xshift: 8,
+      yshift: -(i * 20) - 4,
+      font: { color: t.line.color, size: 10, family: 'monospace' },
+      bgcolor: 'rgba(11,13,19,0.92)',
+      bordercolor: t.line.color,
+      borderwidth: 1,
+      borderpad: 3,
+    };
+  });
+}
+
+const charts = [
+  { title: 'Speed (km/h)', showCorners: true, series: [
+    { name: 'L1', color: '#4f8ef7', scale: 40, base: 160, noise: 4 },
+    { name: 'L2', color: '#34d399', scale: 38, base: 165, noise: 4 },
+    { name: 'L3', color: '#f59e0b', scale: 42, base: 158, noise: 5 },
+  ]},
+  { title: 'Throttle (%)', showCorners: false, series: [
+    { name: 'L1', color: '#4f8ef7', scale: 30, base: 60, noise: 8 },
+    { name: 'L2', color: '#34d399', scale: 32, base: 62, noise: 7 },
+    { name: 'L3', color: '#f59e0b', scale: 28, base: 58, noise: 9 },
+  ]},
+  { title: 'RPM', showCorners: false, series: [
+    { name: 'L1', color: '#4f8ef7', scale: 1200, base: 6200, noise: 200 },
+    { name: 'L2', color: '#34d399', scale: 1100, base: 6400, noise: 180 },
+    { name: 'L3', color: '#f59e0b', scale: 1300, base: 6100, noise: 220 },
+  ]},
+];
+
+// Fake corner bands (mapped to normalized x 0..1)
+const CORNERS = [
+  { label: 'T1', sev: 'hairpin', start: 0.08, end: 0.17 },
+  { label: 'T2', sev: 'tight',   start: 0.27, end: 0.38 },
+  { label: 'T3', sev: 'sweeper', start: 0.52, end: 0.66 },
+  { label: 'T4', sev: 'tight',   start: 0.79, end: 0.90 },
+];
+const SEV_RGBA = {
+  hairpin: 'rgba(239, 68, 68, 0.12)',
+  tight:   'rgba(245, 158, 11, 0.12)',
+  sweeper: 'rgba(52, 211, 153, 0.10)',
+};
+function cornerShapes() {
+  return CORNERS.map(c => ({
+    type: 'rect', xref: 'x', yref: 'paper',
+    x0: c.start, x1: c.end, y0: 0, y1: 1,
+    fillcolor: SEV_RGBA[c.sev], line: { width: 0 },
+  }));
+}
+function cornerAnnotations() {
+  return CORNERS.map(c => ({
+    x: (c.start + c.end) / 2,
+    y: 1.0, xref: 'x', yref: 'paper',
+    text: c.label, showarrow: false, yanchor: 'bottom',
+    font: { color: '#e2e8f0', size: 9, family: 'monospace' },
+  }));
+}
+
+const chartsDiv = document.getElementById('charts');
+charts.forEach((c, idx) => {
+  const container = document.createElement('div');
+  container.className = 'chart-container';
+  const cbMark = c.showCorners ? '☑' : '☐';
+  container.innerHTML = `<div class="chart-header"><span>${c.title}</span><label style="cursor:pointer;"><input type="checkbox" ${c.showCorners ? 'checked' : ''} style="accent-color: var(--accent); margin-right: 0.3rem;"> Show corners</label></div><div></div>`;
+  const plotDiv = container.lastElementChild;
+  chartsDiv.appendChild(container);
+
+  const traces = c.series.map((s, i) => {
+    const data = fakeSeries(i * 0.6, s.noise, s.scale, s.base);
+    return {
+      x: data.x, y: data.y,
+      type: 'scatter', mode: 'lines',
+      name: s.name,
+      line: { color: s.color, width: 1.5 },
+      showlegend: true,
+    };
+  });
+
+  const shapes = [MARKER_SHAPE(markerX)];
+  const anns = markerAnnotations(traces, markerX);
+  if (c.showCorners) {
+    shapes.push(...cornerShapes());
+    anns.push(...cornerAnnotations());
+  }
+
+  Plotly.newPlot(plotDiv, traces, {
+    ...COMMON_LAYOUT,
+    yaxis: { ...COMMON_LAYOUT.yaxis, title: { text: c.title, font: { size: 10 } } },
+    shapes,
+    annotations: anns,
+  }, { responsive: true, displayModeBar: false, staticPlot: true });
+});
+</script>
+</body>
+</html>

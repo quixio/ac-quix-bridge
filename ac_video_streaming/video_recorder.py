@@ -293,11 +293,11 @@ class VideoRecorder:
             proc = subprocess.run(
                 [
                     self._ffmpeg, "-y",
-                    # -r as input option ignores the file's stored timestamps
-                    # and reassigns them assuming constant frame rate.
-                    "-r", f"{fps:.4f}",
                     "-i", mp4_path,
                     "-c", "copy",
+                    # -r as output option sets the output timebase so the
+                    # MP4 duration matches the actual capture wall-clock.
+                    "-r", f"{fps:.4f}",
                     tmp_path,
                 ],
                 stdout=subprocess.DEVNULL,
