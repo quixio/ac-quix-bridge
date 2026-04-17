@@ -22,3 +22,6 @@ test-manager-backend/scripts/
 
 # Mock server for local UI testing
 telemetry-comparison/mock/
+
+# Local Claude Code settings
+.claude/settings.local.json
