@@ -16,6 +16,7 @@ keep their raw lowercase value rather than being dropped.
 
 import csv
 import logging
+import os
 import unicodedata
 from io import StringIO
 from typing import Any
@@ -43,6 +44,39 @@ router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
 # portal, which is heavyweight for local development. The URL already lives
 # in the repo; we reuse it.
 _FALLBACK_MEASUREMENTS_URL = "https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io"
+
+
+# Dummy leaderboard rows returned when LOCAL_DEV_MODE=true. Lets the full UI
+# (dropdowns + table + rank) render end-to-end without the data-lake stack.
+# Matrix: 3 tracks × 2 cars × 2 experiments × 5 drivers = 60 rows, lap times
+# jittered so the per-(track, car, experiment) ranking is non-trivial.
+_LOCAL_DEV_TRACKS = ["ks_nurburgring", "spa", "silverstone"]
+_LOCAL_DEV_CARS = ["bmw_1m", "ferrari_488"]
+_LOCAL_DEV_EXPERIMENTS = ["baseline", "tuned"]
+_LOCAL_DEV_DRIVERS = ["Ludvík", "Alice", "Bob", "Carla", "Diego"]
+
+
+def _make_local_dev_rows() -> list[BestLapEntry]:
+    rows: list[BestLapEntry] = []
+    for t_idx, track in enumerate(_LOCAL_DEV_TRACKS):
+        for c_idx, car in enumerate(_LOCAL_DEV_CARS):
+            for e_idx, experiment in enumerate(_LOCAL_DEV_EXPERIMENTS):
+                for d_idx, driver in enumerate(_LOCAL_DEV_DRIVERS):
+                    # Deterministic but varied lap times — base per track/car,
+                    # tuned experiments ~1.5s faster, driver skill adds spread.
+                    base_ms = 90000 + t_idx * 4000 + c_idx * 2500
+                    exp_offset = -1500 if experiment == "tuned" else 0
+                    driver_offset = d_idx * 420 + (d_idx * d_idx * 37)
+                    rows.append(
+                        BestLapEntry(
+                            track=track,
+                            car=car,
+                            experiment=experiment,
+                            driver=driver,
+                            best_lap_ms=base_ms + exp_offset + driver_offset,
+                        )
+                    )
+    return rows
 
 
 # The lake's Hive partitions are (environment, test_rig, experiment, driver,
@@ -149,6 +183,10 @@ async def get_best_laps(
     derives filter options from distinct partition values in the payload
     and filters client-side when the user changes a dropdown.
     """
+    if os.getenv("LOCAL_DEV_MODE") == "true":
+        logger.info("LOCAL_DEV_MODE=true — returning dummy leaderboard rows.")
+        return _make_local_dev_rows()
+
     settings = get_settings()
     integration_settings = get_effective_integration_settings()
 

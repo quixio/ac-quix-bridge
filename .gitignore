@@ -25,3 +25,6 @@ telemetry-comparison/mock/
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Planning / scratch docs
+dev-planning/
