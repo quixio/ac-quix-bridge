@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +17,7 @@ import { useToast } from "@/lib/hooks/use-toast";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
 import { useLogbookApi } from "@/lib/hooks/use-api";
 import type { LogbookEntry } from "@/types/test";
-import { Clock, User, Pencil, Trash2, Activity } from "lucide-react";
+import { Clock, Pencil, Trash2, Activity } from "lucide-react";
 
 interface LogbookEntryListProps {
   testId: string;
@@ -93,7 +92,7 @@ export function LogbookEntryList({
         {/* Timeline line */}
         <div className="absolute left-[11px] top-6 bottom-6 w-px bg-border" />
 
-        {sortedEntries.map((entry, index) => (
+        {sortedEntries.map((entry) => (
           <div key={entry.id} className="relative flex gap-4">
             {/* Timeline dot */}
             <div className="relative flex-shrink-0">

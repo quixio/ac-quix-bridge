@@ -23,7 +23,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { TestDetailCard } from "@/components/tests/test-detail-card";
 import { LogbookEntryList } from "@/components/tests/logbook-entry-list";
 import { LogbookEntryForm } from "@/components/tests/logbook-entry-form";
@@ -31,15 +30,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { useTestFull } from "@/lib/hooks/use-tests";
 import { useTestsApi, useLogbookApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
-import {
-  ArrowLeft,
-  Edit,
-  Trash2,
-  FileText,
-  Settings,
-  Plus,
-  Zap,
-} from "lucide-react";
+import { Edit, Trash2, FileText, Plus, Zap } from "lucide-react";
 import type {
   LogbookEntry,
   LogbookEntryCreate,
@@ -269,7 +260,6 @@ export default function TestDetailPage() {
           {/* Quick Access, Test Setup, Configuration, Timestamps */}
           <TestDetailCard
             test={test}
-            onTestUpdated={refetch}
             resolvedNames={{
               pcName: test.pc_device_name || test.pc_device_id,
               rigName: test.test_rig_device_name || test.test_rig_device_id,

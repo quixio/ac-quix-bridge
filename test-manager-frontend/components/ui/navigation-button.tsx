@@ -43,7 +43,7 @@ export function NavigationButton({
     setIsNavigating(false);
   }, [pathname]);
 
-  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const handleClick = (_e: React.MouseEvent<HTMLAnchorElement>) => {
     setIsNavigating(true);
   };
 

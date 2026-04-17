@@ -11,7 +11,6 @@ import {
   Settings,
   Sliders,
   BarChart3,
-  LineChart,
   Users,
   TrendingUp,
 } from "lucide-react";

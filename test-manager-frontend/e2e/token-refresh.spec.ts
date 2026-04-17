@@ -138,7 +138,10 @@ test.describe("Quix Cloud Plugin Token Refresh", () => {
     console.log("Authorization header present in requests:", authHeaderPresent);
   });
 
-  test("should handle expired token scenario", async ({ page, context }) => {
+  test("should handle expired token scenario", async ({
+    page,
+    context: _context,
+  }) => {
     // Override the mock to simulate expired token (401 response)
     await page.route("**/api/**", async (route) => {
       const request = route.request();

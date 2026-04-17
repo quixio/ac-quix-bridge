@@ -57,9 +57,6 @@ export function Combobox({
   const displayValue =
     selectedOption?.label || (allowCustomValue && value) || placeholder;
 
-  // Check if current value is a custom filter (not in options list)
-  const isCustomValue = allowCustomValue && value && !selectedOption;
-
   // Debounced callback for custom typed values (300ms)
   const debouncedCustomValue = useDebouncedCallback((val: string) => {
     if (allowCustomValue) {
@@ -128,7 +125,7 @@ export function Combobox({
                 <CommandItem
                   key={option.value}
                   value={option.value}
-                  onSelect={(currentValue) => {
+                  onSelect={(_currentValue) => {
                     // Use option.value directly to avoid lowercase conversion issue
                     // When user clicks/selects, call parent immediately (no debounce)
                     onValueChange(

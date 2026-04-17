@@ -619,7 +619,7 @@ export function TopicPickerDialog({
 
   // Filter nodes based on search
   const filteredNodes = searchQuery
-    ? nodes.filter((node) => {
+    ? nodes.filter((_node) => {
         return true;
       })
     : nodes;

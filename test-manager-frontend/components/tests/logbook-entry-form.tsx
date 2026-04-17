@@ -29,7 +29,6 @@ interface LogbookEntryFormProps {
 }
 
 export function LogbookEntryForm({
-  testId,
   entry,
   onSubmit,
   onCancel,
