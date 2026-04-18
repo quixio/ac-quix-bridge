@@ -5,6 +5,7 @@ Queries Hive-partitioned Parquet data in QuixLake via SQL (DuckDB) and serves
 an interactive Plotly.js UI for overlaying telemetry from different sessions/laps.
 """
 
+import asyncio
 import csv
 import json
 import os
@@ -79,17 +80,33 @@ def sanitize_df(df):
     return df.where(df.notna(), None)
 
 
+# Allow-list for partition column values. The characters here cover every
+# value we've seen in ac_telemetry (lower/upper/digits/underscore for
+# environment/rig/experiment/driver/track/carModel, plus dash/dot/colon/space
+# for session_id timestamp variants). Rejecting anything else prevents SQL
+# injection via `{val}` interpolation in the WHERE clause — see
+# test_partition_filter::test_single_quote_in_value_rejected.
+_SAFE_PARTITION_VALUE = re.compile(r"^[A-Za-z0-9_\-.: ]+$")
+
+
 def _build_partition_filter(**kwargs) -> str:
     """Build a WHERE clause from partition column values.
     Skips empty strings. Uses CAST for session_id to handle
-    DuckDB timestamp normalization vs Hive partition format."""
+    DuckDB timestamp normalization vs Hive partition format.
+
+    Raises ValueError on any string value that doesn't match
+    `_SAFE_PARTITION_VALUE`. Callers should translate that into a 400.
+    """
     clauses = []
     for col, val in kwargs.items():
         if val is None or val == "":
             continue
         if isinstance(val, int):
             clauses.append(f"{col} = {val}")
-        elif col == "session_id":
+            continue
+        if not _SAFE_PARTITION_VALUE.fullmatch(str(val)):
+            raise ValueError(f"Invalid character in {col}: {val!r}")
+        if col == "session_id":
             # Hive partitions store session_id as e.g. "2026-04-14T11:42:08.107Z"
             # but the frontend may send "2026-04-14 11:42:08.107000" (space, microseconds, no Z).
             # Use CAST to VARCHAR + LIKE prefix match to handle all format variations.
@@ -107,34 +124,163 @@ def _build_partition_filter(**kwargs) -> str:
 # API endpoints
 # ---------------------------------------------------------------------------
 
+PARTITION_COLS = [
+    "environment", "test_rig", "experiment", "driver", "track", "carModel", "session_id"
+]
+
+
+# Reused across all /partitions calls so a single TLS handshake + connection
+# pool is amortized over the entire tree walk. Creating a new AsyncClient
+# per call was costing ~30ms of TLS setup each — ~1.2s per /api/sessions at
+# our current tree size. Kept module-level so FastAPI's autoreload doesn't
+# need a lifespan handler; httpx.AsyncClient is safe to reuse across requests.
+_http_client = httpx.AsyncClient(
+    timeout=30.0,
+    limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+)
+
+# Caps the number of in-flight QuixLake requests per process. The connection
+# pool alone doesn't throttle coroutine count — a tree walk with thousands
+# of sibling partitions could schedule them all at once and swamp the lake.
+# 20 keeps fan-out polite without bottlenecking the common small-tree case.
+_LAKE_CONCURRENCY = 20
+_lake_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_lake_semaphore() -> asyncio.Semaphore:
+    """Lazy-init so the Semaphore binds to the event loop that's actually
+    running (avoids `got Future attached to a different loop` under some
+    test configurations)."""
+    global _lake_semaphore
+    if _lake_semaphore is None:
+        _lake_semaphore = asyncio.Semaphore(_LAKE_CONCURRENCY)
+    return _lake_semaphore
+
+
+async def _list_partition_children(path: str) -> list[str]:
+    """Return the immediate child partition names under `path`.
+
+    Hits QuixLake's native /partitions endpoint (one S3 LIST, ~150ms)
+    instead of running SQL GROUP BY over Parquet files (multi-second scan).
+    Async so concurrent calls actually overlap instead of serializing on
+    the event loop.
+    """
+    if not QUIXLAKE_URL or not QUIX_LAKE_TOKEN:
+        missing = [
+            name for name, val in (
+                ("QUIXLAKE_URL", QUIXLAKE_URL),
+                ("QUIX_LAKE_TOKEN", QUIX_LAKE_TOKEN),
+            ) if not val
+        ]
+        raise RuntimeError(
+            f"Missing required env var(s): {', '.join(missing)}. "
+            "Set them in .env or the environment before starting the service."
+        )
+    async with _get_lake_semaphore():
+        response = await _http_client.get(
+            f"{QUIXLAKE_URL}/partitions",
+            params={"table": TABLE_NAME, "path": path} if path else {"table": TABLE_NAME},
+            headers={"Authorization": f"Bearer {QUIX_LAKE_TOKEN}"},
+        )
+    response.raise_for_status()
+    return [p["name"] for p in response.json().get("partitions", [])]
+
+
+async def _walk_partition_tree(
+    path: str, depth: int, filters: dict[str, str] | None = None
+) -> list[dict]:
+    """Recursively walk the partition tree under `path`. At the leaf
+    (session_id level) attaches a `laps` list by listing the lap=N
+    sub-partitions so the frontend doesn't need a separate /api/laps call.
+
+    Optional `filters`: dict of {partition_col: value}. When set, at each
+    depth only the matching child is traversed, so a fully-qualified filter
+    set narrows the walk to a single branch (deep-link fast path).
+
+    Fan-out at each level is parallelized via asyncio.gather — a tree of
+    width W and depth D completes in roughly D × single-call latency.
+    """
+    if depth == len(PARTITION_COLS):
+        session: dict = {}
+        for part in path.split("/"):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                session[k] = v
+        lap_names = await _list_partition_children(path)
+        laps: list[int] = []
+        for name in lap_names:
+            if name.startswith("lap="):
+                try:
+                    laps.append(int(name[len("lap="):]))
+                except ValueError:
+                    continue
+        session["laps"] = sorted(laps)
+        return [session]
+
+    children = await _list_partition_children(path)
+    if not children:
+        return []
+
+    if filters:
+        col = PARTITION_COLS[depth]
+        wanted = filters.get(col)
+        if wanted:
+            target = f"{col}={wanted}"
+            children = [c for c in children if c == target]
+
+    next_paths = [f"{path}/{child}" if path else child for child in children]
+    subtrees = await asyncio.gather(*(
+        _walk_partition_tree(p, depth + 1, filters) for p in next_paths
+    ))
+    return [s for sublist in subtrees for s in sublist]
+
+
 @app.get("/api/sessions")
-async def list_sessions(limit: int = 50):
-    """List available sessions with their metadata (partition fields)."""
+async def list_sessions(
+    environment: str = "",
+    test_rig: str = "",
+    experiment: str = "",
+    driver: str = "",
+    track: str = "",
+    carModel: str = "",
+    session_id: str = "",
+):
+    """Return partition-column combinations in the lake.
+
+    With no query params → full tree walk, every session (direct-access UX).
+    With partition column query params → walk narrowed to matching branch
+    (deep-link fast path, typically one session, ~300-400 ms).
+    """
+    filters = {
+        c: v
+        for c, v in {
+            "environment": environment,
+            "test_rig": test_rig,
+            "experiment": experiment,
+            "driver": driver,
+            "track": track,
+            "carModel": carModel,
+            "session_id": session_id,
+        }.items()
+        if v
+    }
     try:
-        client = get_client()
-        df = client.query(f"""
-            SELECT
-                environment,
-                test_rig,
-                experiment,
-                driver,
-                track,
-                carModel,
-                session_id,
-                MIN(timestamp_ms) as first_ts,
-                MAX(timestamp_ms) as last_ts,
-                MAX(lap) as max_lap,
-                COUNT(*) as total_samples
-            FROM {TABLE_NAME}
-            GROUP BY environment, test_rig, experiment, driver, track, carModel, session_id
-            ORDER BY first_ts DESC
-            LIMIT {limit}
-        """)
-        df = df.fillna("")
-        return JSONResponse(content={"sessions": df.to_dict(orient="records")})
+        sessions = await _walk_partition_tree("", 0, filters or None)
+        return JSONResponse(content={"sessions": sessions})
+    except httpx.HTTPStatusError as e:
+        # QuixLake returned an error. Surface the real upstream status so
+        # the frontend toast can say "403 Forbidden" instead of a generic 500.
+        logger.warning("QuixLake returned %s for %s", e.response.status_code, e.request.url)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Data lake returned {e.response.status_code} {e.response.reason_phrase}",
+        ) from e
+    except httpx.TimeoutException as e:
+        logger.warning("QuixLake timed out: %s", e)
+        raise HTTPException(status_code=504, detail=f"Data lake timed out: {e}") from e
     except Exception as e:
         logger.exception("Failed to list sessions")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/laps")
@@ -144,11 +290,14 @@ async def list_laps(
 ):
     """List laps for a given run (identified by all partition columns)."""
     try:
-        client = get_client()
         where = _build_partition_filter(
             environment=environment, test_rig=test_rig, experiment=experiment,
             driver=driver, track=track, carModel=carModel, session_id=session_id,
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        client = get_client()
         df = client.query(f"""
             SELECT
                 lap,
@@ -180,11 +329,14 @@ async def get_telemetry(
             raise HTTPException(status_code=400, detail=f"Invalid signal name: {s}")
 
     columns = ", ".join(signal_list)
-    where = _build_partition_filter(
-        environment=environment, test_rig=test_rig, experiment=experiment,
-        driver=driver, track=track, carModel=carModel, session_id=session_id,
-        lap=lap,
-    )
+    try:
+        where = _build_partition_filter(
+            environment=environment, test_rig=test_rig, experiment=experiment,
+            driver=driver, track=track, carModel=carModel, session_id=session_id,
+            lap=lap,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     try:
         client = get_client()
         df = client.query(f"""
@@ -226,81 +378,6 @@ async def get_telemetry(
     except Exception as e:
         logger.exception("Failed to get telemetry")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-PARTITION_COLS = ["environment", "test_rig", "experiment", "driver", "track", "carModel", "session_id"]
-
-
-def _list_partition_children(path: str) -> list[str]:
-    """Return the immediate child partition names under `path`.
-
-    Hits QuixLake's native /partitions endpoint (one S3 LIST, ~150ms)
-    instead of running SQL GROUP BY over Parquet files (multi-second scan).
-
-    Response shape from QuixLake:
-        {"partitions": [{"name": "environment=prague_office", ...}, ...]}
-
-    Returns just the `name` strings (caller is responsible for parsing the
-    `col=value` shape into a bare value).
-    """
-    response = httpx.get(
-        f"{QUIXLAKE_URL}/partitions",
-        params={"table": TABLE_NAME, "path": path} if path else {"table": TABLE_NAME},
-        headers={"Authorization": f"Bearer {QUIX_LAKE_TOKEN}"},
-        timeout=30.0,
-    )
-    response.raise_for_status()
-    return [p["name"] for p in response.json().get("partitions", [])]
-
-
-@app.get("/api/partition-values")
-async def partition_values(
-    column: str,
-    environment: str = "", test_rig: str = "", experiment: str = "",
-    driver: str = "", track: str = "", carModel: str = "", session_id: str = "",
-):
-    """Return available values for a partition column at the given tree depth.
-
-    The caller MUST supply every upstream partition column (those above
-    `column` in PARTITION_COLS). Downstream columns are ignored since they
-    don't shape the path. Returns 400 if an upstream column is missing.
-    """
-    if column not in PARTITION_COLS:
-        raise HTTPException(status_code=400, detail=f"Invalid partition column: {column}")
-
-    col_idx = PARTITION_COLS.index(column)
-    upstream_values = {
-        "environment": environment,
-        "test_rig": test_rig,
-        "experiment": experiment,
-        "driver": driver,
-        "track": track,
-        "carModel": carModel,
-    }
-    missing = [
-        c for c in PARTITION_COLS[:col_idx] if not upstream_values.get(c, "")
-    ]
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing upstream partition column(s): {', '.join(missing)}",
-        )
-
-    # Build a Hive-style path prefix from the strict upstream.
-    path_parts = [f"{c}={upstream_values[c]}" for c in PARTITION_COLS[:col_idx]]
-    path = "/".join(path_parts)
-
-    try:
-        names = _list_partition_children(path)
-    except Exception as e:
-        logger.exception("Failed to list partition children")
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-    # Each child name is `col=value`; extract the value. Defensive: tolerate
-    # names without the expected prefix by keeping the part after the last `=`.
-    prefix = f"{column}="
-    values = [n[len(prefix):] if n.startswith(prefix) else n.rsplit("=", 1)[-1] for n in names]
-    return JSONResponse(content={"values": values})
 
 
 @app.get("/api/channels")

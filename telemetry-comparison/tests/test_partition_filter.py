@@ -1,10 +1,13 @@
 """Unit tests for main._build_partition_filter.
 
 Pure function, no mocks required. Pins the quoting and special-case logic
-(CAST+LIKE for session_id) that the SQL-based endpoints rely on.
+(CAST+LIKE for session_id) that the SQL-based endpoints rely on, plus the
+allow-list that blocks SQL injection via partition column values.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from main import _build_partition_filter
 
@@ -66,3 +69,33 @@ def test_mixed_columns_combine_correctly() -> None:
     assert "lap = 2" in result
     assert "CAST(session_id AS VARCHAR) LIKE" in result
     assert result.count(" AND ") == 2
+
+
+def test_single_quote_in_value_rejected() -> None:
+    # A single quote inside a partition value would break out of the SQL
+    # string literal. The allow-list must reject it.
+    with pytest.raises(ValueError, match="Invalid character"):
+        _build_partition_filter(environment="o'hara")
+
+
+def test_sql_injection_attempt_rejected() -> None:
+    # Classic SQL-injection payload should be rejected cleanly.
+    with pytest.raises(ValueError):
+        _build_partition_filter(driver="' OR '1'='1")
+
+
+def test_semicolon_rejected() -> None:
+    with pytest.raises(ValueError):
+        _build_partition_filter(environment="prague_office; DROP TABLE ac_telemetry")
+
+
+def test_benign_special_chars_allowed() -> None:
+    # Dashes, dots, colons, spaces are all in real partition values
+    # (session_id timestamps). Must not be rejected.
+    result = _build_partition_filter(
+        environment="prague_office",
+        driver="Daniel-Lastic",
+        session_id="2026-04-14T11:42:08.107Z",
+    )
+    assert "prague_office" in result
+    assert "Daniel-Lastic" in result
