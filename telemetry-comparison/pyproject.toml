@@ -21,6 +21,7 @@ dependencies = [
 dev = [
 	"pytest",
 	"pytest-asyncio",
+	"pytest-playwright",
 	"httpx",  # for FastAPI TestClient
 	"ruff",
 	"ty",
@@ -29,6 +30,14 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = "."
 asyncio_mode = "auto"
+# E2E tests hit a real running dev server (http://localhost:8765 by default)
+# and a real QuixLake. They are SLOW and FLAKY compared to unit tests, so
+# they're gated behind a marker: `uv run pytest -m e2e` to run them.
+# `uv run pytest` (default) excludes them.
+markers = [
+	"e2e: browser-driven tests against a running dev server (slow; opt-in)",
+]
+addopts = "-m 'not e2e'"
 
 [tool.ruff]
 line-length = 100
