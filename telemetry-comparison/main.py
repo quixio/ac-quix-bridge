@@ -16,6 +16,7 @@ load_dotenv()
 
 import re
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -230,39 +231,76 @@ async def get_telemetry(
 PARTITION_COLS = ["environment", "test_rig", "experiment", "driver", "track", "carModel", "session_id"]
 
 
+def _list_partition_children(path: str) -> list[str]:
+    """Return the immediate child partition names under `path`.
+
+    Hits QuixLake's native /partitions endpoint (one S3 LIST, ~150ms)
+    instead of running SQL GROUP BY over Parquet files (multi-second scan).
+
+    Response shape from QuixLake:
+        {"partitions": [{"name": "environment=prague_office", ...}, ...]}
+
+    Returns just the `name` strings (caller is responsible for parsing the
+    `col=value` shape into a bare value).
+    """
+    response = httpx.get(
+        f"{QUIXLAKE_URL}/partitions",
+        params={"table": TABLE_NAME, "path": path} if path else {"table": TABLE_NAME},
+        headers={"Authorization": f"Bearer {QUIX_LAKE_TOKEN}"},
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    return [p["name"] for p in response.json().get("partitions", [])]
+
+
 @app.get("/api/partition-values")
 async def partition_values(
     column: str,
     environment: str = "", test_rig: str = "", experiment: str = "",
     driver: str = "", track: str = "", carModel: str = "", session_id: str = "",
 ):
-    """Return distinct values for a partition column, filtered by upstream selections."""
+    """Return available values for a partition column at the given tree depth.
+
+    The caller MUST supply every upstream partition column (those above
+    `column` in PARTITION_COLS). Downstream columns are ignored since they
+    don't shape the path. Returns 400 if an upstream column is missing.
+    """
     if column not in PARTITION_COLS:
         raise HTTPException(status_code=400, detail=f"Invalid partition column: {column}")
 
-    # Only filter by columns that come BEFORE the requested one in the hierarchy
     col_idx = PARTITION_COLS.index(column)
-    upstream = {c: v for c, v in {
-        "environment": environment, "test_rig": test_rig, "experiment": experiment,
-        "driver": driver, "track": track, "carModel": carModel, "session_id": session_id,
-    }.items() if PARTITION_COLS.index(c) < col_idx}
+    upstream_values = {
+        "environment": environment,
+        "test_rig": test_rig,
+        "experiment": experiment,
+        "driver": driver,
+        "track": track,
+        "carModel": carModel,
+    }
+    missing = [
+        c for c in PARTITION_COLS[:col_idx] if not upstream_values.get(c, "")
+    ]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing upstream partition column(s): {', '.join(missing)}",
+        )
 
-    where = _build_partition_filter(**upstream)
+    # Build a Hive-style path prefix from the strict upstream.
+    path_parts = [f"{c}={upstream_values[c]}" for c in PARTITION_COLS[:col_idx]]
+    path = "/".join(path_parts)
+
     try:
-        client = get_client()
-        select = column
-        df = client.query(f"""
-            SELECT DISTINCT {select}
-            FROM {TABLE_NAME}
-            {where}
-            ORDER BY {column}
-        """)
-        df = df.fillna("")
-        values = df[column].tolist()
-        return JSONResponse(content={"values": values})
+        names = _list_partition_children(path)
     except Exception as e:
-        logger.exception("Failed to get partition values")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to list partition children")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    # Each child name is `col=value`; extract the value. Defensive: tolerate
+    # names without the expected prefix by keeping the part after the last `=`.
+    prefix = f"{column}="
+    values = [n[len(prefix):] if n.startswith(prefix) else n.rsplit("=", 1)[-1] for n in names]
+    return JSONResponse(content={"values": values})
 
 
 @app.get("/api/channels")
