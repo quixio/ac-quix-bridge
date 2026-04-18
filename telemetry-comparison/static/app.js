@@ -1,17 +1,42 @@
 // 16 distinct colors — each trace (row+lap) gets a unique one
 const TRACE_COLORS = [
-  '#4f8ef7', '#f59e0b', '#34d399', '#f87171', '#a78bfa',
-  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#8b5cf6',
-  '#14b8a6', '#e879f9', '#fb923c', '#38bdf8', '#a3e635',
-  '#fbbf24'
+  '#4f8ef7',
+  '#f59e0b',
+  '#34d399',
+  '#f87171',
+  '#a78bfa',
+  '#ec4899',
+  '#06b6d4',
+  '#84cc16',
+  '#f97316',
+  '#8b5cf6',
+  '#14b8a6',
+  '#e879f9',
+  '#fb923c',
+  '#38bdf8',
+  '#a3e635',
+  '#fbbf24',
 ];
 let globalTraceIdx = 0;
 
 const ROW_COLORS = TRACE_COLORS;
-const PART_COLS = ['environment', 'test_rig', 'experiment', 'driver', 'track', 'carModel', 'session_id'];
+const PART_COLS = [
+  'environment',
+  'test_rig',
+  'experiment',
+  'driver',
+  'track',
+  'carModel',
+  'session_id',
+];
 const PART_LABELS = {
-  environment: 'Env', test_rig: 'Rig', experiment: 'Experiment',
-  driver: 'Driver', track: 'Track', carModel: 'Car', session_id: 'Session',
+  environment: 'Env',
+  test_rig: 'Rig',
+  experiment: 'Experiment',
+  driver: 'Driver',
+  track: 'Track',
+  carModel: 'Car',
+  session_id: 'Session',
 };
 
 const PLOTLY_LAYOUT = {
@@ -25,37 +50,38 @@ const PLOTLY_LAYOUT = {
   yaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047', autorange: true },
 };
 
-let sessions = [];   // loaded once on tab open, filtered client-side for dropdowns
+let sessions = []; // loaded once on tab open, filtered client-side for dropdowns
 let channels = {};
 let rowCount = 0;
 let plotDivs = [];
 
 // --- Track state ---
-let trackData = null;      // { points: [{x,z,normalizedDistance,radius_m,severity,...}], corners: [...] }
-let trackConfig = null;    // { corner_thresholds, colors, ... }
-let markerPosition = 0;    // current normalizedCarPosition (0..1), persists across re-plots
-let plotSignals = [];      // list of signal keys currently displayed (aligned with plotDivs)
-let plotTraces = [];       // per plot: array of {label, color, x, y} used for value lookup
+let trackData = null; // { points: [{x,z,normalizedDistance,radius_m,severity,...}], corners: [...] }
+let trackConfig = null; // { corner_thresholds, colors, ... }
+let markerPosition = 0; // current normalizedCarPosition (0..1), persists across re-plots
+let plotSignals = []; // list of signal keys currently displayed (aligned with plotDivs)
+let plotTraces = []; // per plot: array of {label, color, x, y} used for value lookup
 let trackBaseRange = null; // { xMin, xMax, zMin, zMax } of full track (for zoom math)
-let trackZoom = 1;         // current zoom factor (1 = fit whole track)
+let trackZoom = 1; // current zoom factor (1 = fit whole track)
 
 // --- Video sync state (populated after Plot when a lap with a sidecar exists) ---
 let videoState = {
-  element: null,        // <video> reference (set once at init)
-  laps: [],             // currently selectable laps (subset of plot selections)
-  currentLapIdx: -1,    // index in videoState.laps, -1 = none loaded
-  currentLoadToken: 0,  // monotonic, used to ignore stale async loads
-  frames: null,         // sorted-by-t_ms array of {t_ms, normPos} for the loaded lap
+  element: null, // <video> reference (set once at init)
+  laps: [], // currently selectable laps (subset of plot selections)
+  currentLapIdx: -1, // index in videoState.laps, -1 = none loaded
+  currentLoadToken: 0, // monotonic, used to ignore stale async loads
+  frames: null, // sorted-by-t_ms array of {t_ms, normPos} for the loaded lap
   framesByNd: null,
-  isPlaying: false,     // true between 'play' and 'pause'/'ended' events
-  blobUrl: null,        // object URL for fully-buffered MP4
+  isPlaying: false, // true between 'play' and 'pause'/'ended' events
+  blobUrl: null, // object URL for fully-buffered MP4
 };
 
 // Video-frame-accurate sync: use requestVideoFrameCallback when available.
 // It fires once per displayed frame with the exact mediaTime of that frame,
 // eliminating drift from rAF polling + browser decode lag.
-const HAS_RVFC = typeof HTMLVideoElement !== 'undefined'
-  && 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+const HAS_RVFC =
+  typeof HTMLVideoElement !== 'undefined' &&
+  'requestVideoFrameCallback' in HTMLVideoElement.prototype;
 
 // Fallback: if requestVideoFrameCallback is absent, poll via rAF at ~30Hz.
 const VIDEO_RAF_INTERVAL_MS = 1000 / 30;
@@ -63,7 +89,16 @@ const VIDEO_RAF_INTERVAL_MS = 1000 / 30;
 const MAX_READOUTS = 6;
 
 const DEFAULT_ACTIVE = new Set(['speedKmh', 'gas', 'brake', 'rpms']);
-const CAT_ORDER = ['Inputs', 'Motion', 'Engine', 'Tyres', 'Suspension & Brakes', 'Environment', 'Car State', 'Session'];
+const CAT_ORDER = [
+  'Inputs',
+  'Motion',
+  'Engine',
+  'Tyres',
+  'Suspension & Brakes',
+  'Environment',
+  'Car State',
+  'Session',
+];
 
 // ---------------------------------------------------------------------------
 // Data — loaded once at startup
@@ -85,7 +120,9 @@ async function fetchSessions(filters) {
     try {
       const body = await res.json();
       if (body?.detail) detail = body.detail;
-    } catch { /* non-JSON response */ }
+    } catch {
+      /* non-JSON response */
+    }
     const err = new Error(detail || `HTTP ${res.status}`);
     err.status = res.status;
     err.detail = detail;
@@ -97,10 +134,7 @@ async function fetchSessions(filters) {
 
 async function fetchTrack() {
   try {
-    const [tRes, cRes] = await Promise.all([
-      fetch('/api/track'),
-      fetch('/api/track/config'),
-    ]);
+    const [tRes, cRes] = await Promise.all([fetch('/api/track'), fetch('/api/track/config')]);
     trackData = await tRes.json();
     trackConfig = await cRes.json();
     renderTrackMap();
@@ -146,11 +180,13 @@ function updateMarker(nd, forceTrack, source) {
       const t = traces[k];
       const v = interpolateAt(t.x, t.y, nd);
       if (v === null || !isFinite(v)) continue;
-      const valStr = (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
+      const valStr = Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2);
       const isHL = _highlightedLabel && t.label === _highlightedLabel;
       const ann = {
-        xref: 'x', yref: 'paper',
-        x: nd, y: 1,
+        xref: 'x',
+        yref: 'paper',
+        x: nd,
+        y: 1,
         text: isHL ? `<b>${valStr}</b>` : valStr,
         showarrow: false,
         xanchor: 'left',
@@ -164,17 +200,24 @@ function updateMarker(nd, forceTrack, source) {
         borderpad: 2,
         opacity: 1,
       };
-      if (isHL) { hlAnn = ann; } else { valueAnn.push(ann); }
+      if (isHL) {
+        hlAnn = ann;
+      } else {
+        valueAnn.push(ann);
+      }
     }
     if (hlAnn) valueAnn.push(hlAnn);
 
     if (traces.length > MAX_TRACE_ANNOTATIONS) {
       valueAnn.push({
-        xref: 'x', yref: 'paper',
-        x: nd, y: 1,
+        xref: 'x',
+        yref: 'paper',
+        x: nd,
+        y: 1,
         text: `+${traces.length - MAX_TRACE_ANNOTATIONS}`,
         showarrow: false,
-        xanchor: 'left', yanchor: 'top',
+        xanchor: 'left',
+        yanchor: 'top',
         xshift: 6,
         yshift: -(shown * ROW_H) - 2,
         font: { color: '#8892a4', size: 9, style: 'italic' },
@@ -210,27 +253,33 @@ function interpolateAt(xArr, yArr, xTarget) {
   if (xTarget <= xArr[0]) return yArr[0];
   if (xTarget >= xArr[xArr.length - 1]) return yArr[yArr.length - 1];
   // Binary search
-  let lo = 0, hi = xArr.length - 1;
+  let lo = 0,
+    hi = xArr.length - 1;
   while (hi - lo > 1) {
     const mid = (lo + hi) >> 1;
     if (xArr[mid] <= xTarget) lo = mid;
     else hi = mid;
   }
-  const x0 = xArr[lo], x1 = xArr[hi];
-  const y0 = yArr[lo], y1 = yArr[hi];
+  const x0 = xArr[lo],
+    x1 = xArr[hi];
+  const y0 = yArr[lo],
+    y1 = yArr[hi];
   if (x1 === x0) return y0;
-  return y0 + (y1 - y0) * (xTarget - x0) / (x1 - x0);
+  return y0 + ((y1 - y0) * (xTarget - x0)) / (x1 - x0);
 }
 
 // Corner overlay shapes for a plot, based on config colors + enabled checkbox
 function buildCornerShapes() {
   if (!trackData?.corners || !trackConfig) return [];
   const colors = trackConfig.colors;
-  return trackData.corners.map(c => ({
+  return trackData.corners.map((c) => ({
     type: 'rect',
-    xref: 'x', yref: 'paper',
-    x0: c.start_norm, x1: c.end_norm,
-    y0: 0, y1: 1,
+    xref: 'x',
+    yref: 'paper',
+    x0: c.start_norm,
+    x1: c.end_norm,
+    y0: 0,
+    y1: 1,
     fillcolor: colors[c.severity],
     opacity: 0.18,
     line: { width: 0 },
@@ -240,8 +289,9 @@ function buildCornerShapes() {
 
 function buildCornerAnnotations() {
   if (!trackData?.corners) return [];
-  return trackData.corners.map(c => ({
-    xref: 'x', yref: 'paper',
+  return trackData.corners.map((c) => ({
+    xref: 'x',
+    yref: 'paper',
     x: (c.start_norm + c.end_norm) / 2,
     y: 1,
     yanchor: 'top',
@@ -274,9 +324,9 @@ function toggleCornerOverlay(plotIdx, enabled) {
 function getDistinctValues(column, upstreamFilters) {
   let filtered = sessions;
   for (const [col, val] of Object.entries(upstreamFilters)) {
-    if (val) filtered = filtered.filter(s => String(s[col]) === String(val));
+    if (val) filtered = filtered.filter((s) => String(s[col]) === String(val));
   }
-  const vals = [...new Set(filtered.map(s => s[column]))].filter(v => v !== undefined);
+  const vals = [...new Set(filtered.map((s) => s[column]))].filter((v) => v !== undefined);
   vals.sort();
   return vals;
 }
@@ -359,9 +409,8 @@ function populateDropdowns(rowIdx, fromColIdx, defaults) {
 
     sel.innerHTML = values.length === 1 ? '' : '<option value="">...</option>';
     for (const v of values) {
-      const display = col === 'session_id'
-        ? String(v).substring(0, 19).replace('T', ' ')
-        : (v || '(empty)');
+      const display =
+        col === 'session_id' ? String(v).substring(0, 19).replace('T', ' ') : v || '(empty)';
       sel.innerHTML += `<option value="${v}">${display}</option>`;
     }
 
@@ -393,16 +442,14 @@ function loadLaps(rowIdx) {
   const container = document.getElementById(`laps-${rowIdx}`);
   const filters = getRowFilters(rowIdx);
 
-  if (!PART_COLS.every(c => filters[c])) {
+  if (!PART_COLS.every((c) => filters[c])) {
     container.innerHTML = '<span class="lap-info">...</span>';
     return;
   }
 
   // Laps are baked into each session object by /api/sessions — no extra
   // HTTP call. Find the matching pre-loaded session and render.
-  const session = sessions.find(s =>
-    PART_COLS.every(c => String(s[c]) === String(filters[c])),
-  );
+  const session = sessions.find((s) => PART_COLS.every((c) => String(s[c]) === String(filters[c])));
   const laps = session?.laps || [];
 
   if (!laps.length) {
@@ -410,20 +457,26 @@ function loadLaps(rowIdx) {
     return;
   }
 
-  container.innerHTML = `
+  container.innerHTML =
+    `
     <button class="btn btn-xs btn-outline" onclick="toggleAllLaps(${rowIdx})">all</button>
-  ` + laps.map(lap => `
+  ` +
+    laps
+      .map(
+        (lap) => `
     <label class="lap-cb" onclick="event.preventDefault(); this.classList.toggle('checked'); this.querySelector('input').checked = this.classList.contains('checked');">
       <input type="checkbox" value="${lap}">
       L${lap}
     </label>
-  `).join('');
+  `,
+      )
+      .join('');
 }
 
 function toggleAllLaps(idx) {
   const labels = document.querySelectorAll(`#laps-${idx} .lap-cb`);
-  const anyUnchecked = Array.from(labels).some(l => !l.classList.contains('checked'));
-  labels.forEach(l => {
+  const anyUnchecked = Array.from(labels).some((l) => !l.classList.contains('checked'));
+  labels.forEach((l) => {
     l.classList.toggle('checked', anyUnchecked);
     l.querySelector('input').checked = anyUnchecked;
   });
@@ -440,7 +493,7 @@ function getSelections() {
   // Collect all row session_ids first to detect multi-session
   const rows = document.querySelectorAll('.selection-row');
   const sessionIds = [];
-  rows.forEach(row => {
+  rows.forEach((row) => {
     const filters = getRowFilters(parseInt(row.dataset.rowIdx));
     sessionIds.push(filters.session_id || '');
   });
@@ -452,11 +505,9 @@ function getSelections() {
     const sIdx = multiSession ? uniqueSessions.indexOf(sessionIds[rowIdx]) + 1 : -1;
 
     const checked = row.querySelectorAll('.lap-cb input:checked');
-    checked.forEach(cb => {
+    checked.forEach((cb) => {
       const lap = parseInt(cb.value);
-      const label = multiSession
-        ? `S${sIdx}-L${lap}`
-        : `L${lap}`;
+      const label = multiSession ? `S${sIdx}-L${lap}` : `L${lap}`;
       result.push({
         key: { ...filters },
         lap,
@@ -473,7 +524,7 @@ function getSelections() {
 // ---------------------------------------------------------------------------
 
 function getActiveSignals() {
-  return Array.from(document.querySelectorAll('.chip.active')).map(c => c.dataset.signal);
+  return Array.from(document.querySelectorAll('.chip.active')).map((c) => c.dataset.signal);
 }
 
 function chartTitle(col) {
@@ -507,7 +558,8 @@ function renderChannelChips() {
 
     html += `<div class="cat-section"><div class="cat-header">`;
     html += `<span class="cat-label">${cat}</span>`;
-    if (collapsed) html += `<button class="cat-toggle" onclick="toggleCat('${catId}', this)">show all ${cols.length}</button>`;
+    if (collapsed)
+      html += `<button class="cat-toggle" onclick="toggleCat('${catId}', this)">show all ${cols.length}</button>`;
     html += `</div><div class="signal-chips" id="cat-${catId}">`;
     for (let i = 0; i < cols.length; i++) {
       const col = cols[i];
@@ -519,7 +571,7 @@ function renderChannelChips() {
     html += '</div></div>';
   }
   container.innerHTML = html;
-  container.addEventListener('click', e => {
+  container.addEventListener('click', (e) => {
     if (e.target.classList.contains('chip')) e.target.classList.toggle('active');
   });
 }
@@ -527,7 +579,7 @@ function renderChannelChips() {
 function toggleCat(catId, btn) {
   const chips = document.querySelectorAll(`#cat-${catId} [data-extra]`);
   const showing = chips[0]?.style.display !== 'none';
-  chips.forEach(c => c.style.display = showing ? 'none' : '');
+  chips.forEach((c) => (c.style.display = showing ? 'none' : ''));
   btn.textContent = showing ? 'show all' : 'show less';
 }
 
@@ -539,24 +591,34 @@ async function plot() {
   const selections = getSelections();
   const signals = getActiveSignals();
 
-  if (!selections.length) { setStatus('Check at least one lap', true); return; }
-  if (!signals.length) { setStatus('Select at least one signal', true); return; }
+  if (!selections.length) {
+    setStatus('Check at least one lap', true);
+    return;
+  }
+  if (!signals.length) {
+    setStatus('Select at least one signal', true);
+    return;
+  }
 
   const btn = document.getElementById('btn-plot');
   btn.disabled = true;
   setStatus('<span class="loading-spinner"></span> Loading telemetry...');
 
   try {
-    const allData = await Promise.all(selections.map(sel => {
-      const p = new URLSearchParams();
-      for (const [k, v] of Object.entries(sel.key)) {
-        if (v) p.set(k, v);
-      }
-      p.set('lap', sel.lap);
-      p.set('signals', signals.join(','));
-      return fetch('/api/telemetry?' + p)
-        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
-    }));
+    const allData = await Promise.all(
+      selections.map((sel) => {
+        const p = new URLSearchParams();
+        for (const [k, v] of Object.entries(sel.key)) {
+          if (v) p.set(k, v);
+        }
+        p.set('lap', sel.lap);
+        p.set('signals', signals.join(','));
+        return fetch('/api/telemetry?' + p).then((r) => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
+      }),
+    );
 
     const chartsDiv = document.getElementById('charts');
     chartsDiv.innerHTML = '';
@@ -591,38 +653,48 @@ async function plot() {
         const d = allData[i].data;
         const ds = downsample(d.normalizedCarPosition, d[signal]);
         return {
-          x: ds.x, y: ds.y,
-          type: 'scatter', mode: 'lines',
+          x: ds.x,
+          y: ds.y,
+          type: 'scatter',
+          mode: 'lines',
           name: sel.label,
           line: { color: sel.color, width: 1.5 },
           showlegend: true,
         };
       });
       // Remember for value interpolation at marker
-      plotTraces.push(traces.map(t => ({ label: t.name, color: t.line.color, x: t.x, y: t.y })));
+      plotTraces.push(traces.map((t) => ({ label: t.name, color: t.line.color, x: t.x, y: t.y })));
 
       // Marker shape is always shapes[0]; corner overlays appended after when toggled
       const markerShape = {
         type: 'line',
-        xref: 'x', yref: 'paper',
-        x0: markerPosition, x1: markerPosition,
-        y0: 0, y1: 1,
+        xref: 'x',
+        yref: 'paper',
+        x0: markerPosition,
+        x1: markerPosition,
+        y0: 0,
+        y1: 1,
         line: { color: '#ffffff', width: 1.5, dash: 'solid' },
       };
 
-      Plotly.newPlot(plotDiv, traces, {
-        ...PLOTLY_LAYOUT,
-        title: null,
-        dragmode: false,
-        shapes: [markerShape],
-        xaxis: {
-          ...PLOTLY_LAYOUT.xaxis,
-          title: 'Track Position [-]',
-          range: [0, 1],
-          fixedrange: false,
+      Plotly.newPlot(
+        plotDiv,
+        traces,
+        {
+          ...PLOTLY_LAYOUT,
+          title: null,
+          dragmode: false,
+          shapes: [markerShape],
+          xaxis: {
+            ...PLOTLY_LAYOUT.xaxis,
+            title: 'Track Position [-]',
+            range: [0, 1],
+            fixedrange: false,
+          },
+          yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
         },
-        yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
-      }, { responsive: true, scrollZoom: false });
+        { responsive: true, scrollZoom: false },
+      );
 
       attachMarkerDrag(plotDiv);
     }
@@ -648,7 +720,7 @@ let _highlightedLabel = null;
 function highlightVideoLapTrace(label) {
   _highlightedLabel = label;
   if (!plotDivs.length || !plotTraces.length) return;
-  const matchIdx = plotTraces[0]?.findIndex(t => t.label === label) ?? -1;
+  const matchIdx = plotTraces[0]?.findIndex((t) => t.label === label) ?? -1;
   const selColor = plotTraces[0]?.[matchIdx]?.color;
 
   plotDivs.forEach((div, pi) => {
@@ -657,23 +729,29 @@ function highlightVideoLapTrace(label) {
 
     // 1) Remove old halos FIRST so trace indices are clean
     const haloIdxs = [];
-    div.data.forEach((d, i) => { if (d.name === '_halo') haloIdxs.push(i); });
+    div.data.forEach((d, i) => {
+      if (d.name === '_halo') haloIdxs.push(i);
+    });
     for (let i = haloIdxs.length - 1; i >= 0; i--) Plotly.deleteTraces(div, haloIdxs[i]);
 
     // 2) Width: selected bolder, ALL others back to normal
     traces.forEach((t, i) => {
-      Plotly.restyle(div, { 'line.width': t.label === label ? 3 : 1.5, opacity: t.label === label ? 1 : 0.7 }, [i]);
+      Plotly.restyle(
+        div,
+        { 'line.width': t.label === label ? 3 : 1.5, opacity: t.label === label ? 1 : 0.7 },
+        [i],
+      );
     });
   });
 
   // 3) DOM: move selected trace SVG to front + highlight legend + annotations
   // Only target chart plots (plotDivs), not the track map
   setTimeout(() => {
-    plotDivs.forEach(plot => {
+    plotDivs.forEach((plot) => {
       // Bring selected trace to front
       const layer = plot.querySelector('.scatterlayer');
       if (layer) {
-        layer.querySelectorAll('.trace').forEach(tr => {
+        layer.querySelectorAll('.trace').forEach((tr) => {
           const path = tr.querySelector('path.js-line');
           if (path) {
             const w = parseFloat(path.getAttribute('stroke-width') || '1');
@@ -686,12 +764,12 @@ function highlightVideoLapTrace(label) {
       const legendEntries = plot.querySelectorAll('.legend .traces');
       legendEntries.forEach((entry, i) => {
         const isMatch = i === matchIdx;
-        entry.querySelectorAll('text').forEach(t => {
+        entry.querySelectorAll('text').forEach((t) => {
           t.style.fontWeight = isMatch ? 'bold' : '';
           t.style.opacity = isMatch ? '1' : '0.5';
           t.style.filter = isMatch ? `drop-shadow(0 0 6px ${selColor || '#fff'})` : '';
         });
-        entry.querySelectorAll('path, line, rect').forEach(l => {
+        entry.querySelectorAll('path, line, rect').forEach((l) => {
           l.style.opacity = isMatch ? '1' : '0.5';
           l.style.filter = isMatch ? `drop-shadow(0 0 6px ${selColor || '#fff'})` : '';
         });
@@ -738,13 +816,15 @@ function clearTraceHighlight() {
     });
     // Remove halo traces
     const haloIdxs = [];
-    div.data.forEach((d, i) => { if (d.name === '_halo') haloIdxs.push(i); });
+    div.data.forEach((d, i) => {
+      if (d.name === '_halo') haloIdxs.push(i);
+    });
     for (let i = haloIdxs.length - 1; i >= 0; i--) Plotly.deleteTraces(div, haloIdxs[i]);
   });
   // Reset legend styles — only chart plots, not track map
-  plotDivs.forEach(plot => {
-    plot.querySelectorAll('.legend .traces').forEach(entry => {
-      entry.querySelectorAll('text, path, line, rect').forEach(el => {
+  plotDivs.forEach((plot) => {
+    plot.querySelectorAll('.legend .traces').forEach((entry) => {
+      entry.querySelectorAll('text, path, line, rect').forEach((el) => {
         el.style.fontWeight = '';
         el.style.opacity = '';
         el.style.filter = '';
@@ -755,7 +835,6 @@ function clearTraceHighlight() {
   updateMarker(markerPosition, false);
 }
 
-
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
@@ -763,7 +842,8 @@ function clearTraceHighlight() {
 function downsample(x, y, maxPoints = 1500) {
   if (!x || x.length <= maxPoints) return { x, y };
   const step = x.length / maxPoints;
-  const nx = [], ny = [];
+  const nx = [],
+    ny = [];
   for (let i = 0; i < maxPoints; i++) {
     const idx = Math.round(i * step);
     nx.push(x[idx]);
@@ -828,14 +908,16 @@ function attachMarkerDrag(div) {
     updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
   });
 
-  window.addEventListener('mouseup', () => { dragging = false; });
+  window.addEventListener('mouseup', () => {
+    dragging = false;
+  });
 }
 
 function linkXAxes(divs) {
   if (divs.length < 2) return;
   let syncing = false;
   divs.forEach((div, i) => {
-    div.on('plotly_relayout', evData => {
+    div.on('plotly_relayout', (evData) => {
       if (syncing) return;
       const update = {};
       if (evData['xaxis.range[0]'] !== undefined && evData['xaxis.range[1]'] !== undefined) {
@@ -848,7 +930,9 @@ function linkXAxes(divs) {
       }
       syncing = true;
       const others = divs.filter((_, j) => j !== i);
-      Promise.all(others.map(o => Plotly.relayout(o, update))).then(() => { syncing = false; });
+      Promise.all(others.map((o) => Plotly.relayout(o, update))).then(() => {
+        syncing = false;
+      });
     });
   });
 }
@@ -892,7 +976,9 @@ function hideVideoElement(emptyMsg) {
   const e = document.getElementById('video-empty');
   const c = document.getElementById('video-controls');
   if (v) {
-    try { v.pause(); } catch (_) {}
+    try {
+      v.pause();
+    } catch (_) {}
     v.removeAttribute('src');
     v.load();
     v.style.display = 'none';
@@ -999,7 +1085,7 @@ async function loadVideoForLapIdx(idx) {
   if (token !== videoState.currentLoadToken) return;
 
   if (!meta || !meta.has_video) {
-    hideVideoElement(meta && meta.message || 'No video for this lap');
+    hideVideoElement((meta && meta.message) || 'No video for this lap');
     setVideoStatus('');
     return;
   }
@@ -1016,7 +1102,9 @@ async function loadVideoForLapIdx(idx) {
   }
 
   if (!video) return;
-  try { video.pause(); } catch (_) {}
+  try {
+    video.pause();
+  } catch (_) {}
   videoState.isPlaying = false;
 
   // Release previous blob URL
@@ -1055,13 +1143,17 @@ async function loadVideoForLapIdx(idx) {
     video.currentTime = 0;
     video.playbackRate = _currentVideoSpeed();
     // Compute timebase correction once MP4 metadata loads
-    video.addEventListener('loadedmetadata', function _onMeta() {
-      video.removeEventListener('loadedmetadata', _onMeta);
-      const mp4Dur = video.duration * 1000;
-      if (videoState.sidecarDurationMs > 0 && mp4Dur > 0) {
-        videoState.timeScale = videoState.sidecarDurationMs / mp4Dur;
-      }
-    }, { once: true });
+    video.addEventListener(
+      'loadedmetadata',
+      function _onMeta() {
+        video.removeEventListener('loadedmetadata', _onMeta);
+        const mp4Dur = video.duration * 1000;
+        if (videoState.sidecarDurationMs > 0 && mp4Dur > 0) {
+          videoState.timeScale = videoState.sidecarDurationMs / mp4Dur;
+        }
+      },
+      { once: true },
+    );
     video.play().catch(() => {});
 
     if (videoState.frames) {
@@ -1070,7 +1162,7 @@ async function loadVideoForLapIdx(idx) {
     } else {
       setVideoStatus(
         `${sizeMB} MB` + (meta.message ? ' • ' + meta.message : ''),
-        meta.has_sync ? '' : 'warn'
+        meta.has_sync ? '' : 'warn',
       );
     }
   } catch (e) {
@@ -1081,7 +1173,7 @@ async function loadVideoForLapIdx(idx) {
 
 function buildSyncLookups(sync) {
   const valid = (sync.frames || []).filter(
-    f => f && Number.isFinite(f.t_ms) && f.normPos != null && Number.isFinite(f.normPos)
+    (f) => f && Number.isFinite(f.t_ms) && f.normPos != null && Number.isFinite(f.normPos),
   );
   if (!valid.length) {
     videoState.frames = null;
@@ -1104,23 +1196,36 @@ function _interp(arr, keyFn, valFn, target) {
   if (!arr || !arr.length) return null;
   if (target <= keyFn(arr[0])) return valFn(arr[0]);
   if (target >= keyFn(arr[arr.length - 1])) return valFn(arr[arr.length - 1]);
-  let lo = 0, hi = arr.length - 1;
+  let lo = 0,
+    hi = arr.length - 1;
   while (hi - lo > 1) {
     const mid = (lo + hi) >> 1;
-    if (keyFn(arr[mid]) <= target) lo = mid; else hi = mid;
+    if (keyFn(arr[mid]) <= target) lo = mid;
+    else hi = mid;
   }
-  const k0 = keyFn(arr[lo]), k1 = keyFn(arr[hi]);
+  const k0 = keyFn(arr[lo]),
+    k1 = keyFn(arr[hi]);
   if (k1 === k0) return valFn(arr[lo]);
   const frac = (target - k0) / (k1 - k0);
   return valFn(arr[lo]) + frac * (valFn(arr[hi]) - valFn(arr[lo]));
 }
 
 function lookupTmsForNormPos(nd) {
-  return _interp(videoState.framesByNd, f => f.normPos, f => f.t_ms, nd);
+  return _interp(
+    videoState.framesByNd,
+    (f) => f.normPos,
+    (f) => f.t_ms,
+    nd,
+  );
 }
 
 function lookupNormPosForTms(t_ms) {
-  return _interp(videoState.frames, f => f.t_ms, f => f.normPos, t_ms);
+  return _interp(
+    videoState.frames,
+    (f) => f.t_ms,
+    (f) => f.normPos,
+    t_ms,
+  );
 }
 
 function syncVideoFromMarker(nd, source) {
@@ -1133,12 +1238,14 @@ function syncVideoFromMarker(nd, source) {
   if (!v || !videoState.frames) return;
   if (source !== 'drag') return;
   if (videoState.isPlaying) {
-    try { v.pause(); } catch (_) {}
+    try {
+      v.pause();
+    } catch (_) {}
   }
   const t_ms = lookupTmsForNormPos(nd);
   if (t_ms == null) return;
   const scale = videoState.timeScale || 1;
-  const target = (t_ms / scale) / 1000;
+  const target = t_ms / scale / 1000;
   // Smaller-than-frame deltas would just churn the video element. At 30 fps
   // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
   // dragging.
@@ -1240,13 +1347,17 @@ function _wireVideoElement() {
   const firstRow = document.createElement('div');
   firstRow.className = 'selection-row';
   firstRow.id = 'row-loading';
-  firstRow.innerHTML = PART_COLS.map(col => `
+  firstRow.innerHTML =
+    PART_COLS.map(
+      (col) => `
     <div class="part-group">
       <span class="part-label">${PART_LABELS[col]}</span>
       <select class="part-select" disabled>
         <option>loading…</option>
       </select>
-    </div>`).join('') + `
+    </div>`,
+    ).join('') +
+    `
     <div class="part-group">
       <span class="part-label">Laps</span>
       <div class="lap-checkboxes"><span class="lap-info">...</span></div>
@@ -1266,11 +1377,7 @@ function _wireVideoElement() {
       // Fast path: fetch ONLY the matching session (~300-400 ms), render
       // immediately. Then refetch the full list in the background so that
       // cascading dropdowns work when the user wants to compare.
-      const [filtered] = await Promise.all([
-        fetchSessions(defaults),
-        loadChannels(),
-        fetchTrack(),
-      ]);
+      const [filtered] = await Promise.all([fetchSessions(defaults), loadChannels(), fetchTrack()]);
 
       if (filtered.length === 0) {
         // The URL params didn't match any session. Skip the broken render
@@ -1290,46 +1397,52 @@ function _wireVideoElement() {
         sessions = full;
         firstRow.remove();
         addRow(null);
-        setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
+        setStatus(
+          `${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`,
+        );
       } else {
         sessions = filtered;
         firstRow.remove();
         addRow(defaults);
-        setStatus('<span class="loading-spinner"></span> Loading full session list in background...');
+        setStatus(
+          '<span class="loading-spinner"></span> Loading full session list in background...',
+        );
 
-        fetchSessions().then(full => {
-          sessions = full;
-          // Refresh dropdown option lists in every row while preserving the
-          // user's current selections.
-          document.querySelectorAll('.selection-row').forEach(row => {
-            const idx = parseInt(row.dataset.rowIdx);
-            if (!Number.isFinite(idx)) return;
-            const current = getRowFilters(idx);
-            populateDropdowns(idx, 0, current);
+        fetchSessions()
+          .then((full) => {
+            sessions = full;
+            // Refresh dropdown option lists in every row while preserving the
+            // user's current selections.
+            document.querySelectorAll('.selection-row').forEach((row) => {
+              const idx = parseInt(row.dataset.rowIdx);
+              if (!Number.isFinite(idx)) return;
+              const current = getRowFilters(idx);
+              populateDropdowns(idx, 0, current);
+            });
+            setStatus(
+              `${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`,
+            );
+          })
+          .catch((e) => {
+            setStatus('Background load failed: ' + e.message, true);
+            showToast(
+              {
+                title: 'Loaded the requested session, but the full list failed to load',
+                detail: e.message,
+              },
+              'warn',
+            );
           });
-          setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
-        }).catch(e => {
-          setStatus('Background load failed: ' + e.message, true);
-          showToast(
-            {
-              title: 'Loaded the requested session, but the full list failed to load',
-              detail: e.message,
-            },
-            'warn',
-          );
-        });
       }
     } else {
       // Direct access: full fetch up-front, then render row.
-      const [full] = await Promise.all([
-        fetchSessions(),
-        loadChannels(),
-        fetchTrack(),
-      ]);
+      const [full] = await Promise.all([fetchSessions(), loadChannels(), fetchTrack()]);
       sessions = full;
       firstRow.remove();
       addRow(null);
-      setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
+      setStatus(
+        `${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`,
+      );
     }
   } catch (e) {
     firstRow.remove();
@@ -1341,9 +1454,6 @@ function _wireVideoElement() {
     fallback.style.padding = '1rem';
     fallback.textContent = 'Failed to load sessions. Fix the issue and reload the page.';
     document.getElementById('selections').appendChild(fallback);
-    showToast(
-      { title: 'Failed to load telemetry data', detail: e.message },
-      'error',
-    );
+    showToast({ title: 'Failed to load telemetry data', detail: e.message }, 'error');
   }
 })();

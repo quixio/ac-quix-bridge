@@ -27,3 +27,6 @@ telemetry-comparison/mock/
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Node tooling (prettier + eslint for telemetry-comparison/static)
+node_modules/

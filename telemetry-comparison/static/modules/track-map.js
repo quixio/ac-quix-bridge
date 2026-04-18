@@ -33,9 +33,10 @@ function renderTrackMap() {
   // 1) Single continuous "base" line for visual connectivity (thin neutral)
   //    Ensures the track never shows gaps regardless of severity transitions.
   traces.push({
-    x: pts.map(p => p.x),
-    y: pts.map(p => -p.z),
-    mode: 'lines', type: 'scatter',
+    x: pts.map((p) => p.x),
+    y: pts.map((p) => -p.z),
+    mode: 'lines',
+    type: 'scatter',
     line: { color: '#3a3f55', width: 5, shape: 'spline', smoothing: 0.7 },
     hoverinfo: 'skip',
     showlegend: false,
@@ -69,8 +70,10 @@ function renderTrackMap() {
   for (const sev of order) {
     for (const run of runs[sev]) {
       traces.push({
-        x: run.x, y: run.z,
-        mode: 'lines', type: 'scatter',
+        x: run.x,
+        y: run.z,
+        mode: 'lines',
+        type: 'scatter',
         line: { color: colors[sev], width: 4, shape: 'spline', smoothing: 0.7 },
         hoverinfo: 'skip',
         name: sevLabels[sev],
@@ -82,10 +85,12 @@ function renderTrackMap() {
   }
 
   // 3) Corner number badges
-  trackData.corners.forEach(c => {
+  trackData.corners.forEach((c) => {
     traces.push({
-      x: [c.mid_x], y: [-c.mid_z],
-      mode: 'markers+text', type: 'scatter',
+      x: [c.mid_x],
+      y: [-c.mid_z],
+      mode: 'markers+text',
+      type: 'scatter',
       marker: { color: colors[c.severity], size: 16, line: { color: '#0f1117', width: 1.5 } },
       text: [c.label],
       textfont: { color: '#fff', size: 9, family: 'monospace' },
@@ -97,9 +102,16 @@ function renderTrackMap() {
 
   // 4) Start/Finish
   traces.push({
-    x: [pts[0].x], y: [-pts[0].z],
-    mode: 'markers', type: 'scatter',
-    marker: { color: colors.start_finish, size: 11, symbol: 'square', line: { color: '#000', width: 1 } },
+    x: [pts[0].x],
+    y: [-pts[0].z],
+    mode: 'markers',
+    type: 'scatter',
+    marker: {
+      color: colors.start_finish,
+      size: 11,
+      symbol: 'square',
+      line: { color: '#000', width: 1 },
+    },
     hoverinfo: 'text',
     hovertext: 'Start / Finish',
     name: 'Start/Finish',
@@ -109,8 +121,10 @@ function renderTrackMap() {
   // 5) Moving position dot — distinct color from the marker line so the
   //    cream-on-plot line and the red-on-track dot read as separate cues.
   traces.push({
-    x: [pts[0].x], y: [-pts[0].z],
-    mode: 'markers', type: 'scatter',
+    x: [pts[0].x],
+    y: [-pts[0].z],
+    mode: 'markers',
+    type: 'scatter',
     marker: {
       color: colors.track_dot || colors.marker,
       size: 13,
@@ -126,15 +140,20 @@ function renderTrackMap() {
   // Compute and cache base ranges for zoom math.
   // Use a square bounding box centered on the track so scaleanchor fits
   // the whole track regardless of container aspect.
-  const xs = pts.map(p => p.x), zs = pts.map(p => -p.z);
-  const xMin = Math.min(...xs), xMax = Math.max(...xs);
-  const zMin = Math.min(...zs), zMax = Math.max(...zs);
+  const xs = pts.map((p) => p.x),
+    zs = pts.map((p) => -p.z);
+  const xMin = Math.min(...xs),
+    xMax = Math.max(...xs);
+  const zMin = Math.min(...zs),
+    zMax = Math.max(...zs);
   const cx = (xMin + xMax) / 2;
   const cz = (zMin + zMax) / 2;
-  const half = Math.max(xMax - xMin, zMax - zMin) / 2 * 1.08; // 8% padding
+  const half = (Math.max(xMax - xMin, zMax - zMin) / 2) * 1.08; // 8% padding
   trackBaseRange = {
-    xMin: cx - half, xMax: cx + half,
-    zMin: cz - half, zMax: cz + half,
+    xMin: cx - half,
+    xMax: cx + half,
+    zMin: cz - half,
+    zMax: cz + half,
   };
 
   // Layout: legend on top, no grid, no axis titles
@@ -146,8 +165,10 @@ function renderTrackMap() {
     showlegend: true,
     legend: {
       orientation: 'h',
-      x: 0.5, xanchor: 'center',
-      y: 1.08, yanchor: 'bottom',
+      x: 0.5,
+      xanchor: 'center',
+      y: 1.08,
+      yanchor: 'bottom',
       font: { size: 8 },
       bgcolor: 'rgba(0,0,0,0)',
       traceorder: 'normal',
@@ -155,14 +176,19 @@ function renderTrackMap() {
     dragmode: false,
     xaxis: {
       visible: false,
-      showgrid: false, zeroline: false, showticklabels: false,
-      scaleanchor: 'y', scaleratio: 1,
+      showgrid: false,
+      zeroline: false,
+      showticklabels: false,
+      scaleanchor: 'y',
+      scaleratio: 1,
       range: [trackBaseRange.xMin, trackBaseRange.xMax],
       fixedrange: true,
     },
     yaxis: {
       visible: false,
-      showgrid: false, zeroline: false, showticklabels: false,
+      showgrid: false,
+      zeroline: false,
+      showticklabels: false,
       range: [trackBaseRange.zMin, trackBaseRange.zMax],
       fixedrange: true,
     },
@@ -182,14 +208,18 @@ function renderTrackMap() {
   // Populate corner legend table
   const legendEl = document.getElementById('corner-legend');
   if (legendEl && trackData.corners.length) {
-    legendEl.innerHTML = trackData.corners.map(c => {
-      const dotColor = colors[c.severity] || '#888';
-      return `<div class="legend-row">` +
-        `<span class="legend-dot" style="background:${dotColor}"></span>` +
-        `<span class="legend-label">${c.label}</span>` +
-        `<span class="legend-name">${c.name || ''}</span>` +
-        `</div>`;
-    }).join('');
+    legendEl.innerHTML = trackData.corners
+      .map((c) => {
+        const dotColor = colors[c.severity] || '#888';
+        return (
+          `<div class="legend-row">` +
+          `<span class="legend-dot" style="background:${dotColor}"></span>` +
+          `<span class="legend-label">${c.label}</span>` +
+          `<span class="legend-name">${c.name || ''}</span>` +
+          `</div>`
+        );
+      })
+      .join('');
   }
 }
 
@@ -230,7 +260,8 @@ function trackPointAtNorm(nd) {
   const pts = trackData.points;
   nd = Math.max(0, Math.min(1, nd));
   // Binary search on normalizedDistance (already sorted)
-  let lo = 0, hi = pts.length - 1;
+  let lo = 0,
+    hi = pts.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     if (pts[mid].normalizedDistance < nd) lo = mid + 1;

@@ -1,119 +1,132 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Telemetry Explorer</title>
-  <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
-  <link rel="stylesheet" href="/static/styles.css"/>
-</head>
-<body>
-
-<!-- ============ TOP BAR (fixed) ============ -->
-<div class="topbar" id="topbar">
-  <!-- VIDEO panel (left, 65%) -->
-  <div class="topbar-panel" id="topbar-video">
-    <div class="topbar-head">
-      <div class="panel-title">Video</div>
-      <div style="display:flex;gap:0.4rem;align-items:center;">
-        <div class="video-controls" id="video-controls" style="display:none">
-          <select id="video-lap-select" class="video-lap-select" disabled
-                  onchange="onVideoLapChange(this.value)">
-            <option value="">— pick laps and Plot —</option>
-          </select>
-          <label class="video-speed-label">Speed
-            <select id="video-speed" class="video-lap-select"
-                    onchange="onVideoSpeedChange(this.value)">
-              <option value="1" selected>Realtime</option>
-              <option value="2">2x</option>
-              <option value="5">5x</option>
-            </select>
-          </label>
-          <div id="video-status" class="video-status"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Telemetry Explorer</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <!-- ============ TOP BAR (fixed) ============ -->
+    <div class="topbar" id="topbar">
+      <!-- VIDEO panel (left, 65%) -->
+      <div class="topbar-panel" id="topbar-video">
+        <div class="topbar-head">
+          <div class="panel-title">Video</div>
+          <div style="display: flex; gap: 0.4rem; align-items: center">
+            <div class="video-controls" id="video-controls" style="display: none">
+              <select id="video-lap-select" class="video-lap-select" disabled onchange="onVideoLapChange(this.value)">
+                <option value="">— pick laps and Plot —</option>
+              </select>
+              <label class="video-speed-label"
+                >Speed
+                <select id="video-speed" class="video-lap-select" onchange="onVideoSpeedChange(this.value)">
+                  <option value="1" selected>Realtime</option>
+                  <option value="2">2x</option>
+                  <option value="5">5x</option>
+                </select>
+              </label>
+              <div id="video-status" class="video-status"></div>
+            </div>
+            <button
+              class="panel-collapse-btn"
+              id="btn-collapse-video"
+              onclick="toggleTopbarPanel('topbar-video', this)"
+              title="Collapse"
+            >
+              -
+            </button>
+          </div>
         </div>
-        <button class="panel-collapse-btn" id="btn-collapse-video"
-                onclick="toggleTopbarPanel('topbar-video', this)"
-                title="Collapse">-</button>
+        <div class="topbar-body">
+          <video id="video-player" class="video-player" controls preload="metadata" style="display: none"></video>
+          <div id="video-empty" class="video-empty">No lap selected</div>
+        </div>
+      </div>
+
+      <!-- TRACK MAP panel (right, 35%) -->
+      <div class="topbar-panel map-panel" id="topbar-map">
+        <div class="topbar-head">
+          <div class="panel-title">Track Map</div>
+          <button
+            class="panel-collapse-btn"
+            id="btn-collapse-map"
+            onclick="toggleTopbarPanel('topbar-map', this)"
+            title="Collapse"
+          >
+            -
+          </button>
+        </div>
+        <div class="topbar-body">
+          <div class="map-body-row">
+            <div id="track-map"></div>
+            <div id="corner-legend"></div>
+          </div>
+          <div class="zoom-row">
+            <span>Zoom</span>
+            <input
+              type="range"
+              id="track-zoom"
+              min="1"
+              max="8"
+              step="0.1"
+              value="1"
+              oninput="onZoomChange(this.value)"
+            />
+            <span class="zoom-val" id="track-zoom-val">1.0x</span>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="topbar-body">
-      <video id="video-player" class="video-player" controls preload="metadata"
-             style="display:none"></video>
-      <div id="video-empty" class="video-empty">No lap selected</div>
-    </div>
-  </div>
 
-  <!-- TRACK MAP panel (right, 35%) -->
-  <div class="topbar-panel map-panel" id="topbar-map">
-    <div class="topbar-head">
-      <div class="panel-title">Track Map</div>
-      <button class="panel-collapse-btn" id="btn-collapse-map"
-              onclick="toggleTopbarPanel('topbar-map', this)"
-              title="Collapse">-</button>
+    <!-- ============ READOUT STRIP (sticky) ============ -->
+    <div class="readout-strip" id="track-readout">
+      <span class="readout-pos" id="readout-pos-text">0.0%</span>
     </div>
-    <div class="topbar-body">
-      <div class="map-body-row">
-        <div id="track-map"></div>
-        <div id="corner-legend"></div>
+
+    <!-- ============ SCROLLING CONTENT ============ -->
+    <div class="content">
+      <h1>Telemetry <span>Explorer</span></h1>
+
+      <!-- Session/Lap selection -->
+      <div class="panel" id="panel-sessions">
+        <div class="panel-header">
+          <div class="panel-title">Select sessions and laps to overlay</div>
+          <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">-</button>
+        </div>
+        <div class="panel-body">
+          <div class="selections" id="selections"></div>
+          <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem">
+            <button class="btn btn-sm btn-add" onclick="addRow()">+ Add Session</button>
+            <button class="btn btn-sm" onclick="plot()" id="btn-plot">Plot</button>
+          </div>
+        </div>
       </div>
-      <div class="zoom-row">
-        <span>Zoom</span>
-        <input type="range" id="track-zoom" min="1" max="8" step="0.1" value="1"
-               oninput="onZoomChange(this.value)">
-        <span class="zoom-val" id="track-zoom-val">1.0x</span>
+
+      <!-- Signal picker -->
+      <div class="panel" id="panel-signals">
+        <div class="panel-header">
+          <div class="panel-title">Signals</div>
+          <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">-</button>
+        </div>
+        <div class="panel-body">
+          <div id="signal-container">Loading channels...</div>
+        </div>
       </div>
+
+      <!-- Charts -->
+      <div class="charts" id="charts"></div>
+      <div class="status-bar" id="status"></div>
     </div>
-  </div>
-</div>
 
-<!-- ============ READOUT STRIP (sticky) ============ -->
-<div class="readout-strip" id="track-readout">
-  <span class="readout-pos" id="readout-pos-text">0.0%</span>
-</div>
+    <!-- Toast stack (top-center, fixed). Populated by showToast() in JS. -->
+    <div id="toasts"></div>
 
-<!-- ============ SCROLLING CONTENT ============ -->
-<div class="content">
-  <h1>Telemetry <span>Explorer</span></h1>
-
-  <!-- Session/Lap selection -->
-  <div class="panel" id="panel-sessions">
-    <div class="panel-header">
-      <div class="panel-title">Select sessions and laps to overlay</div>
-      <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">-</button>
-    </div>
-    <div class="panel-body">
-      <div class="selections" id="selections"></div>
-      <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
-        <button class="btn btn-sm btn-add" onclick="addRow()">+ Add Session</button>
-        <button class="btn btn-sm" onclick="plot()" id="btn-plot">Plot</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Signal picker -->
-  <div class="panel" id="panel-signals">
-    <div class="panel-header">
-      <div class="panel-title">Signals</div>
-      <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">-</button>
-    </div>
-    <div class="panel-body">
-      <div id="signal-container">Loading channels...</div>
-    </div>
-  </div>
-
-  <!-- Charts -->
-  <div class="charts" id="charts"></div>
-  <div class="status-bar" id="status"></div>
-</div>
-
-<!-- Toast stack (top-center, fixed). Populated by showToast() in JS. -->
-<div id="toasts"></div>
-
-<!-- Plain (non-module) scripts loaded in dependency order: utility modules
+    <!-- Plain (non-module) scripts loaded in dependency order: utility modules
      first, then the main app script. All share the global lexical scope. -->
-<script src="/static/modules/toast.js"></script>
-<script src="/static/modules/track-map.js"></script>
-<script src="/static/app.js"></script>
-
-</body>
+    <script src="/static/modules/toast.js"></script>
+    <script src="/static/modules/track-map.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
 </html>
