@@ -1,0 +1,52 @@
+[project]
+name = "telemetry-comparison"
+description = "FastAPI service for cross-run/lap telemetry visualization over QuixLake."
+requires-python = ">=3.13"
+version = "0.1.0"
+
+authors = [
+	{ name = "Quix Analytics Ltd", email = "devs@quix.io" },
+]
+
+# NOTE: kept in sync with requirements.txt, which is what the Docker image
+# installs via pip. If you add a runtime dep, add it both here and there.
+dependencies = [
+	"fastapi[standard]",
+	"quixlake-sdk",
+	"quixportal[all]==2.0.1",
+	"python-dotenv",
+]
+
+[dependency-groups]
+dev = [
+	"pytest",
+	"pytest-asyncio",
+	"httpx",  # for FastAPI TestClient
+	"ruff",
+	"ty",
+]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+exclude = ["scripts", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ty.src]
+include = ["main.py", "tests"]
+exclude = ["scripts", ".venv"]
+
+[tool.uv.sources]
+quixportal = { index = "quix-public" }
+
+[[tool.uv.index]]
+name = "quix-public"
+url = "https://pkgs.dev.azure.com/quix-analytics/53f7fe95-59fe-4307-b479-2473b96de6d1/_packaging/public/pypi/simple/"
+explicit = true
