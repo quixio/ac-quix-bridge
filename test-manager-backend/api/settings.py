@@ -40,12 +40,6 @@ class Settings(BaseSettings):
     config_api_url: str = Field(..., description="Configuration API URL")
 
     # Integration services URLs
-    measurements_url: str | None = Field(
-        None, description="Measurements/Query Builder service URL"
-    )
-    analytics_url: str | None = Field(
-        None, description="Analytics/Notebook service URL"
-    )
     measurements_workspace_id: str | None = Field(
         None,
         description="Workspace ID for measurements services (defaults to current workspace)",

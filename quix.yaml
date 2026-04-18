@@ -208,42 +208,10 @@ deployments:
         inputType: FreeText
         required: true
         value: mongodb
-      - name: Quix__BlobStorage__Connection__Json
-        inputType: Secret
-        required: true
-        secretKey: Quix__BlobStorage__Connection__Json
-      - name: INFLUXDB_USER
-        inputType: Secret
-        required: true
-        secretKey: INFLUXDB_USER
-      - name: INFLUXDB_PASSWORD
-        inputType: Secret
-        required: true
-        secretKey: INFLUXDB_PASSWORD
-      - name: INFLUXDB_HOST
-        inputType: FreeText
-        required: true
-        value: influxdb
-      - name: INFLUXDB_PORT
-        inputType: FreeText
-        required: true
-        value: 8086
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true
         value: https://config-api-svc-quixdev-acquixbridge-testmanager.deployments-dev.quix.io
-      - name: MEASUREMENTS_URL
-        inputType: FreeText
-        required: true
-        value: https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io/
-      - name: DATA_LAKE_V2_TOPIC_NAME
-        inputType: FreeText
-        required: true
-        value: config-enriched-data
-      - name: ANALYTICS_URL
-        inputType: FreeText
-        required: true
-        value: https://marimo-analysis-quixers-advancedanalyticsnew-new.az-france-0.app.quix.io
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
