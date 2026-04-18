@@ -62,24 +62,6 @@ export const integrationsApi = {
   },
 
   /**
-   * Get Data Lake Explorer URL
-   * @param testId - Optional test ID for filtering
-   */
-  getDataLakeUrl: (
-    testId?: string | null,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    const params = testId ? { test_id: testId } : undefined;
-    return apiGet<ConfigManagerUrl>(
-      "/integrations/data-lake-url",
-      params,
-      token,
-      refreshToken,
-    );
-  },
-
-  /**
    * Get Measurements/Query Builder URL
    * @param testId - Test ID for SQL filter
    * @param campaignId - Campaign ID for SQL filter
@@ -139,34 +121,4 @@ export const integrationsApi = {
     );
   },
 
-  /**
-   * Download test measurement data from DataLake
-   * Returns CSV text directly from Quix Lake Query API
-   * @param testId - Test ID for filtering
-   * @param campaignId - Campaign ID for filtering
-   * @param environmentId - Environment ID for filtering
-   */
-  downloadTestData: (
-    testId?: string | null,
-    campaignId?: string | null,
-    environmentId?: string | null,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    const params: {
-      test_id?: string;
-      campaign_id?: string;
-      environment_id?: string;
-    } = {};
-    if (testId) params.test_id = testId;
-    if (campaignId) params.campaign_id = campaignId;
-    if (environmentId) params.environment_id = environmentId;
-    const queryParams = Object.keys(params).length > 0 ? params : undefined;
-    return apiGet<string>(
-      "/integrations/download-test-data",
-      queryParams,
-      token,
-      refreshToken,
-    );
-  },
 };

@@ -7,7 +7,6 @@ import logging
 import os
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ..auth import read_permission
@@ -226,37 +225,6 @@ async def get_config_manager_frontend_url(
         raise HTTPException(status_code=500, detail=f"Portal API error: {str(e)}")
 
 
-@router.get("/data-lake-url", response_model=ConfigManagerUrl)
-async def get_data_lake_url(
-    test_id: str | None = Query(None, description="Optional test ID for filtering"),
-    _auth: None = Depends(read_permission),
-) -> ConfigManagerUrl:
-    """
-    Get Data Lake Explorer URL.
-
-    Returns Portal Data Explorer URL with optional test_id filter.
-    Opens in new tab/window.
-    """
-    settings = get_settings()
-    integration_settings = get_effective_integration_settings()
-
-    # Get workspace_id from measurements_topic or fall back to current workspace
-    workspace_id = (
-        integration_settings.measurements_topic.workspace_id
-        if integration_settings.measurements_topic
-        else settings.workspace_id
-    )
-
-    # Build Portal Data Explorer URL
-    url = f"https://portal.cloud.quix.io/data?workspace={workspace_id}"
-
-    # Add test_id filter if provided
-    if test_id:
-        url += f"&key={test_id}"
-
-    return ConfigManagerUrl(url=url)
-
-
 def get_measurements_url_base(integration_settings) -> str | None:
     """Get the base URL for measurements service from deployment reference."""
     if not integration_settings.measurements_deployment:
@@ -264,15 +232,6 @@ def get_measurements_url_base(integration_settings) -> str | None:
     dep = integration_settings.measurements_deployment
     # Prefer public_url or embedded_view_url for UI access
     return dep.public_url or dep.embedded_view_url
-
-
-def get_measurements_api_url(integration_settings) -> str | None:
-    """Get the API URL for measurements service (derived from UI URL at runtime)."""
-    base_url = get_measurements_url_base(integration_settings)
-    if not base_url:
-        return None
-    # API is at {ui_url}/api/query - handled at runtime by the caller
-    return base_url
 
 
 @router.get("/measurements-url", response_model=ConfigManagerUrl)
@@ -374,95 +333,3 @@ async def get_analytics_url(
         url += f"&test_id={test_id}"
 
     return ConfigManagerUrl(url=url)
-
-
-@router.get("/download-test-data")
-async def download_test_data(
-    test_id: str | None = Query(None, description="Test ID for filtering"),
-    campaign_id: str | None = Query(None, description="Campaign ID for filtering"),
-    environment_id: str | None = Query(None, description="Environment ID for filtering"),
-    _auth: None = Depends(read_permission),
-):
-    """
-    Download test measurement data from DataLake.
-
-    Queries the Quix Lake Query API with SQL filter and returns raw JSON data.
-    Frontend will convert to CSV format.
-    """
-    settings = get_settings()
-    integration_settings = get_effective_integration_settings()
-
-    # Get measurements URL from deployment (API is at {ui_url}/api/query)
-    measurements_url = get_measurements_url_base(integration_settings)
-    if not measurements_url:
-        raise HTTPException(
-            status_code=501,
-            detail="Measurements service not configured. Configure it in Settings."
-        )
-
-    # Check if topic is configured
-    if not integration_settings.measurements_topic:
-        raise HTTPException(
-            status_code=501,
-            detail="Measurements topic not configured. Configure it in Settings."
-        )
-
-    topic_name = integration_settings.measurements_topic.topic_name
-
-    # Build SQL query with filters
-    sql_parts = [f"SELECT * FROM {topic_name} WHERE 1=1"]
-    if campaign_id:
-        sql_parts.append(f"AND campaign_id = '{campaign_id}'")
-    if environment_id:
-        sql_parts.append(f"AND environment_id = '{environment_id}'")
-    if test_id:
-        sql_parts.append(f"AND test_id = '{test_id}'")
-
-    sql_query = " ".join(sql_parts)
-
-    # Query the Quix Lake Query API (API is derived from UI URL at runtime)
-    api_url = f"{measurements_url}/api/query"
-    try:
-        async with httpx.AsyncClient() as client:
-            logger.info(f"Querying Quix Lake API: {api_url}")
-            logger.info(f"SQL Query: {sql_query}")
-
-            response = await client.post(
-                api_url,
-                content=sql_query,
-                headers={
-                    "Authorization": f"Bearer {settings.sdk_token}",
-                    "Content-Type": "text/plain",
-                },
-                timeout=30.0,
-            )
-
-            # Log response details for debugging
-            logger.info(f"Response status: {response.status_code}")
-            logger.info(f"Response headers: {dict(response.headers)}")
-            logger.info(f"Response content-type: {response.headers.get('content-type', 'not set')}")
-            logger.info(f"Response body length: {len(response.content)}")
-            logger.info(f"Response body (first 500 chars): {response.text[:500]}")
-
-            if not response.is_success:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Query API error: {response.status_code} - {response.text}",
-                )
-
-            # Return CSV data directly (Quix Lake Query API returns CSV format)
-            csv_data = response.text
-
-            # Return empty response if no data
-            if not csv_data or csv_data.strip() == "":
-                logger.warning("Received empty response from Query API")
-                return Response(content="", media_type="text/csv")
-
-            logger.info(f"Returning CSV data with {len(csv_data)} characters")
-            return Response(content=csv_data, media_type="text/csv")
-
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Query API timeout")
-    except httpx.HTTPError as e:
-        logger.error(f"HTTP error querying Quix Lake API: {e}")
-        raise HTTPException(status_code=500, detail=f"Query API error: {str(e)}")
