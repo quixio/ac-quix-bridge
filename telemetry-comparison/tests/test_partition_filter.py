@@ -1,4 +1,4 @@
-"""Unit tests for main._build_partition_filter.
+"""Unit tests for partition_filter._build_partition_filter.
 
 Pure function, no mocks required. Pins the quoting and special-case logic
 (CAST+LIKE for session_id) that the SQL-based endpoints rely on, plus the
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from main import _build_partition_filter
+from partition_filter import _build_partition_filter
 
 
 def test_empty_input_returns_empty_string() -> None:
@@ -21,9 +21,7 @@ def test_empty_strings_are_skipped() -> None:
 
 
 def test_none_values_are_skipped() -> None:
-    assert _build_partition_filter(environment=None, driver="alice") == (
-        "WHERE driver = 'alice'"
-    )
+    assert _build_partition_filter(environment=None, driver="alice") == ("WHERE driver = 'alice'")
 
 
 def test_single_partition_column_quotes_string() -> None:

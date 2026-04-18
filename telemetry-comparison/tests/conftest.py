@@ -67,7 +67,7 @@ def stub_factory(
             stub.last_sql = sql
             return fn(sql)
 
-        stub.query = query  # type: ignore[method-assign]
+        monkeypatch.setattr(stub, "query", query)
         monkeypatch.setattr(main, "get_client", lambda: stub)
         return stub
 

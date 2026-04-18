@@ -5,15 +5,16 @@ endpoint, one S3 LIST per level) and returns a flat list of every unique
 combination of partition columns. Frontend pre-loads this once on tab open
 and does dropdown cascading client-side.
 
-Tests stub `main._list_partition_children` with a dict keyed by the path
-prefix, so each test can describe its own tree shape.
+Tests stub `partition_walker._list_partition_children` with a dict keyed by
+the path prefix, so each test can describe its own tree shape.
 """
 
 from __future__ import annotations
 
 import pytest
 
-import main
+import config
+import partition_walker
 
 PART_COLS = [
     "environment",
@@ -41,7 +42,7 @@ def stub_partitions(monkeypatch: pytest.MonkeyPatch):
             return self._responses.get(path, [])
 
     recorder = Recorder()
-    monkeypatch.setattr(main, "_list_partition_children", recorder)
+    monkeypatch.setattr(partition_walker, "_list_partition_children", recorder)
     return recorder
 
 
@@ -250,9 +251,7 @@ def test_partial_invalid_filter_yields_empty_without_error(stub_partitions, clie
         "environment=prague_office": ["test_rig=g29"],
     }
     stub_partitions.set(tree)
-    response = client.get(
-        "/api/sessions?environment=prague_office&test_rig=not_a_real_rig"
-    )
+    response = client.get("/api/sessions?environment=prague_office&test_rig=not_a_real_rig")
     assert response.status_code == 200
     assert response.json()["sessions"] == []
 
@@ -346,7 +345,7 @@ def test_walker_propagates_errors(monkeypatch, client) -> None:
     async def boom(_path: str) -> list[str]:
         raise RuntimeError("lake down")
 
-    monkeypatch.setattr(main, "_list_partition_children", boom)
+    monkeypatch.setattr(partition_walker, "_list_partition_children", boom)
     response = client.get("/api/sessions")
     assert response.status_code == 500
     assert "lake down" in response.json()["detail"]
@@ -358,8 +357,8 @@ def _require_env(monkeypatch: pytest.MonkeyPatch) -> None:
     _list_partition_children doesn't short-circuit before the transport
     mock gets hit. The URL/token values don't matter — the mock transport
     intercepts the outbound request regardless."""
-    monkeypatch.setattr(main, "QUIXLAKE_URL", "https://test-lake.example.com")
-    monkeypatch.setattr(main, "QUIX_LAKE_TOKEN", "test-token")
+    monkeypatch.setattr(config, "QUIXLAKE_URL", "https://test-lake.example.com")
+    monkeypatch.setattr(config, "QUIX_LAKE_TOKEN", "test-token")
 
 
 def test_quixlake_500_surfaces_as_502_with_upstream_status(
@@ -374,7 +373,7 @@ def test_quixlake_500_surfaces_as_502_with_upstream_status(
         return httpx.Response(500, text="internal error")
 
     monkeypatch.setattr(
-        main,
+        partition_walker,
         "_http_client",
         httpx.AsyncClient(transport=httpx.MockTransport(mock_transport)),
     )
@@ -392,7 +391,7 @@ def test_quixlake_403_surfaces_as_502_with_forbidden_detail(
         return httpx.Response(403, text="Access Forbidden")
 
     monkeypatch.setattr(
-        main,
+        partition_walker,
         "_http_client",
         httpx.AsyncClient(transport=httpx.MockTransport(mock_transport)),
     )
@@ -407,7 +406,7 @@ def test_missing_quixlake_url_surfaces_clear_error(monkeypatch, client, caplog) 
     missing var (not leak a confusing httpx.InvalidURL stack trace)."""
     import logging
 
-    monkeypatch.setattr(main, "QUIXLAKE_URL", None)
+    monkeypatch.setattr(config, "QUIXLAKE_URL", None)
     with caplog.at_level(logging.ERROR, logger="main"):
         response = client.get("/api/sessions")
     assert response.status_code == 500
@@ -418,15 +417,15 @@ def test_missing_quixlake_url_surfaces_clear_error(monkeypatch, client, caplog) 
 
 
 def test_missing_quix_lake_token_surfaces_clear_error(monkeypatch, client) -> None:
-    monkeypatch.setattr(main, "QUIX_LAKE_TOKEN", None)
+    monkeypatch.setattr(config, "QUIX_LAKE_TOKEN", None)
     response = client.get("/api/sessions")
     assert response.status_code == 500
     assert "QUIX_LAKE_TOKEN" in response.json()["detail"]
 
 
 def test_both_env_vars_missing_names_both_in_error(monkeypatch, client) -> None:
-    monkeypatch.setattr(main, "QUIXLAKE_URL", None)
-    monkeypatch.setattr(main, "QUIX_LAKE_TOKEN", None)
+    monkeypatch.setattr(config, "QUIXLAKE_URL", None)
+    monkeypatch.setattr(config, "QUIX_LAKE_TOKEN", None)
     response = client.get("/api/sessions")
     assert response.status_code == 500
     detail = response.json()["detail"]
@@ -442,7 +441,7 @@ def test_quixlake_timeout_surfaces_as_504(monkeypatch, _require_env, client) -> 
         raise httpx.ReadTimeout("read timed out", request=_request)
 
     monkeypatch.setattr(
-        main,
+        partition_walker,
         "_http_client",
         httpx.AsyncClient(transport=httpx.MockTransport(mock_transport)),
     )

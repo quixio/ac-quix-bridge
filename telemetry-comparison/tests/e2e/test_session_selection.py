@@ -12,8 +12,13 @@ from playwright.sync_api import Page, expect
 pytestmark = pytest.mark.e2e
 
 PART_COLS = [
-    "environment", "test_rig", "experiment", "driver",
-    "track", "carModel", "session_id",
+    "environment",
+    "test_rig",
+    "experiment",
+    "driver",
+    "track",
+    "carModel",
+    "session_id",
 ]
 
 
