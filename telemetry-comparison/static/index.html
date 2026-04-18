@@ -443,6 +443,72 @@
       margin-top: 0.75rem;
     }
     .error { color: var(--red); }
+
+    /* Toast stack — fixed cards centered at the top of the viewport. Size
+       hugs content (max ~620px so long messages still wrap gracefully).
+       All kinds share the same card shape; color + icon convey severity. */
+    #toasts {
+      position: fixed;
+      top: 0.75rem;
+      left: 0;
+      right: 0;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      pointer-events: none;
+    }
+    .toast {
+      pointer-events: auto;
+      display: inline-flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+      max-width: min(620px, calc(100vw - 2rem));
+      padding: 0.6rem 0.8rem 0.6rem 0.7rem;
+      background: #1f2330;
+      border: 1px solid var(--border);
+      border-left-width: 4px;
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.85rem;
+      line-height: 1.35;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+      animation: toast-in 0.18s ease-out;
+    }
+    .toast--error { border-left-color: var(--red);  background: #2a1a1d; }
+    .toast--warn  { border-left-color: #f59e0b;     background: #2a2316; }
+    .toast--info  { border-left-color: var(--accent); }
+    .toast--success { border-left-color: #10b981;   background: #162620; }
+
+    .toast__icon {
+      flex-shrink: 0;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      margin-top: 0.1rem;
+    }
+    .toast--error   .toast__icon { background: var(--red);    color: #fff; }
+    .toast--warn    .toast__icon { background: #f59e0b;       color: #1a1a1a; }
+    .toast--info    .toast__icon { background: var(--accent); color: #fff; }
+    .toast--success .toast__icon { background: #10b981;       color: #fff; }
+
+    .toast__body  { flex: 1; min-width: 0; }
+    .toast__title { font-weight: 600; margin-bottom: 0.1rem; }
+    .toast__detail { color: var(--text-muted); white-space: pre-line; word-break: break-word; }
+
+    .toast__close {
+      background: transparent; border: 0; color: var(--text-muted);
+      cursor: pointer; font-size: 1.1rem; line-height: 1;
+      padding: 0 0.1rem; margin-left: 0.2rem; align-self: flex-start;
+    }
+    .toast__close:hover { color: var(--text); }
+    .toast.toast--leaving { animation: toast-out 0.18s ease-in forwards; }
+    @keyframes toast-in  { from { opacity: 0; transform: translateY(-6px); } }
+    @keyframes toast-out { to   { opacity: 0; transform: translateY(-6px); } }
+
     .loading-spinner {
       display: inline-block;
       width: 14px; height: 14px;
@@ -555,6 +621,13 @@
   <div class="status-bar" id="status"></div>
 </div>
 
+<!-- Toast stack (top-center, fixed). Populated by showToast() in JS.
+     aria-live="assertive" so error toasts are announced immediately;
+     individual toasts also carry role="alert" / role="status" per kind.
+     No aria-atomic — otherwise screen readers re-announce the whole stack
+     each time a new toast appears. -->
+<div id="toasts" aria-live="assertive"></div>
+
 <script>
 // 16 distinct colors — each trace (row+lap) gets a unique one
 const TRACE_COLORS = [
@@ -583,7 +656,7 @@ const PLOTLY_LAYOUT = {
   yaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047', autorange: true },
 };
 
-let sessions = [];   // all partition combos, loaded once
+let sessions = [];   // loaded once on tab open, filtered client-side for dropdowns
 let channels = {};
 let rowCount = 0;
 let plotDivs = [];
@@ -627,10 +700,30 @@ const CAT_ORDER = ['Inputs', 'Motion', 'Engine', 'Tyres', 'Suspension & Brakes',
 // Data — loaded once at startup
 // ---------------------------------------------------------------------------
 
-async function fetchSessions() {
-  const res = await fetch('/api/sessions');
+async function fetchSessions(filters) {
+  const p = new URLSearchParams();
+  if (filters) {
+    for (const [k, v] of Object.entries(filters)) {
+      if (v) p.set(k, v);
+    }
+  }
+  const qs = p.toString();
+  const res = await fetch('/api/sessions' + (qs ? '?' + qs : ''));
+  if (!res.ok) {
+    // Include the server's `detail` (often carries the real upstream status,
+    // e.g. "Data lake returned 403 Forbidden") so the toast is actionable.
+    let detail = '';
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = body.detail;
+    } catch { /* non-JSON response */ }
+    const err = new Error(detail || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
   const json = await res.json();
-  sessions = json.sessions || [];
+  return json.sessions || [];
 }
 
 async function fetchTrack() {
@@ -1032,18 +1125,9 @@ function toggleCornerOverlay(plotIdx, enabled) {
   updateMarker(markerPosition, false);
 }
 
-async function fetchLaps(filters) {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(filters)) {
-    if (v) p.set(k, v);
-  }
-  const res = await fetch('/api/laps?' + p);
-  const json = await res.json();
-  return json.laps || [];
-}
-
 // ---------------------------------------------------------------------------
-// Client-side partition filtering (instant, no API calls)
+// Client-side partition filtering over the `sessions` array loaded once at
+// tab open. Instant (pure array work, no network).
 // ---------------------------------------------------------------------------
 
 function getDistinctValues(column, upstreamFilters) {
@@ -1140,14 +1224,14 @@ function populateDropdowns(rowIdx, fromColIdx, defaults) {
       sel.innerHTML += `<option value="${v}">${display}</option>`;
     }
 
-    // Auto-select: default from previous row, or single value
+    // Auto-select: default if it matches, otherwise the first available value
+    // (matches the Test Manager pattern — always present a complete selection).
     const def = defaults?.[col];
     if (def && values.map(String).includes(String(def))) {
       sel.value = def;
-    } else if (values.length === 1) {
+    } else if (values.length > 0) {
       sel.value = values[0];
     } else {
-      // Can't auto-select — stop cascading, clear downstream
       for (let k = ci + 1; k < PART_COLS.length; k++) {
         const ds = document.getElementById(`${PART_COLS[k]}-${rowIdx}`);
         if (ds) ds.innerHTML = '<option value="">...</option>';
@@ -1156,7 +1240,6 @@ function populateDropdowns(rowIdx, fromColIdx, defaults) {
       return;
     }
   }
-  // All dropdowns filled — load laps
   loadLaps(rowIdx);
 }
 
@@ -1165,7 +1248,7 @@ function onPartChange(rowIdx, changedCol) {
   populateDropdowns(rowIdx, colIdx + 1, null);
 }
 
-async function loadLaps(rowIdx) {
+function loadLaps(rowIdx) {
   const container = document.getElementById(`laps-${rowIdx}`);
   const filters = getRowFilters(rowIdx);
 
@@ -1174,8 +1257,12 @@ async function loadLaps(rowIdx) {
     return;
   }
 
-  container.innerHTML = '<span class="lap-info">loading...</span>';
-  const laps = await fetchLaps(filters);
+  // Laps are baked into each session object by /api/sessions — no extra
+  // HTTP call. Find the matching pre-loaded session and render.
+  const session = sessions.find(s =>
+    PART_COLS.every(c => String(s[c]) === String(filters[c])),
+  );
+  const laps = session?.laps || [];
 
   if (!laps.length) {
     container.innerHTML = '<span class="lap-info">no laps</span>';
@@ -1184,10 +1271,10 @@ async function loadLaps(rowIdx) {
 
   container.innerHTML = `
     <button class="btn btn-xs btn-outline" onclick="toggleAllLaps(${rowIdx})">all</button>
-  ` + laps.map(l => `
+  ` + laps.map(lap => `
     <label class="lap-cb" onclick="event.preventDefault(); this.classList.toggle('checked'); this.querySelector('input').checked = this.classList.contains('checked');">
-      <input type="checkbox" value="${l.lap}">
-      L${l.lap}
+      <input type="checkbox" value="${lap}">
+      L${lap}
     </label>
   `).join('');
 }
@@ -1631,6 +1718,65 @@ function setStatus(msg, isError = false) {
   el.className = 'status-bar' + (isError ? ' error' : '');
 }
 
+const TOAST_ICONS = { error: '!', warn: '!', info: 'i', success: '✓' };
+
+/**
+ * Show a toast/flash message anchored to the top-center of the viewport.
+ * All kinds share the same card layout; color + icon convey severity.
+ *
+ * @param arg  either a string (becomes the title) or an object
+ *             { title, detail } where detail is rendered below the title.
+ * @param kind "info" | "warn" | "error" | "success".
+ * @param durationMs auto-dismiss delay in ms. 0 = sticky until user closes.
+ *                   Default: errors are sticky; everything else fades after 8 s.
+ */
+function showToast(arg, kind = 'info', durationMs) {
+  if (durationMs === undefined) durationMs = kind === 'error' ? 0 : 8000;
+  const { title, detail } = typeof arg === 'string' ? { title: arg, detail: '' } : arg;
+  const container = document.getElementById('toasts');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast--${kind}`;
+  toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+
+  const icon = document.createElement('span');
+  icon.className = 'toast__icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = TOAST_ICONS[kind] || TOAST_ICONS.info;
+  toast.appendChild(icon);
+
+  const body = document.createElement('div');
+  body.className = 'toast__body';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'toast__title';
+  titleEl.textContent = title;
+  body.appendChild(titleEl);
+  if (detail) {
+    const detailEl = document.createElement('div');
+    detailEl.className = 'toast__detail';
+    detailEl.textContent = detail;
+    body.appendChild(detailEl);
+  }
+  toast.appendChild(body);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'toast__close';
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.textContent = '×';
+  toast.appendChild(closeBtn);
+
+  const dismiss = () => {
+    if (toast.classList.contains('toast--leaving')) return;
+    toast.classList.add('toast--leaving');
+    toast.addEventListener('animationend', () => toast.remove(), { once: true });
+  };
+  closeBtn.addEventListener('click', dismiss);
+  container.appendChild(toast);
+  if (durationMs > 0) setTimeout(dismiss, durationMs);
+  return toast;
+}
+
 // ---------------------------------------------------------------------------
 // Video sync (MP4 + sidecar) — see docs/video-sync-design.md
 //
@@ -2006,19 +2152,117 @@ function _wireVideoElement() {
 (async () => {
   setStatus('<span class="loading-spinner"></span> Loading...');
   _wireVideoElement();
+
+  // Render the first row immediately so the user sees dropdown placeholders
+  // in a "loading…" state rather than a blank panel while we fetch sessions.
+  const firstRow = document.createElement('div');
+  firstRow.className = 'selection-row';
+  firstRow.id = 'row-loading';
+  firstRow.innerHTML = PART_COLS.map(col => `
+    <div class="part-group">
+      <span class="part-label">${PART_LABELS[col]}</span>
+      <select class="part-select" disabled>
+        <option>loading…</option>
+      </select>
+    </div>`).join('') + `
+    <div class="part-group">
+      <span class="part-label">Laps</span>
+      <div class="lap-checkboxes"><span class="lap-info">...</span></div>
+    </div>`;
+  document.getElementById('selections').appendChild(firstRow);
+
   try {
-    await Promise.all([fetchSessions(), loadChannels(), fetchTrack()]);
-    // Read URL params to pre-fill the first row (for deep-linking from Test Manager)
     const urlParams = new URLSearchParams(window.location.search);
     const defaults = {};
     for (const col of PART_COLS) {
       const val = urlParams.get(col);
       if (val) defaults[col] = val;
     }
-    addRow(Object.keys(defaults).length > 0 ? defaults : { experiment: 'Demo run' });
-    setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
+    const isDeepLink = Object.keys(defaults).length > 0;
+
+    if (isDeepLink) {
+      // Fast path: fetch ONLY the matching session (~300-400 ms), render
+      // immediately. Then refetch the full list in the background so that
+      // cascading dropdowns work when the user wants to compare.
+      const [filtered] = await Promise.all([
+        fetchSessions(defaults),
+        loadChannels(),
+        fetchTrack(),
+      ]);
+
+      if (filtered.length === 0) {
+        // The URL params didn't match any session. Skip the broken render
+        // and fall back to direct-access: load the full list and let the
+        // user pick from what actually exists. Warn them with a toast.
+        const summary = Object.entries(defaults)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(', ');
+        showToast(
+          {
+            title: 'No sessions match the URL parameters',
+            detail: `${summary}\nShowing the full list instead.`,
+          },
+          'warn',
+        );
+        const full = await fetchSessions();
+        sessions = full;
+        firstRow.remove();
+        addRow(null);
+        setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
+      } else {
+        sessions = filtered;
+        firstRow.remove();
+        addRow(defaults);
+        setStatus('<span class="loading-spinner"></span> Loading full session list in background...');
+
+        fetchSessions().then(full => {
+          sessions = full;
+          // Refresh dropdown option lists in every row while preserving the
+          // user's current selections.
+          document.querySelectorAll('.selection-row').forEach(row => {
+            const idx = parseInt(row.dataset.rowIdx);
+            if (!Number.isFinite(idx)) return;
+            const current = getRowFilters(idx);
+            populateDropdowns(idx, 0, current);
+          });
+          setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
+        }).catch(e => {
+          setStatus('Background load failed: ' + e.message, true);
+          showToast(
+            {
+              title: 'Loaded the requested session, but the full list failed to load',
+              detail: e.message,
+            },
+            'warn',
+          );
+        });
+      }
+    } else {
+      // Direct access: full fetch up-front, then render row.
+      const [full] = await Promise.all([
+        fetchSessions(),
+        loadChannels(),
+        fetchTrack(),
+      ]);
+      sessions = full;
+      firstRow.remove();
+      addRow(null);
+      setStatus(`${sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`);
+    }
   } catch (e) {
+    firstRow.remove();
     setStatus('Failed to initialize: ' + e.message, true);
+    // Leave a visible recovery hint in the selections panel — otherwise a
+    // user who dismisses the toast sees a blank panel with no guidance.
+    const fallback = document.createElement('div');
+    fallback.className = 'part-label';
+    fallback.style.padding = '1rem';
+    fallback.textContent = 'Failed to load sessions. Fix the issue and reload the page.';
+    document.getElementById('selections').appendChild(fallback);
+    showToast(
+      { title: 'Failed to load telemetry data', detail: e.message },
+      'error',
+    );
   }
 })();
 </script>
