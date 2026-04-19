@@ -1,51 +1,24 @@
 """Test fixtures for telemetry-comparison.
 
-We do NOT hit a real QuixLake. Instead, tests monkeypatch `get_client()` to
-return a stub whose `.query()` returns a canned pandas DataFrame. That keeps
-tests fast (<100ms each) and removes the network dependency.
+We do NOT hit a real QuixLake. Tests use `stub_lake` to swap `main._lake_http`
+with an httpx.AsyncClient backed by a MockTransport that returns a canned
+CSV body for every POST to /query. That keeps tests fast and deterministic.
+
+`config_env` ensures `config.QUIXLAKE_URL` / `QUIX_LAKE_TOKEN` look set so the
+env-var guard inside `_lake_query` doesn't short-circuit before the mock fires.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
-import pandas as pd
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+import config
 import main
-
-
-class StubQuixLakeClient:
-    """Canned QuixLake client. Whatever `query()` SQL is passed, it returns
-    the DataFrame you configured via `set_response(df)`."""
-
-    def __init__(self) -> None:
-        self._response: pd.DataFrame = pd.DataFrame()
-        self.last_sql: str | None = None
-
-    def set_response(self, df: pd.DataFrame) -> None:
-        self._response = df
-
-    def query(self, sql: str) -> pd.DataFrame:  # matches QuixLakeClient.query signature
-        self.last_sql = sql
-        return self._response.copy()
-
-
-@pytest.fixture
-def stub_client(monkeypatch: pytest.MonkeyPatch) -> StubQuixLakeClient:
-    """Replace main.get_client with one that returns a stub whose .query()
-    returns canned DataFrames.
-
-    Usage:
-        def test_x(stub_client, client):
-            stub_client.set_response(pd.DataFrame({"a": [1, 2]}))
-            r = client.get("/api/some-endpoint")
-            assert r.json() == ...
-    """
-    stub = StubQuixLakeClient()
-    monkeypatch.setattr(main, "get_client", lambda: stub)
-    return stub
 
 
 @pytest.fixture
@@ -54,21 +27,72 @@ def client() -> TestClient:
 
 
 @pytest.fixture
-def stub_factory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Callable[[Callable[[str], pd.DataFrame]], StubQuixLakeClient]:
-    """For when different SQL statements need different responses — pass a
-    callable that maps SQL → DataFrame and returns the stub for inspection."""
+def config_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pretend QUIXLAKE_URL + QUIX_LAKE_TOKEN are configured. The values
+    don't matter — the mock transport intercepts the outbound request."""
+    monkeypatch.setattr(config, "QUIXLAKE_URL", "https://test-lake.example.com")
+    monkeypatch.setattr(config, "QUIX_LAKE_TOKEN", "test-token")
+    monkeypatch.setattr(config, "TABLE_NAME", "ac_telemetry")
 
-    def _factory(fn: Callable[[str], pd.DataFrame]) -> StubQuixLakeClient:
-        stub = StubQuixLakeClient()
 
-        def query(sql: str) -> pd.DataFrame:
-            stub.last_sql = sql
-            return fn(sql)
+class _LakeStub:
+    """Records SQL submitted to the mocked lake and serves a queued CSV body
+    (or a 4xx/5xx response for error-path tests)."""
 
-        monkeypatch.setattr(stub, "query", query)
-        monkeypatch.setattr(main, "get_client", lambda: stub)
-        return stub
+    def __init__(self) -> None:
+        self.last_sql: str | None = None
+        self._csv: str = "normalizedCarPosition\n"  # empty-ish default
+        self._status: int = 200
 
-    return _factory
+    def set_csv(self, csv: str) -> None:
+        self._csv = csv
+        self._status = 200
+
+    def set_response(self, status: int, body: str = "") -> None:
+        self._status = status
+        self._csv = body
+
+
+@pytest.fixture
+def stub_lake(monkeypatch: pytest.MonkeyPatch, config_env: None) -> _LakeStub:
+    """Patch main._lake_http so any POST to /query returns the queued CSV."""
+    stub = _LakeStub()
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        stub.last_sql = request.content.decode("utf-8") if request.content else ""
+        return httpx.Response(stub._status, text=stub._csv)
+
+    monkeypatch.setattr(
+        main,
+        "_lake_http",
+        httpx.AsyncClient(transport=httpx.MockTransport(transport)),
+    )
+    return stub
+
+
+@pytest.fixture
+def stub_lake_factory(
+    monkeypatch: pytest.MonkeyPatch, config_env: None
+) -> Callable[[Callable[[str], tuple[int, str]]], Any]:
+    """Build a stub whose response depends on the SQL sent (e.g. for tests
+    that need different bodies for different `WHERE lap = N` queries).
+
+    Usage:
+        def by_lap(sql: str) -> tuple[int, str]:
+            return 200, "..." if "lap = 1" in sql else "..."
+        stub_lake_factory(by_lap)
+    """
+
+    def _build(fn: Callable[[str], tuple[int, str]]) -> None:
+        def transport(request: httpx.Request) -> httpx.Response:
+            sql = request.content.decode("utf-8") if request.content else ""
+            status, body = fn(sql)
+            return httpx.Response(status, text=body)
+
+        monkeypatch.setattr(
+            main,
+            "_lake_http",
+            httpx.AsyncClient(transport=httpx.MockTransport(transport)),
+        )
+
+    return _build

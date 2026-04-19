@@ -16,15 +16,16 @@ Module layout:
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
 
 import httpx
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from quixlake import QuixLakeClient
 
 import config
 import track_loader
@@ -38,8 +39,11 @@ logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 for _name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
     logging.getLogger(_name).propagate = False
 # httpx logs every outbound request at INFO — one /api/sessions call emits
-# ~30 lines. We don't need that in either dev or prod output.
+# ~30 lines. We don't need that in either dev or prod output. httpcore (the
+# transport layer) is muted too because at DEBUG it dumps full request
+# headers including the bearer Authorization token.
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Telemetry Comparison")
@@ -52,7 +56,29 @@ with open(config.CHANNELS_FILE) as f:
 CHANNELS = {k: v for k, v in _raw.items() if not k.startswith("_")}
 
 
-def get_client() -> QuixLakeClient:
+# Shared async client for QuixLake /query calls. Same rationale as
+# partition_walker._http_client: amortise TLS + connection pool across all
+# requests, and use an async transport so concurrent /api/telemetry calls
+# (the Plot-button fan-out) actually overlap on the lake instead of
+# serialising on a sync client per request.
+_lake_http = httpx.AsyncClient(
+    timeout=60.0,
+    limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+)
+
+
+def sanitize_df(df):
+    """Replace NaN/Inf with None for JSON serialization."""
+    return df.where(df.notna(), None)
+
+
+async def _lake_query(sql: str) -> pd.DataFrame:
+    """POST a SQL string to QuixLake's /query endpoint, parse the CSV reply.
+
+    Raises HTTPException(502) on non-200 lake responses. The caller MUST
+    catch HTTPException explicitly and re-raise (see /api/telemetry) — the
+    generic `except Exception` would otherwise reframe it as a 500.
+    """
     if not config.QUIXLAKE_URL or not config.QUIX_LAKE_TOKEN:
         missing = [
             name
@@ -66,12 +92,20 @@ def get_client() -> QuixLakeClient:
             f"Missing required env var(s): {', '.join(missing)}. "
             "Set them in .env or the environment before starting the service."
         )
-    return QuixLakeClient(base_url=config.QUIXLAKE_URL, token=config.QUIX_LAKE_TOKEN)
-
-
-def sanitize_df(df):
-    """Replace NaN/Inf with None for JSON serialization."""
-    return df.where(df.notna(), None)
+    r = await _lake_http.post(
+        f"{config.QUIXLAKE_URL}/query",
+        content=sql,
+        headers={
+            "Authorization": f"Bearer {config.QUIX_LAKE_TOKEN}",
+            "Content-Type": "text/plain",
+        },
+    )
+    if r.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Data lake returned {r.status_code} {r.reason_phrase}",
+        )
+    return pd.read_csv(io.StringIO(r.text))
 
 
 @app.get("/api/sessions")
@@ -155,18 +189,20 @@ async def get_telemetry(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     try:
-        client = get_client()
-        df = client.query(
-            f"""
+        sql = f"""
             SELECT
                 normalizedCarPosition,
                 timestamp_ms,
                 {columns}
             FROM {config.TABLE_NAME}
             {where}
-            ORDER BY normalizedCarPosition
         """
-        )
+        df = await _lake_query(sql)
+        # Lake response isn't ordered (we dropped SQL ORDER BY — sorting in
+        # pandas is ~5 ms vs ~60 ms warm / multi-second cold for DuckDB to
+        # sort). Frontend `downsample()` walks x by index so it must arrive
+        # sorted on normalizedCarPosition.
+        df = df.sort_values("normalizedCarPosition").reset_index(drop=True)
         df = sanitize_df(df)
 
         # First lap: trim the approach to the start line (pit exit / grid).
@@ -196,6 +232,12 @@ async def get_telemetry(
                 "data": df.to_dict(orient="list"),
             }
         )
+    except HTTPException:
+        # _lake_query already mapped the upstream status (e.g. 502); preserve it.
+        raise
+    except httpx.TimeoutException as e:
+        logger.warning("QuixLake timed out: %s", e)
+        raise HTTPException(status_code=504, detail=f"Data lake timed out: {e}") from e
     except Exception as e:
         logger.exception("Failed to get telemetry")
         raise HTTPException(status_code=500, detail=str(e)) from e

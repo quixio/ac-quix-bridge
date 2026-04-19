@@ -55,6 +55,18 @@ def test_session_id_with_space_format_normalizes() -> None:
     assert "2026-04-14 11:42:08.107" in result
 
 
+def test_session_id_like_pattern_escapes_underscore_and_percent() -> None:
+    """`_` slips the value allowlist (it's legitimate in non-LIKE values),
+    but inside a LIKE pattern `_` matches any single char and `%` matches any
+    run — without escaping, a session_id full of underscores would match many
+    sessions. The builder escapes both and adds an ESCAPE clause so the LIKE
+    is a true prefix match."""
+    result = _build_partition_filter(session_id="2026-04-17_06_39_45")
+    # Underscores in the prefix are escaped, ESCAPE clause is set
+    assert r"\_" in result
+    assert "ESCAPE '\\'" in result
+
+
 def test_mixed_columns_combine_correctly() -> None:
     result = _build_partition_filter(
         environment="prague_office",

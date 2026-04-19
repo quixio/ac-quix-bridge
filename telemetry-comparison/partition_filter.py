@@ -41,7 +41,11 @@ def _build_partition_filter(**kwargs) -> str:
             # Use CAST to VARCHAR + LIKE prefix match to handle all format variations.
             # Strip trailing zeros and Z to get a common prefix for matching.
             prefix = val.replace("T", " ").rstrip("Z").rstrip("0").rstrip(".")
-            clauses.append(f"CAST(session_id AS VARCHAR) LIKE '{prefix}%'")
+            # Escape LIKE special chars (\, %, _) so a value containing _ or %
+            # can't widen the match across sessions. The allowlist permits _
+            # because it's legitimate in non-LIKE column values (bmw_1m etc.).
+            escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            clauses.append(f"CAST(session_id AS VARCHAR) LIKE '{escaped}%' ESCAPE '\\'")
         else:
             clauses.append(f"{col} = '{val}'")
     return ("WHERE " + " AND ".join(clauses)) if clauses else ""
