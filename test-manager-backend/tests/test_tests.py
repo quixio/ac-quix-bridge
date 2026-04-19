@@ -892,19 +892,27 @@ def test_activate_test_dcm_unreachable(
     assert "Configuration service unavailable" in response.json()["detail"]
 
 
-def test_telemetry_params_dcm_unreachable(
+def test_telemetry_params_does_not_touch_dcm(
     create_test: TestFactory,
     client: TestClient,
 ) -> None:
-    """GET /tests/{id}/telemetry-params returns 503 when DCM is unreachable."""
+    """GET /tests/{id}/telemetry-params works without calling DCM.
+
+    The endpoint derives partition values from Mongo directly — if DCM is down
+    it should still succeed because we never call it.
+    """
     _, test = create_test()
 
     _break_dcm(client)
 
     response = client.get(f"/api/v1/tests/{test['test_id']}/telemetry-params")
 
-    assert response.status_code == 503
-    assert "Configuration service unavailable" in response.json()["detail"]
+    assert response.status_code == 200
+    data = response.json()
+    assert "environment" in data
+    assert "test_rig" in data
+    assert "experiment" in data
+    assert "driver" in data
 
 
 def test_delete_test_dcm_unreachable_keeps_mongo(

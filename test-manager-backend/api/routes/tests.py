@@ -23,6 +23,35 @@ from ..models import (
 router = APIRouter()
 
 
+def build_partition_values(
+    mongo: Database[dict[str, Any]], test: Test
+) -> dict[str, str]:
+    """Build the Hive partition values for a test from Mongo lookups.
+
+    These match what DCM content holds for the same test, because
+    create/update/activate keep Mongo and DCM in sync. Using Mongo directly
+    here avoids a DCM round-trip on a hot read path (Analyze button).
+    """
+    rig = mongo.devices.find_one({"_id": test.test_rig_device_id})
+    rig_name = (
+        rig["name"].lower().replace(" ", "_")
+        if rig
+        else test.test_rig_device_id
+    )
+    env = mongo.environments.find_one({"_id": test.environment_id})
+    env_name = (
+        env["name"].lower().replace(" ", "_").replace("'", "")
+        if env
+        else test.environment_id
+    )
+    return {
+        "environment": env_name,
+        "test_rig": rig_name,
+        "experiment": test.experiment_id,
+        "driver": test.driver.lower(),
+    }
+
+
 def generate_test_id(mongo: Database[dict[str, Any]]) -> str:
     """Generate the next auto-incremented test ID (TST-0001, TST-0002, etc.)."""
     last = mongo.tests.find_one(
@@ -363,48 +392,27 @@ def update_test(
 def get_telemetry_params(
     test_id: str,
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
-    config_api: httpx.Client = Depends(get_config_api_client),
     _: None = Depends(read_permission),
 ):
-    """Get Quix Lake partition parameters for a test by fetching its config content.
+    """Return Hive partition values for querying Quix Lake for this test.
 
-    Returns the exact values stored in the Dynamic Config Manager, which match
-    the Hive partition columns in Quix Lake (environment, test_rig, experiment, driver).
-    Also includes hardcoded track and carModel for now.
+    Derived from Mongo (test + environment + device lookups). The values match
+    what's stored in DCM because create/update/activate keep both in sync.
+    Skipping DCM avoids an external HTTP dependency on the Analyze hot path.
     """
-    test = mongo.tests.find_one({"_id": test_id})
-    if not test:
+    test_doc = mongo.tests.find_one({"_id": test_id})
+    if not test_doc:
         raise HTTPException(status_code=404, detail="Test not found")
 
-    config_id = test.get("config_id")
-    config_version = test.get("config_version")
-    if not config_id or not config_version:
-        raise HTTPException(status_code=404, detail="Test has no configuration")
+    test = Test(**test_doc)
+    partition = build_partition_values(mongo, test)
 
-    resp = safe_call(
-        lambda: config_api.get(
-            f"/api/v1/configurations/{config_id}/versions/{config_version}/content"
-        )
-    )
-    try:
-        resp.raise_for_status()
-        content = resp.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=424,
-            detail=f"Failed to fetch config content: {e.response.status_code}",
-        )
-
-    # Get track/carModel from sessions if available, otherwise fallback
-    sessions = test.get("sessions", [])
+    sessions = test_doc.get("sessions", [])
     track = sessions[0]["track"] if sessions else "ks_nurburgring"
     car_model = sessions[0]["car_model"] if sessions else "bmw_1m"
 
     return {
-        "environment": content.get("environment", ""),
-        "test_rig": content.get("test_rig", ""),
-        "experiment": content.get("experiment_id", ""),
-        "driver": content.get("driver", ""),
+        **partition,
         "track": track,
         "carModel": car_model,
         "session_ids": [s["session_id"] for s in sessions],
