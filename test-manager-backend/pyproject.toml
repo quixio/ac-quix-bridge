@@ -32,8 +32,9 @@ dev = [
 pythonpath = "."
 filterwarnings = [
 	# api.models.Test is a Pydantic BaseModel; pytest's class collector flags
-	# it because the name starts with "Test". It isn't a test class.
-	"ignore::pytest.PytestCollectionWarning",
+	# it because the name starts with "Test". Narrow filter — any OTHER class
+	# that accidentally isn't collectable still emits a warning.
+	"ignore:cannot collect test class 'Test':pytest.PytestCollectionWarning",
 ]
 
 [tool.uv.sources]
