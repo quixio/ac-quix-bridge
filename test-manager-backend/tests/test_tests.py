@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 from unittest.mock import Mock
 
 from api.config_api import get_config_api_client
+from api.models import Test as TestModel
+from api.mongo import get_mongo
+from api.routes.tests import build_partition_values
 from tests.conftest import TestFactory, DeviceFactory, EnvironmentFactory
 
 UTC_ISO_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
@@ -808,6 +811,40 @@ def test_pagination_multiple_pages(
     response = client.get("/api/v1/tests?page=3&page_size=10")
     assert response.status_code == 200
     assert len(response.json()["items"]) == 5
+
+
+# ============================================================================
+# build_partition_values — unit tests for fallback behaviour
+# ============================================================================
+
+
+def test_build_partition_values_falls_back_when_refs_missing(
+    client: TestClient,
+) -> None:
+    """When Device/Environment refs can't be resolved, use raw IDs.
+
+    Normal deletes are blocked by referential integrity (409), but direct
+    Mongo writes or migrations can leave orphan references. The fallback
+    keeps /telemetry-params functional instead of crashing.
+    """
+    mongo = get_mongo()
+    test = TestModel(
+        _id="TST-ORPHAN",
+        config_id="c1",
+        experiment_id="exp-a",
+        pc_device_id="DEV-GONE-PC",
+        test_rig_device_id="DEV-GONE-RIG",
+        environment_id="ENV-GONE",
+        driver="Alice",
+        requirements="",
+    )
+    result = build_partition_values(mongo, test)
+    assert result == {
+        "environment": "ENV-GONE",
+        "test_rig": "DEV-GONE-RIG",
+        "experiment": "exp-a",
+        "driver": "alice",
+    }
 
 
 # ============================================================================
