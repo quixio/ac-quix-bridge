@@ -8,7 +8,7 @@ from pymongo import ReturnDocument
 from pymongo.database import Database
 from ..auth import update_permission, read_permission
 from ..mongo import get_mongo
-from ..config_api import get_config_api_client
+from ..config_api import get_config_api_client, safe_call
 from ..models import (
     Test,
     TestCreate,
@@ -127,25 +127,27 @@ def create_test(
 
     # Send config to Dynamic Config Manager
     valid_from = datetime.now(timezone.utc).isoformat()
-    response = config_api.post(
-        "/api/v1/configurations",
-        json={
-            "metadata": {
-                "type": "experiment",
-                "target_key": pc_hostname,
-                "category": "ac-telemetry",
-                "valid_from": valid_from,
+    response = safe_call(
+        lambda: config_api.post(
+            "/api/v1/configurations",
+            json={
+                "metadata": {
+                    "type": "experiment",
+                    "target_key": pc_hostname,
+                    "category": "ac-telemetry",
+                    "valid_from": valid_from,
+                },
+                "content": {
+                    "test_id": test_id,
+                    "environment": env_name,
+                    "test_rig": rig_name,
+                    "experiment_id": test_data.experiment_id,
+                    "driver": test_data.driver.lower(),
+                    "requirements": test_data.requirements,
+                },
+                "replace": True,
             },
-            "content": {
-                "test_id": test_id,
-                "environment": env_name,
-                "test_rig": rig_name,
-                "experiment_id": test_data.experiment_id,
-                "driver": test_data.driver.lower(),
-                "requirements": test_data.requirements,
-            },
-            "replace": True,
-        },
+        )
     )
     try:
         response.raise_for_status()
@@ -284,17 +286,13 @@ def update_test(
 
     update_data["updated_at"] = datetime.now(timezone.utc)
 
-    updated_test = mongo.tests.find_one_and_update(
-        {"_id": test_id},
-        {"$set": update_data},
-        return_document=ReturnDocument.AFTER,
-    )
-    if not updated_test:
-        raise HTTPException(status_code=404, detail="Test not found")
+    # Build the merged view in memory — DO NOT write to Mongo yet. If DCM is
+    # unreachable below we raise 503 and Mongo stays consistent with the
+    # pre-update state.
+    merged = {**current_test, **update_data}
+    test = Test(**merged)
 
-    test = Test(**updated_test)
-
-    # Rebuild config payload
+    # Build config payload from the merged state.
     pc_device = mongo.devices.find_one({"_id": test.pc_device_id})
     pc_hostname = pc_device["name"] if pc_device else test.pc_device_id
     rig_device = mongo.devices.find_one({"_id": test.test_rig_device_id})
@@ -311,25 +309,27 @@ def update_test(
     )
 
     valid_from = datetime.now(timezone.utc).isoformat()
-    response = config_api.post(
-        "/api/v1/configurations",
-        json={
-            "metadata": {
-                "type": "experiment",
-                "target_key": pc_hostname,
-                "category": "ac-telemetry",
-                "valid_from": valid_from,
+    response = safe_call(
+        lambda: config_api.post(
+            "/api/v1/configurations",
+            json={
+                "metadata": {
+                    "type": "experiment",
+                    "target_key": pc_hostname,
+                    "category": "ac-telemetry",
+                    "valid_from": valid_from,
+                },
+                "content": {
+                    "test_id": test.test_id,
+                    "environment": env_name,
+                    "test_rig": rig_name,
+                    "experiment_id": test.experiment_id,
+                    "driver": test.driver.lower(),
+                    "requirements": test.requirements,
+                },
+                "replace": True,
             },
-            "content": {
-                "test_id": test.test_id,
-                "environment": env_name,
-                "test_rig": rig_name,
-                "experiment_id": test.experiment_id,
-                "driver": test.driver.lower(),
-                "requirements": test.requirements,
-            },
-            "replace": True,
-        },
+        )
     )
     try:
         response.raise_for_status()
@@ -340,10 +340,12 @@ def update_test(
         )
 
     config_response = response.json()["data"]
+    # DCM succeeded — commit user update AND DCM pointer fields in one write.
     updated = mongo.tests.find_one_and_update(
         {"_id": test_id},
         {
             "$set": {
+                **update_data,
                 "config_id": config_response["id"],
                 "config_type": config_response["metadata"]["type"],
                 "target_key": config_response["metadata"]["target_key"],
@@ -352,7 +354,8 @@ def update_test(
         },
         return_document=ReturnDocument.AFTER,
     )
-    assert updated is not None  # guarded by the find_one at the top of the function
+    if not updated:
+        raise HTTPException(status_code=404, detail="Test not found")
     return resolve_test_names(Test(**updated), mongo)
 
 
@@ -378,10 +381,12 @@ def get_telemetry_params(
     if not config_id or not config_version:
         raise HTTPException(status_code=404, detail="Test has no configuration")
 
-    try:
-        resp = config_api.get(
+    resp = safe_call(
+        lambda: config_api.get(
             f"/api/v1/configurations/{config_id}/versions/{config_version}/content"
         )
+    )
+    try:
         resp.raise_for_status()
         content = resp.json()
     except httpx.HTTPStatusError as e:
@@ -473,25 +478,27 @@ def activate_test(
     )
 
     valid_from = datetime.now(timezone.utc).isoformat()
-    response = config_api.post(
-        "/api/v1/configurations",
-        json={
-            "metadata": {
-                "type": "experiment",
-                "target_key": pc_hostname,
-                "category": "ac-telemetry",
-                "valid_from": valid_from,
+    response = safe_call(
+        lambda: config_api.post(
+            "/api/v1/configurations",
+            json={
+                "metadata": {
+                    "type": "experiment",
+                    "target_key": pc_hostname,
+                    "category": "ac-telemetry",
+                    "valid_from": valid_from,
+                },
+                "content": {
+                    "test_id": test.test_id,
+                    "environment": env_name,
+                    "test_rig": rig_name,
+                    "experiment_id": test.experiment_id,
+                    "driver": test.driver.lower(),
+                    "requirements": test.requirements,
+                },
+                "replace": True,
             },
-            "content": {
-                "test_id": test.test_id,
-                "environment": env_name,
-                "test_rig": rig_name,
-                "experiment_id": test.experiment_id,
-                "driver": test.driver.lower(),
-                "requirements": test.requirements,
-            },
-            "replace": True,
-        },
+        )
     )
     try:
         response.raise_for_status()
@@ -535,26 +542,39 @@ def delete_test(
     # content) stay untouched.
     config_id = test.get("config_id")
     if config_id:
+        # Network errors bubble up as 503 via safe_call — strict: we don't
+        # want to orphan DCM versions that could bite telemetry enrichment later.
+        # HTTP errors from DCM (4xx/5xx) are still best-effort: if DCM answered,
+        # the state is knowable and we proceed with Mongo delete.
+        versions_resp = safe_call(
+            lambda: config_api.get(f"/api/v1/configurations/{config_id}/versions")
+        )
         try:
-            versions_resp = config_api.get(
-                f"/api/v1/configurations/{config_id}/versions"
-            )
             versions_resp.raise_for_status()
-            for v in versions_resp.json().get("data", []):
-                vnum = v.get("metadata", {}).get("version")
-                if vnum is None:
-                    continue
-                content_resp = config_api.get(
-                    f"/api/v1/configurations/{config_id}/versions/{vnum}/content"
-                )
-                if content_resp.status_code != 200:
-                    continue
-                if content_resp.json().get("test_id") == test_id:
-                    config_api.delete(
-                        f"/api/v1/configurations/{config_id}/versions/{vnum}"
-                    )
+            versions_data = versions_resp.json().get("data", [])
         except httpx.HTTPStatusError:
-            pass  # Best-effort cleanup; proceed with Mongo delete regardless.
+            versions_data = []
+
+        for v in versions_data:
+            vnum = v.get("metadata", {}).get("version")
+            if vnum is None:
+                continue
+            # Default-arg capture so the lambda binds vnum per-iteration — safe
+            # today (safe_call is synchronous) but also future-proof if it ever
+            # becomes deferred.
+            content_resp = safe_call(
+                lambda v=vnum: config_api.get(
+                    f"/api/v1/configurations/{config_id}/versions/{v}/content"
+                )
+            )
+            if content_resp.status_code != 200:
+                continue
+            if content_resp.json().get("test_id") == test_id:
+                safe_call(
+                    lambda v=vnum: config_api.delete(
+                        f"/api/v1/configurations/{config_id}/versions/{v}"
+                    )
+                )
 
     mongo.logbook.delete_many({"test_id": test_id})
     mongo.tests.delete_one({"_id": test_id})

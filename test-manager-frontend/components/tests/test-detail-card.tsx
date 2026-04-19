@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DataCard } from "@/components/shared/data-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useIntegrationsApi } from "@/lib/hooks/use-api";
+import { useIntegrationsApi, useTestsApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
 import type { Test } from "@/types/test";
@@ -18,8 +18,11 @@ interface TestDetailCardProps {
 
 export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
   const integrationsApi = useIntegrationsApi();
+  const testsApi = useTestsApi();
+  const router = useRouter();
   const { formatDateTime } = useDateFormatter();
   const [isLoadingConfigUrl, setIsLoadingConfigUrl] = useState(false);
+  const [isOpeningAnalysis, setIsOpeningAnalysis] = useState(false);
   const { toast } = useToast();
 
   const handleOpenConfigManager = async () => {
@@ -39,6 +42,27 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
     }
   };
 
+  const handleAnalyze = async () => {
+    setIsOpeningAnalysis(true);
+    try {
+      // Pre-fetch telemetry params so we fail here (with a toast) instead of
+      // navigating to the analysis page only to show an unfiltered fallback.
+      await testsApi.getTelemetryParams(test.test_id);
+      router.push(`/analysis?tab=compare&test_id=${test.test_id}`);
+    } catch (error) {
+      toast({
+        title: "Cannot open analysis",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Configuration service is unavailable. Please try again shortly.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsOpeningAnalysis(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Quick Access */}
@@ -48,12 +72,15 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-center gap-3">
-            <Link href={`/analysis?tab=compare&test_id=${test.test_id}`}>
-              <Button variant="outline" size="sm">
-                <TrendingUp className="mr-2 h-4 w-4" />
-                Analyze
-              </Button>
-            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAnalyze}
+              disabled={isOpeningAnalysis}
+            >
+              <TrendingUp className="mr-2 h-4 w-4" />
+              {isOpeningAnalysis ? "Opening..." : "Analyze"}
+            </Button>
           </div>
         </CardContent>
       </Card>
