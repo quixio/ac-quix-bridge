@@ -17,6 +17,7 @@ recordings/
 quixers-testmanager-standalone/
 test-manager-backend/scripts/
 telemetry-comparison/scripts/
+dcm_source_code/
 
 # Playwright MCP artifacts (smoke tests, agent screenshots, MCP cache)
 .playwright-mcp/

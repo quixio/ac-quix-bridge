@@ -24,7 +24,7 @@ load_dotenv()
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
 
-CONFIG_MANAGER_URL = os.environ.get("CONFIG_MANAGER_URL", "https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io")
+CONFIG_MANAGER_URL = os.environ.get("CONFIG_MANAGER_URL", "http://dynamic-configuration-manager")
 CONFIG_TYPE = os.environ.get("CONFIG_TYPE", "session")
 API_BASE = f"{CONFIG_MANAGER_URL}/api/v1"
 AUTH_TOKEN = os.environ.get("Quix__Sdk__Token", "")
@@ -218,6 +218,26 @@ def _probe_test_manager() -> None:
         logger.error("[probe] /health FAILED — %s", e)
 
 
+def _probe_config_manager() -> None:
+    """One-shot startup probe to verify the DCM URL is reachable."""
+    logger.info("[probe] Config Manager URL configured: %s", CONFIG_MANAGER_URL)
+
+    try:
+        host = CONFIG_MANAGER_URL.split("://", 1)[-1].split("/")[0].split(":")[0]
+        ip = socket.gethostbyname(host)
+        logger.info("[probe] DNS %s → %s", host, ip)
+    except Exception as e:
+        logger.error("[probe] DNS FAILED for %s — %s", CONFIG_MANAGER_URL, e)
+        return
+
+    try:
+        with httpx.Client() as client:
+            resp = client.get(f"{API_BASE}/configurations", headers=_auth_headers(), timeout=5.0)
+        logger.info("[probe] GET /api/v1/configurations → %d %s", resp.status_code, resp.text[:200])
+    except Exception as e:
+        logger.error("[probe] /api/v1/configurations FAILED — %s", e)
+
+
 def process_session(value: dict, key, timestamp, headers):
     """Called for each session message from Kafka."""
     # The Kafka key is the hostname
@@ -230,6 +250,7 @@ def process_session(value: dict, key, timestamp, headers):
 
 def main():
     _probe_test_manager()
+    _probe_config_manager()
 
     app = Application(consumer_group="session_config_bridge", auto_offset_reset="earliest")
     input_topic = app.topic(name=os.environ.get("input", "ac-telemetry-session"))
