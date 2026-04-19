@@ -10,7 +10,7 @@ Module layout:
   - partition_walker.py — QuixLake /partitions tree walker (used by /api/sessions)
   - track_loader.py     — /api/track + /api/track/config (APIRouter)
   - video_proxy.py      — /api/video/... MP4 + sidecar proxy (APIRouter)
-  - main.py (this file) — FastAPI app + plotting routes (/api/sessions, /laps,
+  - main.py (this file) — FastAPI app + plotting routes (/api/sessions,
                            /telemetry, /channels, /health) + static SPA mount
 """
 
@@ -119,50 +119,6 @@ async def list_sessions(
         raise HTTPException(status_code=504, detail=f"Data lake timed out: {e}") from e
     except Exception as e:
         logger.exception("Failed to list sessions")
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.get("/api/laps")
-async def list_laps(
-    environment: str = "",
-    test_rig: str = "",
-    experiment: str = "",
-    driver: str = "",
-    track: str = "",
-    carModel: str = "",
-    session_id: str = "",
-):
-    """List laps for a given run (identified by all partition columns)."""
-    try:
-        where = _build_partition_filter(
-            environment=environment,
-            test_rig=test_rig,
-            experiment=experiment,
-            driver=driver,
-            track=track,
-            carModel=carModel,
-            session_id=session_id,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    try:
-        client = get_client()
-        df = client.query(
-            f"""
-            SELECT
-                lap,
-                ROUND(AVG(speedKmh), 1) as avg_speed,
-                ROUND(MAX(speedKmh), 1) as max_speed,
-                COUNT(*) as samples
-            FROM {config.TABLE_NAME}
-            {where}
-            GROUP BY lap
-            ORDER BY lap
-        """
-        )
-        return JSONResponse(content={"laps": df.to_dict(orient="records")})
-    except Exception as e:
-        logger.exception("Failed to list laps")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

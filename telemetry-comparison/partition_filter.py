@@ -1,6 +1,6 @@
 """Build WHERE clauses from partition column values.
 
-Used by /api/laps and /api/telemetry to filter DuckDB queries on the Hive-partitioned
+Used by /api/telemetry to filter DuckDB queries on the Hive-partitioned
 Parquet files. The allowlist regex prevents SQL injection via `{val}` interpolation —
 see tests/test_partition_filter.py.
 """

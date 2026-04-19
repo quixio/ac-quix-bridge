@@ -93,7 +93,7 @@ async def _walk_partition_tree(
 ) -> list[dict]:
     """Recursively walk the partition tree under `path`. At the leaf
     (session_id level) attaches a `laps` list by listing the lap=N
-    sub-partitions so the frontend doesn't need a separate /api/laps call.
+    sub-partitions so the frontend gets sessions + their laps in one round trip.
 
     Optional `filters`: dict of {partition_col: value}. When set, at each
     depth only the matching child is traversed, so a fully-qualified filter
