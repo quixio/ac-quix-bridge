@@ -72,7 +72,7 @@ deployments:
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
         required: true
-        value: http://dynamic-configuration-manager
+        value: https://config-api-svc-quixdev-acquixbridge-testmanager.deployments-dev.quix.io
       - name: CONFIG_TYPE
         inputType: FreeText
         description: Config type for session data
@@ -211,7 +211,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true
-        value: http://dynamic-configuration-manager
+        value: https://config-api-svc-quixdev-acquixbridge-testmanager.deployments-dev.quix.io
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest

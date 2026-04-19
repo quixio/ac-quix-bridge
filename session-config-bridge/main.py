@@ -24,7 +24,7 @@ load_dotenv()
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
 
-CONFIG_MANAGER_URL = os.environ.get("CONFIG_MANAGER_URL", "http://dynamic-configuration-manager")
+CONFIG_MANAGER_URL = os.environ.get("CONFIG_MANAGER_URL", "")
 CONFIG_TYPE = os.environ.get("CONFIG_TYPE", "session")
 API_BASE = f"{CONFIG_MANAGER_URL}/api/v1"
 AUTH_TOKEN = os.environ.get("Quix__Sdk__Token", "")

@@ -8,8 +8,8 @@ variables:
     required: true
   - name: CONFIG_MANAGER_URL
     inputType: FreeText
-    description: URL of the Dynamic Configuration Manager API (in-cluster service name by default)
-    defaultValue: http://dynamic-configuration-manager
+    description: URL of the Dynamic Configuration Manager API
+    defaultValue: ""
     required: true
   - name: CONFIG_TYPE
     inputType: FreeText
