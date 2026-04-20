@@ -129,13 +129,9 @@ WITH per_lap AS (
     driver,
     session_id,
     lap,
-    MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms,
-    COUNT(*) AS sample_count
+    MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms
   FROM ac_telemetry
-  WHERE lap >= 1
   GROUP BY track, carModel, experiment, driver, session_id, lap
-  HAVING MAX(timestamp_ms) > MIN(timestamp_ms)
-     AND COUNT(*) >= 2
 )
 SELECT
   track,
@@ -240,6 +236,16 @@ async def get_best_laps(
         df = client.query(_BEST_LAPS_SQL)
         rows: list[dict[str, Any]] = df.to_dict("records")
         logger.info("Best-laps aggregation returned %d rows", len(rows))
+        if rows:
+            logger.info("Best-laps sample row: %r", rows[0])
+        else:
+            # Diagnostic: count total rows in the lake table to distinguish
+            # "lake empty" vs. "aggregation filtered everything out".
+            try:
+                total = client.query("SELECT COUNT(*) AS n FROM ac_telemetry").to_dict("records")
+                logger.warning("Best-laps empty. Raw ac_telemetry row count: %r", total)
+            except Exception:
+                logger.exception("Diagnostic COUNT(*) on ac_telemetry failed")
     except Exception as e:
         logger.exception("QuixLake query failed")
         raise HTTPException(

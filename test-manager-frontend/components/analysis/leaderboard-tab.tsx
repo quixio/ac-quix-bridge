@@ -114,22 +114,12 @@ export function LeaderboardTab() {
     )
   }
 
-  // --- Empty lake (S6) ---
-  // No action button: creating a Test record in Test Manager does NOT
-  // populate the lake. Lap data only materialises when someone actually
-  // drives AC with the telemetry source running. Routing the user to
-  // `/tests/add` from here was misleading. The copy does the work.
-  if (data.length === 0) {
-    return (
-      <EmptyState
-        icon={<Trophy className="h-12 w-12" />}
-        title="No laps recorded yet"
-        description="Drive a session in Assetto Corsa with the telemetry source running. Laps appear here automatically once the first complete lap is recorded."
-      />
-    )
-  }
+  // --- Default render: dropdowns always visible, table shows empty state ---
+  // Rendering the dropdowns even with zero data lets the user confirm the
+  // page is alive while waiting for the first lap. The table handles its
+  // own empty message.
+  const isLakeEmpty = data.length === 0
 
-  // --- Default render: dropdowns + table ---
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-4">
@@ -153,7 +143,15 @@ export function LeaderboardTab() {
         />
       </div>
 
-      <LeaderboardTable data={rankedRows} />
+      {isLakeEmpty ? (
+        <EmptyState
+          icon={<Trophy className="h-12 w-12" />}
+          title="No laps recorded yet"
+          description="Drive a session in Assetto Corsa with the telemetry source running. Laps appear here automatically once the first complete lap is recorded."
+        />
+      ) : (
+        <LeaderboardTable data={rankedRows} />
+      )}
     </div>
   )
 }
