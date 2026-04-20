@@ -230,52 +230,6 @@ async def get_best_laps(
         df = df.fillna("")
         rows: list[dict[str, Any]] = df.to_dict("records")
         logger.info("Best-laps aggregation returned %d rows", len(rows))
-        if rows:
-            logger.info("Best-laps sample row: %r", rows[0])
-            # Temporary full dump so we can see how many rows have
-            # populated track/carModel vs. empty.
-            for i, r in enumerate(rows):
-                logger.info(
-                    "Row %d: track=%r carModel=%r experiment=%r driver=%r lap=%r lap_time_ms=%r",
-                    i, r.get("track"), r.get("carModel"),
-                    r.get("experiment"), r.get("driver"),
-                    r.get("lap"), r.get("lap_time_ms"),
-                )
-        else:
-            # Diagnostic cascade to pinpoint why aggregation returned 0 rows
-            # when the table has data.
-            try:
-                total = client.query("SELECT COUNT(*) AS n FROM ac_telemetry").to_dict("records")
-                logger.warning("Best-laps empty. Raw ac_telemetry row count: %r", total)
-            except Exception:
-                logger.exception("Diagnostic COUNT(*) on ac_telemetry failed")
-            try:
-                sample = client.query("SELECT * FROM ac_telemetry LIMIT 1").to_dict("records")
-                logger.warning("Sample row from ac_telemetry: %r", sample)
-            except Exception:
-                logger.exception("Diagnostic SELECT * LIMIT 1 failed")
-            try:
-                cols = client.query(
-                    "SELECT track, carModel, experiment, driver, session_id, lap, timestamp_ms "
-                    "FROM ac_telemetry LIMIT 3"
-                ).to_dict("records")
-                logger.warning("Key-columns sample: %r", cols)
-            except Exception:
-                logger.exception("Diagnostic key-columns SELECT failed")
-            try:
-                partition_counts = client.query(
-                    "SELECT "
-                    "COUNT(DISTINCT track) AS n_tracks, "
-                    "COUNT(DISTINCT carModel) AS n_cars, "
-                    "COUNT(DISTINCT experiment) AS n_experiments, "
-                    "COUNT(DISTINCT driver) AS n_drivers, "
-                    "COUNT(DISTINCT session_id) AS n_sessions, "
-                    "COUNT(DISTINCT lap) AS n_laps "
-                    "FROM ac_telemetry"
-                ).to_dict("records")
-                logger.warning("Distinct partition counts: %r", partition_counts)
-            except Exception:
-                logger.exception("Diagnostic distinct-counts failed")
     except Exception as e:
         logger.exception("QuixLake query failed")
         raise HTTPException(
@@ -293,8 +247,33 @@ async def get_best_laps(
     # second-level CTE GROUP BY, but the QuixLake query engine returns
     # 0 rows for nested aggregates in this env — single-level SQL works
     # and Python picks the minimum.
+    #
+    # Filter out each session's current (unfinished) lap. The highest lap
+    # value in a given session is the one still in progress — the driver
+    # never crossed the finish line out of it, so MAX-MIN timestamp_ms
+    # is a partial duration, not a real lap time. Every lap below the
+    # session's max is necessarily complete (the driver advanced past it).
+    max_lap_per_session: dict[str, int] = {}
+    for row in rows:
+        session_id = row.get("session_id") or ""
+        try:
+            lap_num = int(row.get("lap") or 0)
+        except (TypeError, ValueError):
+            continue
+        if lap_num > max_lap_per_session.get(session_id, -1):
+            max_lap_per_session[session_id] = lap_num
+
     best_per_group: dict[tuple[str, str, str, str], int] = {}
     for row in rows:
+        session_id = row.get("session_id") or ""
+        try:
+            lap_num = int(row.get("lap") or 0)
+        except (TypeError, ValueError):
+            continue
+        # Drop the in-progress lap (highest lap in the session).
+        if lap_num >= max_lap_per_session.get(session_id, -1):
+            continue
+
         raw_lap_ms = row.get("lap_time_ms")
         if raw_lap_ms is None or raw_lap_ms == "":
             continue
