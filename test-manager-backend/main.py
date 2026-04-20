@@ -8,7 +8,6 @@ from api.app import create_app
 from api.settings import get_settings
 
  
- 
 def main() -> int:
     # Configure root logger so application loggers (api.auth, api.routes.*, etc.)
     # actually emit. Without this, Python's default WARNING level swallows INFO.
