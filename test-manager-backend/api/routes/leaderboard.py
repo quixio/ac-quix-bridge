@@ -121,27 +121,17 @@ def _make_local_dev_rows() -> list[BestLapEntry]:
 #   laps (iLastTime is 0 until the very first lap is complete), which is
 #   the common case for short test-rig runs.
 _BEST_LAPS_SQL = """
-WITH per_lap AS (
-  SELECT
-    track,
-    carModel,
-    experiment,
-    driver,
-    session_id,
-    lap,
-    MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms
-  FROM ac_telemetry
-  GROUP BY track, carModel, experiment, driver, session_id, lap
-)
 SELECT
   track,
   carModel,
   experiment,
   driver,
-  MIN(lap_time_ms) AS best_lap_ms
-FROM per_lap
-GROUP BY track, carModel, experiment, driver
-ORDER BY track, carModel, experiment, best_lap_ms ASC
+  session_id,
+  lap,
+  MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms
+FROM ac_telemetry
+GROUP BY track, carModel, experiment, driver, session_id, lap
+ORDER BY track, carModel, experiment, driver, lap_time_ms ASC
 """.strip()
 
 
@@ -284,20 +274,35 @@ async def get_best_laps(
     # aggregation — trivial.
     driver_name_lookup = _build_driver_name_lookup(mongo)
 
-    entries: list[BestLapEntry] = []
+    # SQL returns per-lap rows (one per session_id + lap). Reduce to the
+    # single fastest lap per (track, carModel, experiment, driver) in
+    # Python. The "best per driver" collapse was originally done in a
+    # second-level CTE GROUP BY, but the QuixLake query engine returns
+    # 0 rows for nested aggregates in this env — single-level SQL works
+    # and Python picks the minimum.
+    best_per_group: dict[tuple[str, str, str, str], int] = {}
     for row in rows:
-        # Empty or malformed cells → skip the row; the SQL is static, so
-        # this should only happen if the upstream schema drifts.
-        raw_best = row.get("best_lap_ms")
-        if raw_best is None or raw_best == "":
+        raw_lap_ms = row.get("lap_time_ms")
+        if raw_lap_ms is None or raw_lap_ms == "":
             continue
         try:
-            best_lap_ms = int(float(raw_best))
+            lap_time_ms = int(float(raw_lap_ms))
         except (TypeError, ValueError):
-            logger.warning("Skipping row with non-numeric best_lap_ms: %r", row)
+            logger.warning("Skipping row with non-numeric lap_time_ms: %r", row)
             continue
 
-        raw_driver = row.get("driver") or ""
+        key = (
+            row.get("track") or "",
+            row.get("carModel") or "",
+            row.get("experiment") or "",
+            row.get("driver") or "",
+        )
+        existing = best_per_group.get(key)
+        if existing is None or lap_time_ms < existing:
+            best_per_group[key] = lap_time_ms
+
+    entries: list[BestLapEntry] = []
+    for (track, car, experiment, raw_driver), best_lap_ms in best_per_group.items():
         # Fold the lake value through the same diacritic-insensitive key
         # function used to build the lookup, so an ASCII lake `"ludvik"`
         # matches a Mongo `"Ludvík"`. Fallback: if the Mongo lookup misses,
@@ -305,18 +310,18 @@ async def get_best_laps(
         display_driver = driver_name_lookup.get(
             _fold_driver_name(raw_driver), raw_driver
         )
-
         entries.append(
             BestLapEntry(
-                track=row.get("track") or "",
+                track=track,
                 # Rename lake's `carModel` → public `car` to keep the
                 # response contract tidy. The lake schema leak doesn't
                 # need to propagate to the frontend.
-                car=row.get("carModel") or "",
-                experiment=row.get("experiment") or "",
+                car=car,
+                experiment=experiment,
                 driver=display_driver,
                 best_lap_ms=best_lap_ms,
             )
         )
 
+    entries.sort(key=lambda e: (e.track, e.car, e.experiment, e.best_lap_ms))
     return entries
