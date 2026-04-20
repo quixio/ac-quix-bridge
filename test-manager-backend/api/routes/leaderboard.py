@@ -224,6 +224,10 @@ async def get_best_laps(
         )
         logger.info("Querying QuixLake for best laps via QuixLakeClient.")
         df = client.query(_BEST_LAPS_SQL)
+        # Pandas leaves missing partition values as NaN. Coerce to empty
+        # strings so downstream `or ""` coalescing works and Pydantic gets
+        # valid strs. Same pattern as telemetry-comparison/main.py:132.
+        df = df.fillna("")
         rows: list[dict[str, Any]] = df.to_dict("records")
         logger.info("Best-laps aggregation returned %d rows", len(rows))
         if rows:
