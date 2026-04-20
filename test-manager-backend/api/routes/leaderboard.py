@@ -239,13 +239,40 @@ async def get_best_laps(
         if rows:
             logger.info("Best-laps sample row: %r", rows[0])
         else:
-            # Diagnostic: count total rows in the lake table to distinguish
-            # "lake empty" vs. "aggregation filtered everything out".
+            # Diagnostic cascade to pinpoint why aggregation returned 0 rows
+            # when the table has data.
             try:
                 total = client.query("SELECT COUNT(*) AS n FROM ac_telemetry").to_dict("records")
                 logger.warning("Best-laps empty. Raw ac_telemetry row count: %r", total)
             except Exception:
                 logger.exception("Diagnostic COUNT(*) on ac_telemetry failed")
+            try:
+                sample = client.query("SELECT * FROM ac_telemetry LIMIT 1").to_dict("records")
+                logger.warning("Sample row from ac_telemetry: %r", sample)
+            except Exception:
+                logger.exception("Diagnostic SELECT * LIMIT 1 failed")
+            try:
+                cols = client.query(
+                    "SELECT track, carModel, experiment, driver, session_id, lap, timestamp_ms "
+                    "FROM ac_telemetry LIMIT 3"
+                ).to_dict("records")
+                logger.warning("Key-columns sample: %r", cols)
+            except Exception:
+                logger.exception("Diagnostic key-columns SELECT failed")
+            try:
+                partition_counts = client.query(
+                    "SELECT "
+                    "COUNT(DISTINCT track) AS n_tracks, "
+                    "COUNT(DISTINCT carModel) AS n_cars, "
+                    "COUNT(DISTINCT experiment) AS n_experiments, "
+                    "COUNT(DISTINCT driver) AS n_drivers, "
+                    "COUNT(DISTINCT session_id) AS n_sessions, "
+                    "COUNT(DISTINCT lap) AS n_laps "
+                    "FROM ac_telemetry"
+                ).to_dict("records")
+                logger.warning("Distinct partition counts: %r", partition_counts)
+            except Exception:
+                logger.exception("Diagnostic distinct-counts failed")
     except Exception as e:
         logger.exception("QuixLake query failed")
         raise HTTPException(
