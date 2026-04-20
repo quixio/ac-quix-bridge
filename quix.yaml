@@ -530,6 +530,73 @@ deployments:
         order: 0
     blobStorage:
       bind: true
+  - name: MongoDB Backup Manager
+    application: mongodb-backup-manager
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 1000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: backup-manager
+    state:
+      enabled: true
+      size: 1
+    network:
+      serviceName: backup-manager
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: METADATA_BACKEND
+        inputType: Options
+        description: "Metadata storage backend: 'mongo' or 'json'"
+        required: true
+        value: json
+      - name: METADATA_MONGO_HOST
+        inputType: FreeText
+        description: Metadata MongoDB hostname (only when METADATA_BACKEND=mongo)
+        value: ''
+      - name: METADATA_MONGO_PORT
+        inputType: FreeText
+        description: Metadata MongoDB port (only when METADATA_BACKEND=mongo)
+        value: ''
+      - name: METADATA_MONGO_USERNAME
+        inputType: FreeText
+        description: Metadata MongoDB username (only when METADATA_BACKEND=mongo)
+        value: ''
+      - name: METADATA_MONGO_PASSWORD
+        inputType: Secret
+        description: Metadata MongoDB password (only when METADATA_BACKEND=mongo)
+      - name: SECRET_KEY
+        inputType: Secret
+        description: Encryption key for stored server passwords (Fernet)
+        required: true
+        secretKey: MONGO_BACKUP_SECRET_KEY
+      - name: BLOB_BASE_PATH
+        inputType: FreeText
+        description: Base path in Quix blob storage for backup archives
+        required: true
+        value: backups/mongodb
+      - name: BACKUP_RETENTION_DAYS
+        inputType: FreeText
+        description: Default retention period for backups in days
+        required: true
+        value: 30
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: Backup Manager
+        icon: save
+        order: 0
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
