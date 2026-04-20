@@ -232,6 +232,15 @@ async def get_best_laps(
         logger.info("Best-laps aggregation returned %d rows", len(rows))
         if rows:
             logger.info("Best-laps sample row: %r", rows[0])
+            # Temporary full dump so we can see how many rows have
+            # populated track/carModel vs. empty.
+            for i, r in enumerate(rows):
+                logger.info(
+                    "Row %d: track=%r carModel=%r experiment=%r driver=%r lap=%r lap_time_ms=%r",
+                    i, r.get("track"), r.get("carModel"),
+                    r.get("experiment"), r.get("driver"),
+                    r.get("lap"), r.get("lap_time_ms"),
+                )
         else:
             # Diagnostic cascade to pinpoint why aggregation returned 0 rows
             # when the table has data.
@@ -307,6 +316,11 @@ async def get_best_laps(
 
     entries: list[BestLapEntry] = []
     for (track, car, experiment, raw_driver), best_lap_ms in best_per_group.items():
+        # Drop rows where any dropdown dimension is empty — Radix Select
+        # rejects empty-string SelectItem values, and an unnamed track/car/
+        # experiment isn't a meaningful leaderboard entry anyway.
+        if not track or not car or not experiment:
+            continue
         # Fold the lake value through the same diacritic-insensitive key
         # function used to build the lookup, so an ASCII lake `"ludvik"`
         # matches a Mongo `"Ludvík"`. Fallback: if the Mongo lookup misses,
@@ -328,4 +342,5 @@ async def get_best_laps(
         )
 
     entries.sort(key=lambda e: (e.track, e.car, e.experiment, e.best_lap_ms))
+    logger.info("Returning %d leaderboard entries after filtering", len(entries))
     return entries
