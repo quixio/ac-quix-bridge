@@ -92,9 +92,6 @@ deployments:
       replicas: 1
     network:
       serviceName: dynamic-configuration-manager
-      ports:
-        - port: 80
-          targetPort: 80
     configuration:
       topic: ac-telemetry-config
       mongoHost: mongodb
