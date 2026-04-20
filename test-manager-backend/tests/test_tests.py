@@ -1,10 +1,15 @@
 import re
+from typing import cast
 
 import httpx
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import Mock
 
 from api.config_api import get_config_api_client
+from api.models import Test as TestModel
+from api.mongo import get_mongo
+from api.routes.tests import build_partition_values
 from tests.conftest import TestFactory, DeviceFactory, EnvironmentFactory
 
 UTC_ISO_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
@@ -806,3 +811,165 @@ def test_pagination_multiple_pages(
     response = client.get("/api/v1/tests?page=3&page_size=10")
     assert response.status_code == 200
     assert len(response.json()["items"]) == 5
+
+
+# ============================================================================
+# build_partition_values — unit tests for fallback behaviour
+# ============================================================================
+
+
+def test_build_partition_values_falls_back_when_refs_missing(
+    client: TestClient,
+) -> None:
+    """When Device/Environment refs can't be resolved, use raw IDs.
+
+    Normal deletes are blocked by referential integrity (409), but direct
+    Mongo writes or migrations can leave orphan references. The fallback
+    keeps /telemetry-params functional instead of crashing.
+    """
+    mongo = get_mongo()
+    test = TestModel(
+        _id="TST-ORPHAN",
+        config_id="c1",
+        experiment_id="exp-a",
+        pc_device_id="DEV-GONE-PC",
+        test_rig_device_id="DEV-GONE-RIG",
+        environment_id="ENV-GONE",
+        driver="Alice",
+        requirements="",
+    )
+    result = build_partition_values(mongo, test)
+    assert result == {
+        "environment": "ENV-GONE",
+        "test_rig": "DEV-GONE-RIG",
+        "experiment": "exp-a",
+        "driver": "alice",
+    }
+
+
+# ============================================================================
+# DCM unreachable — guard against httpx.ConnectError / network failures
+# ============================================================================
+
+
+def _break_dcm(client: TestClient) -> None:
+    """Swap the config_api dependency with one that raises httpx.ConnectError on every call."""
+    fake = Mock(spec=httpx.Client)
+    err = httpx.ConnectError("simulated network failure")
+    fake.get.side_effect = err
+    fake.post.side_effect = err
+    fake.delete.side_effect = err
+    app = cast(FastAPI, client.app)
+    app.dependency_overrides[get_config_api_client] = lambda: fake
+
+
+def test_create_test_dcm_unreachable(
+    client: TestClient,
+    create_device: DeviceFactory,
+    create_environment: EnvironmentFactory,
+) -> None:
+    """POST /tests returns 503 with clear message when DCM is unreachable."""
+    _, pc = create_device(name="PC 503", category="pc")
+    _, rig = create_device(name="Rig 503", category="test_rig")
+    _, env = create_environment(name="Env 503")
+
+    _break_dcm(client)
+
+    response = client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": "exp-503",
+            "pc_device_id": pc["device_id"],
+            "test_rig_device_id": rig["device_id"],
+            "environment_id": env["environment_id"],
+            "driver": "Driver",
+            "requirements": "",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "Configuration service unavailable" in response.json()["detail"]
+
+
+def test_update_test_dcm_unreachable(
+    create_test: TestFactory,
+    client: TestClient,
+) -> None:
+    """PUT /tests/{id} returns 503 when DCM is unreachable and leaves Mongo unchanged."""
+    _, test = create_test()
+    original_driver = test["driver"]
+
+    _break_dcm(client)
+
+    response = client.put(
+        f"/api/v1/tests/{test['test_id']}",
+        json={"driver": "New Driver"},
+    )
+
+    assert response.status_code == 503
+    assert "Configuration service unavailable" in response.json()["detail"]
+
+    # Mongo must not have been touched — the driver is still the original value.
+    refreshed = client.get(f"/api/v1/tests/{test['test_id']}").json()
+    assert refreshed["driver"] == original_driver
+
+
+def test_activate_test_dcm_unreachable(
+    create_test: TestFactory,
+    client: TestClient,
+) -> None:
+    """POST /tests/{id}/activate returns 503 when DCM is unreachable."""
+    _, test = create_test()
+
+    _break_dcm(client)
+
+    response = client.post(f"/api/v1/tests/{test['test_id']}/activate")
+
+    assert response.status_code == 503
+    assert "Configuration service unavailable" in response.json()["detail"]
+
+
+def test_telemetry_params_does_not_touch_dcm(
+    create_test: TestFactory,
+    client: TestClient,
+) -> None:
+    """GET /tests/{id}/telemetry-params works without calling DCM.
+
+    The endpoint derives partition values from Mongo directly — if DCM is down
+    it should still succeed because we never call it.
+    """
+    _, test = create_test()
+
+    _break_dcm(client)
+
+    response = client.get(f"/api/v1/tests/{test['test_id']}/telemetry-params")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "environment" in data
+    assert "test_rig" in data
+    assert "experiment" in data
+    assert "driver" in data
+
+
+def test_delete_test_dcm_unreachable_keeps_mongo(
+    create_test: TestFactory,
+    client: TestClient,
+) -> None:
+    """DELETE /tests/{id} returns 503 when DCM is unreachable.
+
+    Strict behavior: we refuse to delete from Mongo if we can't also clean up
+    DCM — orphan DCM versions could be picked up by the AC bridge and enrich
+    future telemetry with deleted-test content.
+    """
+    _, test = create_test()
+
+    _break_dcm(client)
+
+    response = client.delete(f"/api/v1/tests/{test['test_id']}")
+    assert response.status_code == 503
+    assert "Configuration service unavailable" in response.json()["detail"]
+
+    # Verify test is STILL in Mongo (not deleted)
+    get_response = client.get(f"/api/v1/tests/{test['test_id']}")
+    assert get_response.status_code == 200

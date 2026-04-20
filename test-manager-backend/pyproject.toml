@@ -30,6 +30,12 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = "."
+filterwarnings = [
+	# api.models.Test is a Pydantic BaseModel; pytest's class collector flags
+	# it because the name starts with "Test". Narrow filter — any OTHER class
+	# that accidentally isn't collectable still emits a warning.
+	"ignore:cannot collect test class 'Test':pytest.PytestCollectionWarning",
+]
 
 [tool.uv.sources]
 quixportal = { index = "quix-public" }

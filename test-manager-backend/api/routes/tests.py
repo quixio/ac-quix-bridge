@@ -8,7 +8,7 @@ from pymongo import ReturnDocument
 from pymongo.database import Database
 from ..auth import update_permission, read_permission
 from ..mongo import get_mongo
-from ..config_api import get_config_api_client
+from ..config_api import get_config_api_client, safe_call
 from ..models import (
     Test,
     TestCreate,
@@ -21,6 +21,89 @@ from ..models import (
 )
 
 router = APIRouter()
+
+
+def build_partition_values(
+    mongo: Database[dict[str, Any]], test: Test
+) -> dict[str, str]:
+    """Build the Hive partition values for a test from Mongo lookups.
+
+    These match what DCM content holds for the same test, because
+    create/update/activate keep Mongo and DCM in sync. Using Mongo directly
+    here avoids a DCM round-trip on a hot read path (Analyze button).
+    """
+    rig = mongo.devices.find_one({"_id": test.test_rig_device_id})
+    rig_name = (
+        rig["name"].lower().replace(" ", "_")
+        if rig
+        else test.test_rig_device_id
+    )
+    env = mongo.environments.find_one({"_id": test.environment_id})
+    env_name = (
+        env["name"].lower().replace(" ", "_").replace("'", "")
+        if env
+        else test.environment_id
+    )
+    return {
+        "environment": env_name,
+        "test_rig": rig_name,
+        "experiment": test.experiment_id,
+        "driver": test.driver.lower(),
+    }
+
+
+def sync_to_dcm(
+    config_api: httpx.Client,
+    mongo: Database[dict[str, Any]],
+    test: Test,
+    action_name: str,
+) -> dict[str, Any]:
+    """POST the test's current state as a new DCM config version.
+
+    Network errors → 503 via safe_call. DCM 4xx/5xx → 424. Returns the DCM
+    response's "data" dict (id + metadata.version/type/target_key).
+
+    `action_name` is used only in error messages ("create" / "update" / "activate").
+
+    Note on key naming: DCM content uses legacy `experiment_id`; Hive partition
+    columns (and `build_partition_values`) use `experiment`. The rename lives
+    in this one spot — mirror of `ac-telemetry-lake/main.py` which does the
+    reverse on the way out.
+    """
+    pc_device = mongo.devices.find_one({"_id": test.pc_device_id})
+    pc_hostname = pc_device["name"] if pc_device else test.pc_device_id
+    partition = build_partition_values(mongo, test)
+
+    response = safe_call(
+        lambda: config_api.post(
+            "/api/v1/configurations",
+            json={
+                "metadata": {
+                    "type": "experiment",
+                    "target_key": pc_hostname,
+                    "category": "ac-telemetry",
+                    "valid_from": datetime.now(timezone.utc).isoformat(),
+                },
+                "content": {
+                    "test_id": test.test_id,
+                    "environment": partition["environment"],
+                    "test_rig": partition["test_rig"],
+                    "experiment_id": partition["experiment"],
+                    "driver": partition["driver"],
+                    "requirements": test.requirements,
+                },
+                "replace": True,
+            },
+        )
+    )
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=424,
+            detail=f"Failed to {action_name} configuration: {e.response.status_code} {e.response.text}",
+        )
+    return response.json()["data"]
 
 
 def generate_test_id(mongo: Database[dict[str, Any]]) -> str:
@@ -105,66 +188,17 @@ def create_test(
             status_code=404, detail=f"Devices not found: {', '.join(missing)}"
         )
 
-    # Get PC device name for target_key
-    pc_device = mongo.devices.find_one({"_id": test_data.pc_device_id})
-    pc_hostname = pc_device["name"] if pc_device else test_data.pc_device_id
-
-    # Get test rig device name
-    rig_device = mongo.devices.find_one({"_id": test_data.test_rig_device_id})
-    rig_name = (
-        rig_device["name"].lower().replace(" ", "_")
-        if rig_device
-        else test_data.test_rig_device_id
-    )
-
-    # Get environment name
-    env = mongo.environments.find_one({"_id": test_data.environment_id})
-    env_name = (
-        env["name"].lower().replace(" ", "_").replace("'", "")
-        if env
-        else test_data.environment_id
-    )
-
-    # Send config to Dynamic Config Manager
-    valid_from = datetime.now(timezone.utc).isoformat()
-    response = config_api.post(
-        "/api/v1/configurations",
-        json={
-            "metadata": {
-                "type": "experiment",
-                "target_key": pc_hostname,
-                "category": "ac-telemetry",
-                "valid_from": valid_from,
-            },
-            "content": {
-                "test_id": test_id,
-                "environment": env_name,
-                "test_rig": rig_name,
-                "experiment_id": test_data.experiment_id,
-                "driver": test_data.driver.lower(),
-                "requirements": test_data.requirements,
-            },
-            "replace": True,
-        },
-    )
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=424,
-            detail=f"Failed to create configuration: {e.response.status_code} {e.response.text}",
-        )
-
-    config_response = response.json()["data"]
-    config_id = config_response["id"]
-    config_metadata = config_response["metadata"]
+    # Build a draft Test so sync_to_dcm can read its fields. Placeholder
+    # config_id — the real one comes back from DCM.
+    draft = Test(_id=test_id, config_id="", **test_data.model_dump())
+    config_response = sync_to_dcm(config_api, mongo, draft, action_name="create")
 
     test = Test(
         _id=test_id,
-        config_id=config_id,
-        config_type=config_metadata["type"],
-        target_key=config_metadata["target_key"],
-        config_version=config_metadata["version"],
+        config_id=config_response["id"],
+        config_type=config_response["metadata"]["type"],
+        target_key=config_response["metadata"]["target_key"],
+        config_version=config_response["metadata"]["version"],
         **test_data.model_dump(),
     )
     mongo.tests.insert_one(
@@ -284,66 +318,20 @@ def update_test(
 
     update_data["updated_at"] = datetime.now(timezone.utc)
 
-    updated_test = mongo.tests.find_one_and_update(
-        {"_id": test_id},
-        {"$set": update_data},
-        return_document=ReturnDocument.AFTER,
-    )
-    if not updated_test:
-        raise HTTPException(status_code=404, detail="Test not found")
+    # Build the merged view in memory — DO NOT write to Mongo yet. If DCM is
+    # unreachable below we raise 503 and Mongo stays consistent with the
+    # pre-update state.
+    merged = {**current_test, **update_data}
+    test = Test(**merged)
 
-    test = Test(**updated_test)
+    config_response = sync_to_dcm(config_api, mongo, test, action_name="update")
 
-    # Rebuild config payload
-    pc_device = mongo.devices.find_one({"_id": test.pc_device_id})
-    pc_hostname = pc_device["name"] if pc_device else test.pc_device_id
-    rig_device = mongo.devices.find_one({"_id": test.test_rig_device_id})
-    rig_name = (
-        rig_device["name"].lower().replace(" ", "_")
-        if rig_device
-        else test.test_rig_device_id
-    )
-    env = mongo.environments.find_one({"_id": test.environment_id})
-    env_name = (
-        env["name"].lower().replace(" ", "_").replace("'", "")
-        if env
-        else test.environment_id
-    )
-
-    valid_from = datetime.now(timezone.utc).isoformat()
-    response = config_api.post(
-        "/api/v1/configurations",
-        json={
-            "metadata": {
-                "type": "experiment",
-                "target_key": pc_hostname,
-                "category": "ac-telemetry",
-                "valid_from": valid_from,
-            },
-            "content": {
-                "test_id": test.test_id,
-                "environment": env_name,
-                "test_rig": rig_name,
-                "experiment_id": test.experiment_id,
-                "driver": test.driver.lower(),
-                "requirements": test.requirements,
-            },
-            "replace": True,
-        },
-    )
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=424,
-            detail=f"Failed to update configuration: {e.response.status_code} {e.response.text}",
-        )
-
-    config_response = response.json()["data"]
+    # DCM succeeded — commit user update AND DCM pointer fields in one write.
     updated = mongo.tests.find_one_and_update(
         {"_id": test_id},
         {
             "$set": {
+                **update_data,
                 "config_id": config_response["id"],
                 "config_type": config_response["metadata"]["type"],
                 "target_key": config_response["metadata"]["target_key"],
@@ -352,7 +340,8 @@ def update_test(
         },
         return_document=ReturnDocument.AFTER,
     )
-    assert updated is not None  # guarded by the find_one at the top of the function
+    if not updated:
+        raise HTTPException(status_code=404, detail="Test not found")
     return resolve_test_names(Test(**updated), mongo)
 
 
@@ -360,46 +349,27 @@ def update_test(
 def get_telemetry_params(
     test_id: str,
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
-    config_api: httpx.Client = Depends(get_config_api_client),
     _: None = Depends(read_permission),
 ):
-    """Get Quix Lake partition parameters for a test by fetching its config content.
+    """Return Hive partition values for querying Quix Lake for this test.
 
-    Returns the exact values stored in the Dynamic Config Manager, which match
-    the Hive partition columns in Quix Lake (environment, test_rig, experiment, driver).
-    Also includes hardcoded track and carModel for now.
+    Derived from Mongo (test + environment + device lookups). The values match
+    what's stored in DCM because create/update/activate keep both in sync.
+    Skipping DCM avoids an external HTTP dependency on the Analyze hot path.
     """
-    test = mongo.tests.find_one({"_id": test_id})
-    if not test:
+    test_doc = mongo.tests.find_one({"_id": test_id})
+    if not test_doc:
         raise HTTPException(status_code=404, detail="Test not found")
 
-    config_id = test.get("config_id")
-    config_version = test.get("config_version")
-    if not config_id or not config_version:
-        raise HTTPException(status_code=404, detail="Test has no configuration")
+    test = Test(**test_doc)
+    partition = build_partition_values(mongo, test)
 
-    try:
-        resp = config_api.get(
-            f"/api/v1/configurations/{config_id}/versions/{config_version}/content"
-        )
-        resp.raise_for_status()
-        content = resp.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=424,
-            detail=f"Failed to fetch config content: {e.response.status_code}",
-        )
-
-    # Get track/carModel from sessions if available, otherwise fallback
-    sessions = test.get("sessions", [])
+    sessions = test_doc.get("sessions", [])
     track = sessions[0]["track"] if sessions else "ks_nurburgring"
     car_model = sessions[0]["car_model"] if sessions else "bmw_1m"
 
     return {
-        "environment": content.get("environment", ""),
-        "test_rig": content.get("test_rig", ""),
-        "experiment": content.get("experiment_id", ""),
-        "driver": content.get("driver", ""),
+        **partition,
         "track": track,
         "carModel": car_model,
         "session_ids": [s["session_id"] for s in sessions],
@@ -456,52 +426,8 @@ def activate_test(
         raise HTTPException(status_code=404, detail="Test not found")
 
     test = Test(**current)
+    config_response = sync_to_dcm(config_api, mongo, test, action_name="activate")
 
-    pc_device = mongo.devices.find_one({"_id": test.pc_device_id})
-    pc_hostname = pc_device["name"] if pc_device else test.pc_device_id
-    rig_device = mongo.devices.find_one({"_id": test.test_rig_device_id})
-    rig_name = (
-        rig_device["name"].lower().replace(" ", "_")
-        if rig_device
-        else test.test_rig_device_id
-    )
-    env = mongo.environments.find_one({"_id": test.environment_id})
-    env_name = (
-        env["name"].lower().replace(" ", "_").replace("'", "")
-        if env
-        else test.environment_id
-    )
-
-    valid_from = datetime.now(timezone.utc).isoformat()
-    response = config_api.post(
-        "/api/v1/configurations",
-        json={
-            "metadata": {
-                "type": "experiment",
-                "target_key": pc_hostname,
-                "category": "ac-telemetry",
-                "valid_from": valid_from,
-            },
-            "content": {
-                "test_id": test.test_id,
-                "environment": env_name,
-                "test_rig": rig_name,
-                "experiment_id": test.experiment_id,
-                "driver": test.driver.lower(),
-                "requirements": test.requirements,
-            },
-            "replace": True,
-        },
-    )
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=424,
-            detail=f"Failed to activate configuration: {e.response.status_code} {e.response.text}",
-        )
-
-    config_response = response.json()["data"]
     updated = mongo.tests.find_one_and_update(
         {"_id": test_id},
         {
@@ -535,26 +461,39 @@ def delete_test(
     # content) stay untouched.
     config_id = test.get("config_id")
     if config_id:
+        # Network errors bubble up as 503 via safe_call — strict: we don't
+        # want to orphan DCM versions that could bite telemetry enrichment later.
+        # HTTP errors from DCM (4xx/5xx) are still best-effort: if DCM answered,
+        # the state is knowable and we proceed with Mongo delete.
+        versions_resp = safe_call(
+            lambda: config_api.get(f"/api/v1/configurations/{config_id}/versions")
+        )
         try:
-            versions_resp = config_api.get(
-                f"/api/v1/configurations/{config_id}/versions"
-            )
             versions_resp.raise_for_status()
-            for v in versions_resp.json().get("data", []):
-                vnum = v.get("metadata", {}).get("version")
-                if vnum is None:
-                    continue
-                content_resp = config_api.get(
-                    f"/api/v1/configurations/{config_id}/versions/{vnum}/content"
-                )
-                if content_resp.status_code != 200:
-                    continue
-                if content_resp.json().get("test_id") == test_id:
-                    config_api.delete(
-                        f"/api/v1/configurations/{config_id}/versions/{vnum}"
-                    )
+            versions_data = versions_resp.json().get("data", [])
         except httpx.HTTPStatusError:
-            pass  # Best-effort cleanup; proceed with Mongo delete regardless.
+            versions_data = []
+
+        for v in versions_data:
+            vnum = v.get("metadata", {}).get("version")
+            if vnum is None:
+                continue
+            # Default-arg capture so the lambda binds vnum per-iteration — safe
+            # today (safe_call is synchronous) but also future-proof if it ever
+            # becomes deferred.
+            content_resp = safe_call(
+                lambda v=vnum: config_api.get(
+                    f"/api/v1/configurations/{config_id}/versions/{v}/content"
+                )
+            )
+            if content_resp.status_code != 200:
+                continue
+            if content_resp.json().get("test_id") == test_id:
+                safe_call(
+                    lambda v=vnum: config_api.delete(
+                        f"/api/v1/configurations/{config_id}/versions/{v}"
+                    )
+                )
 
     mongo.logbook.delete_many({"test_id": test_id})
     mongo.tests.delete_one({"_id": test_id})

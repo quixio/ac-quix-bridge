@@ -9,7 +9,7 @@ variables:
   - name: CONFIG_MANAGER_URL
     inputType: FreeText
     description: URL of the Dynamic Configuration Manager API
-    defaultValue: https://config-api-svc-quixers-acquixbridge-dev.az-france-0.app.quix.io
+    defaultValue: ""
     required: true
   - name: CONFIG_TYPE
     inputType: FreeText
