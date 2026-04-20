@@ -244,6 +244,10 @@ deployments:
         inputType: FreeText
         required: true
         value: https://marimo-analysis-quixers-advancedanalyticsnew-new.az-france-0.app.quix.io
+      - name: Quix__Portal__Api
+        inputType: FreeText
+        required: true
+        value: https://portal-api.dev.quix.io
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
@@ -290,10 +294,6 @@ deployments:
         label: Test Manager
         icon: data_thresholding
         order: 1
-      globalItem:
-        show: true
-        label: Test Manager
-        order: 0
   - name: RaceTelemetryAnalysis
     application: racetelemetryanalysis
     version: latest
