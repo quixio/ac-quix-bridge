@@ -2,10 +2,19 @@
 Leaderboard routes — best-lap aggregation served from the shared QuixLake.
 
 The endpoint runs a single SQL aggregation against the lake's `ac_telemetry`
-table (via the `{quixlake_url}/api/query` SQL-over-HTTP endpoint) and returns
+table via `QuixLakeClient.query()` from the `quixlake-sdk` package and returns
 the full per-(track, car, experiment, driver) best-lap matrix. The frontend
 fetches once on tab mount and derives the Track/Car/Experiment dropdowns +
 filters client-side.
+
+Round 4 (sc-71954): Round 3 rewired the endpoint to read `QUIXLAKE_URL` and
+`QUIX_LAKE_TOKEN` directly from env, but kept a raw `httpx` call against
+`{quixlake_url}/api/query`. That path is served by the separate Query UI
+service, which is not deployed in the `acquixbridge-leaderboard` env — so
+the deployed backend returned 404 HTML. The fix is to use `QuixLakeClient`
+from `quixlake-sdk` (the same pattern as `telemetry-comparison/main.py:23,
+72-73, 114`), which abstracts away the wire protocol and returns a pandas
+DataFrame.
 
 Round 3 (sc-71954): the lake connection no longer goes through the Settings UI
 `measurements_deployment` reference or a hardcoded `_FALLBACK_MEASUREMENTS_URL`.
@@ -22,16 +31,14 @@ lookup is the canonical way to recover proper casing. Unmatched drivers
 keep their raw lowercase value rather than being dropped.
 """
 
-import csv
 import logging
 import os
 import unicodedata
-from io import StringIO
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pymongo.database import Database
+from quixlake import QuixLakeClient
 
 from ..auth import read_permission
 from ..models import BestLapEntry
@@ -161,14 +168,6 @@ def _build_driver_name_lookup(mongo: Database[dict[str, Any]]) -> dict[str, str]
     return lookup
 
 
-def _parse_csv_rows(csv_text: str) -> list[dict[str, str]]:
-    """Parse a CSV response body into a list of row dicts. Empty body → []."""
-    if not csv_text or not csv_text.strip():
-        return []
-    reader = csv.DictReader(StringIO(csv_text))
-    return [row for row in reader]
-
-
 @router.get("/best-laps", response_model=list[BestLapEntry])
 async def get_best_laps(
     _auth: None = Depends(read_permission),
@@ -196,41 +195,27 @@ async def get_best_laps(
             detail="QuixLake URL/token not configured",
         )
 
-    # Strip a single trailing slash so the `/api/query` suffix never doubles up.
-    api_url = f"{settings.quixlake_url.rstrip('/')}/api/query"
-
+    # Round 4: use the quixlake-sdk client instead of raw HTTP against
+    # `/api/query`. That path belongs to Query UI (a separate service not
+    # deployed in this env). `QuixLakeClient.query()` is synchronous and
+    # returns a pandas DataFrame — same usage pattern as
+    # telemetry-comparison/main.py:114. FastAPI is happy running a sync
+    # block inside an async handler for this I/O volume.
     try:
-        async with httpx.AsyncClient() as client:
-            logger.info("Querying Quix Lake API for best laps: %s", api_url)
-            response = await client.post(
-                api_url,
-                content=_BEST_LAPS_SQL,
-                headers={
-                    "Authorization": f"Bearer {settings.quix_lake_token}",
-                    "Content-Type": "text/plain",
-                },
-                timeout=30.0,
-            )
-
-            if not response.is_success:
-                logger.error(
-                    "Quix Lake Query API error: status=%s body=%s",
-                    response.status_code,
-                    response.text[:500],
-                )
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Query API error: {response.status_code} - {response.text}",
-                )
-
-            rows = _parse_csv_rows(response.text)
-            logger.info("Best-laps aggregation returned %d rows", len(rows))
-
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Query API timeout")
-    except httpx.HTTPError as e:
-        logger.error("HTTP error querying Quix Lake API: %s", e)
-        raise HTTPException(status_code=500, detail=f"Query API error: {str(e)}")
+        client = QuixLakeClient(
+            base_url=settings.quixlake_url,
+            token=settings.quix_lake_token,
+        )
+        logger.info("Querying QuixLake for best laps via QuixLakeClient.")
+        df = client.query(_BEST_LAPS_SQL)
+        rows: list[dict[str, Any]] = df.to_dict("records")
+        logger.info("Best-laps aggregation returned %d rows", len(rows))
+    except Exception as e:
+        logger.exception("QuixLake query failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"QuixLake query error: {e}",
+        )
 
     # Build the driver display-case lookup from Mongo. One call per
     # aggregation — trivial.
@@ -241,7 +226,7 @@ async def get_best_laps(
         # Empty or malformed cells → skip the row; the SQL is static, so
         # this should only happen if the upstream schema drifts.
         raw_best = row.get("best_lap_ms")
-        if raw_best in (None, ""):
+        if raw_best is None or raw_best == "":
             continue
         try:
             best_lap_ms = int(float(raw_best))

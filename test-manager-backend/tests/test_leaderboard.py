@@ -8,6 +8,14 @@ Pytest tests for the Leaderboard endpoint (`/api/v1/leaderboard/best-laps`).
 # against the old fall-through and do not exercise the new code path. Import
 # must still succeed so `pytest --collect-only` doesn't ImportError, but the
 # tests themselves are stale until rewritten.
+# TODO(sc-71954 r4): `api.routes.leaderboard` no longer imports `httpx`. The
+# `patch("api.routes.leaderboard.httpx.AsyncClient", ...)` below will raise
+# AttributeError at fixture setup, so every test in this file now errors
+# at collection or first call. The transport boundary is now
+# `QuixLakeClient.query()` from the `quixlake-sdk` package; the fixtures
+# need to monkeypatch that instead (and return a pandas DataFrame, not CSV
+# text). Also: `_FALLBACK_MEASUREMENTS_URL` is gone — any test importing it
+# will fail at import time. Not rewritten this round.
 
 Scope: spec §6.2 — backend tests.
 

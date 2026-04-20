@@ -16,6 +16,7 @@ dependencies = [
 	"pydantic-settings",
 	"python-multipart",
 	"quixportal",
+	"quixlake-sdk",
 ]
 
 [dependency-groups]
@@ -40,6 +41,7 @@ pythonpath = "."
 
 [tool.uv.sources]
 quixportal = { index = "quix-public" }
+quixlake-sdk = { index = "quix-public" }
 
 [[tool.uv.index]]
 name = "quix-public"
