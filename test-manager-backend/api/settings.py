@@ -50,9 +50,6 @@ class Settings(BaseSettings):
     config_api_url: str = Field(..., description="Configuration API URL")
 
     # Integration services URLs
-    measurements_url: str | None = Field(
-        None, description="Measurements/Query Builder service URL"
-    )
     analytics_url: str | None = Field(
         None, description="Analytics/Notebook service URL"
     )
@@ -61,6 +58,17 @@ class Settings(BaseSettings):
     )
     measurements_topic_name: str | None = Field(
         None, description="Topic/table name for test measurements in the Data Lake"
+    )
+
+    # Direct QuixLake connection — used by the leaderboard endpoint to query
+    # the shared lake without going through the Settings-UI deployment ref.
+    # Matches the env vars wired on the Telemetry Explorer deployment
+    # (`quix.yaml:534-544`); both deployments talk to the same lake.
+    quixlake_url: str | None = Field(
+        None, alias="QUIXLAKE_URL", description="Base URL of the shared QuixLake instance"
+    )
+    quix_lake_token: str | None = Field(
+        None, alias="QUIX_LAKE_TOKEN", description="PAT authenticating against the shared QuixLake"
     )
 
     # Nested settings

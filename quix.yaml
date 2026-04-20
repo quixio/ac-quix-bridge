@@ -232,10 +232,16 @@ deployments:
         inputType: FreeText
         required: true
         value: https://config-api-svc-quixdev-acquixbridge-leaderboard.deployments-dev.quix.io
-      - name: MEASUREMENTS_URL
-        inputType: FreeText
+      - name: QUIX_LAKE_TOKEN
+        inputType: Secret
+        description: Token to authenticate against QuixLake
         required: true
-        value: https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io/
+        secretKey: pat_token
+      - name: QUIXLAKE_URL
+        inputType: FreeText
+        description: Base URL of the QuixLake instance
+        required: true
+        value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: DATA_LAKE_V2_TOPIC_NAME
         inputType: FreeText
         required: true

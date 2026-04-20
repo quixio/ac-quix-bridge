@@ -1,6 +1,14 @@
 """
 Pytest tests for the Leaderboard endpoint (`/api/v1/leaderboard/best-laps`).
 
+# TODO(sc-71954 r3): tests need rewrite after QuixLake direct-call refactor.
+# The endpoint now reads `settings.quixlake_url` / `settings.quix_lake_token`
+# directly (no more `get_measurements_url_base` / `_FALLBACK_MEASUREMENTS_URL`
+# / `get_effective_integration_settings`). The fixtures below were written
+# against the old fall-through and do not exercise the new code path. Import
+# must still succeed so `pytest --collect-only` doesn't ImportError, but the
+# tests themselves are stale until rewritten.
+
 Scope: spec §6.2 — backend tests.
 
 Boundary mocks (per spec §6.2):

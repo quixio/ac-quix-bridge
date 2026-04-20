@@ -1,11 +1,19 @@
 """
-Leaderboard routes — best-lap aggregation served from the Quix Lake.
+Leaderboard routes — best-lap aggregation served from the shared QuixLake.
 
 The endpoint runs a single SQL aggregation against the lake's `ac_telemetry`
-table (via the `{measurements_url}/api/query` SQL-over-HTTP endpoint used by
-`integrations.download_test_data`) and returns the full per-(track, car,
-experiment, driver) best-lap matrix. The frontend fetches once on tab mount
-and derives the Track/Car/Experiment dropdowns + filters client-side.
+table (via the `{quixlake_url}/api/query` SQL-over-HTTP endpoint) and returns
+the full per-(track, car, experiment, driver) best-lap matrix. The frontend
+fetches once on tab mount and derives the Track/Car/Experiment dropdowns +
+filters client-side.
+
+Round 3 (sc-71954): the lake connection no longer goes through the Settings UI
+`measurements_deployment` reference or a hardcoded `_FALLBACK_MEASUREMENTS_URL`.
+Instead, the endpoint reads `QUIXLAKE_URL` and `QUIX_LAKE_TOKEN` directly from
+env — the same pattern used by the Telemetry Explorer deployment
+(`quix.yaml:534-544`), which talks to the same shared lake. The previous
+fall-through resolved to a URL in the wrong workspace and upstream returned
+403 Access Forbidden.
 
 Driver names are rewritten on the server to the display-case form stored in
 the Mongo `drivers.name` collection. The lake partitions `driver` in
@@ -29,21 +37,10 @@ from ..auth import read_permission
 from ..models import BestLapEntry
 from ..mongo import get_mongo
 from ..settings import get_settings
-from .integrations import get_measurements_url_base
-from .settings import get_effective_integration_settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
-
-
-# Dev-mode hardcoded fallback — same literal as `test-manager-backend/app.yaml`
-# `MEASUREMENTS_URL` defaultValue. Lets the leaderboard work locally without
-# requiring a user to configure `measurements_deployment` via Settings UI.
-# Why: the Settings flow requires picking a deployment reference from the Quix
-# portal, which is heavyweight for local development. The URL already lives
-# in the repo; we reuse it.
-_FALLBACK_MEASUREMENTS_URL = "https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io"
 
 
 # Dummy leaderboard rows returned when LOCAL_DEV_MODE=true. Lets the full UI
@@ -188,20 +185,19 @@ async def get_best_laps(
         return _make_local_dev_rows()
 
     settings = get_settings()
-    integration_settings = get_effective_integration_settings()
 
-    measurements_url = (
-        get_measurements_url_base(integration_settings)
-        or settings.measurements_url
-        or _FALLBACK_MEASUREMENTS_URL
-    )
-    if measurements_url is _FALLBACK_MEASUREMENTS_URL:
-        logger.info(
-            "No measurements deployment configured; using hardcoded fallback URL."
+    # Round 3: read QuixLake config directly from env. No more Settings-UI
+    # deployment-ref fallback and no hardcoded fallback URL — both were
+    # pointing at the wrong workspace on the `acquixbridge-leaderboard` env
+    # and causing upstream 403s.
+    if not settings.quixlake_url or not settings.quix_lake_token:
+        raise HTTPException(
+            status_code=500,
+            detail="QuixLake URL/token not configured",
         )
 
     # Strip a single trailing slash so the `/api/query` suffix never doubles up.
-    api_url = f"{measurements_url.rstrip('/')}/api/query"
+    api_url = f"{settings.quixlake_url.rstrip('/')}/api/query"
 
     try:
         async with httpx.AsyncClient() as client:
@@ -210,7 +206,7 @@ async def get_best_laps(
                 api_url,
                 content=_BEST_LAPS_SQL,
                 headers={
-                    "Authorization": f"Bearer {settings.sdk_token}",
+                    "Authorization": f"Bearer {settings.quix_lake_token}",
                     "Content-Type": "text/plain",
                 },
                 timeout=30.0,

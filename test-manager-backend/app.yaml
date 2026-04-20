@@ -45,10 +45,15 @@ variables:
     inputType: FreeText
     multiline: false
     required: true
-  - name: MEASUREMENTS_URL
+  - name: QUIX_LAKE_TOKEN
+    inputType: Secret
+    multiline: false
+    defaultValue: pat_token
+    required: true
+  - name: QUIXLAKE_URL
     inputType: FreeText
     multiline: false
-    defaultValue: https://query-ui-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io/
+    defaultValue: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
     required: true
   - name: DATA_LAKE_V2_TOPIC_NAME
     inputType: FreeText
