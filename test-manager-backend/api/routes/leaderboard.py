@@ -7,6 +7,21 @@ the full per-(track, car, experiment, driver) best-lap matrix. The frontend
 fetches once on tab mount and derives the Track/Car/Experiment dropdowns +
 filters client-side.
 
+Round 5 (sc-71954): Round 4 fixed the wire protocol (SDK instead of raw
+httpx) and the endpoint started returning 200. But the response was an
+empty array even though the lake contained session data (confirmed via
+Telemetry Explorer, which reads the same `ac_telemetry` table). Root
+cause: the previous SQL aggregated `MAX(iLastTime)` per lap partition and
+required `lap > 1`. `iLastTime` is AC's "last completed lap time" field
+from the Graphics struct — it's 0 until the very first lap is complete
+and stays 0 across all rows of short sessions that never complete a lap.
+Combined with the `lap > 1` filter (which dropped all lap-1 rows), any
+session with < 2 completed laps produced zero rows. Fix: compute lap time
+from `MAX(timestamp_ms) - MIN(timestamp_ms)` within each lap partition,
+keep lap >= 1, and guard against single-row partitions with
+`COUNT(*) >= 2`. Lap 1 now includes the rollout from the grid/pit, but
+short test sessions stop being invisible.
+
 Round 4 (sc-71954): Round 3 rewired the endpoint to read `QUIXLAKE_URL` and
 `QUIX_LAKE_TOKEN` directly from env, but kept a raw `httpx` call against
 `{quixlake_url}/api/query`. That path is served by the separate Query UI
@@ -84,14 +99,27 @@ def _make_local_dev_rows() -> list[BestLapEntry]:
 
 
 # The lake's Hive partitions are (environment, test_rig, experiment, driver,
-# track, carModel, session_id, lap) — see quix.yaml:127. `iLastTime` is AC's
-# "last completed lap time in ms" from the Graphics struct — constant within
-# a lap partition once the lap is complete. `lap > 1` skips the out-lap
-# (lap = completedLaps + 1, so completedLaps = 0 → lap 1 = out-lap).
+# track, carModel, session_id, lap) — see quix.yaml:127.
 #
-# Aggregation strategy: MAX(iLastTime) per lap-partition, then MIN across
-# sessions for the per-driver best. HAVING filters rows where the lap never
-# reported a positive last-time (stale / zero-init / crashed-out rows).
+# Aggregation strategy (Round 5 — timestamp-delta based):
+#   Compute per-lap duration as MAX(timestamp_ms) - MIN(timestamp_ms) within
+#   each (track, carModel, experiment, driver, session_id, lap) partition,
+#   then take MIN across sessions for the per-driver best. `timestamp_ms` is
+#   the same millisecond wall-clock column that Telemetry Explorer queries
+#   against this table (see telemetry-comparison/main.py:123, 192).
+#
+#   Guards: `lap >= 1` (keep lap 1 so short sessions are not invisible —
+#   trade-off: lap 1 includes the rollout from grid/pit and may bias the
+#   "best" slow for single-lap sessions, acceptable for V1). `COUNT(*) >= 2`
+#   + `MAX(timestamp_ms) > MIN(timestamp_ms)` drops lap partitions with
+#   only one sample, which would otherwise produce a 0-ms lap time and
+#   dominate the MIN.
+#
+#   The previous Round-4 SQL used `MAX(iLastTime)` (AC Graphics struct's
+#   "last completed lap time") with `lap > 1` + `HAVING MAX(iLastTime) > 0`.
+#   That combination returned empty for sessions that never completed ≥ 2
+#   laps (iLastTime is 0 until the very first lap is complete), which is
+#   the common case for short test-rig runs.
 _BEST_LAPS_SQL = """
 WITH per_lap AS (
   SELECT
@@ -101,11 +129,13 @@ WITH per_lap AS (
     driver,
     session_id,
     lap,
-    MAX(iLastTime) AS lap_time_ms
+    MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms,
+    COUNT(*) AS sample_count
   FROM ac_telemetry
-  WHERE lap > 1
+  WHERE lap >= 1
   GROUP BY track, carModel, experiment, driver, session_id, lap
-  HAVING MAX(iLastTime) > 0
+  HAVING MAX(timestamp_ms) > MIN(timestamp_ms)
+     AND COUNT(*) >= 2
 )
 SELECT
   track,

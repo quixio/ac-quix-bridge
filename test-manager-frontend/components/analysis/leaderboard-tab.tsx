@@ -115,16 +115,16 @@ export function LeaderboardTab() {
   }
 
   // --- Empty lake (S6) ---
+  // No action button: creating a Test record in Test Manager does NOT
+  // populate the lake. Lap data only materialises when someone actually
+  // drives AC with the telemetry source running. Routing the user to
+  // `/tests/add` from here was misleading. The copy does the work.
   if (data.length === 0) {
     return (
       <EmptyState
         icon={<Trophy className="h-12 w-12" />}
         title="No laps recorded yet"
-        description="Start a test to populate the leaderboard."
-        action={{
-          label: "Add Test",
-          onClick: () => router.push("/tests/add"),
-        }}
+        description="Drive a session in Assetto Corsa with the telemetry source running. Laps appear here automatically once the first complete lap is recorded."
       />
     )
   }
