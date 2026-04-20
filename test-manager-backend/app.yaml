@@ -60,6 +60,11 @@ variables:
     multiline: false
     defaultValue: https://marimo-analysis-quixers-advancedanalyticsnew-new.az-france-0.app.quix.io
     required: true
+  - name: Quix__Portal__Api
+    inputType: FreeText
+    multiline: false
+    defaultValue: https://portal-api.dev.quix.io
+    required: true
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py
