@@ -52,7 +52,7 @@ Edit `.env`:
 
 ```
 Quix__Sdk__Token=<your Quix Cloud SDK token>
-Quix__Portal__Api=https://portal-api.platform.quix.io
+Quix__Portal__Api=https://portal-api.cloud.quix.io
 SAMPLE_RATE_HZ=60
 ```
 

@@ -451,28 +451,28 @@ TOKEN="<token-from-user>"
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" -H "X-Version: 2.0" \
-  "https://portal-api.platform.quix.io/workspaces" | python3 -m json.tool
+  "https://portal-api.cloud.quix.io/workspaces" | python3 -m json.tool
 ```
 
 #### List Deployments
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" -H "X-Version: 2.0" \
-  "https://portal-api.platform.quix.io/workspaces/quixers-testmanager-standalone/deployments" | python3 -m json.tool
+  "https://portal-api.cloud.quix.io/workspaces/quixers-testmanager-standalone/deployments" | python3 -m json.tool
 ```
 
 #### Get Deployment Logs
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" -H "X-Version: 2.0" \
-  "https://portal-api.platform.quix.io/workspaces/quixers-testmanager-standalone/deployments/<deployment-id>/logs" | python3 -m json.tool
+  "https://portal-api.cloud.quix.io/workspaces/quixers-testmanager-standalone/deployments/<deployment-id>/logs" | python3 -m json.tool
 ```
 
 #### Sync Environment
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Version: 2.0" \
-  "https://portal-api.platform.quix.io/workspaces/quixers-testmanager-standalone/sync" | python3 -m json.tool
+  "https://portal-api.cloud.quix.io/workspaces/quixers-testmanager-standalone/sync" | python3 -m json.tool
 ```
 
 #### Call Backend API Directly
