@@ -113,6 +113,24 @@ function onScroll() {
   if (log.scrollTop < SCROLL_TOP_THRESHOLD_PX) loadOlder();
 }
 
+// Toggling a <details> inside a scrollable container causes the viewport to
+// drift as content reflows. Intercept summary clicks, toggle manually, and
+// restore the summary's on-screen position after layout.
+function onDetailsToggleClick(e) {
+  const summary = e.target.closest("summary");
+  if (!summary || !log.contains(summary)) return;
+  const details = summary.parentElement;
+  if (!details || details.tagName !== "DETAILS") return;
+  e.preventDefault();
+  const before = summary.getBoundingClientRect().top;
+  details.open = !details.open;
+  requestAnimationFrame(() => {
+    const after = summary.getBoundingClientRect().top;
+    const delta = after - before;
+    if (delta) log.scrollTop += delta;
+  });
+}
+
 async function openSession(id) {
   try {
     setSessionId(id);
@@ -227,5 +245,6 @@ input.addEventListener("keydown", (e) => {
 newChatBtn.addEventListener("click", startNewChat);
 refreshBtn.addEventListener("click", () => loadSessions(openSession, sessionId));
 log.addEventListener("scroll", onScroll);
+log.addEventListener("click", onDetailsToggleClick);
 
 loadSessions(openSession, sessionId);

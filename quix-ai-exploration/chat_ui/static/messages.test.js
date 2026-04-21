@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { buildMessageEl, renderBatch, sortAscending } from "./messages.js";
+import { buildMessageEl, buildToolResultMap, renderBatch, sortAscending } from "./messages.js";
 
 describe("buildMessageEl", () => {
   it("renders user/assistant bubbles with role + content", () => {
@@ -25,7 +25,7 @@ describe("buildMessageEl", () => {
     ).toBeNull();
   });
 
-  it("skips Tool-role messages (rendered separately once we support tool blocks)", () => {
+  it("skips Tool-role messages (folded into the matching Assistant pill)", () => {
     expect(buildMessageEl({ role: "Tool", content: "..." })).toBeNull();
   });
 
@@ -121,6 +121,100 @@ describe("renderBatch", () => {
       { role: "Tool", content: "y" },
     ]);
     expect(log.children.length).toBe(0);
+  });
+});
+
+describe("tool content blocks", () => {
+  const toolUseMsg = {
+    role: "Assistant",
+    content: "",
+    contentBlocks: [
+      {
+        type: "tool_use",
+        toolCallId: "toolu_abc",
+        toolName: "list_deployments",
+        displayName: "List deployments",
+        subjectField: "workspace_id",
+        arguments: '{"workspace_id": "quixdev-x-y"}',
+      },
+    ],
+  };
+
+  const toolResultMsg = {
+    role: "Tool",
+    content: "",
+    contentBlocks: [
+      {
+        type: "tool_result",
+        toolCallId: "toolu_abc",
+        isError: false,
+        userSummary: "Found 15 deployments",
+        result: '```json\n[{"id":1}]\n```',
+      },
+    ],
+  };
+
+  it("buildToolResultMap indexes tool_result by toolCallId", () => {
+    const map = buildToolResultMap([toolUseMsg, toolResultMsg]);
+    expect(map.size).toBe(1);
+    expect(map.get("toolu_abc").userSummary).toBe("Found 15 deployments");
+  });
+
+  it("renders an Assistant tool_use as a <details> pill with name + subject", () => {
+    const el = buildMessageEl(toolUseMsg, {
+      toolResults: buildToolResultMap([toolResultMsg]),
+    });
+    const pill = el.querySelector("details.tool");
+    expect(pill).toBeTruthy();
+    expect(pill.querySelector(".tool-name").textContent).toBe("List deployments");
+    expect(pill.querySelector(".tool-subject").textContent).toContain("quixdev-x-y");
+    expect(pill.querySelector(".tool-status").textContent).toBe("✓");
+  });
+
+  it("pill shows ✗ when the matched result is an error", () => {
+    const errResult = {
+      ...toolResultMsg,
+      contentBlocks: [{ ...toolResultMsg.contentBlocks[0], isError: true }],
+    };
+    const el = buildMessageEl(toolUseMsg, {
+      toolResults: buildToolResultMap([errResult]),
+    });
+    expect(el.querySelector("details.tool.tool-error")).toBeTruthy();
+    expect(el.querySelector(".tool-status").textContent).toBe("✗");
+  });
+
+  it("pill shows … when there's no matching result yet", () => {
+    const el = buildMessageEl(toolUseMsg, { toolResults: new Map() });
+    expect(el.querySelector(".tool-status").textContent).toBe("…");
+    expect(el.querySelector(".tool-result")).toBeNull();
+  });
+
+  it("expanded pill includes pretty-printed arguments and rendered result", () => {
+    const el = buildMessageEl(toolUseMsg, {
+      toolResults: buildToolResultMap([toolResultMsg]),
+    });
+    const input = el.querySelector(".tool-input pre code").textContent;
+    expect(input).toContain('"workspace_id"');
+    expect(input).toContain("quixdev-x-y");
+    expect(el.querySelector(".tool-result-header").textContent).toBe("Found 15 deployments");
+    // result markdown rendered
+    expect(el.querySelector(".tool-result pre code")).toBeTruthy();
+  });
+
+  it("renderBatch skips Tool messages and merges results into pills", () => {
+    document.body.innerHTML = "<div id='log'></div>";
+    const log = document.getElementById("log");
+    renderBatch(log, [toolUseMsg, toolResultMsg]);
+    // only one bubble (the Assistant with tool_use)
+    expect(log.querySelectorAll(".msg").length).toBe(1);
+    expect(log.querySelector("details.tool .tool-result-header").textContent).toBe(
+      "Found 15 deployments",
+    );
+  });
+
+  it("falls back to content markdown when contentBlocks is null", () => {
+    const el = buildMessageEl({ role: "Assistant", content: "**bold**", contentBlocks: null });
+    expect(el.querySelector(".body strong")?.textContent).toBe("bold");
   });
 });
 

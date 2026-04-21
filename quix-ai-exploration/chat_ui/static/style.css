@@ -330,6 +330,135 @@ main {
   margin: 10px 0;
 }
 
+/* Tool-use pills (contentBlocks) */
+details.tool {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 6px 0;
+  overflow: hidden;
+}
+
+details.tool > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  user-select: none;
+}
+
+details.tool > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.tool > summary::marker {
+  display: none;
+  content: "";
+}
+
+details.tool > summary::after {
+  content: "▼";
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+details.tool[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.tool-status {
+  color: #5acf6b;
+  font-weight: 700;
+  width: 14px;
+  text-align: center;
+}
+
+details.tool.tool-error .tool-status {
+  color: #e25c5c;
+}
+
+.tool-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  background: none;
+  padding: 0;
+}
+
+.tool-subject {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+details.tool > details.tool-input {
+  border-top: 1px solid var(--border);
+  padding: 6px 12px;
+}
+
+details.tool > details.tool-input > summary {
+  list-style: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  user-select: none;
+  padding: 2px 0;
+}
+
+details.tool > details.tool-input > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.tool > details.tool-input > summary::marker {
+  display: none;
+  content: "";
+}
+
+details.tool > details.tool-input > summary::before {
+  content: "▶ ";
+  font-size: 9px;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+
+details.tool > details.tool-input[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+details.tool > details.tool-input > pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.tool-result-header {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.tool-result {
+  padding: 6px 12px 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.tool-result > :first-child {
+  margin-top: 0;
+}
+
+.tool-result > :last-child {
+  margin-bottom: 0;
+}
+
 footer {
   padding: 10px 16px;
   border-top: 1px solid var(--border);
