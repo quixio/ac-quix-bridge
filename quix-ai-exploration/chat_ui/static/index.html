@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quix AI chat probe</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="chat">
+      <header>
+        <h1>Quix AI chat probe</h1>
+        <span class="meta">workspace-scoped · SSE proxied</span>
+        <span class="session" id="session">no session yet</span>
+      </header>
+      <main id="log"></main>
+      <footer>
+        <textarea
+          id="input"
+          placeholder="Ask the Quix Assistant…  (Enter to send, Shift+Enter for newline)"
+        ></textarea>
+        <button id="send">Send</button>
+      </footer>
+    </div>
+    <script type="module" src="/static/chat.js"></script>
+  </body>
+</html>

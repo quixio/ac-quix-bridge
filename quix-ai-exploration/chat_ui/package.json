@@ -1,0 +1,18 @@
+{
+  "name": "quix-ai-chat-ui-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint static/",
+    "lint:fix": "eslint static/ --fix",
+    "format": "prettier --write \"static/**/*.{js,html,css}\"",
+    "format:check": "prettier --check \"static/**/*.{js,html,css}\"",
+    "check": "npm run lint && npm run format:check"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2"
+  }
+}
