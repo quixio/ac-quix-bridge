@@ -1,6 +1,6 @@
 import json
 import re
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import httpx
 from fastapi import APIRouter, HTTPException, Path, Query
@@ -14,6 +14,7 @@ from .quix import (
     list_workspace_sessions,
     stream_workspace_message,
 )
+from .types import MessagesPage, SessionDetail, SessionSummary
 
 router = APIRouter(prefix="/api")
 
@@ -61,7 +62,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
 
 
 @router.get("/sessions")
-async def sessions_list() -> list[dict]:
+async def sessions_list() -> list[SessionSummary]:
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             return await list_workspace_sessions(client)
@@ -72,7 +73,7 @@ async def sessions_list() -> list[dict]:
 @router.get("/sessions/{session_id}")
 async def session_detail(
     session_id: str = Path(pattern=SESSION_ID_PATTERN),
-) -> dict:
+) -> SessionDetail:
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             return await get_workspace_session(client, session_id)
@@ -85,7 +86,7 @@ async def session_messages(
     session_id: str = Path(pattern=SESSION_ID_PATTERN),
     before: int | None = Query(default=None, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
-) -> dict:
+) -> MessagesPage:
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             return await get_workspace_messages(

@@ -16,12 +16,12 @@ from app.routes import ChatRequest
         "abc_DEF-123",  # allowed chars mixed
     ],
 )
-def test_accepts_valid(session_id: str) -> None:
+def test_accepts_valid(session_id: str):
     req = ChatRequest(message="hi", session_id=session_id)
     assert req.session_id == session_id
 
 
-def test_accepts_none() -> None:
+def test_accepts_none():
     assert ChatRequest(message="hi").session_id is None
 
 
@@ -37,6 +37,6 @@ def test_accepts_none() -> None:
         "",  # empty
     ],
 )
-def test_rejects_invalid(session_id: str) -> None:
+def test_rejects_invalid(session_id: str):
     with pytest.raises(ValidationError):
         ChatRequest(message="hi", session_id=session_id)

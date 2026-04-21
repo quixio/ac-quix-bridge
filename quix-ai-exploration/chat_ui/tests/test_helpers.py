@@ -6,25 +6,25 @@ from app.config import portal_context, portal_headers
 from app.quix import _error_frame
 
 
-def test_portal_headers_default_no_accept() -> None:
+def test_portal_headers_default_no_accept():
     h = portal_headers()
     assert h["Content-Type"] == "application/json"
     assert "Accept" not in h
     assert h["Authorization"].startswith("Bearer ")
 
 
-def test_portal_headers_streaming_sets_accept() -> None:
+def test_portal_headers_streaming_sets_accept():
     h = portal_headers(streaming=True)
     assert h["Accept"] == "text/event-stream"
 
 
-def test_portal_context_shape() -> None:
+def test_portal_context_shape():
     ctx = portal_context()
     assert set(ctx) == {"workspaceId", "workspaceName", "page"}
     assert ctx["page"].startswith("/pipeline?workspace=")
 
 
-def test_error_frame_status_only() -> None:
+def test_error_frame_status_only():
     frame = _error_frame(502).decode()
     assert frame.startswith("event: error\n")
     assert '"status": 502' in frame

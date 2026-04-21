@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import httpx
 
 from .config import PORTAL, portal_context, portal_headers
+from .types import MessagesPage, SessionDetail, SessionSummary
 
 
 async def create_workspace_session(client: httpx.AsyncClient) -> str:
@@ -21,13 +22,15 @@ async def create_workspace_session(client: httpx.AsyncClient) -> str:
     return data.get("id") or data["sessionId"]
 
 
-async def list_workspace_sessions(client: httpx.AsyncClient) -> list[dict]:
+async def list_workspace_sessions(client: httpx.AsyncClient) -> list[SessionSummary]:
     r = await client.get(f"{PORTAL}/ai/api/sessions", headers=portal_headers())
     r.raise_for_status()
     return r.json()
 
 
-async def get_workspace_session(client: httpx.AsyncClient, session_id: str) -> dict:
+async def get_workspace_session(
+    client: httpx.AsyncClient, session_id: str
+) -> SessionDetail:
     r = await client.get(
         f"{PORTAL}/ai/api/sessions/{session_id}", headers=portal_headers()
     )
@@ -41,9 +44,9 @@ async def get_workspace_messages(
     *,
     before: int | None = None,
     limit: int = 20,
-) -> dict:
+) -> MessagesPage:
     """Paginated messages endpoint. `before=<sequenceNumber>` gets older messages."""
-    params: dict[str, int] = {"limit": limit}
+    params = {"limit": limit}
     if before is not None:
         params["before"] = before
     r = await client.get(

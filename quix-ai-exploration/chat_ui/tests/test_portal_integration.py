@@ -15,7 +15,7 @@ from app.config import PORTAL, portal_headers
 
 @pytest.mark.integration
 @pytest.mark.slow
-async def test_portal_reachable() -> None:
+async def test_portal_reachable():
     """Sanity check: the configured Portal base responds to an authenticated GET.
 
     Uses a known-safe read endpoint (KB list) so no state is mutated.
