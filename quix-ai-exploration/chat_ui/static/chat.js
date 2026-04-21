@@ -1,6 +1,7 @@
 import { streamSSE } from "/static/sse.js";
 import { loadSessions, setActive } from "/static/sessions.js";
 import { renderBatch, sortAscending } from "/static/messages.js";
+import { renderMarkdown } from "/static/markdown.js";
 
 const log = document.getElementById("log");
 const input = document.getElementById("input");
@@ -40,7 +41,8 @@ function addMessage(role, text = "") {
   roleEl.textContent = role;
   const body = document.createElement("div");
   body.className = "body";
-  body.textContent = text;
+  body.dataset.raw = text;
+  body.innerHTML = renderMarkdown(text);
   el.append(roleEl, body);
   log.append(el);
   scrollIfFollowing(following);
@@ -154,6 +156,7 @@ function handleEvent(evt, assistantBody) {
     return;
   }
   if (evt.event === "error") {
+    assistantBody.dataset.raw = `[error] ${evt.data}`;
     assistantBody.textContent = `[error] ${evt.data}`;
     return;
   }
@@ -168,7 +171,8 @@ function handleEvent(evt, assistantBody) {
   switch (payload.type) {
     case "text_delta": {
       const following = isNearBottom();
-      assistantBody.textContent += payload.text || "";
+      assistantBody.dataset.raw = (assistantBody.dataset.raw || "") + (payload.text || "");
+      assistantBody.innerHTML = renderMarkdown(assistantBody.dataset.raw);
       scrollIfFollowing(following);
       break;
     }

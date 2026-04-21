@@ -1,6 +1,8 @@
 // Pure message-rendering helpers. No direct DOM lookups — callers pass the container.
 // Kept separate from chat.js so it's trivially testable with vitest + happy-dom.
 
+import { renderMarkdown } from "./markdown.js";
+
 const TEXT_ROLES = new Set(["user", "assistant"]);
 
 export function buildMessageEl(m) {
@@ -23,7 +25,8 @@ export function buildMessageEl(m) {
   roleEl.textContent = role;
   const body = document.createElement("div");
   body.className = "body";
-  body.textContent = m.content || "";
+  body.dataset.raw = m.content || "";
+  body.innerHTML = renderMarkdown(m.content || "");
   el.append(roleEl, body);
   return el;
 }

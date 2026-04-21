@@ -6,7 +6,7 @@ describe("buildMessageEl", () => {
     const el = buildMessageEl({ role: "User", content: "hello" });
     expect(el.className).toBe("msg user");
     expect(el.querySelector(".role").textContent).toBe("user");
-    expect(el.querySelector(".body").textContent).toBe("hello");
+    expect(el.querySelector(".body").textContent.trim()).toBe("hello");
   });
 
   it("renders non-synthetic system messages", () => {
@@ -29,10 +29,36 @@ describe("buildMessageEl", () => {
     expect(buildMessageEl({ role: "Tool", content: "..." })).toBeNull();
   });
 
-  it("is xss-safe — content goes through textContent, never innerHTML", () => {
+  it("is xss-safe — raw HTML in content is escaped by markdown-it (html: false)", () => {
     const el = buildMessageEl({ role: "User", content: "<img src=x onerror=alert(1)>" });
-    expect(el.querySelector(".body").textContent).toBe("<img src=x onerror=alert(1)>");
     expect(el.querySelector("img")).toBeNull();
+    // literal tag is escaped and surfaces as text content
+    expect(el.querySelector(".body").textContent).toContain("<img src=x onerror=alert(1)>");
+  });
+
+  it("renders markdown — bold → <strong>", () => {
+    const el = buildMessageEl({ role: "Assistant", content: "hello **world**" });
+    expect(el.querySelector(".body strong")?.textContent).toBe("world");
+  });
+
+  it("renders markdown — code fence → <pre><code>", () => {
+    const el = buildMessageEl({
+      role: "Assistant",
+      content: "```js\nconsole.log(1);\n```",
+    });
+    expect(el.querySelector(".body pre code")?.textContent).toContain("console.log(1);");
+  });
+
+  it("renders markdown — bullet list → <ul><li>", () => {
+    const el = buildMessageEl({ role: "Assistant", content: "- one\n- two\n- three" });
+    const items = el.querySelectorAll(".body ul li");
+    expect(items.length).toBe(3);
+    expect(items[1].textContent).toBe("two");
+  });
+
+  it("preserves raw content on body.dataset.raw so streaming can re-render", () => {
+    const el = buildMessageEl({ role: "Assistant", content: "**hi**" });
+    expect(el.querySelector(".body").dataset.raw).toBe("**hi**");
   });
 });
 
@@ -51,7 +77,7 @@ describe("renderBatch", () => {
       { role: "Assistant", content: "two" },
       { role: "User", content: "three" },
     ]);
-    const bodies = [...log.querySelectorAll(".body")].map((e) => e.textContent);
+    const bodies = [...log.querySelectorAll(".body")].map((e) => e.textContent.trim());
     expect(bodies).toEqual(["one", "two", "three"]);
   });
 
@@ -73,7 +99,7 @@ describe("renderBatch", () => {
       { prepend: true },
     );
 
-    const bodies = [...log.querySelectorAll(".body")].map((e) => e.textContent);
+    const bodies = [...log.querySelectorAll(".body")].map((e) => e.textContent.trim());
     // Must be: older-batch in order, then newer-batch in order.
     expect(bodies).toEqual(["old-1", "old-2", "old-3", "new-1", "new-2"]);
   });
@@ -85,7 +111,7 @@ describe("renderBatch", () => {
       { role: "Tool", content: "tool-result" },
       { role: "Assistant", content: "a1" },
     ]);
-    const bodies = [...log.querySelectorAll(".body")].map((e) => e.textContent);
+    const bodies = [...log.querySelectorAll(".body")].map((e) => e.textContent.trim());
     expect(bodies).toEqual(["u1", "a1"]);
   });
 
