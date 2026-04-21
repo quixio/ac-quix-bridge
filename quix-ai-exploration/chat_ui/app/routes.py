@@ -3,15 +3,22 @@ import re
 from typing import AsyncIterator
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
-from .quix import create_workspace_session, stream_workspace_message
+from .quix import (
+    create_workspace_session,
+    get_workspace_messages,
+    get_workspace_session,
+    list_workspace_sessions,
+    stream_workspace_message,
+)
 
 router = APIRouter(prefix="/api")
 
-SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+SESSION_ID_PATTERN = r"^[A-Za-z0-9_-]{8,64}$"
+SESSION_ID_RE = re.compile(SESSION_ID_PATTERN)
 
 
 class ChatRequest(BaseModel):
@@ -51,3 +58,38 @@ async def chat(req: ChatRequest) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/sessions")
+async def sessions_list() -> list[dict]:
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            return await list_workspace_sessions(client)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="portal unreachable") from exc
+
+
+@router.get("/sessions/{session_id}")
+async def session_detail(
+    session_id: str = Path(pattern=SESSION_ID_PATTERN),
+) -> dict:
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            return await get_workspace_session(client, session_id)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="portal unreachable") from exc
+
+
+@router.get("/sessions/{session_id}/messages")
+async def session_messages(
+    session_id: str = Path(pattern=SESSION_ID_PATTERN),
+    before: int | None = Query(default=None, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict:
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            return await get_workspace_messages(
+                client, session_id, before=before, limit=limit
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="portal unreachable") from exc

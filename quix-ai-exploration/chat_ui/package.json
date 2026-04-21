@@ -8,11 +8,15 @@
     "lint:fix": "eslint static/ --fix",
     "format": "prettier --write \"static/**/*.{js,html,css}\"",
     "format:check": "prettier --check \"static/**/*.{js,html,css}\"",
-    "check": "npm run lint && npm run format:check"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run format:check && npm run test"
   },
   "devDependencies": {
     "eslint": "^9.17.0",
     "globals": "^15.14.0",
-    "prettier": "^3.4.2"
+    "happy-dom": "^15.11.7",
+    "prettier": "^3.4.2",
+    "vitest": "^2.1.8"
   }
 }

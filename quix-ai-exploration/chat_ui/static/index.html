@@ -7,20 +7,29 @@
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <div class="chat">
-      <header>
-        <h1>Quix AI chat probe</h1>
-        <span class="meta">workspace-scoped · SSE proxied</span>
-        <span class="session" id="session">no session yet</span>
-      </header>
-      <main id="log"></main>
-      <footer>
-        <textarea
-          id="input"
-          placeholder="Ask the Quix Assistant…  (Enter to send, Shift+Enter for newline)"
-        ></textarea>
-        <button id="send">Send</button>
-      </footer>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <button id="new-chat" class="ghost">+ New chat</button>
+          <button id="refresh-sessions" class="ghost" title="Refresh list">↻</button>
+        </div>
+        <ul id="session-list" class="session-list" aria-label="Previous sessions"></ul>
+      </aside>
+      <div class="chat">
+        <header>
+          <h1>Quix AI chat probe</h1>
+          <span class="meta">workspace-scoped · SSE proxied</span>
+          <span class="session" id="session">no session yet</span>
+        </header>
+        <main id="log"></main>
+        <footer>
+          <textarea
+            id="input"
+            placeholder="Ask the Quix Assistant…  (Enter to send, Shift+Enter for newline)"
+          ></textarea>
+          <button id="send">Send</button>
+        </footer>
+      </div>
     </div>
     <script type="module" src="/static/chat.js"></script>
   </body>

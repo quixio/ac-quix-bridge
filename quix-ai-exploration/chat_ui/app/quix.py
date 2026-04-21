@@ -21,6 +21,40 @@ async def create_workspace_session(client: httpx.AsyncClient) -> str:
     return data.get("id") or data["sessionId"]
 
 
+async def list_workspace_sessions(client: httpx.AsyncClient) -> list[dict]:
+    r = await client.get(f"{PORTAL}/ai/api/sessions", headers=portal_headers())
+    r.raise_for_status()
+    return r.json()
+
+
+async def get_workspace_session(client: httpx.AsyncClient, session_id: str) -> dict:
+    r = await client.get(
+        f"{PORTAL}/ai/api/sessions/{session_id}", headers=portal_headers()
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+async def get_workspace_messages(
+    client: httpx.AsyncClient,
+    session_id: str,
+    *,
+    before: int | None = None,
+    limit: int = 20,
+) -> dict:
+    """Paginated messages endpoint. `before=<sequenceNumber>` gets older messages."""
+    params: dict[str, int] = {"limit": limit}
+    if before is not None:
+        params["before"] = before
+    r = await client.get(
+        f"{PORTAL}/ai/api/sessions/{session_id}/messages",
+        headers=portal_headers(),
+        params=params,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
 def _error_frame(status: int) -> bytes:
     """Upstream error → single SSE frame with status only (no body forwarding)."""
     return f"event: error\ndata: {json.dumps({'status': status})}\n\n".encode()
