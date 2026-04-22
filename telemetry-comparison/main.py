@@ -14,6 +14,7 @@ Module layout:
                            /telemetry, /channels, /health) + static SPA mount
 """
 
+
 from __future__ import annotations
 
 import io
