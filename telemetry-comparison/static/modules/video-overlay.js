@@ -20,6 +20,11 @@
  */
 
 const VIDEO_OVERLAY_STORAGE_KEY = 'telemetryExplorer.videoOverlay.v1';
+// Round 2.0: separate key tracks whether the user has ever explicitly clicked
+// Float/Dock. Only then do we stop making viewport-driven mode decisions.
+// Kept separate from the geometry key so clearing mode preference doesn't
+// wipe the user's preferred floating position/size.
+const VIDEO_OVERLAY_USER_CHOSE_KEY = 'telemetryExplorer.videoOverlay.userChoseMode';
 const VIDEO_OVERLAY_DEFAULTS = {
   mode: 'docked',
   x: 0,
@@ -30,6 +35,17 @@ const VIDEO_OVERLAY_DEFAULTS = {
 const MIN_VIDEO_WIDTH = 320;
 const MIN_VIDEO_HEIGHT = 180;
 const SNAP_GRID = 8;
+
+// Round 2.0: viewport thresholds for "too cramped to dock usefully".
+// - Width < 1024 → already below Tailwind `lg:` breakpoint, topbar is single
+//   column and docking stacks video+map vertically, consuming the full
+//   viewport height. Float is more useful.
+// - Height < 700 → even at `lg:` width, the docked topbar's 36vh clamp leaves
+//   < 450 px for the main content below (sessions, signals, charts). Floating
+//   the video frees the whole topbar for the track map.
+const AUTO_FLOAT_MIN_WIDTH = 1024;
+const AUTO_FLOAT_MIN_HEIGHT = 700;
+const RESIZE_DEBOUNCE_MS = 150;
 
 let _videoOverlayInteractable = null;
 // Guard set during active resize so the drag-end persist doesn't read
@@ -71,6 +87,48 @@ function _writeOverlayState(state) {
   } catch (_) {
     /* localStorage may be disabled / partitioned — non-fatal. */
   }
+}
+
+/**
+ * Round 2.0: has the user ever explicitly picked a mode on this origin?
+ * Reads `telemetryExplorer.videoOverlay.userChoseMode`. Returns false for
+ * unset/invalid/non-"true" values so a hostile or partitioned localStorage
+ * defaults to "no choice made" (= honor viewport auto-float heuristic).
+ */
+function _readUserChoseMode() {
+  try {
+    return localStorage.getItem(VIDEO_OVERLAY_USER_CHOSE_KEY) === 'true';
+  } catch (_) {
+    return false;
+  }
+}
+
+function _writeUserChoseMode(value) {
+  try {
+    localStorage.setItem(VIDEO_OVERLAY_USER_CHOSE_KEY, value ? 'true' : 'false');
+  } catch (_) {
+    /* non-fatal */
+  }
+}
+
+/**
+ * Round 2.0: viewport is too cramped to usefully dock the video.
+ *
+ * "Cramped" means either:
+ *   - Width < 1024: below `lg:` Tailwind breakpoint; topbar already reflows
+ *     to a single column, so docking produces a stacked video+map pile
+ *     pushing main content far down.
+ *   - Height < 700: even at `lg:` width, the docked topbar's 36vh clamp
+ *     bottoms out at 320 px and swallows ~46% of the usable viewport.
+ *     Floating the video gives the track map the full topbar and frees
+ *     vertical space for charts below.
+ *
+ * When true AND the user hasn't made an explicit mode choice, we auto-float.
+ */
+function _shouldAutoFloat() {
+  const w = window.innerWidth || document.documentElement.clientWidth || 0;
+  const h = window.innerHeight || document.documentElement.clientHeight || 0;
+  return w < AUTO_FLOAT_MIN_WIDTH || h < AUTO_FLOAT_MIN_HEIGHT;
 }
 
 function _getFloatSlot() {
@@ -241,8 +299,13 @@ function _dockVideo() {
  * On first-ever float (no localStorage yet) we must use the top-right default
  * position — not the zeroed defaults baked into `VIDEO_OVERLAY_DEFAULTS`.
  * Detected via the `_fresh` sentinel set in `_readOverlayState()`.
+ *
+ * Round 2.0: any click here records the explicit user choice, which disables
+ * future viewport-driven auto-float decisions on this origin until localStorage
+ * is cleared.
  */
 function toggleVideoFloat() {
+  _writeUserChoseMode(true);
   const mode = document.body.dataset.videoMode === 'floating' ? 'floating' : 'docked';
   if (mode === 'floating') {
     _dockVideo();
@@ -358,7 +421,7 @@ function _initInteract() {
  * Re-clamp the floating overlay on viewport resize so it never sits off-screen.
  * Cheap: if not floating we bail immediately.
  */
-function _onWindowResize() {
+function _reclampFloating() {
   if (document.body.dataset.videoMode !== 'floating') return;
   const slot = _getFloatSlot();
   if (!slot) return;
@@ -372,24 +435,82 @@ function _onWindowResize() {
   _persist();
 }
 
+/**
+ * Round 2.0: debounced resize handler. Two responsibilities:
+ *   1. If floating, re-clamp into the new viewport so the overlay isn't
+ *      orphaned off-screen (prior behaviour).
+ *   2. If the user hasn't made an explicit mode choice, re-evaluate the
+ *      auto-float heuristic and toggle mode live. This makes a user
+ *      dragging a browser window onto a smaller/larger display see the
+ *      "right" layout without a refresh.
+ */
+let _resizeDebounceTimer = null;
+function _onWindowResize() {
+  if (_resizeDebounceTimer !== null) clearTimeout(_resizeDebounceTimer);
+  _resizeDebounceTimer = setTimeout(_handleResize, RESIZE_DEBOUNCE_MS);
+}
+
+function _handleResize() {
+  _resizeDebounceTimer = null;
+  const userChose = _readUserChoseMode();
+  const currentMode = document.body.dataset.videoMode === 'floating' ? 'floating' : 'docked';
+
+  if (!userChose) {
+    const wantFloat = _shouldAutoFloat();
+    if (wantFloat && currentMode === 'docked') {
+      // Viewport just got cramped — auto-float. Use stored geometry if any,
+      // else top-right default. Do NOT set userChoseMode; this is viewport-driven.
+      const stored = _readOverlayState();
+      const hasFloatedBefore = !stored._fresh && (stored.width > 0 && stored.height > 0);
+      const geom = hasFloatedBefore ? stored : _defaultFloatGeometry();
+      _floatVideo(geom);
+      return;
+    }
+    if (!wantFloat && currentMode === 'floating') {
+      // Viewport just got roomy enough — auto-dock.
+      _dockVideo();
+      return;
+    }
+  }
+
+  // Either user made an explicit choice, or mode already matches what we'd pick:
+  // just re-clamp if floating (prior behaviour).
+  _reclampFloating();
+}
+
 function initVideoOverlay() {
   _setBodyMode('docked');
   _initInteract();
 
-  // Intentionally do NOT auto-restore floating mode on cold load.
-  // _readOverlayStateForInit() forces mode='docked' so a refresh always
-  // starts with the standard docked layout. Geometry is still persisted and
-  // will be reused the next time the user clicks Float (via toggleVideoFloat
-  // -> _readOverlayState which preserves the stored x/y/width/height).
-  // We also rewrite localStorage so the dock state is reflected there.
+  // Round 2.0: mode selection on cold load.
+  //  - Geometry is always read from storage (preserves user's last float
+  //    position/size across refreshes).
+  //  - Mode selection:
+  //      * If user has NOT explicitly chosen Float/Dock before (tracked via
+  //        `userChoseMode` key), consult `_shouldAutoFloat()` against the
+  //        current viewport. Tiny/narrow viewport → start floating.
+  //      * Otherwise, force docked (per Round 1.7 rationale: floating is an
+  //        intentional action, and a refresh should start predictably docked).
   const stored = _readOverlayStateForInit();
-  _writeOverlayState({
-    mode: 'docked',
-    x: stored.x,
-    y: stored.y,
-    width: stored.width,
-    height: stored.height,
-  });
+  const userChose = _readUserChoseMode();
+  const autoFloat = !userChose && _shouldAutoFloat();
+
+  if (autoFloat) {
+    // Mirror the geometry into storage with mode=floating so _persist reads
+    // a coherent state. Note: we do NOT set userChoseMode here — a later
+    // resize could still auto-dock if the viewport becomes roomy.
+    const hasStoredGeom = stored.width > 0 && stored.height > 0 && !stored._fresh;
+    const geom = hasStoredGeom ? stored : _defaultFloatGeometry();
+    _floatVideo(geom);
+  } else {
+    _writeOverlayState({
+      mode: 'docked',
+      x: stored.x,
+      y: stored.y,
+      width: stored.width,
+      height: stored.height,
+    });
+  }
 
   window.addEventListener('resize', _onWindowResize);
 }
