@@ -290,6 +290,16 @@ select:focus {
   display: none;
 }
 
+/* When a panel inside the topbar grid (currently only #topbar-map) is
+ * collapsed, stop the grid row from stretching it to the topbar's clamped
+ * height. Without this, the column shows a ~486px empty dark box because
+ * align-items defaults to stretch. `align-self: start` makes the collapsed
+ * panel take only its header's height while its sibling column (video)
+ * continues to use the available row height. */
+#topbar [data-collapsible][data-collapsed='true'] {
+  align-self: start;
+}
+
 /* ---------- Video panel pieces that app.js toggles via style.display ---------
  * app.js flips display:'block'/'flex' on #video-player, #video-empty,
  * #video-controls, so we shouldn't rely on Tailwind's `hidden` class for those.
@@ -334,9 +344,18 @@ body[data-video-mode='floating'] #video-panel {
   border-color: var(--accent);
 }
 /* Hidden classes already collapse the dock slot, but when floating we also
- * want the top bar to behave as single-column so the map takes the full row. */
+ * want the top bar to behave as single-column so the map takes the full row.
+ * Drop the fixed `h-[clamp(...)]` height so the topbar only consumes the
+ * space the track map needs — otherwise ~486px of viewport is wasted on a
+ * near-empty dark rectangle when the user floats the video at 1920×1080. */
 body[data-video-mode='floating'] #topbar {
   grid-template-columns: 1fr;
+  height: auto;
+}
+/* Let the map panel size to its own content height when floating (rather
+ * than being stretched to a fixed grid row height). */
+body[data-video-mode='floating'] #topbar-map {
+  min-height: 320px;
 }
 
 /* interact.js manipulates transform + width/height on #video-float-slot;

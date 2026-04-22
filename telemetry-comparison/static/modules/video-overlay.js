@@ -32,15 +32,20 @@ const MIN_VIDEO_HEIGHT = 180;
 const SNAP_GRID = 8;
 
 let _videoOverlayInteractable = null;
+// Guard set during active resize so the drag-end persist doesn't read
+// transient element size (interact.js resize can fire during a drag if the
+// pointer is inside the edge-resize zone). Also used to suppress the
+// subsequent drag-end persist when a resize just occurred.
+let _isResizing = false;
 
 function _readOverlayState() {
   try {
     const raw = localStorage.getItem(VIDEO_OVERLAY_STORAGE_KEY);
-    if (!raw) return { ...VIDEO_OVERLAY_DEFAULTS };
+    if (!raw) return { ...VIDEO_OVERLAY_DEFAULTS, _fresh: true };
     const parsed = JSON.parse(raw);
     return { ...VIDEO_OVERLAY_DEFAULTS, ...parsed };
   } catch (_) {
-    return { ...VIDEO_OVERLAY_DEFAULTS };
+    return { ...VIDEO_OVERLAY_DEFAULTS, _fresh: true };
   }
 }
 
@@ -113,14 +118,24 @@ function _setBodyMode(mode) {
 
 function _persist() {
   const slot = _getFloatSlot();
+  // Re-load from storage but strip the internal _fresh sentinel so it
+  // never gets written back into localStorage.
   const state = _readOverlayState();
+  delete state._fresh;
   const mode = document.body.dataset.videoMode === 'floating' ? 'floating' : 'docked';
   state.mode = mode;
   if (slot && mode === 'floating') {
     state.x = parseFloat(slot.dataset.x || '0') || 0;
     state.y = parseFloat(slot.dataset.y || '0') || 0;
-    state.width = slot.offsetWidth || state.width;
-    state.height = slot.offsetHeight || state.height;
+    // Read width/height from inline style (set by _applyFloatGeometry or the
+    // resize handler) rather than offsetWidth — offsetWidth can briefly
+    // reflect transient browser layout during a drag gesture on some engines.
+    const styledW = parseFloat(slot.style.width);
+    const styledH = parseFloat(slot.style.height);
+    if (!_isResizing) {
+      state.width = Number.isFinite(styledW) && styledW > 0 ? styledW : state.width;
+      state.height = Number.isFinite(styledH) && styledH > 0 ? styledH : state.height;
+    }
   }
   _writeOverlayState(state);
 }
@@ -206,6 +221,10 @@ function _dockVideo() {
 
 /**
  * Public entry point bound to the Float/Dock button via inline onclick.
+ *
+ * On first-ever float (no localStorage yet) we must use the top-right default
+ * position — not the zeroed defaults baked into `VIDEO_OVERLAY_DEFAULTS`.
+ * Detected via the `_fresh` sentinel set in `_readOverlayState()`.
  */
 function toggleVideoFloat() {
   const mode = document.body.dataset.videoMode === 'floating' ? 'floating' : 'docked';
@@ -213,7 +232,8 @@ function toggleVideoFloat() {
     _dockVideo();
   } else {
     const stored = _readOverlayState();
-    const geom = stored.width && stored.height ? stored : _defaultFloatGeometry();
+    const hasFloatedBefore = !stored._fresh && (stored.mode === 'floating' || stored.x > 0 || stored.y > 0);
+    const geom = hasFloatedBefore ? stored : _defaultFloatGeometry();
     _floatVideo(geom);
   }
 }
@@ -235,6 +255,10 @@ function _onDragMove(event) {
  * interact.js resize handler. interact.js feeds us the new rect; we apply
  * the size and correct the translate for edges that moved (top/left).
  */
+function _onResizeStart() {
+  _isResizing = true;
+}
+
 function _onResizeMove(event) {
   const slot = event.target;
   let x = parseFloat(slot.dataset.x) || 0;
@@ -246,6 +270,11 @@ function _onResizeMove(event) {
   slot.style.transform = `translate(${x}px, ${y}px)`;
   slot.dataset.x = String(x);
   slot.dataset.y = String(y);
+}
+
+function _onResizeEnd() {
+  _isResizing = false;
+  _persist();
 }
 
 function _initInteract() {
@@ -260,6 +289,10 @@ function _initInteract() {
   _videoOverlayInteractable = interact(slot)
     .draggable({
       allowFrom: '#video-panel-head',
+      // Only treat it as a drag after a small displacement; this keeps a
+      // click/tap on the resize edges from being racily picked up as a drag.
+      startAxis: 'xy',
+      lockAxis: 'xy',
       inertia: false,
       listeners: {
         move: _onDragMove,
@@ -277,12 +310,18 @@ function _initInteract() {
         }),
       ],
     })
+    // NOTE: top edge deliberately disabled. The header (`#video-panel-head`)
+    // sits at the top of the slot and is the drag handle; enabling top-edge
+    // resize made a drag-from-header racily co-activate a resize, which
+    // snapped the panel to the 320x180 minimum. User can still resize via
+    // left/right/bottom edges + bottom-left / bottom-right corners.
     .resizable({
-      edges: { top: true, left: true, bottom: true, right: true },
+      edges: { top: false, left: true, bottom: true, right: true },
       inertia: false,
       listeners: {
+        start: _onResizeStart,
         move: _onResizeMove,
-        end: _persist,
+        end: _onResizeEnd,
       },
       modifiers: [
         interact.modifiers.aspectRatio({
