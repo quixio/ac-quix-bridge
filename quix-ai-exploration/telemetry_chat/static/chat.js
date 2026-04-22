@@ -157,7 +157,7 @@ async function submit() {
       els.emptyState.classList.add("hidden");
       els.plotTitle.textContent = data.title || "";
       els.plotTitle.classList.toggle("visible", Boolean(data.title));
-      renderCharts(els.plot, data.charts);
+      await renderCharts(els.plot, data.charts);
     }
   } catch (err) {
     thinking.remove();

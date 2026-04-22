@@ -91,12 +91,43 @@ export function buildTraces(apiTraces) {
  */
 
 /**
+ * Fetch channels.json once and cache the promise so every subsequent render
+ * reuses the result. Used by `chartTitle` for human-readable axis labels.
+ * @type {Promise<Record<string, {label: string, unit: string}>> | null}
+ */
+let channelsPromise = null;
+
+/**
+ * @returns {Promise<Record<string, {label: string, unit: string}>>}
+ */
+function loadChannels() {
+  if (!channelsPromise) {
+    channelsPromise = fetch("/static/channels.json").then((r) => r.json());
+  }
+  return channelsPromise;
+}
+
+/**
+ * Format a column name as "Label [unit]" for axis titles. Falls back to
+ * the raw column when the channel isn't in the metadata.
+ * @param {string} col
+ * @param {Record<string, {label: string, unit: string}>} channels
+ * @returns {string}
+ */
+function chartTitle(col, channels) {
+  const ch = channels[col];
+  return ch ? `${ch.label} ${ch.unit}` : col;
+}
+
+/**
  * Render one Plotly chart per signal, stacked inside the container.
  * The container is expected to have overflow-y:auto so > 2-3 charts can scroll.
  * @param {HTMLElement} container
  * @param {Chart[]} charts
+ * @returns {Promise<void>}
  */
-export function renderCharts(container, charts) {
+export async function renderCharts(container, charts) {
+  const channels = await loadChannels();
   // Purge existing Plotly instances before wiping the DOM — innerHTML=""
   // alone leaks WebGL contexts + resize observers that Plotly attaches.
   clearCharts(container);
@@ -105,7 +136,7 @@ export function renderCharts(container, charts) {
     div.className = "chart";
     container.appendChild(div);
     // @ts-ignore – Plotly is loaded via CDN script tag.
-    Plotly.newPlot(div, buildTraces(chart.traces), layoutFor(chart.signal), {
+    Plotly.newPlot(div, buildTraces(chart.traces), layoutFor(chart.signal, channels), {
       displayModeBar: true,
       responsive: true,
     });
@@ -114,30 +145,28 @@ export function renderCharts(container, charts) {
 
 /**
  * @param {string} signal
+ * @param {Record<string, {label: string, unit: string}>} channels
  * @returns {Object}
  */
-function layoutFor(signal) {
+function layoutFor(signal, channels) {
   return {
-    paper_bgcolor: "#13161c",
-    plot_bgcolor: "#13161c",
-    font: { color: "#e6e6e6", family: "ui-sans-serif, system-ui" },
-    margin: { l: 60, r: 20, t: 16, b: 40 },
+    paper_bgcolor: "#1a1d27",
+    plot_bgcolor: "#1a1d27",
+    font: { color: "#e2e8f0", family: "ui-sans-serif, system-ui", size: 11 },
+    margin: { l: 55, r: 60, t: 10, b: 55 },
     xaxis: {
-      title: "normalizedCarPosition (0 → 1)",
-      gridcolor: "#2a2f3a",
-      zerolinecolor: "#2a2f3a",
+      title: chartTitle("normalizedCarPosition", channels),
+      color: "#8892a4",
+      gridcolor: "#2d3047",
+      zerolinecolor: "#2d3047",
     },
     yaxis: {
-      title: signal,
-      gridcolor: "#2a2f3a",
-      zerolinecolor: "#2a2f3a",
+      title: chartTitle(signal, channels),
+      color: "#8892a4",
+      gridcolor: "#2d3047",
+      zerolinecolor: "#2d3047",
     },
-    legend: {
-      bgcolor: "rgba(0,0,0,0)",
-      bordercolor: "#2a2f3a",
-      borderwidth: 1,
-      orientation: "v",
-    },
+    legend: { orientation: "v", x: 1.02, y: 1, font: { size: 10 } },
     showlegend: true,
   };
 }
