@@ -300,13 +300,24 @@ select:focus {
   align-self: start;
 }
 
-/* When the track map is collapsed, reflow the topbar to a single column so
- * the video panel fills the full width and we don't leave a ~35% wide empty
- * dark rectangle on the right. The collapsed map header sits on its own
- * compact row above the video. `:has()` is supported in all current
- * evergreen browsers (Chrome 105+, Firefox 121+, Safari 15.4+). */
+/* When the track map is collapsed, reflow the topbar so the video panel
+ * reclaims the full width (the track-map column would otherwise stay as a
+ * ~35% wide empty dark rectangle). Use a two-row stack: a compact row for
+ * the collapsed map header on top, video filling the rest below. The
+ * explicit `grid-template-rows` lets the map row shrink to its header
+ * (auto = 37px) while the video row takes whatever the clamped topbar
+ * height leaves over. `:has()` is supported in all current evergreen
+ * browsers (Chrome 105+, Firefox 121+, Safari 15.4+). */
 #topbar:has(#topbar-map[data-collapsed='true']) {
   grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+}
+#topbar:has(#topbar-map[data-collapsed='true']) #topbar-map {
+  grid-row: 1;
+}
+#topbar:has(#topbar-map[data-collapsed='true']) #video-dock-slot {
+  grid-row: 2;
+  min-height: 0;
 }
 
 /* ---------- Video panel pieces that app.js toggles via style.display ---------
@@ -365,6 +376,11 @@ body[data-video-mode='floating'] #topbar {
  * than being stretched to a fixed grid row height). */
 body[data-video-mode='floating'] #topbar-map {
   min-height: 320px;
+}
+/* When floating AND map is collapsed, drop the min-height so the topbar
+ * collapses to just the map header (~37px) rather than 320px of empty space. */
+body[data-video-mode='floating'] #topbar-map[data-collapsed='true'] {
+  min-height: 0;
 }
 
 /* interact.js manipulates transform + width/height on #video-float-slot;
