@@ -1,31 +1,36 @@
-"use client"
+"use client";
 
 /**
  * Custom React hook for fetching and managing tests
  */
 
-import { useState, useEffect, useMemo } from "react"
-import { useTestsApi } from "./use-api"
-import type { Test, TestQuery, TestFullData } from "@/types/test"
-import type { PaginatedResponse, PageSize } from "@/types/pagination"
+import { useState, useEffect, useMemo } from "react";
+import { useTestsApi } from "./use-api";
+import type { Test, TestQuery, TestFullData } from "@/types/test";
+import type { PaginatedResponse, PageSize } from "@/types/pagination";
 
 export function useTests(initialQuery?: TestQuery) {
-  const testsApi = useTestsApi()
-  const [tests, setTests] = useState<Test[]>([])
-  const [page, setPage] = useState(initialQuery?.page || 1)
-  const [pageSize, setPageSize] = useState<PageSize>((initialQuery?.page_size as PageSize) || 10)
-  const [total, setTotal] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const [refetchTrigger, setRefetchTrigger] = useState(0)
+  const testsApi = useTestsApi();
+  const [tests, setTests] = useState<Test[]>([]);
+  const [page, setPage] = useState(initialQuery?.page || 1);
+  const [pageSize, setPageSize] = useState<PageSize>(
+    (initialQuery?.page_size as PageSize) || 10,
+  );
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   // Build query with pagination
-  const query = useMemo(() => ({
-    ...initialQuery,
-    page,
-    page_size: pageSize,
-  }), [initialQuery, page, pageSize])
+  const query = useMemo(
+    () => ({
+      ...initialQuery,
+      page,
+      page_size: pageSize,
+    }),
+    [initialQuery, page, pageSize],
+  );
 
   // Create stable query key by serializing only defined properties
   const queryKey = useMemo(() => {
@@ -37,52 +42,54 @@ export function useTests(initialQuery?: TestQuery) {
     });
 
     return JSON.stringify(definedProps);
-  }, [query])
+  }, [query]);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     async function fetchTests() {
       try {
-        setLoading(true)
-        setError(null)
-        const data: PaginatedResponse<Test> = await testsApi.list(query)
+        setLoading(true);
+        setError(null);
+        const data: PaginatedResponse<Test> = await testsApi.list(query);
 
         if (!cancelled) {
-          setTests(data.items)
-          setTotal(data.total)
-          setTotalPages(data.total_pages)
+          setTests(data.items);
+          setTotal(data.total);
+          setTotalPages(data.total_pages);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err : new Error("Failed to fetch tests"))
+          setError(
+            err instanceof Error ? err : new Error("Failed to fetch tests"),
+          );
         }
       } finally {
         if (!cancelled) {
-          setLoading(false)
+          setLoading(false);
         }
       }
     }
 
-    fetchTests()
+    fetchTests();
 
     return () => {
-      cancelled = true
-    }
-  }, [queryKey, refetchTrigger])
+      cancelled = true;
+    };
+  }, [queryKey, refetchTrigger]);
 
   const refetch = () => {
-    setRefetchTrigger((prev) => prev + 1)
-  }
+    setRefetchTrigger((prev) => prev + 1);
+  };
 
   const goToPage = (newPage: number) => {
-    setPage(newPage)
-  }
+    setPage(newPage);
+  };
 
   const changePageSize = (newPageSize: PageSize) => {
-    setPageSize(newPageSize)
-    setPage(1) // Reset to first page when changing page size
-  }
+    setPageSize(newPageSize);
+    setPage(1); // Reset to first page when changing page size
+  };
 
   return {
     tests,
@@ -96,105 +103,109 @@ export function useTests(initialQuery?: TestQuery) {
     totalPages,
     goToPage,
     changePageSize,
-  }
+  };
 }
 
 export function useTest(testId: string | null) {
-  const testsApi = useTestsApi()
-  const [test, setTest] = useState<Test | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const [refetchTrigger, setRefetchTrigger] = useState(0)
+  const testsApi = useTestsApi();
+  const [test, setTest] = useState<Test | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     if (!testId) {
-      setTest(null)
-      setLoading(false)
-      return
+      setTest(null);
+      setLoading(false);
+      return;
     }
 
-    let cancelled = false
+    let cancelled = false;
 
     async function fetchTest() {
       try {
-        setLoading(true)
-        setError(null)
-        const data = await testsApi.get(testId!)
+        setLoading(true);
+        setError(null);
+        const data = await testsApi.get(testId!);
 
         if (!cancelled) {
-          setTest(data)
+          setTest(data);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err : new Error("Failed to fetch test"))
+          setError(
+            err instanceof Error ? err : new Error("Failed to fetch test"),
+          );
         }
       } finally {
         if (!cancelled) {
-          setLoading(false)
+          setLoading(false);
         }
       }
     }
 
-    fetchTest()
+    fetchTest();
 
     return () => {
-      cancelled = true
-    }
-  }, [testId, refetchTrigger])
+      cancelled = true;
+    };
+  }, [testId, refetchTrigger]);
 
   const refetch = () => {
-    setRefetchTrigger((prev) => prev + 1)
-  }
+    setRefetchTrigger((prev) => prev + 1);
+  };
 
-  return { test, loading, error, refetch }
+  return { test, loading, error, refetch };
 }
 
 export function useTestFull(testId: string | null) {
-  const testsApi = useTestsApi()
-  const [testFull, setTestFull] = useState<TestFullData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const [refetchTrigger, setRefetchTrigger] = useState(0)
+  const testsApi = useTestsApi();
+  const [testFull, setTestFull] = useState<TestFullData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     if (!testId) {
-      setTestFull(null)
-      setLoading(false)
-      return
+      setTestFull(null);
+      setLoading(false);
+      return;
     }
 
-    let cancelled = false
+    let cancelled = false;
 
     async function fetchTestFull() {
       try {
-        setLoading(true)
-        setError(null)
-        const data = await testsApi.getFull(testId!)
+        setLoading(true);
+        setError(null);
+        const data = await testsApi.getFull(testId!);
 
         if (!cancelled) {
-          setTestFull(data)
+          setTestFull(data);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err : new Error("Failed to fetch test"))
+          setError(
+            err instanceof Error ? err : new Error("Failed to fetch test"),
+          );
         }
       } finally {
         if (!cancelled) {
-          setLoading(false)
+          setLoading(false);
         }
       }
     }
 
-    fetchTestFull()
+    fetchTestFull();
 
     return () => {
-      cancelled = true
-    }
-  }, [testId, refetchTrigger])
+      cancelled = true;
+    };
+  }, [testId, refetchTrigger]);
 
   const refetch = () => {
-    setRefetchTrigger((prev) => prev + 1)
-  }
+    setRefetchTrigger((prev) => prev + 1);
+  };
 
-  return { testFull, loading, error, refetch }
+  return { testFull, loading, error, refetch };
 }

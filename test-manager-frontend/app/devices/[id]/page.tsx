@@ -1,20 +1,20 @@
-"use client"
+"use client";
 
-import { useParams, useRouter } from "next/navigation"
-import { useState } from "react"
-import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Skeleton } from "@/components/ui/skeleton"
-import { EmptyState } from "@/components/shared/empty-state"
-import { DeviceStatusBadge } from "@/components/devices/device-status-badge"
-import { useDevice } from "@/lib/hooks/use-devices"
-import { useDevicesApi } from "@/lib/hooks/use-api"
-import { useToast } from "@/lib/hooks/use-toast"
-import { useDateFormatter } from "@/lib/hooks/use-date-formatter"
-import { DeviceCategoryLabels } from "@/types/device"
-import { Pencil, Trash2, Box } from "lucide-react"
+import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
+import { MainLayout } from "@/components/layout/main-layout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
+import { DeviceStatusBadge } from "@/components/devices/device-status-badge";
+import { useDevice } from "@/lib/hooks/use-devices";
+import { useDevicesApi } from "@/lib/hooks/use-api";
+import { useToast } from "@/lib/hooks/use-toast";
+import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
+import { DeviceCategoryLabels } from "@/types/device";
+import { Pencil, Trash2, Box } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,37 +25,38 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+} from "@/components/ui/alert-dialog";
 
 export default function DeviceDetailPage() {
-  const params = useParams()
-  const router = useRouter()
-  const { toast } = useToast()
-  const devicesApi = useDevicesApi()
-  const deviceId = params.id as string
-  const { device, loading, error } = useDevice(deviceId)
-  const { formatDate } = useDateFormatter()
-  const [isDeleting, setIsDeleting] = useState(false)
+  const params = useParams();
+  const router = useRouter();
+  const { toast } = useToast();
+  const devicesApi = useDevicesApi();
+  const deviceId = params.id as string;
+  const { device, loading, error } = useDevice(deviceId);
+  const { formatDate } = useDateFormatter();
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDelete = async () => {
     try {
-      setIsDeleting(true)
-      await devicesApi.delete(deviceId)
+      setIsDeleting(true);
+      await devicesApi.delete(deviceId);
       toast({
         title: "Device Deleted",
         description: `Device ${deviceId} has been deleted.`,
-      })
-      router.push("/devices")
+      });
+      router.push("/devices");
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete device.",
+        description:
+          error instanceof Error ? error.message : "Failed to delete device.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsDeleting(false)
+      setIsDeleting(false);
     }
-  }
+  };
 
   if (loading) {
     return (
@@ -65,7 +66,7 @@ export default function DeviceDetailPage() {
           <Skeleton className="h-48 w-full" />
         </div>
       </MainLayout>
-    )
+    );
   }
 
   if (error || !device) {
@@ -74,11 +75,16 @@ export default function DeviceDetailPage() {
         <EmptyState
           icon={<Box className="h-12 w-12" />}
           title="Device not found"
-          description={error?.message || "The requested device could not be found."}
-          action={{ label: "Back to Devices", onClick: () => router.push("/devices") }}
+          description={
+            error?.message || "The requested device could not be found."
+          }
+          action={{
+            label: "Back to Devices",
+            onClick: () => router.push("/devices"),
+          }}
         />
       </MainLayout>
-    )
+    );
   }
 
   return (
@@ -93,7 +99,11 @@ export default function DeviceDetailPage() {
             <DeviceStatusBadge status={device.status} />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.push(`/devices/${deviceId}/edit`)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/devices/${deviceId}/edit`)}
+            >
               <Pencil className="mr-2 h-4 w-4" />
               Edit
             </Button>
@@ -108,12 +118,15 @@ export default function DeviceDetailPage() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete Device</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Are you sure you want to delete {device.name} ({deviceId})? This action cannot be undone.
+                    Are you sure you want to delete {device.name} ({deviceId})?
+                    This action cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+                  <AlertDialogAction onClick={handleDelete}>
+                    Delete
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
@@ -136,7 +149,9 @@ export default function DeviceDetailPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Category</p>
-                <Badge variant="outline">{DeviceCategoryLabels[device.category]}</Badge>
+                <Badge variant="outline">
+                  {DeviceCategoryLabels[device.category]}
+                </Badge>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Status</p>
@@ -155,5 +170,5 @@ export default function DeviceDetailPage() {
         </Card>
       </div>
     </MainLayout>
-  )
+  );
 }

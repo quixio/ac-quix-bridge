@@ -11,10 +11,13 @@ certificates/
 ac-machine-secrets/
 recordings/
 .DS_Store
+.claude/settings.local.json
 
 # Reference repo (test manager source)
 quixers-testmanager-standalone/
 test-manager-backend/scripts/
+telemetry-comparison/scripts/
+dcm_source_code/
 
 # Playwright MCP artifacts (smoke tests, agent screenshots, MCP cache)
 .playwright-mcp/
@@ -26,5 +29,11 @@ telemetry-comparison/mock/
 # Local Claude Code settings
 .claude/settings.local.json
 
+# Node tooling (prettier + eslint for telemetry-comparison/static)
+node_modules/
+
 # Planning / scratch docs
 dev-planning/
+
+# scratch
+.tmp/

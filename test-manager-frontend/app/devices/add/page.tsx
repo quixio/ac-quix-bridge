@@ -1,52 +1,59 @@
-"use client"
+"use client";
 
-import { useRouter } from "next/navigation"
-import { useState } from "react"
-import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useDevicesApi } from "@/lib/hooks/use-api"
-import { useToast } from "@/lib/hooks/use-toast"
-import { DeviceCategory, DeviceCategoryLabels } from "@/types/device"
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { MainLayout } from "@/components/layout/main-layout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useDevicesApi } from "@/lib/hooks/use-api";
+import { useToast } from "@/lib/hooks/use-toast";
+import { DeviceCategory, DeviceCategoryLabels } from "@/types/device";
 
 export default function AddDevicePage() {
-  const router = useRouter()
-  const { toast } = useToast()
-  const devicesApi = useDevicesApi()
-  const [name, setName] = useState("")
-  const [category, setCategory] = useState<DeviceCategory | "">("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const router = useRouter();
+  const { toast } = useToast();
+  const devicesApi = useDevicesApi();
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState<DeviceCategory | "">("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name.trim() || !category) return
+    e.preventDefault();
+    if (!name.trim() || !category) return;
 
     try {
-      setIsSubmitting(true)
+      setIsSubmitting(true);
       const created = await devicesApi.create({
         name: name.trim(),
         category: category as DeviceCategory,
-      })
+      });
 
       toast({
         title: "Device Created",
         description: `Device ${created.name} (${created.device_id}) has been created.`,
-      })
+      });
 
-      router.push(`/devices/${created.device_id}`)
+      router.push(`/devices/${created.device_id}`);
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create device.",
+        description:
+          error instanceof Error ? error.message : "Failed to create device.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <MainLayout backLink={{ href: "/devices", label: "Back to Devices" }}>
@@ -61,13 +68,20 @@ export default function AddDevicePage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label>Category *</Label>
-                <Select value={category} onValueChange={(v) => setCategory(v as DeviceCategory)}>
+                <Select
+                  value={category}
+                  onValueChange={(v) => setCategory(v as DeviceCategory)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={DeviceCategory.PC}>{DeviceCategoryLabels[DeviceCategory.PC]}</SelectItem>
-                    <SelectItem value={DeviceCategory.TEST_RIG}>{DeviceCategoryLabels[DeviceCategory.TEST_RIG]}</SelectItem>
+                    <SelectItem value={DeviceCategory.PC}>
+                      {DeviceCategoryLabels[DeviceCategory.PC]}
+                    </SelectItem>
+                    <SelectItem value={DeviceCategory.TEST_RIG}>
+                      {DeviceCategoryLabels[DeviceCategory.TEST_RIG]}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -78,17 +92,28 @@ export default function AddDevicePage() {
                   id="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={category === DeviceCategory.PC ? "e.g. XPS, patrickpc" : "e.g. Logitech G29, Fanatec DD Pro"}
+                  placeholder={
+                    category === DeviceCategory.PC
+                      ? "e.g. XPS, patrickpc"
+                      : "e.g. Logitech G29, Fanatec DD Pro"
+                  }
                   disabled={isSubmitting}
                   autoFocus
                 />
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button type="submit" disabled={isSubmitting || !name.trim() || !category}>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || !name.trim() || !category}
+                >
                   {isSubmitting ? "Creating..." : "Create Device"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => router.push("/devices")}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push("/devices")}
+                >
                   Cancel
                 </Button>
               </div>
@@ -97,5 +122,5 @@ export default function AddDevicePage() {
         </Card>
       </div>
     </MainLayout>
-  )
+  );
 }

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 from enum import Enum
 from math import ceil
 
@@ -38,7 +38,9 @@ class PaginatedResponse(BaseModel, Generic[T]):
     total_pages: int = Field(description="Total number of pages")
 
     @classmethod
-    def create(cls, items: list[T], total: int, page: int, page_size: int) -> "PaginatedResponse[T]":
+    def create(
+        cls, items: list[T], total: int, page: int, page_size: int
+    ) -> "PaginatedResponse[T]":
         """Helper method to create a paginated response."""
         total_pages = ceil(total / page_size) if page_size > 0 else 0
         return cls(
@@ -60,40 +62,9 @@ class DeviceReference(BaseModel):
     """Reference to a Device with its version snapshot."""
 
     device_id: str
-    device_version: str | None = None  # UUID of DeviceJournalEntry, set when test starts
-
-
-class File(BaseModel):
-    """Represents a file in blob storage."""
-
-    id: str
-    name: str
-    url: str
-    size: int
-    uploaded_at: datetime = Field(default_factory=now)
-
-
-class PresignedUploadResponse(BaseModel):
-    url: str
-
-
-class PresignedUploadRequest(BaseModel):
-    filename: str
-
-
-class Link(BaseModel):
-    """Represents an external link."""
-
-    id: str
-    url: str
-    label: str
-
-
-class LinkCreate(BaseModel):
-    """Represents the data to create a link."""
-
-    url: str
-    label: str
+    device_version: str | None = (
+        None  # UUID of DeviceJournalEntry, set when test starts
+    )
 
 
 class SessionInfo(BaseModel):
@@ -159,12 +130,10 @@ class TestQuery(PaginationParams):
 
 
 class TestFullData(BaseModel):
-    """Represents a test with all its related data (files, logbook, links)."""
+    """A test with its related data."""
 
     test: Test
-    files: list[File]
     logbook: list["LogbookEntry"]
-    links: list[Link]
 
 
 class LogbookEntry(BaseModel):
@@ -424,35 +393,6 @@ class DriverQuery(PaginationParams):
 
 
 # ---------------------------------------------------------------------------
-# Leaderboard
-# ---------------------------------------------------------------------------
-
-
-class BestLapEntry(BaseModel):
-    """A single row in the leaderboard: one driver's best lap within a
-    (track, car, experiment) scope.
-
-    `best_lap_ms` is the fastest `iLastTime` value (in milliseconds) observed
-    across every lap-partition for this (track, car, experiment, driver),
-    filtered to `lap > 1` (out-lap excluded) and `iLastTime > 0` (stale /
-    zero-init rows excluded).
-
-    The `session_id` / `lap_number` / `achieved_at` fields are reserved for
-    V2 extensions (deep-link to Compare, date achieved column) and are always
-    `None` in V1.
-    """
-
-    track: str
-    car: str
-    experiment: str
-    driver: str
-    best_lap_ms: int
-    session_id: str | None = None
-    lap_number: int | None = None
-    achieved_at: datetime | None = None
-
-
-# ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
 
@@ -507,3 +447,33 @@ class DeploymentReference(BaseModel):
     public_url: str | None = None
     embedded_view_url: str | None = None
     internal_url: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard
+# ---------------------------------------------------------------------------
+
+
+class BestLapEntry(BaseModel):
+    """A single row in the leaderboard: one driver's best lap within a
+    (track, car, experiment) scope.
+
+    `best_lap_ms` is the fastest per-lap timestamp delta (in milliseconds)
+    observed across every lap-partition for this (track, car, experiment,
+    driver). See `routes/leaderboard.py` for the aggregation details, including
+    the "drop highest lap per session" guard that filters out the in-progress
+    lap of each session.
+
+    The `session_id` / `lap_number` / `achieved_at` fields are reserved for
+    V2 extensions (deep-link to Compare, date achieved column) and are always
+    `None` in V1.
+    """
+
+    track: str
+    car: str
+    experiment: str
+    driver: str
+    best_lap_ms: int
+    session_id: str | None = None
+    lap_number: int | None = None
+    achieved_at: datetime | None = None

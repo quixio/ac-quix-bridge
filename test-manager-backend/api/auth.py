@@ -1,14 +1,11 @@
 import logging
 import os
 from functools import lru_cache
-from typing import TYPE_CHECKING, Callable, Literal, Optional
+from typing import Callable, Literal, Optional
 
 from fastapi import Depends, Header, HTTPException, Request
 
 from .settings import Settings, get_settings
-
-if TYPE_CHECKING:
-    from quixportal.auth import Auth
 
 logger = logging.getLogger(__name__)
 

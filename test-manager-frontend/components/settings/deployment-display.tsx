@@ -1,22 +1,22 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { Rocket, X, RefreshCw, Loader2 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import type { DeploymentReference } from "@/lib/types/portal"
+import { Button } from "@/components/ui/button";
+import { Rocket, X, RefreshCw, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { DeploymentReference } from "@/lib/types/portal";
 
-export type DeploymentVariant = "config" | "measurements" | "analytics"
+export type DeploymentVariant = "config" | "measurements" | "analytics";
 
 interface DeploymentDisplayProps {
-  deployment: DeploymentReference | null
-  variant: DeploymentVariant
-  isFallback?: boolean
-  isRefreshing?: boolean
-  isClearing?: boolean
-  onClear: () => void
-  onChange: () => void
-  onRefresh?: () => void
-  className?: string
+  deployment: DeploymentReference | null;
+  variant: DeploymentVariant;
+  isFallback?: boolean;
+  isRefreshing?: boolean;
+  isClearing?: boolean;
+  onClear: () => void;
+  onChange: () => void;
+  onRefresh?: () => void;
+  className?: string;
 }
 
 /**
@@ -25,27 +25,30 @@ interface DeploymentDisplayProps {
  * - measurements: Shows both API URL ({url}/api/query) and UI URL
  * - analytics: Shows only UI URL
  */
-function getDisplayUrls(deployment: DeploymentReference | null, variant: DeploymentVariant) {
-  if (!deployment) return { apiUrl: null, uiUrl: null }
+function getDisplayUrls(
+  deployment: DeploymentReference | null,
+  variant: DeploymentVariant,
+) {
+  if (!deployment) return { apiUrl: null, uiUrl: null };
 
   switch (variant) {
     case "config":
       return {
         apiUrl: deployment.internal_url,
         uiUrl: deployment.embedded_view_url || deployment.public_url,
-      }
+      };
     case "measurements": {
-      const measUiUrl = deployment.public_url || deployment.embedded_view_url
+      const measUiUrl = deployment.public_url || deployment.embedded_view_url;
       return {
         apiUrl: measUiUrl ? `${measUiUrl}/api/query` : null,
         uiUrl: measUiUrl,
-      }
+      };
     }
     case "analytics":
       return {
         apiUrl: null, // No API calls
         uiUrl: deployment.embedded_view_url || deployment.public_url,
-      }
+      };
   }
 }
 
@@ -61,18 +64,30 @@ export function DeploymentDisplay({
   className,
 }: DeploymentDisplayProps) {
   if (!deployment) {
-    return null
+    return null;
   }
 
-  const { apiUrl, uiUrl } = getDisplayUrls(deployment, variant)
+  const { apiUrl, uiUrl } = getDisplayUrls(deployment, variant);
 
   return (
-    <div className={cn("flex items-start justify-between p-3 border rounded-md bg-muted/30", className)}>
+    <div
+      className={cn(
+        "flex items-start justify-between p-3 border rounded-md bg-muted/30",
+        className,
+      )}
+    >
       <div className="flex items-start gap-3 flex-1 min-w-0">
-        <Rocket className={cn("h-5 w-5 mt-0.5 flex-shrink-0", isFallback ? "text-blue-500" : "text-green-500")} />
+        <Rocket
+          className={cn(
+            "h-5 w-5 mt-0.5 flex-shrink-0",
+            isFallback ? "text-blue-500" : "text-green-500",
+          )}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-medium truncate">{deployment.deployment_name}</span>
+            <span className="font-medium truncate">
+              {deployment.deployment_name}
+            </span>
             {isFallback && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                 Auto-detected
@@ -85,13 +100,21 @@ export function DeploymentDisplay({
             {(variant === "config" || variant === "measurements") && (
               <div className="text-sm text-muted-foreground truncate">
                 <span className="text-xs font-medium mr-1">API:</span>
-                {apiUrl || <span className="italic text-muted-foreground/60">not found</span>}
+                {apiUrl || (
+                  <span className="italic text-muted-foreground/60">
+                    not found
+                  </span>
+                )}
               </div>
             )}
-            {(variant === "config" || variant === "measurements") ? (
+            {variant === "config" || variant === "measurements" ? (
               <div className="text-sm text-muted-foreground truncate">
                 <span className="text-xs font-medium mr-1">UI:</span>
-                {uiUrl || <span className="italic text-muted-foreground/60">not found</span>}
+                {uiUrl || (
+                  <span className="italic text-muted-foreground/60">
+                    not found
+                  </span>
+                )}
               </div>
             ) : uiUrl ? (
               <div className="text-sm text-muted-foreground truncate">
@@ -118,11 +141,7 @@ export function DeploymentDisplay({
             )}
           </Button>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onChange}
-        >
+        <Button variant="outline" size="sm" onClick={onChange}>
           Change
         </Button>
         {!isFallback && (
@@ -142,5 +161,5 @@ export function DeploymentDisplay({
         )}
       </div>
     </div>
-  )
+  );
 }

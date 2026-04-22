@@ -1,5 +1,4 @@
 from functools import lru_cache
-import secrets
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,24 +36,13 @@ class Settings(BaseSettings):
     )
     sdk_token: str = Field(alias="Quix__Sdk__Token", description="SDK token")
 
-    # Blob storage settings
-    secret_key: str = Field(
-        default_factory=lambda: secrets.token_hex(32),
-        description="Secret key for signing URLs",
-    )
-    file_signature_expiration_seconds: int = Field(
-        30, description="File upload signature expiration time in seconds"
-    )
-
     # Configuration API settings
     config_api_url: str = Field(..., description="Configuration API URL")
 
     # Integration services URLs
-    analytics_url: str | None = Field(
-        None, description="Analytics/Notebook service URL"
-    )
     measurements_workspace_id: str | None = Field(
-        None, description="Workspace ID for measurements services (defaults to current workspace)"
+        None,
+        description="Workspace ID for measurements services (defaults to current workspace)",
     )
     measurements_topic_name: str | None = Field(
         None, description="Topic/table name for test measurements in the Data Lake"
@@ -62,19 +50,25 @@ class Settings(BaseSettings):
 
     # Direct QuixLake connection — used by the leaderboard endpoint to query
     # the shared lake without going through the Settings-UI deployment ref.
-    # Matches the env vars wired on the Telemetry Explorer deployment
-    # (`quix.yaml:534-544`); both deployments talk to the same lake.
+    # Matches the env vars wired on the Telemetry Explorer deployment in
+    # `quix.yaml`; both deployments talk to the same lake.
     quixlake_url: str | None = Field(
-        None, alias="QUIXLAKE_URL", description="Base URL of the shared QuixLake instance"
+        None,
+        alias="QUIXLAKE_URL",
+        description="Base URL of the shared QuixLake instance",
     )
     quix_lake_token: str | None = Field(
-        None, alias="QUIX_LAKE_TOKEN", description="PAT authenticating against the shared QuixLake"
+        None,
+        alias="QUIX_LAKE_TOKEN",
+        description="PAT authenticating against the shared QuixLake",
     )
 
     # Nested settings
-    mongo: MongoSettings = Field(default_factory=MongoSettings)  # type: ignore[arg-type]
+    mongo: MongoSettings = Field(default_factory=MongoSettings)
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    # pydantic-settings loads required Quix__Workspace__Id / Quix__Sdk__Token
+    # from environment via aliases; ty can't see that.
+    return Settings()  # ty: ignore[missing-argument]

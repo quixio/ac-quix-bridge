@@ -1,0 +1,17 @@
+{
+  "singleQuote": true,
+  "semi": true,
+  "tabWidth": 2,
+  "printWidth": 100,
+  "trailingComma": "all",
+  "overrides": [
+    {
+      "files": "*.html",
+      "options": { "printWidth": 120 }
+    },
+    {
+      "files": "*.css",
+      "options": { "singleQuote": false }
+    }
+  ]
+}

@@ -72,7 +72,7 @@ deployments:
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
         required: true
-        value: https://config-api-svc-quixdev-acquixbridge-leaderboard.deployments-dev.quix.io
+        value: http://dynamic-configuration-manager
       - name: CONFIG_TYPE
         inputType: FreeText
         description: Config type for session data
@@ -90,6 +90,8 @@ deployments:
       cpu: 500
       memory: 1000
       replicas: 1
+    network:
+      serviceName: dynamic-configuration-manager
     configuration:
       topic: ac-telemetry-config
       mongoHost: mongodb
@@ -208,52 +210,20 @@ deployments:
         inputType: FreeText
         required: true
         value: mongodb
-      - name: Quix__BlobStorage__Connection__Json
-        inputType: Secret
-        required: true
-        secretKey: Quix__BlobStorage__Connection__Json
-      - name: INFLUXDB_USER
-        inputType: Secret
-        required: true
-        secretKey: INFLUXDB_USER
-      - name: INFLUXDB_PASSWORD
-        inputType: Secret
-        required: true
-        secretKey: INFLUXDB_PASSWORD
-      - name: INFLUXDB_HOST
-        inputType: FreeText
-        required: true
-        value: influxdb
-      - name: INFLUXDB_PORT
-        inputType: FreeText
-        required: true
-        value: 8086
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true
-        value: https://config-api-svc-quixdev-acquixbridge-leaderboard.deployments-dev.quix.io
-      - name: QUIX_LAKE_TOKEN
-        inputType: Secret
-        description: Token to authenticate against QuixLake
-        required: true
-        secretKey: pat_token
+        value: http://dynamic-configuration-manager
       - name: QUIXLAKE_URL
         inputType: FreeText
         description: Base URL of the QuixLake instance
         required: true
         value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
-      - name: DATA_LAKE_V2_TOPIC_NAME
-        inputType: FreeText
+      - name: QUIX_LAKE_TOKEN
+        inputType: Secret
+        description: Token to authenticate against QuixLake
         required: true
-        value: config-enriched-data
-      - name: ANALYTICS_URL
-        inputType: FreeText
-        required: true
-        value: https://marimo-analysis-quixers-advancedanalyticsnew-new.az-france-0.app.quix.io
-      - name: Quix__Portal__Api
-        inputType: FreeText
-        required: true
-        value: https://portal-api.dev.quix.io
+        secretKey: pat_token
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
@@ -300,6 +270,10 @@ deployments:
         label: Test Manager
         icon: data_thresholding
         order: 1
+      globalItem:
+        show: true
+        label: Test Manager
+        order: 0
   - name: RaceTelemetryAnalysis
     application: racetelemetryanalysis
     version: latest
@@ -565,6 +539,73 @@ deployments:
         show: true
         label: Telemetry Explorer
         icon: data_usage
+        order: 0
+    blobStorage:
+      bind: true
+  - name: MongoDB Backup Manager
+    application: mongodb-backup-manager
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 1000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: backup-manager
+    state:
+      enabled: true
+      size: 1
+    network:
+      serviceName: backup-manager
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: METADATA_BACKEND
+        inputType: Options
+        description: "Metadata storage backend: 'mongo' or 'json'"
+        required: true
+        value: json
+      - name: METADATA_MONGO_HOST
+        inputType: FreeText
+        description: Metadata MongoDB hostname (only when METADATA_BACKEND=mongo)
+        value: ''
+      - name: METADATA_MONGO_PORT
+        inputType: FreeText
+        description: Metadata MongoDB port (only when METADATA_BACKEND=mongo)
+        value: 27017
+      - name: METADATA_MONGO_USERNAME
+        inputType: FreeText
+        description: Metadata MongoDB username (only when METADATA_BACKEND=mongo)
+        value: ''
+      - name: METADATA_MONGO_PASSWORD
+        inputType: Secret
+        description: Metadata MongoDB password (only when METADATA_BACKEND=mongo)
+      - name: SECRET_KEY
+        inputType: Secret
+        description: Encryption key for stored server passwords (Fernet)
+        required: true
+        secretKey: MONGO_BACKUP_SECRET_KEY
+      - name: BLOB_BASE_PATH
+        inputType: FreeText
+        description: Base path in Quix blob storage for backup archives
+        required: true
+        value: backups/mongodb
+      - name: BACKUP_RETENTION_DAYS
+        inputType: FreeText
+        description: Default retention period for backups in days
+        required: true
+        value: 30
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: Backup Manager
+        icon: save
         order: 0
     blobStorage:
       bind: true

@@ -1,17 +1,17 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { ArrowLeftRight, X, Loader2 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import type { TopicReference } from "@/lib/types/portal"
+import { Button } from "@/components/ui/button";
+import { ArrowLeftRight, X, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { TopicReference } from "@/lib/types/portal";
 
 interface TopicDisplayProps {
-  topic: TopicReference | null
-  isFallback?: boolean
-  isClearing?: boolean
-  onChange: () => void
-  onClear: () => void
-  className?: string
+  topic: TopicReference | null;
+  isFallback?: boolean;
+  isClearing?: boolean;
+  onChange: () => void;
+  onClear: () => void;
+  className?: string;
 }
 
 export function TopicDisplay({
@@ -23,13 +23,23 @@ export function TopicDisplay({
   className,
 }: TopicDisplayProps) {
   if (!topic) {
-    return null
+    return null;
   }
 
   return (
-    <div className={cn("flex items-center justify-between p-3 border rounded-md bg-muted/30", className)}>
+    <div
+      className={cn(
+        "flex items-center justify-between p-3 border rounded-md bg-muted/30",
+        className,
+      )}
+    >
       <div className="flex items-center gap-3 min-w-0 flex-1">
-        <ArrowLeftRight className={cn("h-5 w-5 flex-shrink-0", isFallback ? "text-blue-500" : "text-green-500")} />
+        <ArrowLeftRight
+          className={cn(
+            "h-5 w-5 flex-shrink-0",
+            isFallback ? "text-blue-500" : "text-green-500",
+          )}
+        />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium truncate">{topic.topic_name}</span>
@@ -46,11 +56,7 @@ export function TopicDisplay({
       </div>
 
       <div className="flex gap-1 flex-shrink-0 ml-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onChange}
-        >
+        <Button variant="outline" size="sm" onClick={onChange}>
           Change
         </Button>
         {!isFallback && (
@@ -70,5 +76,5 @@ export function TopicDisplay({
         )}
       </div>
     </div>
-  )
+  );
 }

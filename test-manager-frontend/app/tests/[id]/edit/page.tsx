@@ -1,81 +1,103 @@
-"use client"
+"use client";
 
-import { useParams, useRouter } from "next/navigation"
-import { useState, useEffect } from "react"
-import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useTest } from "@/lib/hooks/use-tests"
-import { useTestsApi, useDevicesApi, useDriversApi, useEnvironmentsApi } from "@/lib/hooks/use-api"
-import { useToast } from "@/lib/hooks/use-toast"
-import { DeviceCategory } from "@/types/device"
-import type { Device } from "@/types/device"
-import type { Driver } from "@/types/driver"
-import type { Environment } from "@/types/environment"
+import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { MainLayout } from "@/components/layout/main-layout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useTest } from "@/lib/hooks/use-tests";
+import {
+  useTestsApi,
+  useDevicesApi,
+  useDriversApi,
+  useEnvironmentsApi,
+} from "@/lib/hooks/use-api";
+import { useToast } from "@/lib/hooks/use-toast";
+import { DeviceCategory } from "@/types/device";
+import type { Device } from "@/types/device";
+import type { Driver } from "@/types/driver";
+import type { Environment } from "@/types/environment";
 
 export default function EditTestPage() {
-  const params = useParams()
-  const router = useRouter()
-  const { toast } = useToast()
-  const testsApi = useTestsApi()
-  const devicesApi = useDevicesApi()
-  const driversApi = useDriversApi()
-  const environmentsApi = useEnvironmentsApi()
-  const testId = params.id as string
-  const { test, loading } = useTest(testId)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const params = useParams();
+  const router = useRouter();
+  const { toast } = useToast();
+  const testsApi = useTestsApi();
+  const devicesApi = useDevicesApi();
+  const driversApi = useDriversApi();
+  const environmentsApi = useEnvironmentsApi();
+  const testId = params.id as string;
+  const { test, loading } = useTest(testId);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form state (null = not yet edited, use test value)
-  const [experimentId, setExperimentId] = useState<string | null>(null)
-  const [pcDeviceId, setPcDeviceId] = useState<string | null>(null)
-  const [testRigDeviceId, setTestRigDeviceId] = useState<string | null>(null)
-  const [environmentId, setEnvironmentId] = useState<string | null>(null)
-  const [driver, setDriver] = useState<string | null>(null)
-  const [requirements, setRequirements] = useState<string | null>(null)
+  const [experimentId, setExperimentId] = useState<string | null>(null);
+  const [pcDeviceId, setPcDeviceId] = useState<string | null>(null);
+  const [testRigDeviceId, setTestRigDeviceId] = useState<string | null>(null);
+  const [environmentId, setEnvironmentId] = useState<string | null>(null);
+  const [driver, setDriver] = useState<string | null>(null);
+  const [requirements, setRequirements] = useState<string | null>(null);
 
   // Dropdown data
-  const [pcDevices, setPcDevices] = useState<Device[]>([])
-  const [testRigDevices, setTestRigDevices] = useState<Device[]>([])
-  const [drivers, setDrivers] = useState<Driver[]>([])
-  const [environments, setEnvironments] = useState<Environment[]>([])
+  const [pcDevices, setPcDevices] = useState<Device[]>([]);
+  const [testRigDevices, setTestRigDevices] = useState<Device[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [environments, setEnvironments] = useState<Environment[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [pcRes, rigRes, drvRes, envRes] = await Promise.all([
           devicesApi.list({ category: DeviceCategory.PC, page_size: 100 }),
-          devicesApi.list({ category: DeviceCategory.TEST_RIG, page_size: 100 }),
+          devicesApi.list({
+            category: DeviceCategory.TEST_RIG,
+            page_size: 100,
+          }),
           driversApi.list({ page_size: 100 }),
           environmentsApi.list({ page_size: 100 }),
-        ])
-        setPcDevices(pcRes.items)
-        setTestRigDevices(rigRes.items)
-        setDrivers(drvRes.items)
-        setEnvironments(envRes.items)
+        ]);
+        setPcDevices(pcRes.items);
+        setTestRigDevices(rigRes.items);
+        setDrivers(drvRes.items);
+        setEnvironments(envRes.items);
       } catch (error) {
-        console.error("Failed to fetch dropdown data:", error)
+        console.error("Failed to fetch dropdown data:", error);
       }
-    }
-    fetchData()
-  }, [])
+    };
+    fetchData();
+  }, []);
 
-  const formExperimentId = experimentId ?? test?.experiment_id ?? ""
-  const formPcDeviceId = pcDeviceId ?? test?.pc_device_id ?? ""
-  const formTestRigDeviceId = testRigDeviceId ?? test?.test_rig_device_id ?? ""
-  const formEnvironmentId = environmentId ?? test?.environment_id ?? ""
-  const formDriver = driver ?? test?.driver ?? ""
-  const formRequirements = requirements ?? test?.requirements ?? ""
+  const formExperimentId = experimentId ?? test?.experiment_id ?? "";
+  const formPcDeviceId = pcDeviceId ?? test?.pc_device_id ?? "";
+  const formTestRigDeviceId = testRigDeviceId ?? test?.test_rig_device_id ?? "";
+  const formEnvironmentId = environmentId ?? test?.environment_id ?? "";
+  const formDriver = driver ?? test?.driver ?? "";
+  const formRequirements = requirements ?? test?.requirements ?? "";
+
+  const isDirty =
+    formExperimentId !== (test?.experiment_id ?? "") ||
+    formPcDeviceId !== (test?.pc_device_id ?? "") ||
+    formTestRigDeviceId !== (test?.test_rig_device_id ?? "") ||
+    formEnvironmentId !== (test?.environment_id ?? "") ||
+    formDriver !== (test?.driver ?? "") ||
+    formRequirements !== (test?.requirements ?? "");
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
     try {
-      setIsSubmitting(true)
+      setIsSubmitting(true);
       await testsApi.update(testId, {
         experiment_id: formExperimentId,
         pc_device_id: formPcDeviceId,
@@ -83,34 +105,37 @@ export default function EditTestPage() {
         environment_id: formEnvironmentId,
         driver: formDriver,
         requirements: formRequirements,
-      })
+      });
 
       toast({
         title: "Test Updated",
         description: `Test ${testId} has been updated.`,
-      })
+      });
 
-      router.push(`/tests/${testId}`)
+      router.push(`/tests/${testId}`);
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update test.",
+        description:
+          error instanceof Error ? error.message : "Failed to update test.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   if (loading || !test) {
     return (
-      <MainLayout backLink={{ href: `/tests/${testId}`, label: "Back to Test" }}>
+      <MainLayout
+        backLink={{ href: `/tests/${testId}`, label: "Back to Test" }}
+      >
         <div className="max-w-2xl space-y-6">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-96 w-full" />
         </div>
       </MainLayout>
-    )
+    );
   }
 
   return (
@@ -142,7 +167,10 @@ export default function EditTestPage() {
 
               <div className="space-y-2">
                 <Label>Test Rig *</Label>
-                <Select value={formTestRigDeviceId} onValueChange={setTestRigDeviceId}>
+                <Select
+                  value={formTestRigDeviceId}
+                  onValueChange={setTestRigDeviceId}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select test rig" />
                   </SelectTrigger>
@@ -158,13 +186,19 @@ export default function EditTestPage() {
 
               <div className="space-y-2">
                 <Label>Environment *</Label>
-                <Select value={formEnvironmentId} onValueChange={setEnvironmentId}>
+                <Select
+                  value={formEnvironmentId}
+                  onValueChange={setEnvironmentId}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select environment" />
                   </SelectTrigger>
                   <SelectContent>
                     {environments.map((e) => (
-                      <SelectItem key={e.environment_id} value={e.environment_id}>
+                      <SelectItem
+                        key={e.environment_id}
+                        value={e.environment_id}
+                      >
                         {e.name}
                       </SelectItem>
                     ))}
@@ -205,17 +239,28 @@ export default function EditTestPage() {
                   id="requirements"
                   value={formRequirements}
                   onChange={(e) => setRequirements(e.target.value)}
-                  placeholder="e.g. The system shall complete a lap in under 2 minutes."
+                  placeholder={`e.g.
+The driver shall finish Monza under 55.250s.
+The car shall not exceed 3.5G longitudinal.
+Tyre temperature shall stay below 80°C.`}
                   disabled={isSubmitting}
-                  rows={3}
+                  rows={5}
                 />
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button type="submit" disabled={isSubmitting}>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || !isDirty}
+                  data-testid="save-test"
+                >
                   {isSubmitting ? "Saving..." : "Save Changes"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => router.push(`/tests/${testId}`)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push(`/tests/${testId}`)}
+                >
                   Cancel
                 </Button>
               </div>
@@ -224,5 +269,5 @@ export default function EditTestPage() {
         </Card>
       </div>
     </MainLayout>
-  )
+  );
 }

@@ -1,11 +1,11 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { Check, ChevronsUpDown, X } from "lucide-react"
-import { useDebouncedCallback } from "use-debounce"
+import * as React from "react";
+import { Check, ChevronsUpDown, X } from "lucide-react";
+import { useDebouncedCallback } from "use-debounce";
 
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -13,28 +13,28 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@/components/ui/command"
+} from "@/components/ui/command";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover"
+} from "@/components/ui/popover";
 
 export interface ComboboxOption {
-  value: string
-  label: string
+  value: string;
+  label: string;
 }
 
 interface ComboboxProps {
-  options: ComboboxOption[]
-  value?: string
-  onValueChange: (value: string | undefined) => void
-  placeholder?: string
-  searchPlaceholder?: string
-  emptyText?: string
-  className?: string
-  disabled?: boolean
-  allowCustomValue?: boolean
+  options: ComboboxOption[];
+  value?: string;
+  onValueChange: (value: string | undefined) => void;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyText?: string;
+  className?: string;
+  disabled?: boolean;
+  allowCustomValue?: boolean;
 }
 
 export function Combobox({
@@ -48,33 +48,28 @@ export function Combobox({
   disabled = false,
   allowCustomValue = false,
 }: ComboboxProps) {
-  const [open, setOpen] = React.useState(false)
-  const [searchValue, setSearchValue] = React.useState("")
+  const [open, setOpen] = React.useState(false);
+  const [searchValue, setSearchValue] = React.useState("");
 
-  const selectedOption = options.find((option) => option.value === value)
+  const selectedOption = options.find((option) => option.value === value);
 
   // Display value: show selected option label, or custom value, or placeholder
-  const displayValue = selectedOption?.label || (allowCustomValue && value) || placeholder
-
-  // Check if current value is a custom filter (not in options list)
-  const isCustomValue = allowCustomValue && value && !selectedOption
+  const displayValue =
+    selectedOption?.label || (allowCustomValue && value) || placeholder;
 
   // Debounced callback for custom typed values (300ms)
-  const debouncedCustomValue = useDebouncedCallback(
-    (val: string) => {
-      if (allowCustomValue) {
-        onValueChange(val || undefined)
-      }
-    },
-    300
-  )
+  const debouncedCustomValue = useDebouncedCallback((val: string) => {
+    if (allowCustomValue) {
+      onValueChange(val || undefined);
+    }
+  }, 300);
 
   // Reset search when closing
   React.useEffect(() => {
     if (!open) {
-      setSearchValue("")
+      setSearchValue("");
     }
-  }, [open])
+  }, [open]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -86,15 +81,13 @@ export function Combobox({
           className={cn("w-full justify-between px-3 font-normal", className)}
           disabled={disabled}
         >
-          <span className="truncate">
-            {displayValue}
-          </span>
+          <span className="truncate">{displayValue}</span>
           {value ? (
             <X
               className="ml-2 h-4 w-4 shrink-0 opacity-70 hover:opacity-100 transition-opacity"
               onClick={(e) => {
-                e.stopPropagation()
-                onValueChange(undefined)
+                e.stopPropagation();
+                onValueChange(undefined);
               }}
             />
           ) : (
@@ -102,15 +95,18 @@ export function Combobox({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+      >
         <Command>
           <CommandInput
             placeholder={searchPlaceholder}
             onValueChange={(search) => {
-              setSearchValue(search)
+              setSearchValue(search);
               // When allowCustomValue, debounce the typed value to parent
               if (allowCustomValue) {
-                debouncedCustomValue(search)
+                debouncedCustomValue(search);
               }
             }}
           />
@@ -129,17 +125,19 @@ export function Combobox({
                 <CommandItem
                   key={option.value}
                   value={option.value}
-                  onSelect={(currentValue) => {
+                  onSelect={(_currentValue) => {
                     // Use option.value directly to avoid lowercase conversion issue
                     // When user clicks/selects, call parent immediately (no debounce)
-                    onValueChange(option.value === value ? undefined : option.value)
-                    setOpen(false)
+                    onValueChange(
+                      option.value === value ? undefined : option.value,
+                    );
+                    setOpen(false);
                   }}
                 >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === option.value ? "opacity-100" : "opacity-0"
+                      value === option.value ? "opacity-100" : "opacity-0",
                     )}
                   />
                   {option.label}
@@ -150,5 +148,5 @@ export function Combobox({
         </Command>
       </PopoverContent>
     </Popover>
-  )
+  );
 }

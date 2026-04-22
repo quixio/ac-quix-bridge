@@ -1,32 +1,36 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { format } from "date-fns"
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react"
+import * as React from "react";
+import { format } from "date-fns";
+import {
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@/components/ui/popover"
-import { Input } from "@/components/ui/input"
+} from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
 
 interface DateTimePickerProps {
-  value?: Date
-  onChange?: (date: Date | undefined) => void
-  placeholder?: string
-  disabled?: boolean
-  className?: string
+  value?: Date;
+  onChange?: (date: Date | undefined) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
 }
 
 // Helper to strip time from date for calendar comparison
 const getDateWithoutTime = (date: Date | undefined) => {
-  if (!date) return undefined
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
-}
+  if (!date) return undefined;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
 
 export function DateTimePicker({
   value,
@@ -36,103 +40,143 @@ export function DateTimePicker({
   className,
 }: DateTimePickerProps) {
   const [timeValue, setTimeValue] = React.useState<string>(
-    value ? format(value, "HH:mm") : "00:00"
-  )
-  const [currentMonth, setCurrentMonth] = React.useState<Date>(value || new Date())
-  const [isOpen, setIsOpen] = React.useState(false)
+    value ? format(value, "HH:mm") : "00:00",
+  );
+  const [currentMonth, setCurrentMonth] = React.useState<Date>(
+    value || new Date(),
+  );
+  const [isOpen, setIsOpen] = React.useState(false);
 
   // Sync timeValue and currentMonth when value prop changes
   React.useEffect(() => {
     if (value) {
-      setTimeValue(format(value, "HH:mm"))
-      setCurrentMonth(value)
+      setTimeValue(format(value, "HH:mm"));
+      setCurrentMonth(value);
     }
-  }, [value])
+  }, [value]);
 
   // Memoize the selected date without time to maintain stable reference
   const selectedDate = React.useMemo(() => {
-    return getDateWithoutTime(value)
-  }, [value])
+    return getDateWithoutTime(value);
+  }, [value]);
 
   const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = e.target.value
-    setTimeValue(time)
+    const time = e.target.value;
+    setTimeValue(time);
 
     if (!value || !time || time.includes("_")) {
-      return
+      return;
     }
 
     // Validate time format (HH:mm)
-    const timeParts = time.split(":")
-    if (timeParts.length !== 2) return
+    const timeParts = time.split(":");
+    if (timeParts.length !== 2) return;
 
-    const hours = parseInt(timeParts[0], 10)
-    const minutes = parseInt(timeParts[1], 10)
+    const hours = parseInt(timeParts[0], 10);
+    const minutes = parseInt(timeParts[1], 10);
 
     // Validate parsed values
-    if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-      return
+    if (
+      isNaN(hours) ||
+      isNaN(minutes) ||
+      hours < 0 ||
+      hours > 23 ||
+      minutes < 0 ||
+      minutes > 59
+    ) {
+      return;
     }
 
-    const newDate = new Date(value)
-    newDate.setHours(hours, minutes, 0, 0)
+    const newDate = new Date(value);
+    newDate.setHours(hours, minutes, 0, 0);
 
-    onChange?.(newDate)
-  }
+    onChange?.(newDate);
+  };
 
   const handleDaySelect = (date: Date | undefined) => {
     if (!date) {
-      onChange?.(undefined)
-      return
+      onChange?.(undefined);
+      return;
     }
 
     // Validate and parse time
-    const timeParts = timeValue.split(":")
+    const timeParts = timeValue.split(":");
     if (timeParts.length !== 2) {
       // Fallback to midnight if time is invalid
-      const newDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
-      onChange?.(newDate)
-      return
+      const newDate = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        0,
+        0,
+        0,
+        0,
+      );
+      onChange?.(newDate);
+      return;
     }
 
-    const hours = parseInt(timeParts[0], 10)
-    const minutes = parseInt(timeParts[1], 10)
+    const hours = parseInt(timeParts[0], 10);
+    const minutes = parseInt(timeParts[1], 10);
 
     // Validate parsed values, fallback to midnight if invalid
-    if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-      const newDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
-      onChange?.(newDate)
-      return
+    if (
+      isNaN(hours) ||
+      isNaN(minutes) ||
+      hours < 0 ||
+      hours > 23 ||
+      minutes < 0 ||
+      minutes > 59
+    ) {
+      const newDate = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        0,
+        0,
+        0,
+        0,
+      );
+      onChange?.(newDate);
+      return;
     }
 
     // Valid time - use it
-    const newDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0, 0)
-    onChange?.(newDate)
-  }
+    const newDate = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+      hours,
+      minutes,
+      0,
+      0,
+    );
+    onChange?.(newDate);
+  };
 
   const handleClear = () => {
-    setTimeValue("00:00")
-    onChange?.(undefined)
-  }
+    setTimeValue("00:00");
+    onChange?.(undefined);
+  };
 
   const handlePreviousMonth = () => {
-    const newMonth = new Date(currentMonth)
-    newMonth.setMonth(newMonth.getMonth() - 1)
-    setCurrentMonth(newMonth)
-  }
+    const newMonth = new Date(currentMonth);
+    newMonth.setMonth(newMonth.getMonth() - 1);
+    setCurrentMonth(newMonth);
+  };
 
   const handleNextMonth = () => {
-    const newMonth = new Date(currentMonth)
-    newMonth.setMonth(newMonth.getMonth() + 1)
-    setCurrentMonth(newMonth)
-  }
+    const newMonth = new Date(currentMonth);
+    newMonth.setMonth(newMonth.getMonth() + 1);
+    setCurrentMonth(newMonth);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
-      e.preventDefault()
-      setIsOpen(false)
+      e.preventDefault();
+      setIsOpen(false);
     }
-  }
+  };
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
@@ -142,16 +186,12 @@ export function DateTimePicker({
             variant="outline"
             className={cn(
               "w-full justify-start text-left font-normal",
-              !value && "text-muted-foreground"
+              !value && "text-muted-foreground",
             )}
             disabled={disabled}
           >
             <CalendarIcon className="mr-2 h-4 w-4" />
-            {value ? (
-              format(value, "PPP HH:mm")
-            ) : (
-              <span>{placeholder}</span>
-            )}
+            {value ? format(value, "PPP HH:mm") : <span>{placeholder}</span>}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
@@ -242,5 +282,5 @@ export function DateTimePicker({
         </PopoverContent>
       </Popover>
     </div>
-  )
+  );
 }

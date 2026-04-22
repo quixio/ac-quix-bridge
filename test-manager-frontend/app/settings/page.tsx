@@ -1,244 +1,279 @@
-"use client"
+"use client";
 
-import { useTheme } from "next-themes"
-import { useEffect, useState, useCallback } from "react"
-import { MainLayout } from "@/components/layout/main-layout"
+import { useTheme } from "next-themes";
+import { useEffect, useState, useCallback } from "react";
+import { MainLayout } from "@/components/layout/main-layout";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Button } from "@/components/ui/button"
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { useSettingsApi, usePortalApi } from "@/lib/hooks/use-api"
-import { useToast } from "@/lib/hooks/use-toast"
-import { Loader2, Rocket, ArrowLeftRight } from "lucide-react"
-import type { IntegrationSettings } from "@/lib/api/settings"
-import type { DeploymentReference, TopicReference } from "@/lib/types/portal"
-import { DeploymentPickerDialog } from "@/components/settings/deployment-picker-dialog"
-import { TopicPickerDialog } from "@/components/settings/topic-picker-dialog"
-import { DeploymentDisplay } from "@/components/settings/deployment-display"
-import { TopicDisplay } from "@/components/settings/topic-display"
-import { FallbackIndicator } from "@/components/settings/fallback-indicator"
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { useSettingsApi, usePortalApi } from "@/lib/hooks/use-api";
+import { useToast } from "@/lib/hooks/use-toast";
+import { Loader2, Rocket, ArrowLeftRight } from "lucide-react";
+import type { IntegrationSettings } from "@/lib/api/settings";
+import type { DeploymentReference, TopicReference } from "@/lib/types/portal";
+import { DeploymentPickerDialog } from "@/components/settings/deployment-picker-dialog";
+import { TopicPickerDialog } from "@/components/settings/topic-picker-dialog";
+import { DeploymentDisplay } from "@/components/settings/deployment-display";
+import { TopicDisplay } from "@/components/settings/topic-display";
+import { FallbackIndicator } from "@/components/settings/fallback-indicator";
 
 export default function SettingsPage() {
-  const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-  const settingsApi = useSettingsApi()
-  const portalApi = usePortalApi()
-  const { toast } = useToast()
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const settingsApi = useSettingsApi();
+  const portalApi = usePortalApi();
+  const { toast } = useToast();
 
   // Integration settings state
-  const [settings, setSettings] = useState<IntegrationSettings | null>(null)
-  const [loadingSettings, setLoadingSettings] = useState(true)
+  const [settings, setSettings] = useState<IntegrationSettings | null>(null);
+  const [loadingSettings, setLoadingSettings] = useState(true);
 
   // Form state - deployment references
-  const [configApiDeployment, setConfigApiDeployment] = useState<DeploymentReference | null>(null)
-  const [measurementsDeployment, setMeasurementsDeployment] = useState<DeploymentReference | null>(null)
-  const [measurementsTopic, setMeasurementsTopic] = useState<TopicReference | null>(null)
-  const [analyticsDeployment, setAnalyticsDeployment] = useState<DeploymentReference | null>(null)
+  const [configApiDeployment, setConfigApiDeployment] =
+    useState<DeploymentReference | null>(null);
+  const [measurementsDeployment, setMeasurementsDeployment] =
+    useState<DeploymentReference | null>(null);
+  const [measurementsTopic, setMeasurementsTopic] =
+    useState<TopicReference | null>(null);
+  const [analyticsDeployment, setAnalyticsDeployment] =
+    useState<DeploymentReference | null>(null);
 
   // Fallback flags
-  const [configApiIsFallback, setConfigApiIsFallback] = useState(false)
-  const [measurementsIsFallback, setMeasurementsIsFallback] = useState(false)
-  const [topicIsFallback, setTopicIsFallback] = useState(false)
-  const [analyticsIsFallback, setAnalyticsIsFallback] = useState(false)
+  const [configApiIsFallback, setConfigApiIsFallback] = useState(false);
+  const [measurementsIsFallback, setMeasurementsIsFallback] = useState(false);
+  const [topicIsFallback, setTopicIsFallback] = useState(false);
+  const [analyticsIsFallback, setAnalyticsIsFallback] = useState(false);
 
   // Refresh states
-  const [refreshingConfig, setRefreshingConfig] = useState(false)
-  const [refreshingMeasurements, setRefreshingMeasurements] = useState(false)
-  const [refreshingAnalytics, setRefreshingAnalytics] = useState(false)
+  const [refreshingConfig, setRefreshingConfig] = useState(false);
+  const [refreshingMeasurements, setRefreshingMeasurements] = useState(false);
+  const [refreshingAnalytics, setRefreshingAnalytics] = useState(false);
 
   // Clearing state - tracks which field is being cleared
-  const [clearingField, setClearingField] = useState<string | null>(null)
+  const [clearingField, setClearingField] = useState<string | null>(null);
 
   // Dialog states
-  const [configPickerOpen, setConfigPickerOpen] = useState(false)
-  const [measurementsPickerOpen, setMeasurementsPickerOpen] = useState(false)
-  const [topicPickerOpen, setTopicPickerOpen] = useState(false)
-  const [analyticsPickerOpen, setAnalyticsPickerOpen] = useState(false)
+  const [configPickerOpen, setConfigPickerOpen] = useState(false);
+  const [measurementsPickerOpen, setMeasurementsPickerOpen] = useState(false);
+  const [topicPickerOpen, setTopicPickerOpen] = useState(false);
+  const [analyticsPickerOpen, setAnalyticsPickerOpen] = useState(false);
 
   // Avoid hydration mismatch
   useEffect(() => {
-    setMounted(true)
-  }, [])
+    setMounted(true);
+  }, []);
 
   // Load settings function (extracted for reuse)
-  const loadSettings = useCallback(async (showLoading = true) => {
-    try {
-      if (showLoading) setLoadingSettings(true)
-      const data = await settingsApi.getSettings()
-      setSettings(data)
+  const loadSettings = useCallback(
+    async (showLoading = true) => {
+      try {
+        if (showLoading) setLoadingSettings(true);
+        const data = await settingsApi.getSettings();
+        setSettings(data);
 
-      // Set deployment references
-      setConfigApiDeployment(data.config_api_deployment || null)
-      setMeasurementsDeployment(data.measurements_deployment || null)
-      setMeasurementsTopic(data.measurements_topic || null)
-      setAnalyticsDeployment(data.analytics_deployment || null)
+        // Set deployment references
+        setConfigApiDeployment(data.config_api_deployment || null);
+        setMeasurementsDeployment(data.measurements_deployment || null);
+        setMeasurementsTopic(data.measurements_topic || null);
+        setAnalyticsDeployment(data.analytics_deployment || null);
 
-      // Set fallback flags
-      setConfigApiIsFallback(data.config_api_is_fallback || false)
-      setMeasurementsIsFallback(data.measurements_is_fallback || false)
-      setAnalyticsIsFallback(data.analytics_is_fallback || false)
+        // Set fallback flags
+        setConfigApiIsFallback(data.config_api_is_fallback || false);
+        setMeasurementsIsFallback(data.measurements_is_fallback || false);
+        setAnalyticsIsFallback(data.analytics_is_fallback || false);
 
-      // Topic is fallback if it exists but workspace_name is null (from env var)
-      // The backend sets workspace_name only when user explicitly selects
-      setTopicIsFallback(data.measurements_topic !== null && data.measurements_topic.workspace_name === null)
-    } catch (error) {
-      console.error("Failed to load settings:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load integration settings",
-        variant: "destructive",
-      })
-    } finally {
-      if (showLoading) setLoadingSettings(false)
-    }
-  }, [settingsApi, toast])
+        // Topic is fallback if it exists but workspace_name is null (from env var)
+        // The backend sets workspace_name only when user explicitly selects
+        setTopicIsFallback(
+          data.measurements_topic !== null &&
+            data.measurements_topic.workspace_name === null,
+        );
+      } catch (error) {
+        console.error("Failed to load settings:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load integration settings",
+          variant: "destructive",
+        });
+      } finally {
+        if (showLoading) setLoadingSettings(false);
+      }
+    },
+    [settingsApi, toast],
+  );
 
   // Load settings on mount
   useEffect(() => {
-    if (!mounted) return
-    loadSettings()
-  }, [mounted, loadSettings])
+    if (!mounted) return;
+    loadSettings();
+  }, [mounted, loadSettings]);
 
   // Save a field and reload settings
-  const saveAndReload = useCallback(async (
-    updates: Record<string, DeploymentReference | TopicReference | null>
-  ) => {
-    try {
-      await settingsApi.updateSettings(updates)
-      await loadSettings(false)
-      toast({
-        title: "Settings saved",
-        description: "Integration settings have been updated",
-      })
-    } catch (error) {
-      console.error("Failed to save setting:", error)
-      toast({
-        title: "Error",
-        description: "Failed to save setting",
-        variant: "destructive",
-      })
-    }
-  }, [settingsApi, loadSettings, toast])
+  const saveAndReload = useCallback(
+    async (
+      updates: Record<string, DeploymentReference | TopicReference | null>,
+    ) => {
+      try {
+        await settingsApi.updateSettings(updates);
+        await loadSettings(false);
+        toast({
+          title: "Settings saved",
+          description: "Integration settings have been updated",
+        });
+      } catch (error) {
+        console.error("Failed to save setting:", error);
+        toast({
+          title: "Error",
+          description: "Failed to save setting",
+          variant: "destructive",
+        });
+      }
+    },
+    [settingsApi, loadSettings, toast],
+  );
 
   // Refresh deployment info from Portal API
-  const refreshDeployment = useCallback(async (
-    deployment: DeploymentReference | null,
-    setDeployment: (d: DeploymentReference | null) => void,
-    setRefreshing: (r: boolean) => void,
-    fieldName: string
-  ) => {
-    if (!deployment) return
+  const refreshDeployment = useCallback(
+    async (
+      deployment: DeploymentReference | null,
+      setDeployment: (d: DeploymentReference | null) => void,
+      setRefreshing: (r: boolean) => void,
+      fieldName: string,
+    ) => {
+      if (!deployment) return;
 
-    try {
-      setRefreshing(true)
-      const deployments = await portalApi.getDeployments(deployment.workspace_id)
-      const updated = deployments.find(d => d.deploymentId === deployment.deployment_id)
+      try {
+        setRefreshing(true);
+        const deployments = await portalApi.getDeployments(
+          deployment.workspace_id,
+        );
+        const updated = deployments.find(
+          (d) => d.deploymentId === deployment.deployment_id,
+        );
 
-      if (updated) {
-        const ref: DeploymentReference = {
-          deployment_id: updated.deploymentId,
-          workspace_id: deployment.workspace_id,
-          deployment_name: updated.name,
-          public_url: updated.publicUrl,
-          embedded_view_url: updated.embedded_view_url,
-          internal_url: updated.service_name ? `http://${updated.service_name}` : updated.publicUrl,
+        if (updated) {
+          const ref: DeploymentReference = {
+            deployment_id: updated.deploymentId,
+            workspace_id: deployment.workspace_id,
+            deployment_name: updated.name,
+            public_url: updated.publicUrl,
+            embedded_view_url: updated.embedded_view_url,
+            internal_url: updated.service_name
+              ? `http://${updated.service_name}`
+              : updated.publicUrl,
+          };
+          setDeployment(ref);
+          await settingsApi.updateSettings({ [fieldName]: ref });
+          await loadSettings(false);
+          toast({
+            title: "Deployment refreshed",
+            description: `Updated info for "${updated.name}"`,
+          });
         }
-        setDeployment(ref)
-        await settingsApi.updateSettings({ [fieldName]: ref })
-        await loadSettings(false)
+      } catch (error) {
+        console.error("Failed to refresh deployment:", error);
         toast({
-          title: "Deployment refreshed",
-          description: `Updated info for "${updated.name}"`,
-        })
+          title: "Error",
+          description: "Failed to refresh deployment info",
+          variant: "destructive",
+        });
+      } finally {
+        setRefreshing(false);
       }
-    } catch (error) {
-      console.error("Failed to refresh deployment:", error)
-      toast({
-        title: "Error",
-        description: "Failed to refresh deployment info",
-        variant: "destructive",
-      })
-    } finally {
-      setRefreshing(false)
-    }
-  }, [portalApi, settingsApi, loadSettings, toast])
+    },
+    [portalApi, settingsApi, loadSettings, toast],
+  );
 
   // Clear a field and reload to show fallback
-  const clearAndReload = useCallback(async (
-    field: "config_api_deployment" | "measurements_deployment" | "measurements_topic" | "analytics_deployment"
+  const clearAndReload = useCallback(
+    async (
+      field:
+        | "config_api_deployment"
+        | "measurements_deployment"
+        | "measurements_topic"
+        | "analytics_deployment",
+    ) => {
+      try {
+        setClearingField(field);
+        await settingsApi.updateSettings({ [field]: null });
+        await loadSettings(false);
+        toast({
+          title: "Selection cleared",
+          description: "Auto-detected fallback has been applied",
+        });
+      } catch (error) {
+        console.error("Failed to clear setting:", error);
+        toast({
+          title: "Error",
+          description: "Failed to clear setting",
+          variant: "destructive",
+        });
+      } finally {
+        setClearingField(null);
+      }
+    },
+    [settingsApi, loadSettings, toast],
+  );
+
+  const handleConfigDeploymentConfirm = (
+    deployment: DeploymentReference | null,
   ) => {
-    try {
-      setClearingField(field)
-      await settingsApi.updateSettings({ [field]: null })
-      await loadSettings(false)
-      toast({
-        title: "Selection cleared",
-        description: "Auto-detected fallback has been applied",
-      })
-    } catch (error) {
-      console.error("Failed to clear setting:", error)
-      toast({
-        title: "Error",
-        description: "Failed to clear setting",
-        variant: "destructive",
-      })
-    } finally {
-      setClearingField(null)
-    }
-  }, [settingsApi, loadSettings, toast])
-
-  const handleConfigDeploymentConfirm = (deployment: DeploymentReference | null) => {
     if (deployment === null) {
-      clearAndReload("config_api_deployment")
+      clearAndReload("config_api_deployment");
     } else {
-      setConfigApiDeployment(deployment)
-      setConfigApiIsFallback(false)
-      saveAndReload({ config_api_deployment: deployment })
+      setConfigApiDeployment(deployment);
+      setConfigApiIsFallback(false);
+      saveAndReload({ config_api_deployment: deployment });
     }
-  }
+  };
 
-  const handleMeasurementsDeploymentConfirm = (deployment: DeploymentReference | null) => {
+  const handleMeasurementsDeploymentConfirm = (
+    deployment: DeploymentReference | null,
+  ) => {
     if (deployment === null) {
-      clearAndReload("measurements_deployment")
+      clearAndReload("measurements_deployment");
     } else {
-      setMeasurementsDeployment(deployment)
-      setMeasurementsIsFallback(false)
-      saveAndReload({ measurements_deployment: deployment })
+      setMeasurementsDeployment(deployment);
+      setMeasurementsIsFallback(false);
+      saveAndReload({ measurements_deployment: deployment });
     }
-  }
+  };
 
   const handleTopicConfirm = (topic: TopicReference | null) => {
     if (topic === null) {
-      clearAndReload("measurements_topic")
+      clearAndReload("measurements_topic");
     } else {
-      setMeasurementsTopic(topic)
-      setTopicIsFallback(false)
-      saveAndReload({ measurements_topic: topic })
+      setMeasurementsTopic(topic);
+      setTopicIsFallback(false);
+      saveAndReload({ measurements_topic: topic });
     }
-  }
+  };
 
-  const handleAnalyticsDeploymentConfirm = (deployment: DeploymentReference | null) => {
+  const handleAnalyticsDeploymentConfirm = (
+    deployment: DeploymentReference | null,
+  ) => {
     if (deployment === null) {
-      clearAndReload("analytics_deployment")
+      clearAndReload("analytics_deployment");
     } else {
-      setAnalyticsDeployment(deployment)
-      setAnalyticsIsFallback(false)
-      saveAndReload({ analytics_deployment: deployment })
+      setAnalyticsDeployment(deployment);
+      setAnalyticsIsFallback(false);
+      saveAndReload({ analytics_deployment: deployment });
     }
-  }
+  };
 
   if (!mounted) {
     return (
@@ -252,7 +287,7 @@ export default function SettingsPage() {
           </div>
         </div>
       </MainLayout>
-    )
+    );
   }
 
   return (
@@ -301,7 +336,8 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>Integrations</CardTitle>
               <CardDescription>
-                Configure external service connections for configurations, measurements, and analytics
+                Configure external service connections for configurations,
+                measurements, and analytics
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
@@ -338,12 +374,14 @@ export default function SettingsPage() {
                         isClearing={clearingField === "config_api_deployment"}
                         onClear={() => handleConfigDeploymentConfirm(null)}
                         onChange={() => setConfigPickerOpen(true)}
-                        onRefresh={() => refreshDeployment(
-                          configApiDeployment,
-                          setConfigApiDeployment,
-                          setRefreshingConfig,
-                          "config_api_deployment"
-                        )}
+                        onRefresh={() =>
+                          refreshDeployment(
+                            configApiDeployment,
+                            setConfigApiDeployment,
+                            setRefreshingConfig,
+                            "config_api_deployment",
+                          )
+                        }
                       />
                     ) : (
                       <Button
@@ -368,13 +406,16 @@ export default function SettingsPage() {
                         Measurements
                       </h3>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Configure Timeseries Data Lake service and data source topic
+                        Configure Timeseries Data Lake service and data source
+                        topic
                       </p>
                     </div>
 
                     {/* Query UI (Timeseries Data Lake Service) */}
                     <div className="space-y-3">
-                      <Label className="text-sm font-medium">Timeseries Data Lake Service (Query UI)</Label>
+                      <Label className="text-sm font-medium">
+                        Timeseries Data Lake Service (Query UI)
+                      </Label>
 
                       <FallbackIndicator
                         isFallback={measurementsIsFallback}
@@ -387,15 +428,21 @@ export default function SettingsPage() {
                           variant="measurements"
                           isFallback={measurementsIsFallback}
                           isRefreshing={refreshingMeasurements}
-                          isClearing={clearingField === "measurements_deployment"}
-                          onClear={() => handleMeasurementsDeploymentConfirm(null)}
+                          isClearing={
+                            clearingField === "measurements_deployment"
+                          }
+                          onClear={() =>
+                            handleMeasurementsDeploymentConfirm(null)
+                          }
                           onChange={() => setMeasurementsPickerOpen(true)}
-                          onRefresh={() => refreshDeployment(
-                            measurementsDeployment,
-                            setMeasurementsDeployment,
-                            setRefreshingMeasurements,
-                            "measurements_deployment"
-                          )}
+                          onRefresh={() =>
+                            refreshDeployment(
+                              measurementsDeployment,
+                              setMeasurementsDeployment,
+                              setRefreshingMeasurements,
+                              "measurements_deployment",
+                            )
+                          }
                         />
                       ) : (
                         <Button
@@ -411,7 +458,9 @@ export default function SettingsPage() {
 
                     {/* Data Source (Topic) */}
                     <div className="space-y-3">
-                      <Label className="text-sm font-medium">Data Source (Topic)</Label>
+                      <Label className="text-sm font-medium">
+                        Data Source (Topic)
+                      </Label>
 
                       <FallbackIndicator
                         isFallback={topicIsFallback}
@@ -468,12 +517,14 @@ export default function SettingsPage() {
                         isClearing={clearingField === "analytics_deployment"}
                         onClear={() => handleAnalyticsDeploymentConfirm(null)}
                         onChange={() => setAnalyticsPickerOpen(true)}
-                        onRefresh={() => refreshDeployment(
-                          analyticsDeployment,
-                          setAnalyticsDeployment,
-                          setRefreshingAnalytics,
-                          "analytics_deployment"
-                        )}
+                        onRefresh={() =>
+                          refreshDeployment(
+                            analyticsDeployment,
+                            setAnalyticsDeployment,
+                            setRefreshingAnalytics,
+                            "analytics_deployment",
+                          )
+                        }
                       />
                     ) : (
                       <Button
@@ -490,7 +541,8 @@ export default function SettingsPage() {
                   {/* Last Updated Info */}
                   {settings?.updated_at && (
                     <p className="text-xs text-muted-foreground text-right">
-                      Last updated: {new Date(settings.updated_at).toLocaleString()}
+                      Last updated:{" "}
+                      {new Date(settings.updated_at).toLocaleString()}
                       {settings.updated_by && ` by ${settings.updated_by}`}
                     </p>
                   )}
@@ -567,7 +619,6 @@ export default function SettingsPage() {
         title="Select Measurements Topic"
         description="Navigate through projects and workspaces to select the topic for test measurement data."
       />
-
     </MainLayout>
-  )
+  );
 }

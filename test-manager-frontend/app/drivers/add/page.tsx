@@ -1,46 +1,47 @@
-"use client"
+"use client";
 
-import { useRouter } from "next/navigation"
-import { useState } from "react"
-import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { useDriversApi } from "@/lib/hooks/use-api"
-import { useToast } from "@/lib/hooks/use-toast"
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { MainLayout } from "@/components/layout/main-layout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useDriversApi } from "@/lib/hooks/use-api";
+import { useToast } from "@/lib/hooks/use-toast";
 
 export default function AddDriverPage() {
-  const router = useRouter()
-  const { toast } = useToast()
-  const driversApi = useDriversApi()
-  const [name, setName] = useState("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const router = useRouter();
+  const { toast } = useToast();
+  const driversApi = useDriversApi();
+  const [name, setName] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) return
+    e.preventDefault();
+    if (!name.trim()) return;
 
     try {
-      setIsSubmitting(true)
-      const created = await driversApi.create({ name: name.trim() })
+      setIsSubmitting(true);
+      const created = await driversApi.create({ name: name.trim() });
 
       toast({
         title: "Driver Created",
         description: `Driver ${created.name} (${created.driver_id}) has been created.`,
-      })
+      });
 
-      router.push(`/drivers/${created.driver_id}`)
+      router.push(`/drivers/${created.driver_id}`);
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create driver.",
+        description:
+          error instanceof Error ? error.message : "Failed to create driver.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <MainLayout backLink={{ href: "/drivers", label: "Back to Drivers" }}>
@@ -69,7 +70,11 @@ export default function AddDriverPage() {
                 <Button type="submit" disabled={isSubmitting || !name.trim()}>
                   {isSubmitting ? "Creating..." : "Create Driver"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => router.push("/drivers")}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push("/drivers")}
+                >
                   Cancel
                 </Button>
               </div>
@@ -78,5 +83,5 @@ export default function AddDriverPage() {
         </Card>
       </div>
     </MainLayout>
-  )
+  );
 }

@@ -1,27 +1,29 @@
-"use client"
+"use client";
 
-import { Suspense, useState, useCallback } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
-import { SortingState } from "@tanstack/react-table"
-import { MainLayout } from "@/components/layout/main-layout"
-import { NavigationButton } from "@/components/ui/navigation-button"
-import { DriversTable } from "@/components/drivers/drivers-table"
-import { EmptyState } from "@/components/shared/empty-state"
-import { Pagination } from "@/components/shared/pagination"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Input } from "@/components/ui/input"
-import { useDrivers } from "@/lib/hooks/use-drivers"
-import { Plus, Users } from "lucide-react"
+import { Suspense, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { SortingState } from "@tanstack/react-table";
+import { MainLayout } from "@/components/layout/main-layout";
+import { NavigationButton } from "@/components/ui/navigation-button";
+import { DriversTable } from "@/components/drivers/drivers-table";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Pagination } from "@/components/shared/pagination";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { useDrivers } from "@/lib/hooks/use-drivers";
+import { Plus, Users } from "lucide-react";
 
 function DriversPageContent() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [filters, setFilters] = useState({
     q: searchParams.get("q") || undefined,
-  })
+  });
 
-  const [sorting, setSorting] = useState<SortingState>([{ id: "driver_id", desc: false }])
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "driver_id", desc: false },
+  ]);
 
   const {
     drivers,
@@ -34,15 +36,18 @@ function DriversPageContent() {
     totalPages,
     goToPage,
     changePageSize,
-  } = useDrivers(filters)
+  } = useDrivers(filters);
 
-  const handleSearch = useCallback((value: string) => {
-    const q = value || undefined
-    setFilters({ q })
-    const params = new URLSearchParams()
-    if (q) params.set("q", q)
-    router.push(`/drivers?${params.toString()}`)
-  }, [router])
+  const handleSearch = useCallback(
+    (value: string) => {
+      const q = value || undefined;
+      setFilters({ q });
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      router.push(`/drivers?${params.toString()}`);
+    },
+    [router],
+  );
 
   return (
     <MainLayout>
@@ -84,18 +89,27 @@ function DriversPageContent() {
             <EmptyState
               icon={<Users className="h-12 w-12" />}
               title="No drivers found"
-              description={filters.q
-                ? "No drivers match your search. Try adjusting your criteria."
-                : "Get started by adding your first driver."
+              description={
+                filters.q
+                  ? "No drivers match your search. Try adjusting your criteria."
+                  : "Get started by adding your first driver."
               }
-              action={filters.q
-                ? { label: "Clear Search", onClick: () => handleSearch("") }
-                : { label: "Add Driver", onClick: () => router.push("/drivers/add") }
+              action={
+                filters.q
+                  ? { label: "Clear Search", onClick: () => handleSearch("") }
+                  : {
+                      label: "Add Driver",
+                      onClick: () => router.push("/drivers/add"),
+                    }
               }
             />
           ) : (
             <>
-              <DriversTable data={drivers} sorting={sorting} onSortingChange={setSorting} />
+              <DriversTable
+                data={drivers}
+                sorting={sorting}
+                onSortingChange={setSorting}
+              />
               {total > 0 && (
                 <Pagination
                   page={page}
@@ -111,13 +125,19 @@ function DriversPageContent() {
         </div>
       </div>
     </MainLayout>
-  )
+  );
 }
 
 export default function DriversPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen"><div>Loading...</div></div>}>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-screen">
+          <div>Loading...</div>
+        </div>
+      }
+    >
       <DriversPageContent />
     </Suspense>
-  )
+  );
 }

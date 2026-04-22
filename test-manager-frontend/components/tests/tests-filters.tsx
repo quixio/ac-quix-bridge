@@ -1,19 +1,19 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { X } from "lucide-react"
-import { useDebouncedCallback } from "use-debounce"
+import { useState, useEffect } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
+import { useDebouncedCallback } from "use-debounce";
 
 interface TestsFiltersProps {
   filters: {
-    environment_id?: string
-    experiment_id?: string
-    q?: string
-  }
-  onFilterChange: (key: string, value: string | undefined) => void
-  onClearFilters: () => void
+    environment_id?: string;
+    experiment_id?: string;
+    q?: string;
+  };
+  onFilterChange: (key: string, value: string | undefined) => void;
+  onClearFilters: () => void;
 }
 
 export function TestsFilters({
@@ -21,20 +21,21 @@ export function TestsFilters({
   onFilterChange,
   onClearFilters,
 }: TestsFiltersProps) {
-  const [searchInput, setSearchInput] = useState(filters.q || "")
+  const [searchInput, setSearchInput] = useState(filters.q || "");
 
   useEffect(() => {
-    setSearchInput(filters.q || "")
-  }, [filters.q])
+    setSearchInput(filters.q || "");
+  }, [filters.q]);
 
-  const hasActiveFilters = filters.environment_id || filters.experiment_id || filters.q
+  const hasActiveFilters =
+    filters.environment_id || filters.experiment_id || filters.q;
 
   const debouncedFilterChange = useDebouncedCallback(
     (key: string, value: string | undefined) => {
-      onFilterChange(key, value)
+      onFilterChange(key, value);
     },
-    300
-  )
+    300,
+  );
 
   return (
     <div className="flex gap-4 items-center">
@@ -42,9 +43,9 @@ export function TestsFilters({
         placeholder="Search tests..."
         value={searchInput}
         onChange={(e) => {
-          const value = e.target.value
-          setSearchInput(value)
-          debouncedFilterChange("q", value || undefined)
+          const value = e.target.value;
+          setSearchInput(value);
+          debouncedFilterChange("q", value || undefined);
         }}
         className="max-w-sm"
       />
@@ -61,5 +62,5 @@ export function TestsFilters({
         </Button>
       )}
     </div>
-  )
+  );
 }

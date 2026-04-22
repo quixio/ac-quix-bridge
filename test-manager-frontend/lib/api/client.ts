@@ -3,18 +3,18 @@
  * Provides apiGet, apiPost, apiPut, apiDelete functions with authentication
  */
 
-import { STANDALONE_TOKEN_KEY } from "../contexts/quix-auth-context"
+import { STANDALONE_TOKEN_KEY } from "../contexts/quix-auth-context";
 
 // API Error class for consistent error handling
 export class ApiError extends Error {
-  status: number
-  data: any
+  status: number;
+  data: any;
 
   constructor(message: string, status: number, data?: any) {
-    super(message)
-    this.name = "ApiError"
-    this.status = status
-    this.data = data
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.data = data;
   }
 }
 
@@ -26,16 +26,16 @@ export class ApiError extends Error {
 export function getApiUrl(): string {
   // Client-side: Always use relative URLs for Next.js proxy
   if (typeof window !== "undefined") {
-    return "" // Empty string = relative URLs, proxied by Next.js rewrites
+    return ""; // Empty string = relative URLs, proxied by Next.js rewrites
   }
 
   // Server-side: Use internal service URL
   if (process.env.API_URL) {
-    return process.env.API_URL
+    return process.env.API_URL;
   }
 
   // Fallback for local development (server-side only)
-  return "http://localhost:8080"
+  return "http://localhost:8080";
 }
 
 /**
@@ -46,29 +46,33 @@ export function getApiUrl(): string {
 function getAuthToken(providedToken?: string | null): string | null {
   // Use provided token from Quix Auth Context (preferred)
   if (providedToken) {
-    return providedToken
+    return providedToken;
   }
 
   // Only consult localStorage when running standalone (top-level tab).
   // In embedded mode (iframe), the Portal supplies the token via postMessage
   // and using a stale localStorage PAT would cause spurious 403s.
   if (typeof window !== "undefined" && window === window.parent) {
-    const stored = localStorage.getItem(STANDALONE_TOKEN_KEY)
+    const stored = localStorage.getItem(STANDALONE_TOKEN_KEY);
     if (stored) {
-      console.log("[API Client] Using token from localStorage (standalone mode)")
-      return stored
+      console.log(
+        "[API Client] Using token from localStorage (standalone mode)",
+      );
+      return stored;
     }
   }
 
   // Fallback: Environment variable (for local development only)
-  const envToken = process.env.NEXT_PUBLIC_QUIX_AUTH_TOKEN || null
+  const envToken = process.env.NEXT_PUBLIC_QUIX_AUTH_TOKEN || null;
   if (envToken) {
-    console.log("[API Client] Using token from environment (local development)")
+    console.log(
+      "[API Client] Using token from environment (local development)",
+    );
   } else {
-    console.warn("[API Client] No auth token available!")
+    console.warn("[API Client] No auth token available!");
   }
 
-  return envToken
+  return envToken;
 }
 
 /**
@@ -77,14 +81,14 @@ function getAuthToken(providedToken?: string | null): string | null {
 function buildHeaders(providedToken?: string | null): HeadersInit {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
-  }
+  };
 
-  const token = getAuthToken(providedToken)
+  const token = getAuthToken(providedToken);
   if (token) {
-    headers["Authorization"] = `Bearer ${token}`
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
-  return headers
+  return headers;
 }
 
 /**
@@ -94,44 +98,54 @@ function buildHeaders(providedToken?: string | null): HeadersInit {
 async function handleResponse<T>(response: Response): Promise<T> {
   // Handle 204 No Content
   if (response.status === 204) {
-    return undefined as T
+    return undefined as T;
   }
 
-  const contentType = response.headers.get("content-type")
-  const isJson = contentType?.includes("application/json")
+  const contentType = response.headers.get("content-type");
+  const isJson = contentType?.includes("application/json");
 
   if (!response.ok) {
-    let errorData: any
-    let message: string
+    let errorData: any;
+    let message: string;
 
     if (isJson) {
-      errorData = await response.json()
-      message = errorData?.detail || errorData?.message || `Request failed with status ${response.status}`
+      errorData = await response.json();
+      message =
+        errorData?.detail ||
+        errorData?.message ||
+        `Request failed with status ${response.status}`;
     } else {
       // Non-JSON response (HTML, text, etc.)
-      const text = await response.text()
-      const isHtml = contentType?.includes("text/html")
+      const text = await response.text();
+      const isHtml = contentType?.includes("text/html");
 
       if (isHtml) {
         // Don't show raw HTML to user - provide clean error message
-        message = `Request failed with status ${response.status}`
-        errorData = { html: text } // Store HTML for debugging but don't display it
+        message = `Request failed with status ${response.status}`;
+        errorData = { html: text }; // Store HTML for debugging but don't display it
       } else {
         // Plain text error
-        message = text || `Request failed with status ${response.status}`
-        errorData = text
+        message = text || `Request failed with status ${response.status}`;
+        errorData = text;
       }
     }
 
-    console.error("[API Client] Error:", message, "Status:", response.status, "Data:", errorData)
-    throw new ApiError(message, response.status, errorData)
+    console.error(
+      "[API Client] Error:",
+      message,
+      "Status:",
+      response.status,
+      "Data:",
+      errorData,
+    );
+    throw new ApiError(message, response.status, errorData);
   }
 
   if (isJson) {
-    return response.json()
+    return response.json();
   }
 
-  return response.text() as any
+  return response.text() as any;
 }
 
 /**
@@ -141,12 +155,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
 async function fetchWithRetry<T>(
   fetchFn: (token?: string | null) => Promise<Response>,
   currentToken?: string | null,
-  refreshTokenFn?: () => Promise<string | null>
+  refreshTokenFn?: () => Promise<string | null>,
 ): Promise<T> {
   try {
     // First attempt with current token
-    const response = await fetchFn(currentToken)
-    return await handleResponse<T>(response)
+    const response = await fetchFn(currentToken);
+    return await handleResponse<T>(response);
   } catch (error) {
     // If auth error and refresh function provided, attempt refresh and retry
     if (
@@ -154,21 +168,23 @@ async function fetchWithRetry<T>(
       (error.status === 401 || error.status === 403) &&
       refreshTokenFn
     ) {
-      console.log("[API Client] Auth error detected, attempting token refresh...")
+      console.log(
+        "[API Client] Auth error detected, attempting token refresh...",
+      );
 
-      const freshToken = await refreshTokenFn()
+      const freshToken = await refreshTokenFn();
 
       if (freshToken && freshToken !== currentToken) {
-        console.log("[API Client] Got fresh token, retrying request...")
-        const retryResponse = await fetchFn(freshToken)
-        return await handleResponse<T>(retryResponse)
+        console.log("[API Client] Got fresh token, retrying request...");
+        const retryResponse = await fetchFn(freshToken);
+        return await handleResponse<T>(retryResponse);
       } else {
-        console.warn("[API Client] Token refresh did not provide new token")
+        console.warn("[API Client] Token refresh did not provide new token");
       }
     }
 
     // Re-throw original error if retry not applicable or retry also failed
-    throw error
+    throw error;
   }
 }
 
@@ -176,27 +192,29 @@ async function fetchWithRetry<T>(
  * Build URL with query parameters
  */
 function buildUrl(endpoint: string, params?: Record<string, any>): string {
-  const baseUrl = getApiUrl()
+  const baseUrl = getApiUrl();
   // Prepend /api/v1 to all endpoints
-  const apiEndpoint = endpoint.startsWith('/api/') ? endpoint : `/api/v1${endpoint}`
+  const apiEndpoint = endpoint.startsWith("/api/")
+    ? endpoint
+    : `/api/v1${endpoint}`;
 
   // For localhost (empty baseUrl), use relative URL
-  let url: URL
+  let url: URL;
   if (baseUrl === "") {
-    url = new URL(apiEndpoint, window.location.origin)
+    url = new URL(apiEndpoint, window.location.origin);
   } else {
-    url = new URL(apiEndpoint, baseUrl)
+    url = new URL(apiEndpoint, baseUrl);
   }
 
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== "") {
-        url.searchParams.append(key, String(value))
+        url.searchParams.append(key, String(value));
       }
-    })
+    });
   }
 
-  return url.toString()
+  return url.toString();
 }
 
 /**
@@ -210,10 +228,10 @@ export async function apiGet<T>(
   endpoint: string,
   params?: Record<string, any>,
   token?: string | null,
-  refreshToken?: () => Promise<string | null>
+  refreshToken?: () => Promise<string | null>,
 ): Promise<T> {
-  const url = buildUrl(endpoint, params)
-  console.log("[API Client] GET", url)
+  const url = buildUrl(endpoint, params);
+  console.log("[API Client] GET", url);
 
   return fetchWithRetry<T>(
     (authToken) =>
@@ -222,8 +240,8 @@ export async function apiGet<T>(
         headers: buildHeaders(authToken),
       }),
     token,
-    refreshToken
-  )
+    refreshToken,
+  );
 }
 
 /**
@@ -237,9 +255,9 @@ export async function apiPost<T>(
   endpoint: string,
   data?: any,
   token?: string | null,
-  refreshToken?: () => Promise<string | null>
+  refreshToken?: () => Promise<string | null>,
 ): Promise<T> {
-  const url = buildUrl(endpoint)
+  const url = buildUrl(endpoint);
 
   return fetchWithRetry<T>(
     (authToken) =>
@@ -249,8 +267,8 @@ export async function apiPost<T>(
         body: data ? JSON.stringify(data) : undefined,
       }),
     token,
-    refreshToken
-  )
+    refreshToken,
+  );
 }
 
 /**
@@ -264,9 +282,9 @@ export async function apiPut<T>(
   endpoint: string,
   data?: any,
   token?: string | null,
-  refreshToken?: () => Promise<string | null>
+  refreshToken?: () => Promise<string | null>,
 ): Promise<T> {
-  const url = buildUrl(endpoint)
+  const url = buildUrl(endpoint);
 
   return fetchWithRetry<T>(
     (authToken) =>
@@ -276,8 +294,8 @@ export async function apiPut<T>(
         body: data ? JSON.stringify(data) : undefined,
       }),
     token,
-    refreshToken
-  )
+    refreshToken,
+  );
 }
 
 /**
@@ -289,9 +307,9 @@ export async function apiPut<T>(
 export async function apiDelete<T = void>(
   endpoint: string,
   token?: string | null,
-  refreshToken?: () => Promise<string | null>
+  refreshToken?: () => Promise<string | null>,
 ): Promise<T> {
-  const url = buildUrl(endpoint)
+  const url = buildUrl(endpoint);
 
   return fetchWithRetry<T>(
     (authToken) =>
@@ -300,6 +318,6 @@ export async function apiDelete<T = void>(
         headers: buildHeaders(authToken),
       }),
     token,
-    refreshToken
-  )
+    refreshToken,
+  );
 }

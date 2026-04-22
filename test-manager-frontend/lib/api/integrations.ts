@@ -11,10 +11,10 @@
  * ```
  */
 
-import { apiGet } from "./client"
+import { apiGet } from "./client";
 
 export interface ConfigManagerUrl {
-  url: string
+  url: string;
 }
 
 export const integrationsApi = {
@@ -25,15 +25,15 @@ export const integrationsApi = {
   getConfigManagerUrl: (
     streamId?: string | null,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    const params = streamId ? { stream_id: streamId } : undefined
+    const params = streamId ? { stream_id: streamId } : undefined;
     return apiGet<ConfigManagerUrl>(
       "/integrations/config-manager-url",
       params,
       token,
-      refreshToken
-    )
+      refreshToken,
+    );
   },
 
   /**
@@ -45,38 +45,20 @@ export const integrationsApi = {
     configId?: string | null,
     configVersion?: number | null,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
-    const params: { config_id?: string; config_version?: number } = {}
-    if (configId) params.config_id = configId
+    const params: { config_id?: string; config_version?: number } = {};
+    if (configId) params.config_id = configId;
     if (configVersion !== null && configVersion !== undefined) {
-      params.config_version = configVersion
+      params.config_version = configVersion;
     }
-    const queryParams = Object.keys(params).length > 0 ? params : undefined
+    const queryParams = Object.keys(params).length > 0 ? params : undefined;
     return apiGet<ConfigManagerUrl>(
       "/integrations/config-manager-frontend-url",
       queryParams,
       token,
-      refreshToken
-    )
-  },
-
-  /**
-   * Get Data Lake Explorer URL
-   * @param testId - Optional test ID for filtering
-   */
-  getDataLakeUrl: (
-    testId?: string | null,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>
-  ) => {
-    const params = testId ? { test_id: testId } : undefined
-    return apiGet<ConfigManagerUrl>(
-      "/integrations/data-lake-url",
-      params,
-      token,
-      refreshToken
-    )
+      refreshToken,
+    );
   },
 
   /**
@@ -90,23 +72,23 @@ export const integrationsApi = {
     campaignId?: string | null,
     environmentId?: string | null,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
     const params: {
-      test_id?: string
-      campaign_id?: string
-      environment_id?: string
-    } = {}
-    if (testId) params.test_id = testId
-    if (campaignId) params.campaign_id = campaignId
-    if (environmentId) params.environment_id = environmentId
-    const queryParams = Object.keys(params).length > 0 ? params : undefined
+      test_id?: string;
+      campaign_id?: string;
+      environment_id?: string;
+    } = {};
+    if (testId) params.test_id = testId;
+    if (campaignId) params.campaign_id = campaignId;
+    if (environmentId) params.environment_id = environmentId;
+    const queryParams = Object.keys(params).length > 0 ? params : undefined;
     return apiGet<ConfigManagerUrl>(
       "/integrations/measurements-url",
       queryParams,
       token,
-      refreshToken
-    )
+      refreshToken,
+    );
   },
 
   /**
@@ -120,53 +102,23 @@ export const integrationsApi = {
     campaignId?: string | null,
     environmentId?: string | null,
     token?: string | null,
-    refreshToken?: () => Promise<string | null>
+    refreshToken?: () => Promise<string | null>,
   ) => {
     const params: {
-      test_id?: string
-      campaign_id?: string
-      environment_id?: string
-    } = {}
-    if (testId) params.test_id = testId
-    if (campaignId) params.campaign_id = campaignId
-    if (environmentId) params.environment_id = environmentId
-    const queryParams = Object.keys(params).length > 0 ? params : undefined
+      test_id?: string;
+      campaign_id?: string;
+      environment_id?: string;
+    } = {};
+    if (testId) params.test_id = testId;
+    if (campaignId) params.campaign_id = campaignId;
+    if (environmentId) params.environment_id = environmentId;
+    const queryParams = Object.keys(params).length > 0 ? params : undefined;
     return apiGet<ConfigManagerUrl>(
       "/integrations/analytics-url",
       queryParams,
       token,
-      refreshToken
-    )
+      refreshToken,
+    );
   },
 
-  /**
-   * Download test measurement data from DataLake
-   * Returns CSV text directly from Quix Lake Query API
-   * @param testId - Test ID for filtering
-   * @param campaignId - Campaign ID for filtering
-   * @param environmentId - Environment ID for filtering
-   */
-  downloadTestData: (
-    testId?: string | null,
-    campaignId?: string | null,
-    environmentId?: string | null,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>
-  ) => {
-    const params: {
-      test_id?: string
-      campaign_id?: string
-      environment_id?: string
-    } = {}
-    if (testId) params.test_id = testId
-    if (campaignId) params.campaign_id = campaignId
-    if (environmentId) params.environment_id = environmentId
-    const queryParams = Object.keys(params).length > 0 ? params : undefined
-    return apiGet<string>(
-      "/integrations/download-test-data",
-      queryParams,
-      token,
-      refreshToken
-    )
-  },
-}
+};

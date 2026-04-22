@@ -151,8 +151,11 @@ def delete_device(
     if not mongo.devices.find_one({"_id": device_id}):
         raise HTTPException(status_code=404, detail="Device not found")
 
-    # Check if referenced by tests
-    referencing = list(mongo.tests.find({"devices.device_id": device_id}, {"_id": 1}))
+    # Check if referenced by tests (as PC device or test rig)
+    referencing = list(mongo.tests.find(
+        {"$or": [{"pc_device_id": device_id}, {"test_rig_device_id": device_id}]},
+        {"_id": 1},
+    ))
     if referencing:
         test_ids = [t["_id"] for t in referencing[:5]]
         more = f" and {len(referencing) - 5} more" if len(referencing) > 5 else ""

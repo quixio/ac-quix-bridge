@@ -1,29 +1,34 @@
-"use client"
+"use client";
 
 /**
  * Pagination component
  * Displays page controls and page size selector
  */
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react"
-import type { PageSize } from "@/types/pagination"
-import { PAGE_SIZE_OPTIONS } from "@/types/pagination"
+} from "@/components/ui/select";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+} from "lucide-react";
+import type { PageSize } from "@/types/pagination";
+import { PAGE_SIZE_OPTIONS } from "@/types/pagination";
 
 interface PaginationProps {
-  page: number
-  pageSize: PageSize
-  total: number
-  totalPages: number
-  onPageChange: (page: number) => void
-  onPageSizeChange: (pageSize: PageSize) => void
+  page: number;
+  pageSize: PageSize;
+  total: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: PageSize) => void;
 }
 
 export function Pagination({
@@ -34,8 +39,8 @@ export function Pagination({
   onPageChange,
   onPageSizeChange,
 }: PaginationProps) {
-  const startItem = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const endItem = Math.min(page * pageSize, total)
+  const startItem = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endItem = Math.min(page * pageSize, total);
 
   return (
     <div className="flex items-center justify-between px-2 py-2">
@@ -55,7 +60,9 @@ export function Pagination({
           <p className="text-sm font-medium">Items per page</p>
           <Select
             value={pageSize.toString()}
-            onValueChange={(value) => onPageSizeChange(parseInt(value) as PageSize)}
+            onValueChange={(value) =>
+              onPageSizeChange(parseInt(value) as PageSize)
+            }
           >
             <SelectTrigger className="h-8 w-[70px]">
               <SelectValue placeholder={pageSize} />
@@ -116,5 +123,5 @@ export function Pagination({
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -24,20 +24,19 @@ dev = [
 	"pytest",
 	"pytest-cov",
 	"ruff",
-	"mypy",
+	"ty",
 	"httpx",
-	"testcontainers[mongodb,kafka]",
+	"testcontainers[mongodb]",
 ]
-
-[tool.mypy]
-strict = true
-
-[[tool.mypy.overrides]]
-module = "testcontainers.*"
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = "."
+filterwarnings = [
+	# api.models.Test is a Pydantic BaseModel; pytest's class collector flags
+	# it because the name starts with "Test". Narrow filter — any OTHER class
+	# that accidentally isn't collectable still emits a warning.
+	"ignore:cannot collect test class 'Test':pytest.PytestCollectionWarning",
+]
 
 [tool.uv.sources]
 quixportal = { index = "quix-public" }

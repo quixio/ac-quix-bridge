@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Output standalone for Docker production builds
-  output: 'standalone',
+  output: "standalone",
 
   // Enable React strict mode to catch bugs in development
   // Note: StrictMode intentionally double-invokes effects and renders to help identify side effects
@@ -17,16 +17,19 @@ const nextConfig = {
   async rewrites() {
     // Use API_URL from build-time or default to internal service name for Quix Cloud
     // The env var should be provided during Docker build via --build-arg
-    const backendUrl = process.env.API_URL || 'http://test-manager-backend'
+    const backendUrl = process.env.API_URL || "http://test-manager-backend";
 
-    console.log('[Next.js Config] Configuring rewrites with backend URL:', backendUrl)
+    console.log(
+      "[Next.js Config] Configuring rewrites with backend URL:",
+      backendUrl,
+    );
 
     return [
       {
-        source: '/api/v1/:path*',
+        source: "/api/v1/:path*",
         destination: `${backendUrl}/api/v1/:path*`,
       },
-    ]
+    ];
   },
 
   // Enable hot reload for WSL2/Docker development
@@ -35,10 +38,10 @@ const nextConfig = {
       config.watchOptions = {
         poll: 1000,
         aggregateTimeout: 300,
-      }
+      };
     }
-    return config
+    return config;
   },
-}
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
