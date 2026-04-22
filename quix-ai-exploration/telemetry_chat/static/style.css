@@ -140,6 +140,15 @@ header #new-chat {
   margin-left: auto;
 }
 
+header #dock-toggle {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 button.ghost {
   background: transparent;
   color: var(--text);
@@ -311,51 +320,81 @@ section#messages {
 }
 
 footer {
-  padding: 10px 12px;
-  display: flex;
-  gap: 8px;
+  padding: 10px 12px 12px;
   background: var(--panel);
   border-top: 1px solid var(--border);
 }
 
-textarea {
-  flex: 1;
-  min-height: 44px;
-  max-height: 160px;
-  resize: vertical;
-  background: var(--panel);
-  color: var(--text);
+.prompt-wrap {
+  position: relative;
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px;
+  border-radius: 10px;
+  transition: border-color 0.15s;
+}
+
+.prompt-wrap:focus-within {
+  border-color: var(--accent);
+}
+
+textarea#prompt {
+  width: 100%;
+  /* The textarea's own padding provides vertical breathing room around the
+     content so a single line sits visually centered without an empty strip
+     below. The right padding reserves space for the absolute-positioned
+     send button. */
+  padding: 14px 56px 14px 14px;
+  min-height: 20px; /* ≈ one line at line-height 1.4 × 14px font */
+  max-height: 200px;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  outline: none;
   font: inherit;
+  line-height: 1.4;
+  display: block;
+  box-sizing: border-box;
+}
+
+textarea#prompt::placeholder {
+  color: var(--muted);
 }
 
 button#send {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 36px;
+  height: 36px;
   background: var(--accent);
   color: white;
   border: none;
-  border-radius: 6px;
-  width: 44px;
-  min-height: 44px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
+  transition: background 0.15s;
 }
 
-button#send:hover {
+button#send:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
 button#send:disabled {
-  opacity: 0.5;
+  background: var(--border);
+  color: var(--muted);
   cursor: not-allowed;
 }
 
 button#send svg {
   display: block;
+  /* The send-arrow glyph's visual mass is biased toward top-right
+     (centroid ≈ 14.4, 9.6 in a 24×24 viewBox). Nudge down-left so it
+     reads as centered. */
+  transform: translate(-1.5px, 1.5px);
 }
 
 .thinking {

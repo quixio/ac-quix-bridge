@@ -111,11 +111,25 @@ function addClarifyChips(options, messageEl) {
  * @property {Chart[]} charts
  */
 
+/** Resize the textarea to fit its content, up to the CSS max-height. */
+function autoResize() {
+  els.prompt.style.height = "auto";
+  els.prompt.style.height = `${els.prompt.scrollHeight}px`;
+}
+
+/** Send is grey + disabled until there's trimmed input AND no in-flight request. */
+let sending = false;
+function refreshSendState() {
+  els.send.disabled = sending || !els.prompt.value.trim();
+}
+
 async function submit() {
   const text = els.prompt.value.trim();
-  if (!text) return;
+  if (!text || sending) return;
+  sending = true;
   els.prompt.value = "";
-  els.send.disabled = true;
+  autoResize();
+  refreshSendState();
 
   addMessage("user", text);
   const thinking = addThinking();
@@ -163,7 +177,8 @@ async function submit() {
     thinking.remove();
     addMessage("error", `Network error: ${/** @type {Error} */ (err).message}`);
   } finally {
-    els.send.disabled = false;
+    sending = false;
+    refreshSendState();
     els.prompt.focus();
   }
 }
@@ -239,6 +254,10 @@ els.prompt.addEventListener("keydown", (e) => {
     e.preventDefault();
     submit();
   }
+});
+els.prompt.addEventListener("input", () => {
+  autoResize();
+  refreshSendState();
 });
 for (const btn of document.querySelectorAll("#empty-state .suggestions button")) {
   btn.addEventListener("click", () => {
