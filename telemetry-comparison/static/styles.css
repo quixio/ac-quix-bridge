@@ -300,6 +300,15 @@ select:focus {
   align-self: start;
 }
 
+/* When the track map is collapsed, reflow the topbar to a single column so
+ * the video panel fills the full width and we don't leave a ~35% wide empty
+ * dark rectangle on the right. The collapsed map header sits on its own
+ * compact row above the video. `:has()` is supported in all current
+ * evergreen browsers (Chrome 105+, Firefox 121+, Safari 15.4+). */
+#topbar:has(#topbar-map[data-collapsed='true']) {
+  grid-template-columns: 1fr;
+}
+
 /* ---------- Video panel pieces that app.js toggles via style.display ---------
  * app.js flips display:'block'/'flex' on #video-player, #video-empty,
  * #video-controls, so we shouldn't rely on Tailwind's `hidden` class for those.
