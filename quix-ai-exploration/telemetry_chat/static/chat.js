@@ -17,6 +17,9 @@ const els = {
   plot: /** @type {HTMLElement} */ (document.getElementById("plot")),
   plotTitle: /** @type {HTMLElement} */ (document.getElementById("plot-title")),
   emptyState: /** @type {HTMLElement} */ (document.getElementById("empty-state")),
+  app: /** @type {HTMLElement} */ (document.querySelector(".app")),
+  divider: /** @type {HTMLElement} */ (document.getElementById("divider")),
+  dockToggle: /** @type {HTMLButtonElement} */ (document.getElementById("dock-toggle")),
 };
 
 /** @param {HTMLElement} el */
@@ -174,6 +177,60 @@ function newChat() {
   clearCharts(els.plot);
   els.prompt.focus();
 }
+
+// Layout: draggable divider + dock toggle.
+const CHAT_MIN_PX = 140;
+const CHAT_MAX_RATIO = 0.75;
+
+/**
+ * Resize all Plotly charts inside the plot pane. Called after a divider drag
+ * ends so charts re-layout to the new container size. responsive:true uses a
+ * ResizeObserver internally, but an explicit call avoids a perceptible delay.
+ */
+function resizePlots() {
+  for (const chart of Array.from(els.plot.children)) {
+    // @ts-ignore – Plotly from CDN script tag.
+    Plotly.Plots.resize(chart);
+  }
+}
+
+els.divider.addEventListener("mousedown", (e) => {
+  e.preventDefault();
+  const vertical = els.app.classList.contains("dock-right");
+  const startPos = vertical ? e.clientX : e.clientY;
+  const startSize = parseFloat(getComputedStyle(els.app).getPropertyValue("--chat-size"));
+  const viewport = vertical ? window.innerWidth : window.innerHeight;
+  const maxSize = viewport * CHAT_MAX_RATIO;
+  const onMove = /** @param {MouseEvent} ev */ (ev) => {
+    const delta = (vertical ? ev.clientX : ev.clientY) - startPos;
+    // Dragging toward the chat shrinks it, away from it grows it.
+    const next = Math.max(CHAT_MIN_PX, Math.min(maxSize, startSize - delta));
+    els.app.style.setProperty("--chat-size", `${next}px`);
+  };
+  const onUp = () => {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    document.body.style.userSelect = "";
+    els.divider.classList.remove("dragging");
+    resizePlots();
+  };
+  document.body.style.userSelect = "none";
+  els.divider.classList.add("dragging");
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+});
+
+els.dockToggle.addEventListener("click", () => {
+  const toRight = !els.app.classList.contains("dock-right");
+  els.app.classList.toggle("dock-right", toRight);
+  // Swap the divider's a11y orientation to match its cursor.
+  els.divider.setAttribute("aria-orientation", toRight ? "vertical" : "horizontal");
+  els.dockToggle.setAttribute("aria-label", toRight ? "Dock chat to bottom" : "Dock chat to right");
+  // Each mode has a different sensible default size.
+  els.app.style.setProperty("--chat-size", toRight ? "420px" : "240px");
+  // Defer until layout settles so Plotly picks up the new container size.
+  requestAnimationFrame(resizePlots);
+});
 
 els.send.addEventListener("click", submit);
 els.newChat.addEventListener("click", newChat);
