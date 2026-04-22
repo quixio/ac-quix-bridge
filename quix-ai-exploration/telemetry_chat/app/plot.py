@@ -1,15 +1,21 @@
-"""Plot orchestration — POST /api/plot.
+"""Plot orchestration — POST /api/plot streams progress as JSONL.
+
+Response is newline-delimited JSON so the frontend can render phase-level
+progress as it arrives. Event shapes:
+
+    {"event": "status",   "message": "...", "done?": int, "total?": int, "session_id?": str}
+    {"event": "clarify",  "session_id": str, "question": str, "options": list[str]}
+    {"event": "plot",     "session_id": str, "title": str, "track": str|null, "charts": [...]}
+    {"event": "error",    "session_id?": str, "detail": str, "status": int}
 
 Flow:
-  1. Validate request body.
-  2. First turn (no session_id): create Quix AI chat session + build the
-     first-turn message with instructions + channels + sessions.
+  1. Validate the request body (Pydantic).
+  2. First turn (no session_id): create a Quix AI chat session and build
+     the first-turn message with instructions + sessions list.
      Subsequent turns: reuse session_id + send raw user message.
-  3. Stream the agent's reply to a buffer, parse the final fenced JSON.
-  4. If `clarify`: return it to the frontend as-is.
-     If `plot`: fan out get_telemetry() per trace (concurrent, capped),
-                return {session_id, type: 'plot', title, signal, traces,
-                         track} where each trace has `{x, y, name, ...}`.
+  3. Emit "Looking up sessions" while the agent works, "Fetching telemetry
+     N/total" per completed lake fetch (via asyncio.as_completed for live
+     progress), and a final plot|clarify event.
 """
 
 from __future__ import annotations
@@ -18,10 +24,12 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import AsyncIterator
 from typing import Any, cast
 
 import httpx
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .channels import raw_channels
@@ -37,9 +45,8 @@ router = APIRouter(prefix="/api")
 MAX_TRACES = 6
 MAX_SIGNALS = 10
 SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
-# Agent's reply is a free-form message ending with ```json ... ```. The regex
-# captures the LAST fenced JSON block so the agent can "think out loud" before
-# committing to a final decision.
+# Agent's reply is free-form and ends with ```json ... ```. The regex captures
+# the LAST fenced JSON block so the agent can "think out loud" beforehand.
 JSON_FENCE_RE = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL)
 
 
@@ -58,10 +65,43 @@ class PlotRequest(BaseModel):
 
 
 @router.post("/plot")
-async def plot(req: PlotRequest) -> dict[str, Any]:
+async def plot(req: PlotRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _plot_events(req),
+        media_type="application/x-ndjson",
+        # Disable proxy/nginx buffering so the browser sees events in real
+        # time instead of one big chunk at the end.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ───────────────────────── event helpers ─────────────────────────
+
+
+def _event(obj: dict[str, Any]) -> bytes:
+    return (json.dumps(obj) + "\n").encode("utf-8")
+
+
+def _error_event(session_id: str | None, detail: str | Any, status: int = 502) -> bytes:
+    return _event(
+        {
+            "event": "error",
+            "session_id": session_id,
+            "detail": str(detail),
+            "status": status,
+        }
+    )
+
+
+# ───────────────────────── main stream ─────────────────────────
+
+
+async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
+    """Drive one /api/plot call end to end, yielding JSONL events."""
     async with httpx.AsyncClient(timeout=120.0) as client:
         session_id = req.session_id
         if session_id is None:
+            yield _event({"event": "status", "message": "Looking up sessions"})
             sessions = await get_sessions()
             session_id = await create_session(client)
             outbound = build_first_turn_message(
@@ -70,29 +110,114 @@ async def plot(req: PlotRequest) -> dict[str, Any]:
         else:
             outbound = req.message
 
+        yield _event(
+            {
+                "event": "status",
+                "message": "Looking up sessions",
+                "session_id": session_id,
+            }
+        )
         try:
             reply = await collect_text(client, session_id, outbound)
         except RuntimeError as e:
-            raise HTTPException(status_code=502, detail=str(e)) from e
+            yield _error_event(session_id, e)
+            return
 
-    parsed = _extract_json(reply)
+    try:
+        parsed = _extract_json(reply)
+    except HTTPException as e:
+        yield _error_event(session_id, e.detail, e.status_code)
+        return
+
     kind = parsed.get("type")
-
     if kind == "clarify":
-        return {
+        yield _event(
+            {
+                "event": "clarify",
+                "session_id": session_id,
+                "question": parsed.get("question", ""),
+                "options": parsed.get("options", []),
+            }
+        )
+        return
+    if kind != "plot":
+        yield _error_event(session_id, f"Agent returned unexpected type: {kind!r}")
+        return
+
+    try:
+        plan = _plan(parsed)
+    except HTTPException as e:
+        yield _error_event(session_id, e.detail, e.status_code)
+        return
+
+    signals: list[str] = plan["signals"]
+    traces_in: list[dict[str, Any]] = plan["traces"]
+    total = len(signals) * len(traces_in)
+    yield _event(
+        {
+            "event": "status",
+            "message": "Fetching telemetry",
+            "done": 0,
+            "total": total,
             "session_id": session_id,
-            "type": "clarify",
-            "question": parsed.get("question", ""),
-            "options": parsed.get("options", []),
         }
-
-    if kind == "plot":
-        return await _resolve_plot(session_id, parsed)
-
-    raise HTTPException(
-        status_code=502,
-        detail=f"Agent returned unexpected type: {kind!r}",
     )
+
+    # Pre-allocate result slots so trace order (and therefore colour order)
+    # is preserved regardless of completion order from as_completed.
+    charts_rows: list[list[dict[str, Any] | None]] = [
+        [None] * len(traces_in) for _ in signals
+    ]
+
+    async def _one(
+        si: int, ti: int, signal: str, trace: dict[str, Any]
+    ) -> tuple[int, int, dict[str, Any] | BaseException]:
+        try:
+            return (si, ti, await _fetch_one(trace, signal))
+        except BaseException as exc:  # noqa: BLE001 — we re-classify in the loop
+            return (si, ti, exc)
+
+    tasks = [
+        asyncio.create_task(_one(si, ti, signal, trace))
+        for si, signal in enumerate(signals)
+        for ti, trace in enumerate(traces_in)
+    ]
+
+    done = 0
+    for future in asyncio.as_completed(tasks):
+        si, ti, result = await future
+        if isinstance(result, BaseException):
+            logger.warning("signal=%s trace fetch failed: %s", signals[si], result)
+        else:
+            charts_rows[si][ti] = result
+        done += 1
+        yield _event(
+            {
+                "event": "status",
+                "message": "Fetching telemetry",
+                "done": done,
+                "total": total,
+                "session_id": session_id,
+            }
+        )
+
+    charts = [
+        {"signal": signals[si], "traces": [t for t in row if t is not None]}
+        for si, row in enumerate(charts_rows)
+    ]
+
+    yield _event(
+        {
+            "event": "plot",
+            "session_id": session_id,
+            "title": plan["title"],
+            "track": plan["track"],
+            "charts": charts,
+        }
+    )
+
+
+# ───────────────────────── parsing + validation ─────────────────────────
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -143,7 +268,13 @@ def _extract_signals(parsed: dict[str, Any]) -> list[str]:
     return signals
 
 
-async def _resolve_plot(session_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
+def _plan(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Validate a 'plot' JSON and return the plan (signals/traces/title/track).
+
+    Synchronous — runs all the cheap, deterministic checks before any lake
+    fetches so failures surface immediately as a 4xx/502, not as a silent
+    drop inside asyncio.gather.
+    """
     signals = _extract_signals(parsed)
     if len(signals) > MAX_SIGNALS:
         raise HTTPException(
@@ -151,32 +282,29 @@ async def _resolve_plot(session_id: str, parsed: dict[str, Any]) -> dict[str, An
             detail=f"Too many signals ({len(signals)}); cap is {MAX_SIGNALS}.",
         )
 
-    traces_in = parsed.get("traces")
-    if not isinstance(traces_in, list) or not traces_in:
+    raw_traces = parsed.get("traces")
+    if not isinstance(raw_traces, list) or not raw_traces:
         raise HTTPException(status_code=502, detail="plot.traces missing or empty")
-    if len(traces_in) > MAX_TRACES:
+    if len(raw_traces) > MAX_TRACES:
         raise HTTPException(
             status_code=400,
-            detail=f"Too many traces ({len(traces_in)}); cap is {MAX_TRACES}. "
+            detail=f"Too many traces ({len(raw_traces)}); cap is {MAX_TRACES}. "
             "Ask the agent to narrow the selection.",
         )
 
-    # Validate every trace upfront so malformed entries surface as a 502
-    # here, not as a silent drop inside asyncio.gather(return_exceptions=True).
-    for i, raw in enumerate(traces_in):
+    traces: list[dict[str, Any]] = []
+    for i, raw in enumerate(raw_traces):
         if not isinstance(raw, dict):
             raise HTTPException(status_code=502, detail=f"trace[{i}] not an object")
-        # `dict` is invariant in its key type; after narrowing, ty views `raw`
-        # as `dict[Unknown, Unknown]` and won't auto-widen to `dict[str, Any]`.
-        # Values are genuinely dynamic here (JSON from the LLM), so cast.
         trace = cast(dict[str, Any], raw)
         if not isinstance(trace.get("lap"), int):
             raise HTTPException(
                 status_code=502,
                 detail=f"trace[{i}].lap must be int, got {trace.get('lap')!r}",
             )
+        traces.append(trace)
 
-    tracks = {t["track"] for t in traces_in if isinstance(t, dict) and t.get("track")}
+    tracks = {t["track"] for t in traces if t.get("track")}
     if len(tracks) > 1:
         raise HTTPException(
             status_code=400,
@@ -184,39 +312,16 @@ async def _resolve_plot(session_id: str, parsed: dict[str, Any]) -> dict[str, An
             "normalizedCarPosition overlay is meaningless across tracks.",
         )
 
-    # Fan out signals × traces in one asyncio.gather — peak 10 × 6 = 60 concurrent
-    # lake queries. httpx's lake pool is sized to 80 for this (see lake.py).
-    jobs = [(signal, trace) for signal in signals for trace in traces_in]
-    fetched = await asyncio.gather(
-        *(_fetch_one(trace, signal) for signal, trace in jobs),
-        return_exceptions=True,
-    )
-
-    # Bucket results back into one chart per signal.
-    charts: list[dict[str, Any]] = []
-    idx = 0
-    for signal in signals:
-        resolved: list[dict[str, Any]] = []
-        for _ in traces_in:
-            result = fetched[idx]
-            idx += 1
-            if isinstance(result, BaseException):
-                logger.warning("signal=%s trace fetch failed: %s", signal, result)
-                continue
-            resolved.append(result)
-        charts.append({"signal": signal, "traces": resolved})
-
     return {
-        "session_id": session_id,
-        "type": "plot",
+        "signals": signals,
+        "traces": traces,
         "title": parsed.get("title", ""),
         "track": next(iter(tracks), None),
-        "charts": charts,
     }
 
 
 async def _fetch_one(trace: dict[str, Any], signal: str) -> dict[str, Any]:
-    # Shape pre-validated by _resolve_plot before the fan-out; `lap` is int.
+    # Shape pre-validated by _plan before the fan-out; `lap` is int.
     lap = trace["lap"]
     data = await get_telemetry(
         lap=lap,

@@ -1,17 +1,16 @@
-"""Unit tests for plot.py JSON extraction + validation paths.
+"""Unit tests for plot.py JSON extraction + plan validation.
 
-Integration (real /api/plot against a live Quix AI + lake) is out of scope
-for the unit suite — those belong in a slow/integration marker.
+The streaming generator `_plot_events` is covered by end-to-end tests
+against a live Quix AI + lake (out of scope for the unit suite); here we
+test the synchronous validation helpers it delegates to.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from fastapi import HTTPException
 
-from app.plot import _extract_json, _resolve_plot
+from app.plot import _extract_json, _plan
 
 
 def test_extract_json_picks_last_fenced_block() -> None:
@@ -54,7 +53,7 @@ def test_extract_json_raises_when_not_object() -> None:
     assert exc.value.status_code == 502
 
 
-async def test_resolve_plot_rejects_unknown_signal() -> None:
+def test_plan_rejects_unknown_signal() -> None:
     parsed = {
         "type": "plot",
         "title": "x",
@@ -62,48 +61,22 @@ async def test_resolve_plot_rejects_unknown_signal() -> None:
         "traces": [{"lap": 1, "session_id": "abc"}],
     }
     with pytest.raises(HTTPException) as exc:
-        await _resolve_plot("sid", parsed)
+        _plan(parsed)
     assert exc.value.status_code == 502
     assert "not a known channel" in exc.value.detail
 
 
-async def test_resolve_plot_strips_unit_bracket_from_signal(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Agent sometimes copies the condensed-prompt display string (with unit
-    # bracket) into the signal field. Strip before validating so the known-
-    # channel check passes against the bare name.
-    async def fake_get_telemetry(**kwargs: Any) -> dict[str, Any]:
-        assert kwargs["signals"] == ["speedKmh"], (
-            f"expected stripped signal, got {kwargs['signals']!r}"
-        )
-        return {"data": {"normalizedCarPosition": [], "speedKmh": []}, "count": 0}
-
-    monkeypatch.setattr("app.plot.get_telemetry", fake_get_telemetry)
-
+def test_plan_strips_unit_bracket_from_signal() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh[km/h]"],
         "traces": [{"lap": 1, "track": "t", "session_id": "s"}],
     }
-    result = await _resolve_plot("sid", parsed)
-    assert result["charts"][0]["signal"] == "speedKmh"
+    plan = _plan(parsed)
+    assert plan["signals"] == ["speedKmh"]
 
 
-async def test_resolve_plot_supports_multiple_signals(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Multi-signal request fans out to N × M lake fetches; result bucketed
-    # back into one chart per signal.
-    seen_signals: list[str] = []
-
-    async def fake_get_telemetry(**kwargs: Any) -> dict[str, Any]:
-        signal = kwargs["signals"][0]
-        seen_signals.append(signal)
-        return {"data": {"normalizedCarPosition": [0.0], signal: [1.0]}, "count": 1}
-
-    monkeypatch.setattr("app.plot.get_telemetry", fake_get_telemetry)
-
+def test_plan_accepts_multiple_signals() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh", "gas", "brake"],
@@ -112,15 +85,39 @@ async def test_resolve_plot_supports_multiple_signals(
             {"lap": 2, "track": "t", "session_id": "s"},
         ],
     }
-    result = await _resolve_plot("sid", parsed)
-    assert len(result["charts"]) == 3
-    assert [c["signal"] for c in result["charts"]] == ["speedKmh", "gas", "brake"]
-    # 3 signals × 2 traces = 6 fetches
-    assert len(seen_signals) == 6
+    plan = _plan(parsed)
+    assert plan["signals"] == ["speedKmh", "gas", "brake"]
+    assert len(plan["traces"]) == 2
+    assert plan["track"] == "t"
 
 
-async def test_resolve_plot_caps_too_many_signals() -> None:
-    # 11 real channels — one above the MAX_SIGNALS = 10 cap.
+def test_plan_rejects_missing_signal() -> None:
+    parsed: dict = {"type": "plot", "title": "x", "traces": [{"lap": 1}]}
+    with pytest.raises(HTTPException) as exc:
+        _plan(parsed)
+    assert exc.value.status_code == 502
+
+
+def test_plan_rejects_empty_traces() -> None:
+    parsed = {"type": "plot", "signals": ["speedKmh"], "traces": []}
+    with pytest.raises(HTTPException) as exc:
+        _plan(parsed)
+    assert exc.value.status_code == 502
+
+
+def test_plan_caps_too_many_traces() -> None:
+    parsed = {
+        "type": "plot",
+        "signals": ["speedKmh"],
+        "traces": [{"lap": i, "track": "t", "session_id": "s"} for i in range(10)],
+    }
+    with pytest.raises(HTTPException) as exc:
+        _plan(parsed)
+    assert exc.value.status_code == 400
+    assert "Too many traces" in exc.value.detail
+
+
+def test_plan_caps_too_many_signals() -> None:
     parsed = {
         "type": "plot",
         "signals": [
@@ -139,53 +136,24 @@ async def test_resolve_plot_caps_too_many_signals() -> None:
         "traces": [{"lap": 1, "track": "t", "session_id": "s"}],
     }
     with pytest.raises(HTTPException) as exc:
-        await _resolve_plot("sid", parsed)
+        _plan(parsed)
     assert exc.value.status_code == 400
     assert "Too many signals" in exc.value.detail
 
 
-async def test_resolve_plot_rejects_missing_signal() -> None:
-    parsed: dict = {"type": "plot", "title": "x", "traces": [{"lap": 1}]}
-    with pytest.raises(HTTPException) as exc:
-        await _resolve_plot("sid", parsed)
-    assert exc.value.status_code == 502
-
-
-async def test_resolve_plot_rejects_empty_traces() -> None:
-    parsed = {"type": "plot", "signal": "speedKmh", "traces": []}
-    with pytest.raises(HTTPException) as exc:
-        await _resolve_plot("sid", parsed)
-    assert exc.value.status_code == 502
-
-
-async def test_resolve_plot_caps_too_many_traces() -> None:
-    parsed = {
-        "type": "plot",
-        "signals": ["speedKmh"],
-        "traces": [{"lap": i, "track": "t", "session_id": "s"} for i in range(10)],
-    }
-    with pytest.raises(HTTPException) as exc:
-        await _resolve_plot("sid", parsed)
-    assert exc.value.status_code == 400
-    assert "Too many traces" in exc.value.detail
-
-
-async def test_resolve_plot_rejects_non_int_lap_synchronously() -> None:
-    # Pre-validation must raise before fan-out — a non-int lap inside
-    # asyncio.gather(return_exceptions=True) would otherwise be swallowed
-    # and silently drop the trace.
+def test_plan_rejects_non_int_lap() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh"],
         "traces": [{"lap": "one", "track": "t", "session_id": "s"}],
     }
     with pytest.raises(HTTPException) as exc:
-        await _resolve_plot("sid", parsed)
+        _plan(parsed)
     assert exc.value.status_code == 502
     assert "lap" in exc.value.detail
 
 
-async def test_resolve_plot_rejects_cross_track() -> None:
+def test_plan_rejects_cross_track() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh"],
@@ -195,6 +163,6 @@ async def test_resolve_plot_rejects_cross_track() -> None:
         ],
     }
     with pytest.raises(HTTPException) as exc:
-        await _resolve_plot("sid", parsed)
+        _plan(parsed)
     assert exc.value.status_code == 400
     assert "multiple tracks" in exc.value.detail

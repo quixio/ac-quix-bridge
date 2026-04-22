@@ -397,19 +397,29 @@ button#send svg {
   transform: translate(-1.5px, 1.5px);
 }
 
-.thinking {
+#progress {
+  padding: 60px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   color: var(--muted);
-  font-style: italic;
+  font-size: 14px;
+  flex-shrink: 0;
 }
 
-.thinking::after {
-  content: "▍";
-  margin-left: 2px;
-  animation: blink 1s steps(2) infinite;
+#progress .spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+  display: inline-block;
 }
 
-@keyframes blink {
-  50% {
-    opacity: 0;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }

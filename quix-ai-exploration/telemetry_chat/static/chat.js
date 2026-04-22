@@ -48,14 +48,35 @@ function addMessage(role, text) {
   return div;
 }
 
-/** @returns {HTMLElement} */
-function addThinking() {
-  const div = document.createElement("div");
-  div.className = "msg assistant thinking";
-  div.textContent = "thinking";
-  els.messages.appendChild(div);
-  scrollBottom(els.messages);
-  return div;
+/**
+ * Show a spinner + label inside the plot pane. Replaces any existing
+ * progress node so multi-event streams don't stack.
+ * @param {string} label
+ * @param {number=} done
+ * @param {number=} total
+ */
+function showProgress(label, done, total) {
+  els.emptyState.classList.add("hidden");
+  clearCharts(els.plot);
+  let prog = /** @type {HTMLElement | null} */ (document.getElementById("progress"));
+  if (!prog) {
+    prog = document.createElement("div");
+    prog.id = "progress";
+    prog.className = "progress";
+    prog.innerHTML = '<span class="spinner"></span><span class="label"></span>';
+    const parent = /** @type {HTMLElement} */ (els.plot.parentElement);
+    parent.insertBefore(prog, els.plot);
+  }
+  const labelEl = /** @type {HTMLElement} */ (prog.querySelector(".label"));
+  const parts = [label];
+  if (typeof done === "number" && typeof total === "number") {
+    parts.push(`${done}/${total} traces`);
+  }
+  labelEl.textContent = parts.join(" — ");
+}
+
+function hideProgress() {
+  document.getElementById("progress")?.remove();
 }
 
 /**
@@ -79,13 +100,6 @@ function addClarifyChips(options, messageEl) {
 }
 
 /**
- * @typedef {Object} ClarifyResponse
- * @property {"clarify"} type
- * @property {string} session_id
- * @property {string} question
- * @property {string[]} options
- */
-/**
  * @typedef {Object} PlotTrace
  * @property {string} session_id
  * @property {number} lap
@@ -103,12 +117,34 @@ function addClarifyChips(options, messageEl) {
  * @property {PlotTrace[]} traces
  */
 /**
- * @typedef {Object} PlotResponse
- * @property {"plot"} type
+ * @typedef {Object} PlotEvent
+ * @property {"plot"} event
  * @property {string} session_id
  * @property {string} title
- * @property {string=} track
+ * @property {string|null=} track
  * @property {Chart[]} charts
+ */
+/**
+ * @typedef {Object} ClarifyEvent
+ * @property {"clarify"} event
+ * @property {string} session_id
+ * @property {string} question
+ * @property {string[]} options
+ */
+/**
+ * @typedef {Object} StatusEvent
+ * @property {"status"} event
+ * @property {string=} session_id
+ * @property {string} message
+ * @property {number=} done
+ * @property {number=} total
+ */
+/**
+ * @typedef {Object} ErrorEvent
+ * @property {"error"} event
+ * @property {string=} session_id
+ * @property {string} detail
+ * @property {number=} status
  */
 
 /** Resize the textarea to fit its content, up to the CSS max-height. */
@@ -132,7 +168,7 @@ async function submit() {
   refreshSendState();
 
   addMessage("user", text);
-  const thinking = addThinking();
+  showProgress("Looking up sessions");
 
   try {
     const res = await fetch("/api/plot", {
@@ -140,47 +176,92 @@ async function submit() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, session_id: sessionId }),
     });
-    thinking.remove();
 
-    if (!res.ok) {
+    if (!res.ok || !res.body) {
+      hideProgress();
       const detail = await res.text();
       addMessage("error", `Backend error (${res.status}): ${detail.slice(0, 400)}`);
       return;
     }
 
-    const data = /** @type {ClarifyResponse | PlotResponse} */ (await res.json());
-    sessionId = data.session_id;
-
-    if (data.type === "clarify") {
-      const msg = addMessage("assistant", data.question);
-      addClarifyChips(data.options || [], msg);
-      return;
-    }
-
-    if (data.type === "plot") {
-      const signals = data.charts.map((c) => c.signal).join(", ");
-      const counts = data.charts.map((c) => c.traces.length);
-      const min = Math.min(...counts);
-      const max = Math.max(...counts);
-      const countStr = min === max ? `${max}` : `${min}–${max}`;
-      const summary =
-        data.charts.length === 1
-          ? `Plotted ${max} trace(s) of ${signals}.`
-          : `Plotted ${data.charts.length} charts (${signals}), ${countStr} trace(s) per chart.`;
-      addMessage("assistant", summary);
-      els.emptyState.classList.add("hidden");
-      els.plotTitle.textContent = data.title || "";
-      els.plotTitle.classList.toggle("visible", Boolean(data.title));
-      await renderCharts(els.plot, data.charts);
-    }
+    await readEventStream(res.body);
   } catch (err) {
-    thinking.remove();
+    hideProgress();
     addMessage("error", `Network error: ${/** @type {Error} */ (err).message}`);
   } finally {
     sending = false;
     refreshSendState();
     els.prompt.focus();
   }
+}
+
+/**
+ * Read newline-delimited JSON events from the /api/plot response body.
+ * Each complete line is dispatched to `handleEvent` as it arrives.
+ * @param {ReadableStream<Uint8Array>} body
+ */
+async function readEventStream(body) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    // The last fragment may be incomplete — keep it for the next read.
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) handleEvent(JSON.parse(trimmed));
+    }
+  }
+  const tail = buffer.trim();
+  if (tail) handleEvent(JSON.parse(tail));
+}
+
+/**
+ * @param {StatusEvent | ClarifyEvent | PlotEvent | ErrorEvent} evt
+ */
+function handleEvent(evt) {
+  if (evt.session_id) sessionId = evt.session_id;
+  switch (evt.event) {
+    case "status":
+      showProgress(evt.message, evt.done, evt.total);
+      break;
+    case "clarify": {
+      hideProgress();
+      const msg = addMessage("assistant", evt.question);
+      addClarifyChips(evt.options || [], msg);
+      break;
+    }
+    case "plot":
+      hideProgress();
+      renderPlotEvent(evt);
+      break;
+    case "error":
+      hideProgress();
+      addMessage("error", `${evt.detail}${evt.status ? ` (${evt.status})` : ""}`.slice(0, 500));
+      break;
+  }
+}
+
+/** @param {PlotEvent} data */
+async function renderPlotEvent(data) {
+  const signals = data.charts.map((c) => c.signal).join(", ");
+  const counts = data.charts.map((c) => c.traces.length);
+  const min = Math.min(...counts);
+  const max = Math.max(...counts);
+  const countStr = min === max ? `${max}` : `${min}–${max}`;
+  const summary =
+    data.charts.length === 1
+      ? `Plotted ${max} trace(s) of ${signals}.`
+      : `Plotted ${data.charts.length} charts (${signals}), ${countStr} trace(s) per chart.`;
+  addMessage("assistant", summary);
+  els.emptyState.classList.add("hidden");
+  els.plotTitle.textContent = data.title || "";
+  els.plotTitle.classList.toggle("visible", Boolean(data.title));
+  await renderCharts(els.plot, data.charts);
 }
 
 function newChat() {
