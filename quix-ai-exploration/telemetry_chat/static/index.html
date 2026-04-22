@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Telemetry Chat</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Telemetry Chat</h1>
+        <span class="meta">ask – plot</span>
+        <button id="new-chat" class="ghost" type="button">New chat</button>
+      </header>
+      <main id="plot-area">
+        <div id="empty-state">
+          <p>Ask me to plot telemetry data from the Quix Lake.</p>
+          <div class="suggestions">
+            <button type="button" data-prompt="Plot speed for all ludvik's laps in BMW">
+              speed – ludvik BMW
+            </button>
+            <button type="button" data-prompt="Show tyre temps for daniel's last session">
+              tyre temps – daniel
+            </button>
+            <button type="button" data-prompt="Compare throttle across all drivers at Nürburgring">
+              throttle – all drivers Nürburgring
+            </button>
+          </div>
+        </div>
+        <div id="plot-title"></div>
+        <div id="plot"></div>
+      </main>
+      <section id="messages"></section>
+      <footer>
+        <textarea id="prompt" placeholder="Plot me all ludvik's laps in BMW…" rows="2"></textarea>
+        <button id="send" type="button" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+          </svg>
+        </button>
+      </footer>
+    </div>
+    <script type="module" src="/static/chat.js"></script>
+  </body>
+</html>

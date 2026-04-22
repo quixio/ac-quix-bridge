@@ -1,0 +1,25 @@
+{
+  "name": "telemetry-chat-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "type-check": "tsc --noEmit -p jsconfig.json",
+    "lint": "eslint static/",
+    "lint:fix": "eslint static/ --fix",
+    "format": "prettier --write \"static/**/*.{js,html,css}\"",
+    "format:check": "prettier --check \"static/**/*.{js,html,css}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run type-check && npm run lint && npm run format:check && npm run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0",
+    "happy-dom": "^15.11.7",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
