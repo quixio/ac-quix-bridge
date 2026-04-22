@@ -5,6 +5,7 @@ calls this directly for each LLM-proposed trace."""
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -76,7 +77,16 @@ async def get_telemetry(
             {where}
             LIMIT {ROW_LIMIT}
         """
+        t0 = time.monotonic()
         df = await lake_query(sql)
+        logger.debug(
+            "lake lap=%d session=%s signals=%s -> %d rows in %.0fms",
+            lap,
+            session_id[-12:] if session_id else "",
+            signals,
+            len(df),
+            (time.monotonic() - t0) * 1000,
+        )
         df = df.sort_values("normalizedCarPosition").reset_index(drop=True)
         df = sanitize_df(df)
 

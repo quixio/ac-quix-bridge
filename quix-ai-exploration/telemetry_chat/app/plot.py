@@ -24,6 +24,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
@@ -83,6 +84,7 @@ def _event(obj: dict[str, Any]) -> bytes:
 
 
 def _error_event(session_id: str | None, detail: str | Any, status: int = 502) -> bytes:
+    logger.warning("plot error: %s (status=%d, session=%s)", detail, status, session_id)
     return _event(
         {
             "event": "error",
@@ -98,6 +100,13 @@ def _error_event(session_id: str | None, detail: str | Any, status: int = 502) -
 
 async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
     """Drive one /api/plot call end to end, yielding JSONL events."""
+    t_start = time.monotonic()
+    logger.info(
+        "plot start: msg=%r session=%s",
+        req.message[:80],
+        req.session_id or "<new>",
+    )
+
     async with httpx.AsyncClient(timeout=120.0) as client:
         session_id = req.session_id
         if session_id is None:
@@ -122,6 +131,7 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
         except RuntimeError as e:
             yield _error_event(session_id, e)
             return
+    t_after_agent = time.monotonic()
 
     try:
         parsed = _extract_json(reply)
@@ -131,6 +141,11 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
 
     kind = parsed.get("type")
     if kind == "clarify":
+        logger.info(
+            "plot clarify in %.1fs: %s",
+            time.monotonic() - t_start,
+            str(parsed.get("question", ""))[:100],
+        )
         yield _event(
             {
                 "event": "clarify",
@@ -153,6 +168,13 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
     signals: list[str] = plan["signals"]
     traces_in: list[dict[str, Any]] = plan["traces"]
     total = len(signals) * len(traces_in)
+    logger.info(
+        "plot plan: signals=%s traces=%d track=%s (agent %.1fs)",
+        signals,
+        len(traces_in),
+        plan["track"],
+        t_after_agent - t_start,
+    )
     yield _event(
         {
             "event": "status",
@@ -205,6 +227,17 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
         {"signal": signals[si], "traces": [t for t in row if t is not None]}
         for si, row in enumerate(charts_rows)
     ]
+    t_end = time.monotonic()
+    failures = total - sum(len(c["traces"]) for c in charts)
+    logger.info(
+        "plot done in %.1fs (agent %.1fs + fan-out %.1fs): %d charts × %d traces%s",
+        t_end - t_start,
+        t_after_agent - t_start,
+        t_end - t_after_agent,
+        len(charts),
+        len(traces_in),
+        f", {failures} fetch failure(s)" if failures else "",
+    )
 
     yield _event(
         {
