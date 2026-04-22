@@ -4,129 +4,288 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Telemetry Explorer</title>
+
+    <!-- Plotly (unchanged) -->
     <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+
+    <!-- Tailwind via Play CDN (dev mode; no build step). JIT scans the DOM on
+         mutation so dynamically inserted class strings are fine, provided the
+         class names appear as whole literals somewhere the JIT can see them. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              bg: '#0f1117',
+              surface: '#1a1d27',
+              brd: '#2d3047',
+              muted: '#8892a4',
+              accent: '#4f8ef7',
+              ok: '#34d399',
+              warn: '#f59e0b',
+              danger: '#f87171',
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- interact.js — drag + resize for the floating video overlay -->
+    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+
+    <!-- Trimmed stylesheet: keyframes, scrollbar, Plotly overrides only. -->
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
-  <body>
-    <!-- ============ TOP BAR (fixed) ============ -->
-    <div class="topbar" id="topbar">
-      <!-- VIDEO panel (left, 65%) -->
-      <div class="topbar-panel" id="topbar-video">
-        <div class="topbar-head">
-          <div class="panel-title">Video</div>
-          <div style="display: flex; gap: 0.4rem; align-items: center">
-            <div class="video-controls" id="video-controls" style="display: none">
-              <select id="video-lap-select" class="video-lap-select" disabled onchange="onVideoLapChange(this.value)">
-                <option value="">— pick laps and Plot —</option>
-              </select>
-              <label class="video-speed-label"
-                >Speed
-                <select id="video-speed" class="video-lap-select" onchange="onVideoSpeedChange(this.value)">
-                  <option value="1" selected>Realtime</option>
-                  <option value="2">2x</option>
-                  <option value="5">5x</option>
-                </select>
-              </label>
-              <div id="video-status" class="video-status"></div>
+  <body
+    data-video-mode="docked"
+    class="min-h-screen bg-bg text-slate-200 font-sans text-sm flex flex-col"
+  >
+    <!-- =====================================================================
+         TOP BAR — flex child (not fixed). Collapses vertically to 1 column
+         below the lg breakpoint so laptops don't get crushed.
+         ===================================================================== -->
+    <header
+      id="topbar"
+      class="grid grid-cols-1 lg:grid-cols-[65fr_35fr] gap-3 p-3 border-b border-brd bg-bg shadow-[0_4px_12px_rgba(0,0,0,0.4)] lg:h-[clamp(380px,45vh,540px)]"
+    >
+      <!-- ---------- VIDEO DOCK SLOT (panel lives here when docked) ---------- -->
+      <div
+        id="video-dock-slot"
+        class="min-w-0 min-h-0 flex"
+        data-hidden-when-floating
+      >
+        <!-- VIDEO PANEL (reparented between dock/float slots) -->
+        <section
+          id="video-panel"
+          class="w-full min-w-0 min-h-0 flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden relative"
+        >
+          <header
+            id="video-panel-head"
+            class="flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-brd select-none"
+          >
+            <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
+              Video
             </div>
-            <button
-              class="panel-collapse-btn"
-              id="btn-collapse-video"
-              onclick="toggleTopbarPanel('topbar-video', this)"
-              title="Collapse"
+            <div class="flex gap-1.5 items-center flex-wrap">
+              <div
+                id="video-controls"
+                class="hidden items-center gap-2 text-[0.7rem] text-muted"
+              >
+                <select
+                  id="video-lap-select"
+                  class="bg-[#0b0d13] text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem] disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled
+                  onchange="onVideoLapChange(this.value)"
+                >
+                  <option value="">&mdash; pick laps and Plot &mdash;</option>
+                </select>
+                <label class="flex items-center gap-1.5">
+                  Speed
+                  <select
+                    id="video-speed"
+                    class="bg-[#0b0d13] text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem]"
+                    onchange="onVideoSpeedChange(this.value)"
+                  >
+                    <option value="1" selected>Realtime</option>
+                    <option value="2">2x</option>
+                    <option value="5">5x</option>
+                  </select>
+                </label>
+                <div
+                  id="video-status"
+                  class="text-[0.62rem] text-muted leading-tight min-h-[0.9rem]"
+                ></div>
+              </div>
+              <button
+                id="btn-video-float"
+                class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
+                title="Float video"
+                onclick="toggleVideoFloat()"
+              >
+                Float
+              </button>
+            </div>
+          </header>
+          <div
+            id="video-panel-body"
+            class="flex-1 min-h-0 px-3 pt-2 pb-2.5 flex flex-col gap-2 items-center justify-center"
+          >
+            <video
+              id="video-player"
+              class="hidden bg-black rounded-md object-contain w-auto h-auto max-w-full max-h-full aspect-video"
+              controls
+              preload="metadata"
+            ></video>
+            <div
+              id="video-empty"
+              class="aspect-video max-w-full max-h-full w-auto h-auto bg-[#0b0d13] border border-dashed border-brd rounded-lg flex items-center justify-center text-muted text-center p-2 text-[0.7rem] leading-tight"
             >
-              -
-            </button>
+              No lap selected
+            </div>
           </div>
-        </div>
-        <div class="topbar-body">
-          <video id="video-player" class="video-player" controls preload="metadata" style="display: none"></video>
-          <div id="video-empty" class="video-empty">No lap selected</div>
-        </div>
+        </section>
       </div>
 
-      <!-- TRACK MAP panel (right, 35%) -->
-      <div class="topbar-panel map-panel" id="topbar-map">
-        <div class="topbar-head">
-          <div class="panel-title">Track Map</div>
+      <!-- ---------- TRACK MAP panel ---------- -->
+      <section
+        id="topbar-map"
+        data-collapsible
+        class="min-w-0 min-h-0 flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden"
+      >
+        <header class="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-brd">
+          <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
+            Track Map
+          </div>
           <button
-            class="panel-collapse-btn"
             id="btn-collapse-map"
-            onclick="toggleTopbarPanel('topbar-map', this)"
+            class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
             title="Collapse"
+            onclick="toggleTopbarPanel('topbar-map', this)"
           >
             -
           </button>
-        </div>
-        <div class="topbar-body">
-          <div class="map-body-row">
-            <div id="track-map"></div>
-            <div id="corner-legend"></div>
+        </header>
+        <div
+          data-collapsible-body
+          class="flex-1 min-h-0 px-2 pt-1.5 pb-2 flex flex-col gap-1"
+        >
+          <div class="flex flex-1 min-h-0 gap-1.5">
+            <div id="track-map" class="flex-1 min-h-0 min-w-0"></div>
+            <div
+              id="corner-legend"
+              class="w-[160px] shrink-0 overflow-y-auto border-l border-brd px-1.5 py-1 text-[10px] leading-[1.6]"
+            ></div>
           </div>
-          <div class="zoom-row">
+          <div class="flex items-center gap-2 px-1 text-[0.65rem] text-muted">
             <span>Zoom</span>
             <input
               type="range"
               id="track-zoom"
+              class="flex-1 accent-accent"
               min="1"
               max="8"
               step="0.1"
               value="1"
               oninput="onZoomChange(this.value)"
             />
-            <span class="zoom-val" id="track-zoom-val">1.0x</span>
+            <span
+              id="track-zoom-val"
+              class="text-slate-200 min-w-[2.2rem] text-right tabular-nums"
+              >1.0x</span
+            >
           </div>
         </div>
-      </div>
+      </section>
+    </header>
+
+    <!-- =====================================================================
+         VIDEO FLOAT SLOT — hidden until user clicks "Float". interact.js
+         drags/resizes this container; panel lives inside it when floating.
+         ===================================================================== -->
+    <div
+      id="video-float-slot"
+      class="hidden fixed z-40 touch-none"
+      style="top: 16px; right: 16px; width: 480px; height: 270px"
+    ></div>
+
+    <!-- =====================================================================
+         READOUT STRIP — sticky under the top bar.
+         ===================================================================== -->
+    <div
+      id="track-readout"
+      class="sticky top-0 z-30 bg-bg/85 backdrop-blur-[6px] border-b border-brd px-5 py-2 flex gap-[1.2rem] items-center text-[0.72rem]"
+    >
+      <span
+        id="readout-pos-text"
+        class="text-accent font-semibold tabular-nums"
+        >0.0%</span
+      >
     </div>
 
-    <!-- ============ READOUT STRIP (sticky) ============ -->
-    <div class="readout-strip" id="track-readout">
-      <span class="readout-pos" id="readout-pos-text">0.0%</span>
-    </div>
-
-    <!-- ============ SCROLLING CONTENT ============ -->
-    <div class="content">
-      <h1>Telemetry <span>Explorer</span></h1>
+    <!-- =====================================================================
+         SCROLLING CONTENT — capped width on ultrawide for readability.
+         ===================================================================== -->
+    <main class="flex-1 w-full max-w-screen-2xl mx-auto px-4 md:px-6 xl:px-8 py-4 pb-10">
+      <h1 class="text-[1.15rem] font-semibold mb-[0.9rem]">
+        Telemetry <span class="text-accent">Explorer</span>
+      </h1>
 
       <!-- Session/Lap selection -->
-      <div class="panel" id="panel-sessions">
-        <div class="panel-header">
-          <div class="panel-title">Select sessions and laps to overlay</div>
-          <button class="panel-collapse-btn" onclick="togglePanel('panel-sessions', this)">-</button>
-        </div>
-        <div class="panel-body">
-          <div class="selections" id="selections"></div>
-          <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem">
-            <button class="btn btn-sm btn-add" onclick="addRow()">+ Add Session</button>
-            <button class="btn btn-sm" onclick="plot()" id="btn-plot">Plot</button>
+      <section
+        id="panel-sessions"
+        data-collapsible
+        class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4"
+      >
+        <header class="flex justify-between items-center mb-3">
+          <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
+            Select sessions and laps to overlay
+          </div>
+          <button
+            class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
+            onclick="togglePanel('panel-sessions', this)"
+          >
+            -
+          </button>
+        </header>
+        <div data-collapsible-body>
+          <div id="selections" class="flex flex-col gap-3"></div>
+          <div class="mt-3 flex gap-2">
+            <button
+              class="bg-ok hover:bg-[#2ab886] border-0 rounded-md px-[0.7rem] py-[0.3rem] text-white text-[0.78rem] font-semibold cursor-pointer transition-colors"
+              onclick="addRow()"
+            >
+              + Add Session
+            </button>
+            <button
+              id="btn-plot"
+              class="bg-accent hover:bg-[#3a7ae4] border-0 rounded-md px-[0.7rem] py-[0.3rem] text-white text-[0.78rem] font-semibold cursor-pointer transition-colors disabled:bg-brd disabled:cursor-wait"
+              onclick="plot()"
+            >
+              Plot
+            </button>
           </div>
         </div>
-      </div>
+      </section>
 
       <!-- Signal picker -->
-      <div class="panel" id="panel-signals">
-        <div class="panel-header">
-          <div class="panel-title">Signals</div>
-          <button class="panel-collapse-btn" onclick="togglePanel('panel-signals', this)">-</button>
-        </div>
-        <div class="panel-body">
+      <section
+        id="panel-signals"
+        data-collapsible
+        class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4"
+      >
+        <header class="flex justify-between items-center mb-3">
+          <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
+            Signals
+          </div>
+          <button
+            class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
+            onclick="togglePanel('panel-signals', this)"
+          >
+            -
+          </button>
+        </header>
+        <div data-collapsible-body>
           <div id="signal-container">Loading channels...</div>
         </div>
-      </div>
+      </section>
 
       <!-- Charts -->
-      <div class="charts" id="charts"></div>
-      <div class="status-bar" id="status"></div>
-    </div>
+      <div id="charts" class="flex flex-col gap-1"></div>
+      <div id="status" class="text-[0.78rem] text-muted mt-3"></div>
+    </main>
 
-    <!-- Toast stack (top-center, fixed). Populated by showToast() in JS. -->
-    <div id="toasts"></div>
+    <!-- Toast stack — fixed top-center, above the floating video (z-40). -->
+    <div
+      id="toasts"
+      class="fixed top-3 left-0 right-0 z-[10000] flex flex-col items-center gap-2 pointer-events-none"
+    ></div>
 
-    <!-- Plain (non-module) scripts loaded in dependency order: utility modules
-     first, then the main app script. All share the global lexical scope. -->
+    <!-- Non-module scripts in dependency order. All share global scope so
+         inline onclick= handlers resolve without imports. -->
     <script src="/static/modules/toast.js"></script>
     <script src="/static/modules/track-map.js"></script>
+    <script src="/static/modules/video-overlay.js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>

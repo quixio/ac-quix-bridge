@@ -852,27 +852,20 @@ function downsample(x, y, maxPoints = 1500) {
   return { x: nx, y: ny };
 }
 
+// Collapse/expand for panels marked with `data-collapsible` (top bar panels
+// and scrolling-content panels alike). We flip a `data-collapsed` attribute
+// and the stylesheet hides `[data-collapsible-body]` when set. No height
+// reflow needed — the top bar is a flex child now, not fixed-position.
 function toggleTopbarPanel(panelId, btn) {
-  const panel = document.getElementById(panelId);
-  if (!panel) return;
-  panel.classList.toggle('collapsed');
-  btn.textContent = panel.classList.contains('collapsed') ? '+' : '-';
-  const topbar = document.getElementById('topbar');
-  const allCollapsed = topbar.querySelectorAll('.topbar-panel:not(.collapsed)').length === 0;
-  topbar.style.height = allCollapsed ? 'auto' : '';
-  requestAnimationFrame(() => {
-    const h = topbar.offsetHeight;
-    document.body.style.paddingTop = h + 'px';
-    const strip = document.querySelector('.readout-strip');
-    if (strip) strip.style.top = h + 'px';
-  });
+  togglePanel(panelId, btn);
 }
 
 function togglePanel(panelId, btn) {
   const p = document.getElementById(panelId);
   if (!p) return;
-  p.classList.toggle('collapsed');
-  btn.textContent = p.classList.contains('collapsed') ? '+' : '-';
+  const collapsed = p.dataset.collapsed === 'true';
+  p.dataset.collapsed = collapsed ? 'false' : 'true';
+  if (btn) btn.textContent = collapsed ? '-' : '+';
 }
 
 function attachMarkerDrag(div) {
