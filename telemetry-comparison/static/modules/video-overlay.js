@@ -49,6 +49,22 @@ function _readOverlayState() {
   }
 }
 
+/**
+ * Read stored geometry but force mode=docked.
+ *
+ * Rationale (Round 1.7): a page refresh while floating was auto-restoring the
+ * floating layout, which hides #video-dock-slot and leaves the topbar in a
+ * single-column state with ~1400 px of empty space on either side of the
+ * centered track map. Floating is an intentional user action; a cold load
+ * should always start docked. Geometry (x/y/width/height) is still remembered
+ * so clicking Float brings the overlay back at its last position/size.
+ */
+function _readOverlayStateForInit() {
+  const state = _readOverlayState();
+  state.mode = 'docked';
+  return state;
+}
+
 function _writeOverlayState(state) {
   try {
     localStorage.setItem(VIDEO_OVERLAY_STORAGE_KEY, JSON.stringify(state));
@@ -360,10 +376,20 @@ function initVideoOverlay() {
   _setBodyMode('docked');
   _initInteract();
 
-  const stored = _readOverlayState();
-  if (stored.mode === 'floating') {
-    _floatVideo(stored);
-  }
+  // Intentionally do NOT auto-restore floating mode on cold load.
+  // _readOverlayStateForInit() forces mode='docked' so a refresh always
+  // starts with the standard docked layout. Geometry is still persisted and
+  // will be reused the next time the user clicks Float (via toggleVideoFloat
+  // -> _readOverlayState which preserves the stored x/y/width/height).
+  // We also rewrite localStorage so the dock state is reflected there.
+  const stored = _readOverlayStateForInit();
+  _writeOverlayState({
+    mode: 'docked',
+    x: stored.x,
+    y: stored.y,
+    width: stored.width,
+    height: stored.height,
+  });
 
   window.addEventListener('resize', _onWindowResize);
 }

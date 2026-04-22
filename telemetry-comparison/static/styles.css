@@ -373,9 +373,11 @@ body[data-video-mode='floating'] #topbar {
   height: auto;
 }
 /* Let the map panel size to its own content height when floating (rather
- * than being stretched to a fixed grid row height). */
+ * than being stretched to a fixed grid row height). 180px is the tightest
+ * we can go and still leave the circuit readable on a laptop. Plotly reflows
+ * automatically via `responsive: true` in track-map.js Plotly.newPlot opts. */
 body[data-video-mode='floating'] #topbar-map {
-  min-height: 320px;
+  min-height: 180px;
 }
 /* When floating AND map is collapsed, drop the min-height so the topbar
  * collapses to just the map header (~37px) rather than 320px of empty space. */
