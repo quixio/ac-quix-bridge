@@ -221,6 +221,81 @@ function renderTrackMap() {
       })
       .join('');
   }
+
+  // §11 tabbed-float: progressive legend hiding based on map pane width.
+  // Install once per renderTrackMap call; idempotent thanks to the
+  // _installedMapResponsiveness sentinel.
+  installMapResponsiveness(div, legendEl);
+}
+
+/**
+ * §11 tabbed-float spec: progressively hide legends as the map pane
+ * shrinks, so the circuit stays readable on cramped viewports and inside
+ * small floating windows.
+ *
+ * Tiers (measured on the map pane's rendered inner box, i.e. the #topbar-map
+ * body element — NOT the Plotly div itself, to avoid observer feedback loops
+ * when Plotly mutates its own inner layout):
+ *
+ *   T1 full     (w >= 520 px)       everything visible
+ *   T2 compact  (320 <= w < 520)    Plotly severity legend hidden
+ *   T3 minimal  (240 <= w < 320)    + corner-legend side panel hidden
+ *
+ * Hard floor (w >= 240 px) is enforced by CSS `min-width: 240px` on
+ * #topbar-map in styles.css.
+ *
+ * We observe the pane's parent (#topbar-map's collapsible body) rather than
+ * #track-map because Plotly writes into #track-map during relayout — an
+ * observer on that element would fire recursively.
+ */
+let _mapResponsivenessInstalled = false;
+function installMapResponsiveness(mapDiv, legendDiv) {
+  if (_mapResponsivenessInstalled) return;
+  if (typeof ResizeObserver === 'undefined') return; // legacy browser fallback: skip
+  const paneBody = mapDiv.closest('[data-collapsible-body]') || mapDiv.parentElement;
+  if (!paneBody) return;
+
+  let lastTier = null;
+  const apply = (w) => {
+    const tier = w >= 520 ? 'full' : w >= 320 ? 'compact' : 'minimal';
+    if (tier === lastTier) return;
+    lastTier = tier;
+    // Plotly severity legend — toggle via relayout. Safe against missing
+    // data (if newPlot hasn't run yet Plotly will throw; guard with try).
+    try {
+      if (mapDiv.data) {
+        Plotly.relayout(mapDiv, { showlegend: tier === 'full' });
+      }
+    } catch (_) {
+      /* non-fatal — Plotly wasn't ready */
+    }
+    // Corner-legend side panel — drive via inline display because Tailwind
+    // JIT can't see dynamically toggled class strings.
+    //
+    // Nitpicker R1: in floating mode a CSS rule
+    // `body[data-video-mode='floating'] #corner-legend { display: none }`
+    // takes precedence over the "full/compact" tiers (which would otherwise
+    // keep the corner-legend visible and eat 160px of a 478px pane). Clear
+    // our inline style when floating so the CSS cascade wins — `display: ''`
+    // removes the inline property, letting the stylesheet rule apply.
+    if (legendDiv) {
+      const floating = document.body.dataset.videoMode === 'floating';
+      if (floating) {
+        legendDiv.style.display = '';
+      } else {
+        legendDiv.style.display = tier === 'minimal' ? 'none' : '';
+      }
+    }
+  };
+
+  const obs = new ResizeObserver((entries) => {
+    const w = entries[0].contentRect.width;
+    apply(w);
+  });
+  obs.observe(paneBody);
+  // Apply immediately with current width so the first paint is correct.
+  apply(paneBody.getBoundingClientRect().width);
+  _mapResponsivenessInstalled = true;
 }
 
 function onZoomChange(v) {

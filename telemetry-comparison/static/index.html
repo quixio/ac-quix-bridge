@@ -44,144 +44,251 @@
     <!-- =====================================================================
          TOP BAR — flex child (not fixed). Collapses vertically to 1 column
          below the lg breakpoint so laptops don't get crushed.
+
+         In docked mode the topbar is a 65/35 grid hosting #video-dock-slot,
+         which contains the new #combined-panel wrapper enclosing both the
+         video pane (#video-panel) and the map pane (#topbar-map). In floating
+         mode #combined-panel reparents into #video-float-slot and the topbar
+         collapses to the #topbar-placeholder.
          ===================================================================== -->
     <header
       id="topbar"
       class="grid grid-cols-1 lg:grid-cols-[65fr_35fr] gap-3 p-3 border-b border-brd bg-bg shadow-[0_4px_12px_rgba(0,0,0,0.4)] lg:h-[clamp(320px,36vh,420px)] xl:h-[clamp(380px,40vh,500px)] 2xl:h-[clamp(440px,44vh,580px)]"
     >
-      <!-- ---------- VIDEO DOCK SLOT (panel lives here when docked) ---------- -->
+      <!-- ---------- VIDEO DOCK SLOT (combined panel lives here when docked) ----
+           Note: despite the name, this slot now wraps the WHOLE combined unit
+           (video + map), not just the video panel. The ID is preserved so
+           existing CSS rules and the video-overlay controller keep working
+           without further renames. -->
       <div
         id="video-dock-slot"
-        class="min-w-0 min-h-0 flex"
+        class="min-w-0 min-h-0 flex col-span-1 lg:col-span-2"
         data-hidden-when-floating
       >
-        <!-- VIDEO PANEL (reparented between dock/float slots) -->
+        <!-- COMBINED PANEL: owns both the video pane and the map pane. In docked
+             mode it is a horizontal flex splitting 65/35 between #video-panel
+             and #topbar-map. In floating mode it shows only the active-tab pane. -->
         <section
-          id="video-panel"
-          class="w-full min-w-0 min-h-0 flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden relative"
+          id="combined-panel"
+          data-active-tab="video"
+          class="w-full min-w-0 min-h-0 flex flex-col"
         >
+          <!-- Combined panel head: hidden in docked mode, visible when floating.
+               Hosts the tab switcher, relocated video controls, and the
+               Dock button. The per-pane headers (#video-panel-head,
+               #topbar-map > header) stay visible in docked mode, so the
+               docked UX is pixel-identical to before. -->
           <header
-            id="video-panel-head"
-            class="flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-brd select-none"
+            id="combined-panel-head"
+            class="hidden items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-brd select-none bg-surface rounded-t-[10px]"
           >
-            <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
-              Video
-            </div>
-            <div class="flex gap-1.5 items-center flex-wrap">
-              <div
-                id="video-controls"
-                class="hidden items-center gap-2 text-[0.7rem] text-muted"
-              >
-                <select
-                  id="video-lap-select"
-                  class="bg-[#0b0d13] text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem] disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled
-                  onchange="onVideoLapChange(this.value)"
-                >
-                  <option value="">&mdash; pick laps and Plot &mdash;</option>
-                </select>
-                <label class="flex items-center gap-1.5">
-                  Speed
-                  <select
-                    id="video-speed"
-                    class="bg-[#0b0d13] text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem]"
-                    onchange="onVideoSpeedChange(this.value)"
-                  >
-                    <option value="1" selected>Realtime</option>
-                    <option value="2">2x</option>
-                    <option value="5">5x</option>
-                  </select>
-                </label>
-                <div
-                  id="video-status"
-                  class="text-[0.62rem] text-muted leading-tight min-h-[0.9rem]"
-                ></div>
-              </div>
+            <div
+              id="combined-tabs"
+              class="flex items-center gap-1 text-[0.72rem] uppercase tracking-[0.07em] font-semibold"
+            >
               <button
-                id="btn-video-float"
+                data-tab="video"
+                class="combined-tab bg-transparent border border-brd rounded px-2 py-0.5 text-muted cursor-pointer hover:border-accent hover:text-accent"
+                onclick="setCombinedTab('video')"
+              >
+                Video
+              </button>
+              <button
+                data-tab="map"
+                class="combined-tab bg-transparent border border-brd rounded px-2 py-0.5 text-muted cursor-pointer hover:border-accent hover:text-accent"
+                onclick="setCombinedTab('map')"
+              >
+                Map
+              </button>
+            </div>
+            <!-- Named wrapper so _relocateVideoControls() has a stable
+                 insertion anchor. Nitpicker R1 called out that the previous
+                 `dockBtn.parentNode` lookup broke silently if the structure
+                 changed. Using a dedicated ID is self-documenting and
+                 survives future markup edits. -->
+            <div
+              id="combined-panel-head-right"
+              class="flex gap-1.5 items-center flex-wrap"
+            >
+              <!-- Floating-mode video controls mirror the docked ones by moving
+                   the same #video-controls element into this header on float.
+                   app.js targets controls by ID, so relocation is safe. -->
+              <button
+                id="btn-combined-dock"
                 class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
-                title="Float video"
+                title="Dock"
                 onclick="toggleVideoFloat()"
               >
-                Float
+                Dock
               </button>
             </div>
           </header>
+
+          <!-- Combined panel body: in docked mode a horizontal 65/35 flex row
+               hosting the two panes side-by-side. In floating mode one of the
+               two panes is display:none'd via the data-active-tab attribute. -->
           <div
-            id="video-panel-body"
-            class="flex-1 min-h-0 px-3 pt-2 pb-2.5 flex flex-col gap-2 items-center justify-center"
+            id="combined-panel-body"
+            class="flex-1 min-h-0 flex flex-row gap-3"
           >
-            <video
-              id="video-player"
-              class="hidden bg-black rounded-md object-contain w-auto h-auto max-w-full max-h-full aspect-video"
-              controls
-              preload="metadata"
-            ></video>
-            <div
-              id="video-empty"
-              class="aspect-video max-w-full max-h-full w-auto h-auto bg-[#0b0d13] border border-dashed border-brd rounded-lg flex items-center justify-center text-muted text-center p-2 text-[0.7rem] leading-tight"
+            <!-- VIDEO PANE ----------------------------------------------------
+                 Everything that used to live directly inside #video-dock-slot
+                 is now inside this pane. IDs preserved: #video-panel,
+                 #video-panel-head, #video-panel-body, #video-player,
+                 #video-empty, #video-controls, #video-lap-select, #video-speed,
+                 #video-status, #btn-video-float. -->
+            <section
+              id="video-panel"
+              class="w-full min-w-0 min-h-0 flex-[65] flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden relative"
             >
-              No lap selected
-            </div>
+              <header
+                id="video-panel-head"
+                class="flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-brd select-none"
+              >
+                <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
+                  Video
+                </div>
+                <div class="flex gap-1.5 items-center flex-wrap">
+                  <div
+                    id="video-controls"
+                    class="hidden items-center gap-2 text-[0.7rem] text-muted"
+                  >
+                    <select
+                      id="video-lap-select"
+                      class="bg-[#0b0d13] text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem] disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled
+                      onchange="onVideoLapChange(this.value)"
+                    >
+                      <option value="">&mdash; pick laps and Plot &mdash;</option>
+                    </select>
+                    <label class="flex items-center gap-1.5">
+                      Speed
+                      <select
+                        id="video-speed"
+                        class="bg-[#0b0d13] text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem]"
+                        onchange="onVideoSpeedChange(this.value)"
+                      >
+                        <option value="1" selected>Realtime</option>
+                        <option value="2">2x</option>
+                        <option value="5">5x</option>
+                      </select>
+                    </label>
+                    <div
+                      id="video-status"
+                      class="text-[0.62rem] text-muted leading-tight min-h-[0.9rem]"
+                    ></div>
+                  </div>
+                  <button
+                    id="btn-video-float"
+                    class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
+                    title="Float video"
+                    onclick="toggleVideoFloat()"
+                  >
+                    Float
+                  </button>
+                </div>
+              </header>
+              <div
+                id="video-panel-body"
+                class="flex-1 min-h-0 px-3 pt-2 pb-2.5 flex flex-col gap-2 items-center justify-center"
+              >
+                <video
+                  id="video-player"
+                  class="hidden bg-black rounded-md object-contain w-auto h-auto max-w-full max-h-full aspect-video"
+                  controls
+                  preload="metadata"
+                ></video>
+                <div
+                  id="video-empty"
+                  class="aspect-video max-w-full max-h-full w-auto h-auto bg-[#0b0d13] border border-dashed border-brd rounded-lg flex items-center justify-center text-muted text-center p-2 text-[0.7rem] leading-tight"
+                >
+                  No lap selected
+                </div>
+              </div>
+            </section>
+
+            <!-- MAP PANE ------------------------------------------------------
+                 #topbar-map retained as the pane ID so track-map.js and the
+                 :has() collapse reflow rule both keep matching. In docked
+                 mode its flex-[35] sibling position reproduces the old 35%
+                 column; in floating Map-tab mode it fills the whole panel. -->
+            <section
+              id="topbar-map"
+              data-collapsible
+              class="min-w-0 min-h-0 flex-[35] flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden"
+            >
+              <header class="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-brd">
+                <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
+                  Track Map
+                </div>
+                <button
+                  id="btn-collapse-map"
+                  class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
+                  title="Collapse"
+                  onclick="toggleTopbarPanel('topbar-map', this)"
+                >
+                  -
+                </button>
+              </header>
+              <div
+                data-collapsible-body
+                class="flex-1 min-h-0 px-2 pt-1.5 pb-2 flex flex-col gap-1"
+              >
+                <div class="flex flex-1 min-h-0 gap-1.5">
+                  <div id="track-map" class="flex-1 min-h-0 min-w-0"></div>
+                  <div
+                    id="corner-legend"
+                    class="w-[160px] shrink-0 overflow-y-auto border-l border-brd px-1.5 py-1 text-[10px] leading-[1.6]"
+                  ></div>
+                </div>
+                <div class="flex items-center gap-2 px-1 text-[0.65rem] text-muted">
+                  <span>Zoom</span>
+                  <input
+                    type="range"
+                    id="track-zoom"
+                    class="flex-1 accent-accent"
+                    min="1"
+                    max="8"
+                    step="0.1"
+                    value="1"
+                    oninput="onZoomChange(this.value)"
+                  />
+                  <span
+                    id="track-zoom-val"
+                    class="text-slate-200 min-w-[2.2rem] text-right tabular-nums"
+                    >1.0x</span
+                  >
+                </div>
+              </div>
+            </section>
           </div>
         </section>
       </div>
 
-      <!-- ---------- TRACK MAP panel ---------- -->
-      <section
-        id="topbar-map"
-        data-collapsible
-        class="min-w-0 min-h-0 flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden"
+      <!-- ---------- TOPBAR PLACEHOLDER (visible only when floating) ----------
+           Compact strip that gives the user a stable Dock button even if the
+           floating window is dragged off-screen. -->
+      <div
+        id="topbar-placeholder"
+        class="hidden col-span-1 lg:col-span-2 items-center justify-center gap-3 text-[0.72rem] text-muted bg-surface border border-brd rounded-[10px] px-3 py-2"
       >
-        <header class="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-brd">
-          <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
-            Track Map
-          </div>
-          <button
-            id="btn-collapse-map"
-            class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
-            title="Collapse"
-            onclick="toggleTopbarPanel('topbar-map', this)"
-          >
-            -
-          </button>
-        </header>
-        <div
-          data-collapsible-body
-          class="flex-1 min-h-0 px-2 pt-1.5 pb-2 flex flex-col gap-1"
+        <span class="uppercase tracking-[0.07em] font-semibold">Video + Map floating</span>
+        <button
+          id="btn-placeholder-dock"
+          class="bg-transparent border border-brd rounded text-muted cursor-pointer px-2 py-0.5 text-[0.72rem] leading-none hover:border-accent hover:text-accent"
+          title="Dock"
+          onclick="toggleVideoFloat()"
         >
-          <div class="flex flex-1 min-h-0 gap-1.5">
-            <div id="track-map" class="flex-1 min-h-0 min-w-0"></div>
-            <div
-              id="corner-legend"
-              class="w-[160px] shrink-0 overflow-y-auto border-l border-brd px-1.5 py-1 text-[10px] leading-[1.6]"
-            ></div>
-          </div>
-          <div class="flex items-center gap-2 px-1 text-[0.65rem] text-muted">
-            <span>Zoom</span>
-            <input
-              type="range"
-              id="track-zoom"
-              class="flex-1 accent-accent"
-              min="1"
-              max="8"
-              step="0.1"
-              value="1"
-              oninput="onZoomChange(this.value)"
-            />
-            <span
-              id="track-zoom-val"
-              class="text-slate-200 min-w-[2.2rem] text-right tabular-nums"
-              >1.0x</span
-            >
-          </div>
-        </div>
-      </section>
+          Dock
+        </button>
+      </div>
     </header>
 
     <!-- =====================================================================
          VIDEO FLOAT SLOT — hidden until user clicks "Float". interact.js
-         drags/resizes this container; panel lives inside it when floating.
+         drags/resizes this container; combined panel lives inside it when
+         floating. The ID name predates the "combined" refactor but the slot
+         now hosts the whole video+map unit.
          ===================================================================== -->
     <div
       id="video-float-slot"
@@ -191,16 +298,25 @@
 
     <!-- =====================================================================
          READOUT STRIP — sticky under the top bar.
+         In docked mode this lives inside #track-readout-slot right here,
+         immediately after </header>. In floating mode _floatCombined()
+         reparents #track-readout into #combined-panel-body (inside the
+         floating window) so it stays paired with the Map tab; on dock it is
+         reparented back into #track-readout-slot. The wrapper slot is the
+         stable DOM anchor for the "home" position and must always be a
+         body-level sibling of <header> and <main>.
          ===================================================================== -->
-    <div
-      id="track-readout"
-      class="sticky top-0 z-30 bg-bg/85 backdrop-blur-[6px] border-b border-brd px-5 py-2 flex gap-[1.2rem] items-center text-[0.72rem]"
-    >
-      <span
-        id="readout-pos-text"
-        class="text-accent font-semibold tabular-nums"
-        >0.0%</span
+    <div id="track-readout-slot">
+      <div
+        id="track-readout"
+        class="sticky top-0 z-30 bg-bg/85 backdrop-blur-[6px] border-b border-brd px-5 py-2 flex gap-[1.2rem] items-center text-[0.72rem]"
       >
+        <span
+          id="readout-pos-text"
+          class="text-accent font-semibold tabular-nums"
+          >0.0%</span
+        >
+      </div>
     </div>
 
     <!-- =====================================================================

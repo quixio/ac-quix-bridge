@@ -290,34 +290,38 @@ select:focus {
   display: none;
 }
 
-/* When a panel inside the topbar grid (currently only #topbar-map) is
- * collapsed, stop the grid row from stretching it to the topbar's clamped
- * height. Without this, the column shows a ~486px empty dark box because
- * align-items defaults to stretch. `align-self: start` makes the collapsed
- * panel take only its header's height while its sibling column (video)
- * continues to use the available row height. */
-#topbar [data-collapsible][data-collapsed='true'] {
-  align-self: start;
+/* When the track map is collapsed in docked mode, #combined-panel-body (the
+ * 65/35 flex row inside #combined-panel) adapts by shrinking the map flex
+ * basis so the video pane reclaims the full width. The map pane stops
+ * filling height via a max-height, showing only its header. This replaces
+ * the old :has()-on-topbar reflow that relied on #topbar-map being a direct
+ * grid child of #topbar — now it's a grandchild via #combined-panel. */
+body[data-video-mode='docked']
+  #combined-panel-body:has(#topbar-map[data-collapsed='true']) {
+  flex-direction: column;
+  gap: 0.5rem;
+}
+body[data-video-mode='docked']
+  #combined-panel-body:has(#topbar-map[data-collapsed='true'])
+  #topbar-map {
+  flex: 0 0 auto;
+  min-height: 0;
+  order: -1;
+}
+body[data-video-mode='docked']
+  #combined-panel-body:has(#topbar-map[data-collapsed='true'])
+  #video-panel {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-/* When the track map is collapsed, reflow the topbar so the video panel
- * reclaims the full width (the track-map column would otherwise stay as a
- * ~35% wide empty dark rectangle). Use a two-row stack: a compact row for
- * the collapsed map header on top, video filling the rest below. The
- * explicit `grid-template-rows` lets the map row shrink to its header
- * (auto = 37px) while the video row takes whatever the clamped topbar
- * height leaves over. `:has()` is supported in all current evergreen
- * browsers (Chrome 105+, Firefox 121+, Safari 15.4+). */
-#topbar:has(#topbar-map[data-collapsed='true']) {
-  grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
-}
-#topbar:has(#topbar-map[data-collapsed='true']) #topbar-map {
-  grid-row: 1;
-}
-#topbar:has(#topbar-map[data-collapsed='true']) #video-dock-slot {
-  grid-row: 2;
-  min-height: 0;
+/* §11.5 — Minimum map size floor. Prevents the 35% map column from shrinking
+ * below a usable canvas. When the grid can't honor 35% at 240 px, the video
+ * pane gives up width instead (Plotly-filled rectangles are more sensitive
+ * to squish than a <video> with object-contain). */
+#topbar-map {
+  min-width: 240px;
+  min-height: 200px;
 }
 
 /* ---------- Video panel pieces that app.js toggles via style.display ---------
@@ -345,11 +349,16 @@ select:focus {
   color: var(--red);
 }
 
-/* ---------- Floating video overlay ----------
- * When body[data-video-mode="floating"] is set, the panel is reparented into
- * #video-float-slot. The slot is fixed-positioned; interact.js tracks position
- * in data-x/data-y attributes via a transform. We keep the full panel chrome
- * (header, controls, body) — only the container switches.
+/* ---------- Floating overlay + combined panel tab states ----------
+ *
+ * The combined panel (#combined-panel) wraps both #video-panel and
+ * #topbar-map. In docked mode both panes are visible side-by-side (the flex
+ * basis 65/35 from index.html). In floating mode exactly one pane is visible
+ * — controlled by the data-active-tab attribute on #combined-panel. The
+ * other pane is display:none'd.
+ *
+ * The #video-float-slot is fixed-positioned; interact.js tracks position
+ * in data-x/data-y attributes via a transform.
  */
 body[data-video-mode='floating'] #video-float-slot {
   display: block;
@@ -357,40 +366,178 @@ body[data-video-mode='floating'] #video-float-slot {
 body[data-video-mode='floating'] #video-dock-slot {
   display: none;
 }
-body[data-video-mode='floating'] #video-panel {
+body[data-video-mode='floating'] #topbar-placeholder {
+  display: flex;
+}
+body[data-video-mode='docked'] #topbar-placeholder {
+  display: none;
+}
+
+/* Floating: combined panel fills the slot and gets accent border/shadow. */
+body[data-video-mode='floating'] #combined-panel {
   width: 100%;
   height: 100%;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  overflow: hidden;
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
-  border-color: var(--accent);
 }
-/* Hidden classes already collapse the dock slot, but when floating we also
- * want the top bar to behave as single-column so the map takes the full row.
- * Drop the fixed `h-[clamp(...)]` height so the topbar only consumes the
- * space the track map needs — otherwise ~486px of viewport is wasted on a
- * near-empty dark rectangle when the user floats the video at 1920×1080. */
+/* Floating: the combined-panel-head becomes visible (host of tab switcher +
+ * Dock button + relocated video controls). Docked: hidden. */
+body[data-video-mode='floating'] #combined-panel-head {
+  display: flex;
+}
+body[data-video-mode='docked'] #combined-panel-head {
+  display: none;
+}
+/* Floating: the individual pane headers (#video-panel-head and
+ * #topbar-map > header) hide so the combined-panel-head is the only chrome.
+ * The body expands to consume the vacated space. */
+body[data-video-mode='floating'] #video-panel-head,
+body[data-video-mode='floating'] #topbar-map > header {
+  display: none;
+}
+/* Floating: each pane fills the combined-panel-body; they are not
+ * side-by-side flex children anymore. The data-active-tab attribute toggles
+ * which of them is shown. */
+body[data-video-mode='floating'] #combined-panel-body {
+  flex-direction: column;
+  gap: 0;
+}
+body[data-video-mode='floating'] #video-panel,
+body[data-video-mode='floating'] #topbar-map {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+/* Tab visibility rules — the inactive pane is display:none'd. */
+body[data-video-mode='floating']
+  #combined-panel[data-active-tab='video']
+  #topbar-map {
+  display: none;
+}
+body[data-video-mode='floating']
+  #combined-panel[data-active-tab='map']
+  #video-panel {
+  display: none;
+}
+
+/* Tab button active-state styling via attribute selector — Tailwind Play
+ * CDN can't JIT dynamic class strings, so we drive the active state off
+ * the stable data-active-tab attribute on the combined-panel. */
+#combined-panel[data-active-tab='video'] .combined-tab[data-tab='video'],
+#combined-panel[data-active-tab='map'] .combined-tab[data-tab='map'] {
+  background: rgba(79, 142, 247, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Nitpicker R1: in floating mode the default window is 480 px wide. The
+ * corner-legend column is 160 px fixed, which leaves the track canvas at
+ * only ~296 px — the circuit becomes an unreadable squished blob. The
+ * §11 ResizeObserver tiers evaluated "compact" (not "minimal") because it
+ * measured the pane body width (478 px) not the track canvas (296 px),
+ * and "compact" keeps the corner legend visible. Supersede that: in
+ * floating mode the corner legend is always hidden, regardless of tier.
+ * Docked mode still uses the §11 tier logic on the 35% column. */
+body[data-video-mode='floating'] #corner-legend {
+  display: none;
+}
+
+/* Floating-mode topbar — collapse to the compact placeholder strip. Drop
+ * the fixed h-[clamp(...)] height from the Tailwind utilities so the topbar
+ * only consumes the placeholder's own height. */
 body[data-video-mode='floating'] #topbar {
   grid-template-columns: 1fr;
   height: auto;
 }
-/* Let the map panel size to its own content height when floating (rather
- * than being stretched to a fixed grid row height). 180px is the tightest
- * we can go and still leave the circuit readable on a laptop. Plotly reflows
- * automatically via `responsive: true` in track-map.js Plotly.newPlot opts. */
-body[data-video-mode='floating'] #topbar-map {
-  min-height: 180px;
-}
-/* When floating AND map is collapsed, drop the min-height so the topbar
- * collapses to just the map header (~37px) rather than 320px of empty space. */
-body[data-video-mode='floating'] #topbar-map[data-collapsed='true'] {
-  min-height: 0;
+
+/* ---------- Docked-mode sticky topbar ----------
+ *
+ * When docked, the topbar (video + map) stays pinned to the top of the
+ * viewport while the rest of the page (sessions, signals, charts) scrolls
+ * underneath. z-index sits below the floating overlay (z-40) and toasts
+ * (z-[10000]) but above the readout strip + Plotly chart contents. A solid
+ * bg-bg background prevents scrolled content from bleeding through the
+ * gap-3 padding between the video and map panes.
+ *
+ * In floating mode this rule is NOT applied — the topbar there is just the
+ * compact placeholder strip and behaves as a normal flex child. */
+body[data-video-mode='docked'] #topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--bg);
 }
 
-/* interact.js manipulates transform + width/height on #video-float-slot;
- * keep the drag handle visually identified even though cursor-move is Tailwind. */
-#video-panel-head {
+/* Round 3 fix-up: #track-readout-slot is the stable DOM anchor that
+ * _relocateTrackReadout() reparents the readout into/out of. The slot itself
+ * must NOT form a layout box — sticky positioning is relative to the nearest
+ * containing block, and a plain <div> wrapper becomes a block box whose height
+ * collapses to the readout's own height, leaving the sticky child with zero
+ * travel distance (it scrolls behind the sticky topbar instead of sticking).
+ * `display: contents` removes the slot from layout while keeping it in the
+ * DOM tree, so #track-readout's containing block becomes <body> — same as
+ * pre-R3 when the readout was a direct body-level sibling. */
+#track-readout-slot {
+  display: contents;
+}
+
+/* Readout strip sits immediately below the sticky topbar. The topbar uses
+ * a Tailwind `clamp()` height that steps up by breakpoint; mirror those
+ * steps here so the readout's sticky `top:` offset matches the topbar's
+ * rendered height. Base value is the lg clamp max (420 px) so any
+ * scroll-pinned readout stays clear of the topbar on the smaller tiers
+ * too. Floating mode skips this (topbar has height: auto there). */
+body[data-video-mode='docked'] #track-readout {
+  top: clamp(320px, 36vh, 420px);
+}
+@media (min-width: 1280px) {
+  body[data-video-mode='docked'] #track-readout {
+    top: clamp(380px, 40vh, 500px);
+  }
+}
+@media (min-width: 1536px) {
+  body[data-video-mode='docked'] #track-readout {
+    top: clamp(440px, 44vh, 580px);
+  }
+}
+
+/* Collapse note: the map-collapsed reflow only rearranges content INSIDE
+ * the topbar (map header moves above the video pane). The topbar's outer
+ * h-[clamp(...)] Tailwind utility keeps the outer height fixed, so the
+ * sticky offset for #track-readout doesn't need to change on collapse —
+ * no jump. */
+
+/* Floating-mode readout: when _relocateTrackReadout() moves #track-readout
+ * into #combined-panel-body, the element keeps its `sticky top-0 z-30
+ * bg-bg/85 backdrop-blur ...` utility classes from index.html. Inside a
+ * 270 px-tall floating window that sticky-top would pin the readout over
+ * the map canvas. Override to static + transparent + slim padding so the
+ * readout sits as a one-line footer strip beneath the Map tab content. */
+body[data-video-mode='floating'] #track-readout {
+  position: static;
+  top: auto;
+  background: transparent;
+  backdrop-filter: none;
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 11px;
+  z-index: auto;
+}
+
+/* interact.js drives drag from #combined-panel-head when floating, and the
+ * legacy #video-panel-head was the drag handle pre-float. Keep cursor
+ * feedback on both. */
+#video-panel-head,
+#combined-panel-head {
   cursor: default;
 }
-body[data-video-mode='floating'] #video-panel-head {
+body[data-video-mode='floating'] #combined-panel-head {
   cursor: move;
 }
 
