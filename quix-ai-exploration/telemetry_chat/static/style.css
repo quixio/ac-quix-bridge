@@ -49,6 +49,7 @@ body {
 }
 
 .app.dock-right {
+  --chat-size: 420px;
   grid-template-rows: 48px 1fr;
   grid-template-columns: 1fr 8px var(--chat-size);
   grid-template-areas:
