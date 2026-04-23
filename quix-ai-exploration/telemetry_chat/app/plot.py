@@ -167,11 +167,11 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
 
     signals: list[str] = plan["signals"]
     traces_in: list[dict[str, Any]] = plan["traces"]
-    total = len(signals) * len(traces_in)
+    total = len(traces_in)
     logger.info(
         "plot plan: signals=%s traces=%d track=%s (agent %.1fs)",
         signals,
-        len(traces_in),
+        total,
         plan["track"],
         t_after_agent - t_start,
     )
@@ -185,33 +185,35 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
         }
     )
 
-    # Pre-allocate result slots so trace order (and therefore colour order)
-    # is preserved regardless of completion order from as_completed.
-    charts_rows: list[list[dict[str, Any] | None]] = [
-        [None] * len(traces_in) for _ in signals
-    ]
+    # Fan out ONE lake query per (partition, lap) that selects every requested
+    # signal at once — same pattern as telemetry-comparison's /api/telemetry.
+    # Each lap's parquet partition is scanned a single time regardless of how
+    # many signals the user asked for. Pre-allocate result slots so trace
+    # order (and therefore colour order) survives as_completed.
+    charts_rows: list[list[dict[str, Any] | None]] = [[None] * total for _ in signals]
 
     async def _one(
-        si: int, ti: int, signal: str, trace: dict[str, Any]
-    ) -> tuple[int, int, dict[str, Any] | BaseException]:
+        ti: int, trace: dict[str, Any]
+    ) -> tuple[int, dict[str, dict[str, Any]] | BaseException]:
         try:
-            return (si, ti, await _fetch_one(trace, signal))
+            return (ti, await _fetch_trace(trace, signals))
         except BaseException as exc:  # noqa: BLE001 — we re-classify in the loop
-            return (si, ti, exc)
+            return (ti, exc)
 
-    tasks = [
-        asyncio.create_task(_one(si, ti, signal, trace))
-        for si, signal in enumerate(signals)
-        for ti, trace in enumerate(traces_in)
-    ]
+    tasks = [asyncio.create_task(_one(ti, trace)) for ti, trace in enumerate(traces_in)]
 
     done = 0
     for future in asyncio.as_completed(tasks):
-        si, ti, result = await future
+        ti, result = await future
         if isinstance(result, BaseException):
-            logger.warning("signal=%s trace fetch failed: %s", signals[si], result)
+            logger.warning(
+                "trace lap=%s fetch failed: %s",
+                traces_in[ti].get("lap"),
+                result,
+            )
         else:
-            charts_rows[si][ti] = result
+            for si, signal in enumerate(signals):
+                charts_rows[si][ti] = result.get(signal)
         done += 1
         yield _event(
             {
@@ -228,14 +230,14 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
         for si, row in enumerate(charts_rows)
     ]
     t_end = time.monotonic()
-    failures = total - sum(len(c["traces"]) for c in charts)
+    failures = total - (len(charts[0]["traces"]) if charts else 0)
     logger.info(
         "plot done in %.1fs (agent %.1fs + fan-out %.1fs): %d charts × %d traces%s",
         t_end - t_start,
         t_after_agent - t_start,
         t_end - t_after_agent,
         len(charts),
-        len(traces_in),
+        total,
         f", {failures} fetch failure(s)" if failures else "",
     )
 
@@ -353,12 +355,19 @@ def _plan(parsed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _fetch_one(trace: dict[str, Any], signal: str) -> dict[str, Any]:
-    # Shape pre-validated by _plan before the fan-out; `lap` is int.
+async def _fetch_trace(
+    trace: dict[str, Any], signals: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Fetch every requested signal for one (partition, lap) in a SINGLE
+    lake query. Returns a map `{signal: frontend-trace-dict}` so the caller
+    can bucket each per-signal trace into its matching chart.
+
+    Shape pre-validated by `_plan` before the fan-out; `lap` is int.
+    """
     lap = trace["lap"]
     data = await get_telemetry(
         lap=lap,
-        signals=[signal],
+        signals=signals,
         environment=str(trace.get("environment", "")),
         test_rig=str(trace.get("test_rig", "")),
         experiment=str(trace.get("experiment", "")),
@@ -367,14 +376,17 @@ async def _fetch_one(trace: dict[str, Any], signal: str) -> dict[str, Any]:
         carModel=str(trace.get("carModel", "")),
         session_id=str(trace.get("session_id", "")),
     )
-    return {
+    x = data["data"].get("normalizedCarPosition", [])
+    meta = {
         "session_id": trace.get("session_id"),
         "lap": lap,
         "driver": trace.get("driver"),
         "carModel": trace.get("carModel"),
         "track": trace.get("track"),
         "experiment": trace.get("experiment"),
-        "x": data["data"].get("normalizedCarPosition", []),
-        "y": data["data"].get(signal, []),
         "count": data["count"],
+    }
+    return {
+        signal: {**meta, "x": x, "y": data["data"].get(signal, [])}
+        for signal in signals
     }
