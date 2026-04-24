@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-04-24T09:59:48Z",
-  "newest_source_mtime": "2026-04-24T09:59:45Z",
+  "generated_at": "2026-04-24T11:43:05Z",
+  "newest_source_mtime": "2026-04-24T11:39:58Z",
   "services": {
     "ac-telemetry-lake": {
       "entry": "main.py",

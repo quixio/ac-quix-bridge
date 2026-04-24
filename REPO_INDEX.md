@@ -52,11 +52,11 @@ under `services["telemetry-comparison"].js_modules`.
 | `static/modules/state.js`      |   184 | Shared `appState` / `videoState`, constants, `window.*` interop with classic `track-map.js`.           |
 | `static/modules/data.js`       |   156 | `fetch*` calls to `/api/*`, interpolation + binary-search helpers.                                    |
 | `static/modules/selections.js` |   282 | Row + dropdown + lap-picker UI, channel chips, cascading partition filters.                           |
-| `static/modules/charts.js`     |   277 | Plotly lifecycle, marker drag, linked x-axes, corner overlay, status bar.                             |
+| `static/modules/charts.js`     |   293 | Plotly lifecycle, marker drag (Pointer Events — mouse+touch+stylus), linked x-axes, corner overlay.   |
 | `static/modules/sync.js`       |   444 | **Marker ↔ video bidirectional sync.** Sole owner of the `source === 'drag' \| 'video'` guard.         |
 | `static/modules/video.js`      |   249 | Video lap loading + picker + speed UI. No sync logic.                                                 |
-| `static/modules/video-overlay.js` | 981| Combined Video+Map dock/float overlay controller.                                                     |
-| `static/modules/track-map.js`  |   346 | 2D track outline + corner badges + position dot. Classic script (reads `window.*`, not a module).      |
+| `static/modules/video-overlay.js` | 1114| Combined Video+Map dock/float overlay controller — drag, pinch/mouse resize, pointer capture. **Over the 500-line soft ceiling**; splitting deferred until another cleanup pass. |
+| `static/modules/track-map.js`  |   483 | 2D track outline + corner badges + position dot. Classic script. Two ResizeObservers (tier legend hide + zoom re-fit, both float-aware). |
 | `static/modules/toast.js`      |    63 | Top-center toast stack. Classic script → `window.showToast`.                                          |
 
 Key contract: `sync.js` is the only file that inspects `source === 'drag' | 'video'`.
