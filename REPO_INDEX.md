@@ -53,7 +53,7 @@ under `services["telemetry-comparison"].js_modules`.
 | `static/modules/data.js`       |   156 | `fetch*` calls to `/api/*`, interpolation + binary-search helpers.                                    |
 | `static/modules/selections.js` |   282 | Row + dropdown + lap-picker UI, channel chips, cascading partition filters.                           |
 | `static/modules/charts.js`     |   293 | Plotly lifecycle, marker drag (Pointer Events — mouse+touch+stylus), linked x-axes, corner overlay.   |
-| `static/modules/sync.js`       |   444 | **Marker ↔ video bidirectional sync.** Sole owner of the `source === 'drag' \| 'video'` guard.         |
+| `static/modules/sync.js`       |   437 | **Marker ↔ video bidirectional sync.** Sole owner of the `source === 'drag' \| 'video'` guard. rAF-only driver for display-rate smoothing of low-fps sidecars. |
 | `static/modules/video.js`      |   249 | Video lap loading + picker + speed UI. No sync logic.                                                 |
 | `static/modules/video-overlay.js` | 1114| Combined Video+Map dock/float overlay controller — drag, pinch/mouse resize, pointer capture. **Over the 500-line soft ceiling**; splitting deferred until another cleanup pass. |
 | `static/modules/track-map.js`  |   483 | 2D track outline + corner badges + position dot. Classic script. Two ResizeObservers (tier legend hide + zoom re-fit, both float-aware). |

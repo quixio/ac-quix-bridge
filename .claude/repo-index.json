@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-04-24T11:43:05Z",
-  "newest_source_mtime": "2026-04-24T11:39:58Z",
+  "generated_at": "2026-04-24T11:54:52Z",
+  "newest_source_mtime": "2026-04-24T11:48:28Z",
   "services": {
     "ac-telemetry-lake": {
       "entry": "main.py",
@@ -643,8 +643,6 @@
                 "setMarkerPosition",
                 "getTrackZoom",
                 "getTrackData",
-                "HAS_RVFC",
-                "VIDEO_RAF_INTERVAL_MS",
                 "MAX_TRACE_ANNOTATIONS"
               ]
             }
