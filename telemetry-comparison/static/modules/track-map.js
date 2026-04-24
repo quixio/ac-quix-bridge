@@ -226,6 +226,11 @@ function renderTrackMap() {
   // Install once per renderTrackMap call; idempotent thanks to the
   // _installedMapResponsiveness sentinel.
   installMapResponsiveness(div, legendEl);
+
+  // Issue 3 fix: ResizeObserver on the map pane so docked auto-fit
+  // re-fires whenever the panel size changes (e.g. window resize, float
+  // toggle). Idempotent via sentinel.
+  installMapFitObserver(div);
 }
 
 /**
@@ -296,6 +301,43 @@ function installMapResponsiveness(mapDiv, legendDiv) {
   // Apply immediately with current width so the first paint is correct.
   apply(paneBody.getBoundingClientRect().width);
   _mapResponsivenessInstalled = true;
+}
+
+/**
+ * Issue 3 fix: ResizeObserver on the track-map pane that re-applies the
+ * current zoom/fit whenever the container is resized.
+ *
+ * Rationale: Plotly `responsive:true` redraws the SVG canvas to fill the
+ * new container, but it does NOT re-run the axis range calculation — the
+ * range stays at whatever applyZoom() last set. After a resize, the track
+ * map shrinks or grows but the data range is stale, so the circuit
+ * appears offset or clipped. Calling applyZoom() after each resize
+ * re-centres the range on the current marker position (or resets to
+ * trackBaseRange when zoom=1).
+ *
+ * We observe the pane body element (same node as installMapResponsiveness)
+ * rather than #track-map itself to avoid Plotly-mutation feedback loops.
+ * A 100 ms debounce prevents thrash during continuous drag-resize.
+ */
+let _mapFitObserverInstalled = false;
+let _mapFitDebounceTimer = null;
+function installMapFitObserver(mapDiv) {
+  if (_mapFitObserverInstalled) return;
+  if (typeof ResizeObserver === 'undefined') return;
+  const paneBody = mapDiv.closest('[data-collapsible-body]') || mapDiv.parentElement;
+  if (!paneBody) return;
+
+  const obs = new ResizeObserver(() => {
+    if (_mapFitDebounceTimer !== null) clearTimeout(_mapFitDebounceTimer);
+    _mapFitDebounceTimer = setTimeout(() => {
+      _mapFitDebounceTimer = null;
+      // applyZoom() is a no-op when trackBaseRange is null (before first
+      // renderTrackMap), or when #track-map has no data.
+      if (typeof applyZoom === 'function') applyZoom();
+    }, 100);
+  });
+  obs.observe(paneBody);
+  _mapFitObserverInstalled = true;
 }
 
 function onZoomChange(v) {

@@ -1,0 +1,2119 @@
+{
+  "generated_at": "2026-04-24T09:59:48Z",
+  "newest_source_mtime": "2026-04-24T09:59:45Z",
+  "services": {
+    "ac-telemetry-lake": {
+      "entry": "main.py",
+      "kind": "quixstreams-sink",
+      "python_symbols": [
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 32,
+          "name": "parse_hive_columns"
+        }
+      ],
+      "routes": []
+    },
+    "ac-telemetry-source": {
+      "entry": "main.py",
+      "kind": "quixstreams-source",
+      "python_symbols": [
+        {
+          "file": "ac_reader.py",
+          "kind": "function",
+          "line": 31,
+          "name": "_open_shm"
+        },
+        {
+          "file": "ac_reader.py",
+          "kind": "class",
+          "line": 43,
+          "name": "ACReader"
+        },
+        {
+          "file": "ac_source.py",
+          "kind": "class",
+          "line": 28,
+          "name": "AssettoCorsaSource"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 13,
+          "name": "main"
+        },
+        {
+          "file": "models.py",
+          "kind": "class",
+          "line": 23,
+          "name": "ACPhysics"
+        },
+        {
+          "file": "models.py",
+          "kind": "class",
+          "line": 89,
+          "name": "ACGraphics"
+        },
+        {
+          "file": "models.py",
+          "kind": "class",
+          "line": 123,
+          "name": "ACStatic"
+        }
+      ],
+      "routes": []
+    },
+    "ac-video-browser": {
+      "entry": "main.py",
+      "kind": "fastapi",
+      "python_symbols": [
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 21,
+          "name": "_get_blob_fs"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 37,
+          "name": "list_sessions"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 58,
+          "name": "list_files"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 83,
+          "name": "download_file"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 106,
+          "name": "root"
+        }
+      ],
+      "routes": [
+        {
+          "file": "main.py",
+          "handler": "list_sessions",
+          "line": 36,
+          "method": "GET",
+          "path": "/api/sessions"
+        },
+        {
+          "file": "main.py",
+          "handler": "list_files",
+          "line": 57,
+          "method": "GET",
+          "path": "/api/sessions/{session_id}/files"
+        },
+        {
+          "file": "main.py",
+          "handler": "download_file",
+          "line": 82,
+          "method": "GET",
+          "path": "/api/sessions/{session_id}/files/{filename}"
+        },
+        {
+          "file": "main.py",
+          "handler": "root",
+          "line": 105,
+          "method": "GET",
+          "path": "/{full_path:path}"
+        }
+      ]
+    },
+    "ac-video-viewer": {
+      "entry": "main.py",
+      "kind": "fastapi",
+      "python_symbols": [
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 29,
+          "name": "push_to_clients"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 37,
+          "name": "_broadcast"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 48,
+          "name": "run_kafka"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 79,
+          "name": "lifespan"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 93,
+          "name": "ws_endpoint"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 109,
+          "name": "root"
+        }
+      ],
+      "routes": [
+        {
+          "file": "main.py",
+          "handler": "root",
+          "line": 108,
+          "method": "GET",
+          "path": "/{full_path:path}"
+        }
+      ]
+    },
+    "ac_video_streaming": {
+      "entry": "main.py",
+      "kind": "quixstreams-source",
+      "python_symbols": [
+        {
+          "file": "ac_reader.py",
+          "kind": "function",
+          "line": 30,
+          "name": "_open_shm"
+        },
+        {
+          "file": "ac_reader.py",
+          "kind": "class",
+          "line": 41,
+          "name": "ACGraphicsReader"
+        },
+        {
+          "file": "ac_reader_mock.py",
+          "kind": "class",
+          "line": 24,
+          "name": "ACGraphicsReaderMock"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 14,
+          "name": "main"
+        },
+        {
+          "file": "models.py",
+          "kind": "class",
+          "line": 23,
+          "name": "ACPhysics"
+        },
+        {
+          "file": "models.py",
+          "kind": "class",
+          "line": 89,
+          "name": "ACGraphics"
+        },
+        {
+          "file": "models.py",
+          "kind": "class",
+          "line": 123,
+          "name": "ACStatic"
+        },
+        {
+          "file": "session_tracker.py",
+          "kind": "class",
+          "line": 18,
+          "name": "SessionTracker"
+        },
+        {
+          "file": "test_record.py",
+          "kind": "function",
+          "line": 26,
+          "name": "main"
+        },
+        {
+          "file": "test_stream.py",
+          "kind": "function",
+          "line": 45,
+          "name": "push_to_clients"
+        },
+        {
+          "file": "test_stream.py",
+          "kind": "async_function",
+          "line": 52,
+          "name": "_broadcast"
+        },
+        {
+          "file": "test_stream.py",
+          "kind": "function",
+          "line": 65,
+          "name": "capture_loop"
+        },
+        {
+          "file": "test_stream.py",
+          "kind": "async_function",
+          "line": 195,
+          "name": "lifespan"
+        },
+        {
+          "file": "test_stream.py",
+          "kind": "async_function",
+          "line": 212,
+          "name": "ws_endpoint"
+        },
+        {
+          "file": "test_stream.py",
+          "kind": "async_function",
+          "line": 228,
+          "name": "root"
+        },
+        {
+          "file": "video_recorder.py",
+          "kind": "function",
+          "line": 30,
+          "name": "_find_ffmpeg"
+        },
+        {
+          "file": "video_recorder.py",
+          "kind": "class",
+          "line": 47,
+          "name": "VideoRecorder"
+        },
+        {
+          "file": "video_source.py",
+          "kind": "function",
+          "line": 35,
+          "name": "_get_blob_fs"
+        },
+        {
+          "file": "video_source.py",
+          "kind": "class",
+          "line": 47,
+          "name": "ACVideoSource"
+        },
+        {
+          "file": "viewer.py",
+          "kind": "function",
+          "line": 36,
+          "name": "push_to_clients"
+        },
+        {
+          "file": "viewer.py",
+          "kind": "async_function",
+          "line": 44,
+          "name": "_broadcast"
+        },
+        {
+          "file": "viewer.py",
+          "kind": "function",
+          "line": 55,
+          "name": "run_kafka"
+        },
+        {
+          "file": "viewer.py",
+          "kind": "async_function",
+          "line": 86,
+          "name": "lifespan"
+        },
+        {
+          "file": "viewer.py",
+          "kind": "async_function",
+          "line": 100,
+          "name": "ws_endpoint"
+        },
+        {
+          "file": "viewer.py",
+          "kind": "async_function",
+          "line": 116,
+          "name": "root"
+        }
+      ],
+      "routes": [
+        {
+          "file": "test_stream.py",
+          "handler": "root",
+          "line": 227,
+          "method": "GET",
+          "path": "/{full_path:path}"
+        },
+        {
+          "file": "viewer.py",
+          "handler": "root",
+          "line": 115,
+          "method": "GET",
+          "path": "/{full_path:path}"
+        }
+      ]
+    },
+    "session-config-bridge": {
+      "entry": "main.py",
+      "kind": "quixstreams-app",
+      "python_symbols": [
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 37,
+          "name": "_auth_headers"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 43,
+          "name": "_find_config_id"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 61,
+          "name": "_push_to_config_manager"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 107,
+          "name": "_find_experiment_config_id"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 123,
+          "name": "_get_current_test_id"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 164,
+          "name": "_link_session_to_test"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 199,
+          "name": "_probe_test_manager"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 221,
+          "name": "_probe_config_manager"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 241,
+          "name": "process_session"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 251,
+          "name": "main"
+        }
+      ],
+      "routes": []
+    },
+    "telemetry-comparison": {
+      "entry": "main.py",
+      "js_modules": {
+        "static/app.js": {
+          "exports": [],
+          "imports": [
+            {
+              "from": "./modules/charts.js",
+              "names": [
+                "setStatus"
+              ]
+            },
+            {
+              "from": "./modules/data.js",
+              "names": [
+                "fetchSessions",
+                "fetchTrack",
+                "fetchChannels"
+              ]
+            },
+            {
+              "from": "./modules/selections.js",
+              "names": [
+                "addRow",
+                "renderChannelChips",
+                "getRowFilters",
+                "populateDropdowns"
+              ]
+            },
+            {
+              "from": "./modules/state.js",
+              "names": [
+                "appState",
+                "PART_COLS",
+                "PART_LABELS"
+              ]
+            },
+            {
+              "from": "./modules/sync.js",
+              "names": [
+                "wireVideoElement"
+              ]
+            },
+            {
+              "from": "./modules/video.js",
+              "names": []
+            }
+          ],
+          "window_globals": [
+            "togglePanel",
+            "toggleTopbarPanel"
+          ]
+        },
+        "static/modules/charts.js": {
+          "exports": [
+            "attachMarkerDrag",
+            "linkXAxes",
+            "plot",
+            "setStatus",
+            "toggleCornerOverlay"
+          ],
+          "imports": [
+            {
+              "from": "./data.js",
+              "names": [
+                "downsample",
+                "fetchTelemetry"
+              ]
+            },
+            {
+              "from": "./selections.js",
+              "names": [
+                "getSelections",
+                "getActiveSignals",
+                "chartTitle"
+              ]
+            },
+            {
+              "from": "./state.js",
+              "names": [
+                "appState",
+                "PLOTLY_LAYOUT"
+              ]
+            },
+            {
+              "from": "./sync.js",
+              "names": [
+                "updateMarker"
+              ]
+            }
+          ],
+          "window_globals": [
+            "plot",
+            "toggleCornerOverlay"
+          ]
+        },
+        "static/modules/data.js": {
+          "exports": [
+            "_interp",
+            "downsample",
+            "fetchChannels",
+            "fetchSessions",
+            "fetchTelemetry",
+            "fetchTrack",
+            "getDistinctValues",
+            "interpolateAt"
+          ],
+          "imports": [
+            {
+              "from": "./state.js",
+              "names": [
+                "appState",
+                "setTrackData",
+                "setTrackConfig"
+              ]
+            }
+          ],
+          "window_globals": []
+        },
+        "static/modules/selections.js": {
+          "exports": [
+            "addRow",
+            "chartTitle",
+            "getActiveSignals",
+            "getPreviousRowFilters",
+            "getRowFilters",
+            "getSelections",
+            "loadLaps",
+            "onPartChange",
+            "populateDropdowns",
+            "removeRow",
+            "renderChannelChips",
+            "toggleAllLaps",
+            "toggleCat"
+          ],
+          "imports": [
+            {
+              "from": "./data.js",
+              "names": [
+                "getDistinctValues"
+              ]
+            },
+            {
+              "from": "./state.js",
+              "names": [
+                "appState",
+                "PART_COLS",
+                "PART_LABELS",
+                "ROW_COLORS",
+                "TRACE_COLORS",
+                "DEFAULT_ACTIVE",
+                "CAT_ORDER",
+                "MAX_VISIBLE"
+              ]
+            }
+          ],
+          "window_globals": [
+            "addRow",
+            "onPartChange",
+            "removeRow",
+            "toggleAllLaps",
+            "toggleCat"
+          ]
+        },
+        "static/modules/state.js": {
+          "exports": [
+            "CAT_ORDER",
+            "DEFAULT_ACTIVE",
+            "HAS_RVFC",
+            "MAX_READOUTS",
+            "MAX_TRACE_ANNOTATIONS",
+            "MAX_VISIBLE",
+            "PART_COLS",
+            "PART_LABELS",
+            "PLOTLY_LAYOUT",
+            "ROW_COLORS",
+            "TRACE_COLORS",
+            "VIDEO_RAF_INTERVAL_MS",
+            "appState",
+            "getTrackConfig",
+            "getTrackData",
+            "getTrackZoom",
+            "setMarkerPosition",
+            "setTrackConfig",
+            "setTrackData",
+            "videoState"
+          ],
+          "imports": [],
+          "window_globals": []
+        },
+        "static/modules/sync.js": {
+          "exports": [
+            "_highlightAnnotations",
+            "_onVideoFrame",
+            "_startVideoSync",
+            "_stopVideoSync",
+            "_videoRafLoop",
+            "buildSyncLookups",
+            "clearTraceHighlight",
+            "highlightVideoLapTrace",
+            "lookupNormPosForTms",
+            "lookupTmsForNormPos",
+            "syncVideoFromMarker",
+            "updateMarker",
+            "updateReadout",
+            "wireVideoElement"
+          ],
+          "imports": [
+            {
+              "from": "./data.js",
+              "names": [
+                "interpolateAt",
+                "_interp"
+              ]
+            },
+            {
+              "from": "./state.js",
+              "names": [
+                "appState",
+                "videoState",
+                "setMarkerPosition",
+                "getTrackZoom",
+                "getTrackData",
+                "HAS_RVFC",
+                "VIDEO_RAF_INTERVAL_MS",
+                "MAX_TRACE_ANNOTATIONS"
+              ]
+            }
+          ],
+          "window_globals": [
+            "updateMarker"
+          ]
+        },
+        "static/modules/toast.js": {
+          "exports": [],
+          "imports": [],
+          "window_globals": []
+        },
+        "static/modules/track-map.js": {
+          "exports": [],
+          "imports": [],
+          "window_globals": [
+            "_markerTraceIdx"
+          ]
+        },
+        "static/modules/video-overlay.js": {
+          "exports": [],
+          "imports": [],
+          "window_globals": [
+            "setCombinedTab",
+            "toggleVideoFloat"
+          ]
+        },
+        "static/modules/video.js": {
+          "exports": [
+            "loadVideoForLapIdx",
+            "onVideoLapChange",
+            "onVideoSpeedChange",
+            "populateVideoLapPicker"
+          ],
+          "imports": [
+            {
+              "from": "./state.js",
+              "names": [
+                "videoState"
+              ]
+            },
+            {
+              "from": "./sync.js",
+              "names": [
+                "buildSyncLookups",
+                "highlightVideoLapTrace"
+              ]
+            }
+          ],
+          "window_globals": [
+            "onVideoLapChange",
+            "onVideoSpeedChange"
+          ]
+        }
+      },
+      "kind": "fastapi",
+      "python_symbols": [
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 70,
+          "name": "sanitize_df"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 75,
+          "name": "_lake_query"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 112,
+          "name": "list_sessions"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 160,
+          "name": "get_telemetry"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 247,
+          "name": "list_channels"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 253,
+          "name": "health"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 261,
+          "name": "index"
+        },
+        {
+          "file": "partition_filter.py",
+          "kind": "function",
+          "line": 20,
+          "name": "_build_partition_filter"
+        },
+        {
+          "file": "partition_walker.py",
+          "kind": "function",
+          "line": 49,
+          "name": "_get_lake_semaphore"
+        },
+        {
+          "file": "partition_walker.py",
+          "kind": "async_function",
+          "line": 59,
+          "name": "_list_partition_children"
+        },
+        {
+          "file": "partition_walker.py",
+          "kind": "async_function",
+          "line": 91,
+          "name": "_walk_partition_tree"
+        },
+        {
+          "file": "track_loader.py",
+          "kind": "function",
+          "line": 22,
+          "name": "_classify_radius"
+        },
+        {
+          "file": "track_loader.py",
+          "kind": "function",
+          "line": 32,
+          "name": "_load_track_csv"
+        },
+        {
+          "file": "track_loader.py",
+          "kind": "async_function",
+          "line": 104,
+          "name": "get_track"
+        },
+        {
+          "file": "track_loader.py",
+          "kind": "async_function",
+          "line": 116,
+          "name": "get_track_config"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 25,
+          "name": "_get_blob_fs"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 42,
+          "name": "_safe_session"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 48,
+          "name": "_session_blob_variants"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 77,
+          "name": "_find_video_paths"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "async_function",
+          "line": 99,
+          "name": "get_video_meta"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "async_function",
+          "line": 147,
+          "name": "stream_video"
+        }
+      ],
+      "routes": [
+        {
+          "file": "main.py",
+          "handler": "list_sessions",
+          "line": 111,
+          "method": "GET",
+          "path": "/api/sessions"
+        },
+        {
+          "file": "main.py",
+          "handler": "get_telemetry",
+          "line": 159,
+          "method": "GET",
+          "path": "/api/telemetry"
+        },
+        {
+          "file": "main.py",
+          "handler": "list_channels",
+          "line": 246,
+          "method": "GET",
+          "path": "/api/channels"
+        },
+        {
+          "file": "main.py",
+          "handler": "health",
+          "line": 252,
+          "method": "GET",
+          "path": "/health"
+        },
+        {
+          "file": "main.py",
+          "handler": "index",
+          "line": 260,
+          "method": "GET",
+          "path": "/"
+        },
+        {
+          "file": "track_loader.py",
+          "handler": "get_track",
+          "line": 103,
+          "method": "GET",
+          "path": "/api/track"
+        },
+        {
+          "file": "track_loader.py",
+          "handler": "get_track_config",
+          "line": 115,
+          "method": "GET",
+          "path": "/api/track/config"
+        },
+        {
+          "file": "video_proxy.py",
+          "handler": "get_video_meta",
+          "line": 98,
+          "method": "GET",
+          "path": "/api/video/{session_id}/{lap}"
+        },
+        {
+          "file": "video_proxy.py",
+          "handler": "stream_video",
+          "line": 146,
+          "method": "GET",
+          "path": "/api/video/{session_id}/{lap}/mp4"
+        }
+      ]
+    },
+    "telemetry-dashboard": {
+      "entry": "main.py",
+      "kind": "fastapi",
+      "python_symbols": [
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 30,
+          "name": "push_to_clients"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 38,
+          "name": "_broadcast"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 49,
+          "name": "run_kafka"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 80,
+          "name": "lifespan"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 94,
+          "name": "root"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 111,
+          "name": "ws_endpoint"
+        }
+      ],
+      "routes": [
+        {
+          "file": "main.py",
+          "handler": "root",
+          "line": 93,
+          "method": "GET",
+          "path": "/{full_path:path}"
+        }
+      ]
+    },
+    "test-manager-backend": {
+      "entry": "main.py",
+      "kind": "fastapi",
+      "python_symbols": [
+        {
+          "file": "api/app.py",
+          "kind": "async_function",
+          "line": 31,
+          "name": "lifespan"
+        },
+        {
+          "file": "api/app.py",
+          "kind": "function",
+          "line": 70,
+          "name": "_probe_config_api"
+        },
+        {
+          "file": "api/app.py",
+          "kind": "function",
+          "line": 97,
+          "name": "format_validation_error"
+        },
+        {
+          "file": "api/app.py",
+          "kind": "async_function",
+          "line": 168,
+          "name": "validation_exception_handler"
+        },
+        {
+          "file": "api/app.py",
+          "kind": "function",
+          "line": 187,
+          "name": "create_app"
+        },
+        {
+          "file": "api/auth.py",
+          "kind": "function",
+          "line": 13,
+          "name": "_token_preview"
+        },
+        {
+          "file": "api/auth.py",
+          "kind": "function",
+          "line": 22,
+          "name": "_get_auth_implementation"
+        },
+        {
+          "file": "api/auth.py",
+          "kind": "function",
+          "line": 37,
+          "name": "auth"
+        },
+        {
+          "file": "api/auth.py",
+          "kind": "function",
+          "line": 42,
+          "name": "validate_token"
+        },
+        {
+          "file": "api/config_api.py",
+          "kind": "function",
+          "line": 12,
+          "name": "get_config_api_client"
+        },
+        {
+          "file": "api/config_api.py",
+          "kind": "function",
+          "line": 19,
+          "name": "safe_call"
+        },
+        {
+          "file": "api/local_auth.py",
+          "kind": "class",
+          "line": 17,
+          "name": "LocalAuth"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 15,
+          "name": "PaginationParams"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 31,
+          "name": "PaginatedResponse"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 55,
+          "name": "TestStatus"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 61,
+          "name": "DeviceReference"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 70,
+          "name": "SessionInfo"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 78,
+          "name": "Test"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 101,
+          "name": "TestCreate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 112,
+          "name": "TestUpdate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 123,
+          "name": "TestQuery"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 132,
+          "name": "TestFullData"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 139,
+          "name": "LogbookEntry"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 148,
+          "name": "LogbookEntryCreate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 154,
+          "name": "LogbookEntryUpdate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 166,
+          "name": "DeviceStatus"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 173,
+          "name": "DeviceCategory"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 180,
+          "name": "Device"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 191,
+          "name": "DeviceCreate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 199,
+          "name": "DeviceUpdate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 207,
+          "name": "DeviceQuery"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 220,
+          "name": "SampleType"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 227,
+          "name": "Location"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 234,
+          "name": "ProductCategory"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 241,
+          "name": "Product"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 255,
+          "name": "IntegrationSettings"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 275,
+          "name": "IntegrationSettingsUpdate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 289,
+          "name": "Topic"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 296,
+          "name": "Workspace"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 303,
+          "name": "TopicInfo"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 314,
+          "name": "TopicReference"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 327,
+          "name": "Repository"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 336,
+          "name": "WorkspaceDetails"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 348,
+          "name": "DeploymentInfo"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 367,
+          "name": "Driver"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 376,
+          "name": "DriverCreate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 382,
+          "name": "DriverUpdate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 388,
+          "name": "DriverQuery"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 400,
+          "name": "EnvironmentStatus"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 405,
+          "name": "Environment"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 416,
+          "name": "EnvironmentCreate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 424,
+          "name": "EnvironmentUpdate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 432,
+          "name": "EnvironmentQuery"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 441,
+          "name": "DeploymentReference"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 457,
+          "name": "BestLapEntry"
+        },
+        {
+          "file": "api/mongo.py",
+          "kind": "function",
+          "line": 11,
+          "name": "connect"
+        },
+        {
+          "file": "api/mongo.py",
+          "kind": "function",
+          "line": 54,
+          "name": "disconnect"
+        },
+        {
+          "file": "api/mongo.py",
+          "kind": "function",
+          "line": 58,
+          "name": "get_mongo"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "kind": "function",
+          "line": 21,
+          "name": "generate_device_id"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "kind": "function",
+          "line": 34,
+          "name": "create_device"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "kind": "function",
+          "line": 53,
+          "name": "list_devices"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "kind": "function",
+          "line": 95,
+          "name": "get_device"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "kind": "function",
+          "line": 108,
+          "name": "get_devices_batch"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "kind": "function",
+          "line": 121,
+          "name": "update_device"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "kind": "function",
+          "line": 145,
+          "name": "delete_device"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "kind": "function",
+          "line": 21,
+          "name": "generate_driver_id"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "kind": "function",
+          "line": 34,
+          "name": "create_driver"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "kind": "function",
+          "line": 51,
+          "name": "list_drivers"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "kind": "function",
+          "line": 89,
+          "name": "get_driver"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "kind": "function",
+          "line": 102,
+          "name": "update_driver"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "kind": "function",
+          "line": 126,
+          "name": "delete_driver"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "kind": "function",
+          "line": 21,
+          "name": "generate_environment_id"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "kind": "function",
+          "line": 34,
+          "name": "create_environment"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "kind": "function",
+          "line": 53,
+          "name": "list_environments"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "kind": "function",
+          "line": 98,
+          "name": "get_environment"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "kind": "function",
+          "line": 111,
+          "name": "update_environment"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "kind": "function",
+          "line": 135,
+          "name": "delete_environment"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "kind": "class",
+          "line": 21,
+          "name": "ConfigManagerUrl"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "kind": "async_function",
+          "line": 28,
+          "name": "get_config_manager_url"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "kind": "async_function",
+          "line": 122,
+          "name": "get_config_manager_frontend_url"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "kind": "function",
+          "line": 228,
+          "name": "get_measurements_url_base"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "kind": "async_function",
+          "line": 238,
+          "name": "get_measurements_url"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "kind": "function",
+          "line": 293,
+          "name": "get_analytics_url_base"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "kind": "async_function",
+          "line": 303,
+          "name": "get_analytics_url"
+        },
+        {
+          "file": "api/routes/leaderboard.py",
+          "kind": "function",
+          "line": 78,
+          "name": "_make_local_dev_rows"
+        },
+        {
+          "file": "api/routes/leaderboard.py",
+          "kind": "function",
+          "line": 138,
+          "name": "_fold_driver_name"
+        },
+        {
+          "file": "api/routes/leaderboard.py",
+          "kind": "function",
+          "line": 171,
+          "name": "_build_driver_name_lookup"
+        },
+        {
+          "file": "api/routes/leaderboard.py",
+          "kind": "async_function",
+          "line": 188,
+          "name": "get_best_laps"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "kind": "function",
+          "line": 15,
+          "name": "create_logbook_entry"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "kind": "function",
+          "line": 34,
+          "name": "get_logbook_entry"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "kind": "function",
+          "line": 46,
+          "name": "get_logbook_entries"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "kind": "function",
+          "line": 56,
+          "name": "update_logbook_entry"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "kind": "function",
+          "line": 80,
+          "name": "delete_logbook_entry"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "function",
+          "line": 21,
+          "name": "extract_token"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "function",
+          "line": 28,
+          "name": "get_portal_api_url"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "async_function",
+          "line": 33,
+          "name": "portal_get"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "async_function",
+          "line": 75,
+          "name": "get_repositories"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "async_function",
+          "line": 111,
+          "name": "get_workspaces_details"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "async_function",
+          "line": 185,
+          "name": "get_deployments"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "async_function",
+          "line": 277,
+          "name": "get_current_workspace_id"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "async_function",
+          "line": 290,
+          "name": "get_fallback_deployment"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "kind": "async_function",
+          "line": 334,
+          "name": "get_workspace_topics"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "kind": "function",
+          "line": 26,
+          "name": "get_db_settings"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "kind": "function",
+          "line": 36,
+          "name": "get_effective_integration_settings"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "kind": "async_function",
+          "line": 79,
+          "name": "apply_fallback_deployments"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "kind": "async_function",
+          "line": 185,
+          "name": "get_integration_settings"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "kind": "async_function",
+          "line": 207,
+          "name": "update_integration_settings"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "kind": "async_function",
+          "line": 272,
+          "name": "get_topics"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "kind": "async_function",
+          "line": 343,
+          "name": "get_workspaces"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 26,
+          "name": "build_partition_values"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 55,
+          "name": "sync_to_dcm"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 109,
+          "name": "generate_test_id"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 121,
+          "name": "resolve_test_names"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 132,
+          "name": "resolve_tests_names"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 166,
+          "name": "auth_test"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 171,
+          "name": "create_test"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 216,
+          "name": "list_tests"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 264,
+          "name": "get_test"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 277,
+          "name": "get_test_full"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 295,
+          "name": "update_test"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 349,
+          "name": "get_telemetry_params"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 382,
+          "name": "add_session"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 412,
+          "name": "activate_test"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 447,
+          "name": "delete_test"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 503,
+          "name": "get_experiment_ids"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 513,
+          "name": "get_environment_ids"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "kind": "function",
+          "line": 522,
+          "name": "get_drivers"
+        },
+        {
+          "file": "api/routes/user.py",
+          "kind": "class",
+          "line": 15,
+          "name": "UserProfile"
+        },
+        {
+          "file": "api/routes/user.py",
+          "kind": "async_function",
+          "line": 24,
+          "name": "get_current_user"
+        },
+        {
+          "file": "api/settings.py",
+          "kind": "class",
+          "line": 7,
+          "name": "MongoSettings"
+        },
+        {
+          "file": "api/settings.py",
+          "kind": "class",
+          "line": 22,
+          "name": "Settings"
+        },
+        {
+          "file": "api/settings.py",
+          "kind": "function",
+          "line": 71,
+          "name": "get_settings"
+        },
+        {
+          "file": "api/utils.py",
+          "kind": "function",
+          "line": 4,
+          "name": "now"
+        },
+        {
+          "file": "api/utils.py",
+          "kind": "function",
+          "line": 8,
+          "name": "timestamp"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 11,
+          "name": "main"
+        }
+      ],
+      "routes": [
+        {
+          "file": "api/routes/devices.py",
+          "handler": "create_device",
+          "line": 33,
+          "method": "POST",
+          "path": "/devices"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "handler": "list_devices",
+          "line": 52,
+          "method": "GET",
+          "path": "/devices"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "handler": "get_device",
+          "line": 94,
+          "method": "GET",
+          "path": "/devices/{device_id}"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "handler": "get_devices_batch",
+          "line": 107,
+          "method": "POST",
+          "path": "/devices/batch"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "handler": "update_device",
+          "line": 120,
+          "method": "PUT",
+          "path": "/devices/{device_id}"
+        },
+        {
+          "file": "api/routes/devices.py",
+          "handler": "delete_device",
+          "line": 144,
+          "method": "DELETE",
+          "path": "/devices/{device_id}"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "handler": "create_driver",
+          "line": 33,
+          "method": "POST",
+          "path": "/drivers"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "handler": "list_drivers",
+          "line": 50,
+          "method": "GET",
+          "path": "/drivers"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "handler": "get_driver",
+          "line": 88,
+          "method": "GET",
+          "path": "/drivers/{driver_id}"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "handler": "update_driver",
+          "line": 101,
+          "method": "PUT",
+          "path": "/drivers/{driver_id}"
+        },
+        {
+          "file": "api/routes/drivers.py",
+          "handler": "delete_driver",
+          "line": 125,
+          "method": "DELETE",
+          "path": "/drivers/{driver_id}"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "handler": "create_environment",
+          "line": 33,
+          "method": "POST",
+          "path": "/environments"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "handler": "list_environments",
+          "line": 52,
+          "method": "GET",
+          "path": "/environments"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "handler": "get_environment",
+          "line": 97,
+          "method": "GET",
+          "path": "/environments/{environment_id}"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "handler": "update_environment",
+          "line": 110,
+          "method": "PUT",
+          "path": "/environments/{environment_id}"
+        },
+        {
+          "file": "api/routes/environments.py",
+          "handler": "delete_environment",
+          "line": 134,
+          "method": "DELETE",
+          "path": "/environments/{environment_id}"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "handler": "get_config_manager_url",
+          "line": 27,
+          "method": "GET",
+          "path": "/config-manager-url"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "handler": "get_config_manager_frontend_url",
+          "line": 121,
+          "method": "GET",
+          "path": "/config-manager-frontend-url"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "handler": "get_measurements_url",
+          "line": 237,
+          "method": "GET",
+          "path": "/measurements-url"
+        },
+        {
+          "file": "api/routes/integrations.py",
+          "handler": "get_analytics_url",
+          "line": 302,
+          "method": "GET",
+          "path": "/analytics-url"
+        },
+        {
+          "file": "api/routes/leaderboard.py",
+          "handler": "get_best_laps",
+          "line": 187,
+          "method": "GET",
+          "path": "/best-laps"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "handler": "create_logbook_entry",
+          "line": 14,
+          "method": "POST",
+          "path": "/tests/{test_id}/logbook"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "handler": "get_logbook_entry",
+          "line": 33,
+          "method": "GET",
+          "path": "/tests/{test_id}/logbook/{entry_id}"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "handler": "get_logbook_entries",
+          "line": 45,
+          "method": "GET",
+          "path": "/tests/{test_id}/logbook"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "handler": "update_logbook_entry",
+          "line": 55,
+          "method": "PUT",
+          "path": "/tests/{test_id}/logbook/{entry_id}"
+        },
+        {
+          "file": "api/routes/logbook.py",
+          "handler": "delete_logbook_entry",
+          "line": 79,
+          "method": "DELETE",
+          "path": "/tests/{test_id}/logbook/{entry_id}"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "handler": "get_repositories",
+          "line": 74,
+          "method": "GET",
+          "path": "/repositories"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "handler": "get_workspaces_details",
+          "line": 110,
+          "method": "GET",
+          "path": "/workspaces"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "handler": "get_deployments",
+          "line": 184,
+          "method": "GET",
+          "path": "/workspaces/{workspace_id}/deployments"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "handler": "get_current_workspace_id",
+          "line": 276,
+          "method": "GET",
+          "path": "/current-workspace-id"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "handler": "get_fallback_deployment",
+          "line": 289,
+          "method": "GET",
+          "path": "/fallback-deployment"
+        },
+        {
+          "file": "api/routes/portal.py",
+          "handler": "get_workspace_topics",
+          "line": 333,
+          "method": "GET",
+          "path": "/workspaces/{workspace_id}/topics"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "handler": "get_integration_settings",
+          "line": 184,
+          "method": "GET",
+          "path": ""
+        },
+        {
+          "file": "api/routes/settings.py",
+          "handler": "update_integration_settings",
+          "line": 206,
+          "method": "PUT",
+          "path": ""
+        },
+        {
+          "file": "api/routes/settings.py",
+          "handler": "get_topics",
+          "line": 271,
+          "method": "GET",
+          "path": "/topics"
+        },
+        {
+          "file": "api/routes/settings.py",
+          "handler": "get_workspaces",
+          "line": 342,
+          "method": "GET",
+          "path": "/workspaces"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "auth_test",
+          "line": 165,
+          "method": "GET",
+          "path": "/_internal/auth-test"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "create_test",
+          "line": 170,
+          "method": "POST",
+          "path": "/tests"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "list_tests",
+          "line": 213,
+          "method": "GET",
+          "path": "/tests"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "get_test",
+          "line": 263,
+          "method": "GET",
+          "path": "/tests/{test_id}"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "get_test_full",
+          "line": 274,
+          "method": "GET",
+          "path": "/tests/{test_id}/full"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "update_test",
+          "line": 294,
+          "method": "PUT",
+          "path": "/tests/{test_id}"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "get_telemetry_params",
+          "line": 348,
+          "method": "GET",
+          "path": "/tests/{test_id}/telemetry-params"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "add_session",
+          "line": 379,
+          "method": "POST",
+          "path": "/tests/{test_id}/sessions"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "activate_test",
+          "line": 409,
+          "method": "POST",
+          "path": "/tests/{test_id}/activate"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "delete_test",
+          "line": 446,
+          "method": "DELETE",
+          "path": "/tests/{test_id}"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "get_experiment_ids",
+          "line": 502,
+          "method": "GET",
+          "path": "/tests/filters/experiment-ids"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "get_environment_ids",
+          "line": 512,
+          "method": "GET",
+          "path": "/tests/filters/environment-ids"
+        },
+        {
+          "file": "api/routes/tests.py",
+          "handler": "get_drivers",
+          "line": 521,
+          "method": "GET",
+          "path": "/tests/filters/drivers"
+        },
+        {
+          "file": "api/routes/user.py",
+          "handler": "get_current_user",
+          "line": 23,
+          "method": "GET",
+          "path": "/me"
+        }
+      ]
+    }
+  }
+}

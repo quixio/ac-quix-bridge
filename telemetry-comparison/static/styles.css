@@ -63,8 +63,17 @@ body {
   color: var(--text-muted);
   opacity: 0.5;
 }
+/* Issue 2 — Dropdown truncation fix.
+ * Remove the hard 140px max-width cap that clipped long values like
+ * "ks_nurburgring" and "bmw_z4_gt3". Use min-width so short options
+ * (e.g. "g29") don't collapse, and width:auto so the select expands to
+ * its longest option without overflowing the flex row (flex-wrap:wrap
+ * on .selection-row handles graceful degradation below 1280px).
+ * Principle: content determines width; container constrains overflow. */
 .part-select {
-  max-width: 140px;
+  min-width: 72px;
+  max-width: none;
+  width: auto;
 }
 
 /* Inputs built at runtime (keeps app.js selectors intact). */
@@ -318,7 +327,8 @@ body[data-video-mode='docked']
 /* §11.5 — Minimum map size floor. Prevents the 35% map column from shrinking
  * below a usable canvas. When the grid can't honor 35% at 240 px, the video
  * pane gives up width instead (Plotly-filled rectangles are more sensitive
- * to squish than a <video> with object-contain). */
+ * to squish than a <video> with object-contain).
+ * min-height: 200px matches the 10%-reduced topbar floor (lg clamp base = 288px). */
 #topbar-map {
   min-width: 240px;
   min-height: 200px;
@@ -460,9 +470,11 @@ body[data-video-mode='floating'] #topbar {
  * When docked, the topbar (video + map) stays pinned to the top of the
  * viewport while the rest of the page (sessions, signals, charts) scrolls
  * underneath. z-index sits below the floating overlay (z-40) and toasts
- * (z-[10000]) but above the readout strip + Plotly chart contents. A solid
- * bg-bg background prevents scrolled content from bleeding through the
- * gap-3 padding between the video and map panes.
+ * (z-[10000]) but above Plotly chart contents. A solid bg-bg background
+ * prevents scrolled content from bleeding through the gap-3 padding.
+ *
+ * top: 0 — the readout strip has been removed; the topbar is now the
+ * topmost sticky element with no predecessor to offset around.
  *
  * In floating mode this rule is NOT applied — the topbar there is just the
  * compact placeholder strip and behaves as a normal flex child. */
@@ -471,63 +483,6 @@ body[data-video-mode='docked'] #topbar {
   top: 0;
   z-index: 30;
   background: var(--bg);
-}
-
-/* Round 3 fix-up: #track-readout-slot is the stable DOM anchor that
- * _relocateTrackReadout() reparents the readout into/out of. The slot itself
- * must NOT form a layout box — sticky positioning is relative to the nearest
- * containing block, and a plain <div> wrapper becomes a block box whose height
- * collapses to the readout's own height, leaving the sticky child with zero
- * travel distance (it scrolls behind the sticky topbar instead of sticking).
- * `display: contents` removes the slot from layout while keeping it in the
- * DOM tree, so #track-readout's containing block becomes <body> — same as
- * pre-R3 when the readout was a direct body-level sibling. */
-#track-readout-slot {
-  display: contents;
-}
-
-/* Readout strip sits immediately below the sticky topbar. The topbar uses
- * a Tailwind `clamp()` height that steps up by breakpoint; mirror those
- * steps here so the readout's sticky `top:` offset matches the topbar's
- * rendered height. Base value is the lg clamp max (420 px) so any
- * scroll-pinned readout stays clear of the topbar on the smaller tiers
- * too. Floating mode skips this (topbar has height: auto there). */
-body[data-video-mode='docked'] #track-readout {
-  top: clamp(320px, 36vh, 420px);
-}
-@media (min-width: 1280px) {
-  body[data-video-mode='docked'] #track-readout {
-    top: clamp(380px, 40vh, 500px);
-  }
-}
-@media (min-width: 1536px) {
-  body[data-video-mode='docked'] #track-readout {
-    top: clamp(440px, 44vh, 580px);
-  }
-}
-
-/* Collapse note: the map-collapsed reflow only rearranges content INSIDE
- * the topbar (map header moves above the video pane). The topbar's outer
- * h-[clamp(...)] Tailwind utility keeps the outer height fixed, so the
- * sticky offset for #track-readout doesn't need to change on collapse —
- * no jump. */
-
-/* Floating-mode readout: when _relocateTrackReadout() moves #track-readout
- * into #combined-panel-body, the element keeps its `sticky top-0 z-30
- * bg-bg/85 backdrop-blur ...` utility classes from index.html. Inside a
- * 270 px-tall floating window that sticky-top would pin the readout over
- * the map canvas. Override to static + transparent + slim padding so the
- * readout sits as a one-line footer strip beneath the Map tab content. */
-body[data-video-mode='floating'] #track-readout {
-  position: static;
-  top: auto;
-  background: transparent;
-  backdrop-filter: none;
-  border-bottom: 0;
-  border-top: 1px solid var(--border);
-  padding: 4px 8px;
-  font-size: 11px;
-  z-index: auto;
 }
 
 /* interact.js drives drag from #combined-panel-head when floating, and the

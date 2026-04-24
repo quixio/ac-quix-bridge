@@ -105,3 +105,12 @@ Other services (`ac-telemetry-source`, `telemetry-dashboard`, `ac-telemetry-lake
 - **QuixStreams** — Kafka client + Source/Sink framework. https://quix.io/docs for `Application`, `Source`, sinks, `app.yaml`, `quix.yaml`.
 - **quixportal** — Blob storage abstraction (S3/Azure/GCP/MinIO) used by the lake sink. Installed from Azure DevOps private index.
 - **testcontainers** — Ephemeral MongoDB for backend tests.
+
+## Orientation
+
+For fast "where is X?" lookups (files, routes, JS exports), consult:
+
+- `REPO_INDEX.md` — hand-written top-level map, module table, and agent triggers.
+- `.claude/repo-index.json` — machine-generated symbol/route index. Regenerate with `python scripts/gen_repo_index.py` after adding/moving top-level dirs or renaming public symbols. `python scripts/gen_repo_index.py --check` exits non-zero when stale.
+
+This file (`CLAUDE.md`) stays prose-architecture; the index is the lookup layer.

@@ -53,7 +53,7 @@
          ===================================================================== -->
     <header
       id="topbar"
-      class="grid grid-cols-1 lg:grid-cols-[65fr_35fr] gap-3 p-3 border-b border-brd bg-bg shadow-[0_4px_12px_rgba(0,0,0,0.4)] lg:h-[clamp(320px,36vh,420px)] xl:h-[clamp(380px,40vh,500px)] 2xl:h-[clamp(440px,44vh,580px)]"
+      class="grid grid-cols-1 lg:grid-cols-[65fr_35fr] gap-3 p-3 border-b border-brd bg-bg shadow-[0_4px_12px_rgba(0,0,0,0.4)] lg:h-[clamp(288px,32vh,378px)] xl:h-[clamp(342px,36vh,450px)] 2xl:h-[clamp(396px,40vh,522px)]"
     >
       <!-- ---------- VIDEO DOCK SLOT (combined panel lives here when docked) ----
            Note: despite the name, this slot now wraps the WHOLE combined unit
@@ -145,8 +145,18 @@
                 id="video-panel-head"
                 class="flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-brd select-none"
               >
-                <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
-                  Video
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold shrink-0">
+                    Video
+                  </div>
+                  <!-- Track position readout. video-overlay.js reparents this
+                       element between here (docked) and #combined-panel-head
+                       (floating) so it remains visible in both modes.
+                       sync.js:updateReadout() targets #readout-pos-text by ID. -->
+                  <span
+                    id="track-readout"
+                    class="font-mono text-[0.68rem] text-accent tabular-nums"
+                  ><span id="readout-pos-text">0.0%</span></span>
                 </div>
                 <div class="flex gap-1.5 items-center flex-wrap">
                   <div
@@ -297,29 +307,6 @@
     ></div>
 
     <!-- =====================================================================
-         READOUT STRIP — sticky under the top bar.
-         In docked mode this lives inside #track-readout-slot right here,
-         immediately after </header>. In floating mode _floatCombined()
-         reparents #track-readout into #combined-panel-body (inside the
-         floating window) so it stays paired with the Map tab; on dock it is
-         reparented back into #track-readout-slot. The wrapper slot is the
-         stable DOM anchor for the "home" position and must always be a
-         body-level sibling of <header> and <main>.
-         ===================================================================== -->
-    <div id="track-readout-slot">
-      <div
-        id="track-readout"
-        class="sticky top-0 z-30 bg-bg/85 backdrop-blur-[6px] border-b border-brd px-5 py-2 flex gap-[1.2rem] items-center text-[0.72rem]"
-      >
-        <span
-          id="readout-pos-text"
-          class="text-accent font-semibold tabular-nums"
-          >0.0%</span
-        >
-      </div>
-    </div>
-
-    <!-- =====================================================================
          SCROLLING CONTENT — capped width on ultrawide for readability.
          ===================================================================== -->
     <main class="flex-1 w-full max-w-screen-2xl mx-auto px-4 md:px-6 xl:px-8 py-4 pb-10">
@@ -402,6 +389,6 @@
     <script src="/static/modules/toast.js"></script>
     <script src="/static/modules/track-map.js"></script>
     <script src="/static/modules/video-overlay.js"></script>
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
   </body>
 </html>

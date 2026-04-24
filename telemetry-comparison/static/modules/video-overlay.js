@@ -377,32 +377,43 @@ function _restoreMapCollapseOnDock() {
 }
 
 /**
- * Round 3 fix: move #track-readout between its docked anchor
- * (#track-readout-slot in <body>) and the floating combined panel body.
+ * Move #track-readout between the docked video header and the floating
+ * combined-panel header so the position text is always visible regardless
+ * of mode.
  *
- * Why reparent instead of CSS-only hide/show? The readout shows
- * track-position status ("0.0% @ 0m") that pairs with the Map. Leaving it
- * as a sticky strip on the main scrollable content while the Map itself
- * lives in the floating window is misleading and wastes vertical space.
- * Moving the single DOM node keeps app.js's document.getElementById lookup
- * working in both modes (no stale references) and preserves the node's
- * listeners/state — same pattern as _relocateVideoControls().
+ * Docked: #track-readout lives inside the left cluster of #video-panel-head
+ *   (inline next to the "Video" label). #video-panel-head is visible in
+ *   docked mode, so the readout is naturally on-screen.
  *
- * In floating mode the readout lands at the bottom of #combined-panel-body
- * with position:static (via CSS) so it doesn't try to sticky-top inside a
- * 270-px-tall window and collapse on itself.
+ * Floating: #video-panel-head is display:none'd by CSS. Move #track-readout
+ *   into #combined-panel-head (before the tab switcher) so it stays visible
+ *   while floating.
+ *
+ * sync.js:updateReadout() targets only #readout-pos-text by ID, so
+ * reparenting the outer #track-readout span is transparent to it.
  */
 function _relocateTrackReadout(mode) {
   const readout = document.getElementById('track-readout');
   if (!readout) return;
   if (mode === 'floating') {
-    const body = document.getElementById('combined-panel-body');
-    if (!body) return;
-    if (readout.parentNode !== body) body.appendChild(readout);
+    const head = document.getElementById('combined-panel-head');
+    if (!head) return;
+    // Insert before the tab switcher so the readout sits at the far left.
+    const tabs = document.getElementById('combined-tabs');
+    if (tabs && tabs.parentNode === head) {
+      if (readout.parentNode !== head) head.insertBefore(readout, tabs);
+    } else if (readout.parentNode !== head) {
+      head.insertBefore(readout, head.firstChild);
+    }
   } else {
-    const slot = document.getElementById('track-readout-slot');
-    if (!slot) return;
-    if (readout.parentNode !== slot) slot.appendChild(readout);
+    // Restore to the left cluster inside #video-panel-head, after the
+    // "Video" label div (which is its firstElementChild).
+    const videoHead = document.getElementById('video-panel-head');
+    if (!videoHead) return;
+    const leftCluster = videoHead.firstElementChild;
+    if (leftCluster && readout.parentNode !== leftCluster) {
+      leftCluster.appendChild(readout);
+    }
   }
 }
 
