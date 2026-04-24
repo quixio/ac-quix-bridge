@@ -628,6 +628,11 @@ body[data-video-mode='floating'] #video-float-slot a,
 body[data-video-mode='floating'] #video-float-slot [data-no-drag] {
   cursor: auto;
 }
+body.overlay-dragging,
+body.overlay-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
 body.overlay-dragging #video-float-slot,
 body.overlay-dragging #video-float-slot * {
   cursor: grabbing !important;

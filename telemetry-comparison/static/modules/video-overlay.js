@@ -686,12 +686,10 @@ function toggleVideoFloat() {
  */
 function _onDragStart() {
   document.body.classList.add('overlay-dragging');
-  document.body.style.userSelect = 'none';
 }
 
 function _onDragEnd() {
   document.body.classList.remove('overlay-dragging');
-  document.body.style.userSelect = '';
   _persist();
 }
 
@@ -755,6 +753,7 @@ function _onGestureStart(event) {
   _gestureStartWidth = slot.offsetWidth;
   _gestureStartHeight = slot.offsetHeight;
   _isResizing = true;
+  document.body.classList.add('overlay-dragging');
   event.preventDefault();
 }
 
@@ -798,6 +797,7 @@ function _onGestureEnd() {
   _gestureStartWidth = 0;
   _gestureStartHeight = 0;
   _isResizing = false;
+  document.body.classList.remove('overlay-dragging');
   _persist();
   _resizeTrackMap();
 }
