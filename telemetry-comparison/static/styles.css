@@ -370,6 +370,74 @@ body[data-video-mode='docked']
  * The #video-float-slot is fixed-positioned; interact.js tracks position
  * in data-x/data-y attributes via a transform.
  */
+
+/* §float-header — Container query host.
+ *
+ * container-type: inline-size on #video-float-slot lets @container rules
+ * key off the slot's own rendered width rather than the viewport. This is
+ * the correct scope: the float panel is independently resizable/pinchable
+ * and its width is unrelated to window.innerWidth.
+ *
+ * This rule is safe in docked mode: #video-float-slot is display:none when
+ * docked (CSS rule below), so the container size is 0 and no @container
+ * rules fire against docked DOM. */
+#video-float-slot {
+  container-type: inline-size;
+}
+
+/* §float-header — Progressive disclosure via container queries.
+ *
+ * When the float panel is pinched/resized narrow, header elements hide in
+ * this priority order (first hidden → last hidden):
+ *   1. #video-status      (sync info: "15.4 MB • 120.4s • sync 577 pts")
+ *   2. #track-readout     ("59.9% @ 2136m")
+ *   3. speed label+select ("Speed [Realtime ▾]")
+ *   4. #video-lap-select  ("L2 • 06:39:45")
+ *   5. #combined-tabs     (Video / Map tab buttons)
+ *   ∞. #btn-combined-dock — NEVER hidden; flex-shrink:0 keeps it visible.
+ *
+ * Principle: Nielsen's "aesthetic and minimalist design" — show only what
+ * fits. Clipping or wrapping is worse than hiding because clipping gives
+ * partial information (worse than none) and wrapping blows the header height
+ * and buries the Dock button.
+ *
+ * Breakpoints were chosen so each transition leaves a balanced header with
+ * sensible breathing room at the cutoff width:
+ *   700 px — sync info gone; remaining: readout + tabs + lap + speed + Dock
+ *   550 px — readout gone; remaining: tabs + lap + speed + Dock
+ *   450 px — speed gone; remaining: tabs + lap + Dock
+ *   370 px — lap select gone; remaining: tabs + Dock
+ *   300 px — tabs gone; remaining: Dock only (matches the interact.js 320px floor)
+ */
+@container (max-width: 700px) {
+  #video-float-slot #video-status {
+    display: none !important;
+  }
+}
+
+@container (max-width: 550px) {
+  #video-float-slot #track-readout {
+    display: none !important;
+  }
+}
+
+@container (max-width: 450px) {
+  #video-float-slot .float-speed-control {
+    display: none !important;
+  }
+}
+
+@container (max-width: 370px) {
+  #video-float-slot #video-lap-select {
+    display: none !important;
+  }
+}
+
+@container (max-width: 300px) {
+  #video-float-slot #combined-tabs {
+    display: none !important;
+  }
+}
 body[data-video-mode='floating'] #video-float-slot {
   display: block;
 }
@@ -381,6 +449,53 @@ body[data-video-mode='floating'] #topbar-placeholder {
 }
 body[data-video-mode='docked'] #topbar-placeholder {
   display: none;
+}
+
+/* §float-header — No-wrap + Dock-button anchor.
+ *
+ * flex-wrap: nowrap on the combined-panel-head prevents elements from
+ * reflowing onto a second line when the panel narrows. Instead, elements
+ * are hidden progressively via the @container rules above.
+ *
+ * min-width: 0 on the head itself lets Flexbox allow children to compress
+ * to zero (without it, the default min-width: auto prevents hidden-to-zero).
+ *
+ * flex-shrink: 0 + min-width: 0 on #combined-panel-head-right ensures the
+ * Dock button cluster never shrinks or disappears — it anchors at the right
+ * edge at every width. The outer head's justify-content: space-between
+ * (from Tailwind's 'justify-between') naturally pushes this cluster to the
+ * right.
+ *
+ * overflow: hidden on the head clips any residual sub-pixel overflow
+ * from elements that are transitioning to display:none rather than
+ * generating a scrollbar. */
+body[data-video-mode='floating'] #combined-panel-head {
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+body[data-video-mode='floating'] #combined-panel-head-right {
+  flex-shrink: 0;
+  min-width: 0;
+}
+body[data-video-mode='floating'] #btn-combined-dock {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+body[data-video-mode='floating'] #video-controls {
+  min-width: 0;
+  overflow: hidden;
+}
+body[data-video-mode='floating'] #combined-tabs {
+  min-width: 0;
+  flex-shrink: 0;
+}
+body[data-video-mode='floating'] #track-readout {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
 }
 
 /* Floating: combined panel fills the slot and gets accent border/shadow. */
