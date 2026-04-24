@@ -194,7 +194,7 @@ function AnalysisPageContent() {
 
   return (
     <MainLayout noPadding>
-      <div className="max-w-7xl px-6 pt-3 pb-6">
+      <div className="w-full px-6 pt-3 pb-6">
         <h1 className="mb-3 text-3xl font-bold tracking-tight">Analysis</h1>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>

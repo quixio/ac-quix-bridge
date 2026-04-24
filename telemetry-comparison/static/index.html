@@ -200,7 +200,7 @@
               </header>
               <div
                 id="video-panel-body"
-                class="flex-1 min-h-0 px-3 pt-2 pb-2.5 flex flex-col gap-2 items-center justify-center"
+                class="relative flex-1 min-h-0 px-3 pt-2 pb-2.5 flex flex-col gap-2 items-center justify-center"
               >
                 <video
                   id="video-player"
@@ -213,6 +213,27 @@
                   class="aspect-video max-w-full max-h-full w-auto h-auto bg-[#0b0d13] border border-dashed border-brd rounded-lg flex items-center justify-center text-muted text-center p-2 text-[0.7rem] leading-tight"
                 >
                   No lap selected
+                </div>
+                <!-- Loading overlay: shown while a video fetch/buffer is in flight.
+                     Positioned absolute over the panel body so it covers both
+                     #video-player (frozen old frame) and #video-empty alike.
+                     Managed exclusively by showVideoLoading() / hideVideoLoading()
+                     in video.js; starts hidden. -->
+                <div
+                  id="video-loading-overlay"
+                  class="hidden absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 rounded-md z-10"
+                  aria-live="polite"
+                  aria-label="Video loading"
+                >
+                  <div
+                    class="loading-spinner"
+                    style="width:28px;height:28px;border-width:3px;margin-right:0"
+                  ></div>
+                  <span
+                    id="video-loading-label"
+                    class="text-[0.75rem] font-medium"
+                    style="color:var(--text-muted)"
+                  >Loading video…</span>
                 </div>
               </div>
             </section>

@@ -24,6 +24,32 @@ function setVideoStatus(msg, level) {
   el.className = 'video-status' + (level ? ' ' + level : '');
 }
 
+/**
+ * Show the video loading overlay. Call at the top of every new load attempt.
+ * No token check needed here — a new load always owns the overlay immediately.
+ */
+function showVideoLoading(label) {
+  const overlay = document.getElementById('video-loading-overlay');
+  const lbl = document.getElementById('video-loading-label');
+  if (!overlay) return;
+  if (lbl) lbl.textContent = label || 'Loading video…';
+  // 'hidden' is the sole toggle; the layout classes (flex, flex-col, etc.) stay
+  // in the element's static class list and must never be removed.
+  overlay.classList.remove('hidden');
+}
+
+/**
+ * Hide the video loading overlay. Requires the caller's token to match the
+ * current load token so that a stale load finishing late cannot clear the
+ * overlay that a newer load already owns.
+ */
+function hideVideoLoading(token) {
+  if (token !== undefined && token !== videoState.currentLoadToken) return;
+  const overlay = document.getElementById('video-loading-overlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+}
+
 function showVideoElement() {
   const v = document.getElementById('video-player');
   const e = document.getElementById('video-empty');
@@ -127,6 +153,7 @@ export async function loadVideoForLapIdx(idx) {
 
   const token = ++videoState.currentLoadToken;
   setVideoStatus('Loading video...');
+  showVideoLoading('Loading video…');
 
   let meta;
   try {
@@ -135,12 +162,14 @@ export async function loadVideoForLapIdx(idx) {
     if (!res.ok) {
       hideVideoElement('Video unavailable (HTTP ' + res.status + ')');
       setVideoStatus('HTTP ' + res.status, 'error');
+      hideVideoLoading(token);
       return;
     }
     meta = await res.json();
   } catch (e) {
     hideVideoElement('Video request failed');
     setVideoStatus(e.message || String(e), 'error');
+    hideVideoLoading(token);
     return;
   }
 
@@ -150,6 +179,7 @@ export async function loadVideoForLapIdx(idx) {
   if (!meta || !meta.has_video) {
     hideVideoElement((meta && meta.message) || 'No video for this lap');
     setVideoStatus('');
+    hideVideoLoading(token);
     return;
   }
 
@@ -180,6 +210,7 @@ export async function loadVideoForLapIdx(idx) {
   // Larger files fall back to streaming.
   const MAX_BLOB_BYTES = 100 * 1048576;
   setVideoStatus('Buffering video...');
+  showVideoLoading('Buffering video…');
   try {
     const headResp = await fetch(meta.mp4_url, { method: 'HEAD' });
     if (token !== videoState.currentLoadToken) return;
@@ -191,6 +222,7 @@ export async function loadVideoForLapIdx(idx) {
       if (token !== videoState.currentLoadToken) return;
       if (!resp.ok) {
         setVideoStatus('Failed to buffer video (HTTP ' + resp.status + ')', 'error');
+        hideVideoLoading(token);
         return;
       }
       const blob = await resp.blob();
@@ -217,6 +249,18 @@ export async function loadVideoForLapIdx(idx) {
       },
       { once: true },
     );
+    // Hide the loading overlay once the browser has buffered enough to play.
+    // Capture the token in closure so a stale listener cannot clear an overlay
+    // owned by a newer concurrent load.
+    const capturedToken = token;
+    video.addEventListener(
+      'canplay',
+      function _onCanPlay() {
+        video.removeEventListener('canplay', _onCanPlay);
+        hideVideoLoading(capturedToken);
+      },
+      { once: true },
+    );
     video.play().catch(() => {});
 
     if (videoState.frames) {
@@ -231,6 +275,7 @@ export async function loadVideoForLapIdx(idx) {
   } catch (e) {
     if (token !== videoState.currentLoadToken) return;
     setVideoStatus('Video buffer failed: ' + (e.message || e), 'error');
+    hideVideoLoading(token);
   }
 }
 
