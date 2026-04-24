@@ -252,28 +252,58 @@ function renderTrackMap() {
  * We observe the pane's parent (#topbar-map's collapsible body) rather than
  * #track-map because Plotly writes into #track-map during relayout — an
  * observer on that element would fire recursively.
+ *
+ * Bug 2 fix: in floating mode the Plotly severity legend is always hidden
+ * regardless of tier (the floating overlay is a compact preview — legend
+ * wastes ~40px of precious vertical space). A MutationObserver on
+ * body[data-video-mode] re-applies legend state on float/dock transitions
+ * so the legend reappears correctly when the user docks back.
  */
 let _mapResponsivenessInstalled = false;
+// Exposed so the MutationObserver callback can force a re-apply after a
+// float/dock transition without needing to store a separate copy of `apply`.
+let _mapResponsivenessApply = null;
+// Cached reference to the pane body so the MutationObserver can read the
+// current width without closing over the ResizeObserver's entries object.
+let _mapResponsivenessPaneBody = null;
+
 function installMapResponsiveness(mapDiv, legendDiv) {
   if (_mapResponsivenessInstalled) return;
   if (typeof ResizeObserver === 'undefined') return; // legacy browser fallback: skip
   const paneBody = mapDiv.closest('[data-collapsible-body]') || mapDiv.parentElement;
   if (!paneBody) return;
+  _mapResponsivenessPaneBody = paneBody;
 
   let lastTier = null;
+  // lastFloating tracks the floating state that was in effect when lastTier
+  // was set. When the mode changes (float/dock) we must re-run apply() even
+  // if the pane width hasn't changed, because the legend visibility rule
+  // depends on mode as well as tier. Resetting lastTier to null on mode
+  // change achieves this cheaply.
+  let lastFloating = null;
+
   const apply = (w) => {
+    const floating = document.body.dataset.videoMode === 'floating';
     const tier = w >= 520 ? 'full' : w >= 320 ? 'compact' : 'minimal';
-    if (tier === lastTier) return;
+
+    // Re-run when either tier OR floating-mode changes.
+    if (tier === lastTier && floating === lastFloating) return;
     lastTier = tier;
-    // Plotly severity legend — toggle via relayout. Safe against missing
-    // data (if newPlot hasn't run yet Plotly will throw; guard with try).
+    lastFloating = floating;
+
+    // Plotly severity legend:
+    //   - Floating mode: always hidden (Bug 2 fix — compact preview, no
+    //     room for the legend regardless of pane width).
+    //   - Docked mode: shown at full tier only (existing behaviour).
+    const showLegend = !floating && tier === 'full';
     try {
       if (mapDiv.data) {
-        Plotly.relayout(mapDiv, { showlegend: tier === 'full' });
+        Plotly.relayout(mapDiv, { showlegend: showLegend });
       }
     } catch (_) {
       /* non-fatal — Plotly wasn't ready */
     }
+
     // Corner-legend side panel — drive via inline display because Tailwind
     // JIT can't see dynamically toggled class strings.
     //
@@ -284,7 +314,6 @@ function installMapResponsiveness(mapDiv, legendDiv) {
     // our inline style when floating so the CSS cascade wins — `display: ''`
     // removes the inline property, letting the stylesheet rule apply.
     if (legendDiv) {
-      const floating = document.body.dataset.videoMode === 'floating';
       if (floating) {
         legendDiv.style.display = '';
       } else {
@@ -292,6 +321,7 @@ function installMapResponsiveness(mapDiv, legendDiv) {
       }
     }
   };
+  _mapResponsivenessApply = apply;
 
   const obs = new ResizeObserver((entries) => {
     const w = entries[0].contentRect.width;
@@ -300,6 +330,33 @@ function installMapResponsiveness(mapDiv, legendDiv) {
   obs.observe(paneBody);
   // Apply immediately with current width so the first paint is correct.
   apply(paneBody.getBoundingClientRect().width);
+
+  // Bug 2 fix (cont.): watch body[data-video-mode] so a float/dock toggle
+  // re-applies legend state even when the pane width hasn't changed. Without
+  // this the ResizeObserver wouldn't fire (no size change) and the legend
+  // would stay in its pre-toggle state.
+  //
+  // Only install once — this observer is shared across all future
+  // renderTrackMap calls (they all hit the _mapResponsivenessInstalled guard
+  // above and return early).
+  if (typeof MutationObserver !== 'undefined') {
+    const modeObserver = new MutationObserver(() => {
+      // Re-apply using the current pane width. lastTier/lastFloating are
+      // reset because the mode changed, so the tier/floating equality
+      // check inside apply() will see the new mode and fire the relayout.
+      lastTier = null;
+      lastFloating = null;
+      const w = _mapResponsivenessPaneBody
+        ? _mapResponsivenessPaneBody.getBoundingClientRect().width
+        : 0;
+      apply(w);
+    });
+    modeObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['data-video-mode'],
+    });
+  }
+
   _mapResponsivenessInstalled = true;
 }
 
@@ -318,9 +375,30 @@ function installMapResponsiveness(mapDiv, legendDiv) {
  * We observe the pane body element (same node as installMapResponsiveness)
  * rather than #track-map itself to avoid Plotly-mutation feedback loops.
  * A 100 ms debounce prevents thrash during continuous drag-resize.
+ *
+ * Bug 1 fix: in floating mode the fit-observer is suppressed entirely.
+ * Floating resize is handled by interact.js resize-end → _onResizeEnd()
+ * → _resizeTrackMap(), which already calls applyZoom() after the resize
+ * interaction completes. Letting the fit-observer also fire while floating
+ * creates a feedback loop: slider → applyZoom() → Plotly.relayout() mutates
+ * #track-map → [data-collapsible-body] content-box changes → ResizeObserver
+ * fires → applyZoom() again. In docked mode this loop is suppressed by the
+ * debounce + the fact that the collapsible-body dimensions don't change when
+ * only axis ranges change. In floating mode the flex layout is unconstrained
+ * so the content-box CAN grow/shrink when Plotly rewrites the SVG viewBox,
+ * making the loop live. Skipping when floating is safe because floating
+ * resize events are fully managed by the interact.js handlers.
+ *
+ * Additionally, a _zoomInProgress flag prevents re-entry during an active
+ * zoom operation as a second line of defence (covers any future code path
+ * that calls applyZoom() directly without going through onZoomChange).
  */
 let _mapFitObserverInstalled = false;
 let _mapFitDebounceTimer = null;
+// Set true during onZoomChange / applyZoom to suppress the fit-observer
+// re-entry that Plotly's relayout can trigger via the ResizeObserver.
+let _zoomInProgress = false;
+
 function installMapFitObserver(mapDiv) {
   if (_mapFitObserverInstalled) return;
   if (typeof ResizeObserver === 'undefined') return;
@@ -328,6 +406,16 @@ function installMapFitObserver(mapDiv) {
   if (!paneBody) return;
 
   const obs = new ResizeObserver(() => {
+    // Bug 1 fix (primary guard): the fit-observer is a no-op in floating
+    // mode. interact.js resize-end already calls _resizeTrackMap() →
+    // applyZoom(), so there is no stale-range problem to solve here.
+    // Suppressing in floating mode breaks the zoom-slider feedback loop.
+    if (document.body.dataset.videoMode === 'floating') return;
+
+    // Bug 1 fix (secondary guard): ignore observer callbacks that are
+    // triggered by Plotly's own relayout during an active zoom operation.
+    if (_zoomInProgress) return;
+
     if (_mapFitDebounceTimer !== null) clearTimeout(_mapFitDebounceTimer);
     _mapFitDebounceTimer = setTimeout(() => {
       _mapFitDebounceTimer = null;
@@ -343,7 +431,14 @@ function installMapFitObserver(mapDiv) {
 function onZoomChange(v) {
   trackZoom = parseFloat(v) || 1;
   document.getElementById('track-zoom-val').textContent = trackZoom.toFixed(1) + 'x';
+  // Set the in-progress flag before applyZoom() so any synchronous
+  // ResizeObserver callbacks triggered by Plotly.relayout() inside
+  // applyZoom() see _zoomInProgress === true and bail early. Clear on the
+  // next microtask (Promise.resolve) so the flag is gone before any
+  // subsequent rAF or setTimeout callbacks that are NOT part of this zoom.
+  _zoomInProgress = true;
   applyZoom();
+  Promise.resolve().then(() => { _zoomInProgress = false; });
 }
 
 function applyZoom() {

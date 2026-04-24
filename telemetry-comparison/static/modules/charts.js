@@ -265,7 +265,7 @@ export async function plot() {
           },
           yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
         },
-        { responsive: true, scrollZoom: false, doubleClick: false },
+        { responsive: true, scrollZoom: false, doubleClick: false, displayModeBar: false },
       );
 
       attachMarkerDrag(plotDiv);

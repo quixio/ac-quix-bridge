@@ -712,6 +712,7 @@ function _onDragMove(event) {
  */
 function _onResizeStart() {
   _isResizing = true;
+  document.body.classList.add('overlay-dragging');
 }
 
 function _onResizeMove(event) {
@@ -729,6 +730,7 @@ function _onResizeMove(event) {
 
 function _onResizeEnd() {
   _isResizing = false;
+  document.body.classList.remove('overlay-dragging');
   _persist();
   // Force a Plotly reflow after resize ends — needed when the Map tab is
   // active and the floating window crosses one of the §11 tier thresholds.
@@ -863,6 +865,7 @@ function _initInteract() {
     // left/right/bottom edges + bottom-left / bottom-right corners.
     .resizable({
       edges: { top: false, left: true, bottom: true, right: true },
+      ignoreFrom: 'select, button, input, a, [data-no-drag]',
       inertia: false,
       listeners: {
         start: _onResizeStart,
