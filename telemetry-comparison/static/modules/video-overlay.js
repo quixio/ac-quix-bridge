@@ -672,6 +672,25 @@ function toggleVideoFloat() {
 }
 
 /**
+ * Drag lifecycle helpers: add/remove the body class that switches the
+ * cursor to `grabbing` across the whole document while dragging. This
+ * prevents the cursor flickering back to `default` when the pointer
+ * briefly passes over a child element that has no explicit cursor rule.
+ * `user-select: none` on body during drag suppresses text selection when
+ * the grab surface overlaps rendered text.
+ */
+function _onDragStart() {
+  document.body.classList.add('overlay-dragging');
+  document.body.style.userSelect = 'none';
+}
+
+function _onDragEnd() {
+  document.body.classList.remove('overlay-dragging');
+  document.body.style.userSelect = '';
+  _persist();
+}
+
+/**
  * interact.js drag handler. Uses the data-x/data-y + transform pattern so
  * we don't incur layout thrash during drag.
  */
@@ -722,20 +741,38 @@ function _initInteract() {
   const slot = _getFloatSlot();
   if (!slot) return;
 
+  // Movement threshold: interact.js only promotes a pointerdown into an active
+  // drag action after the pointer moves more than this many pixels. Below the
+  // threshold the action never starts, so preventDefault() is never called and
+  // the native click (play/pause, control bar tap) fires normally.
+  //
+  // 5 px: enough to absorb sub-pixel jitter and tiny involuntary hand tremor
+  // without requiring a deliberate swipe. Matches the industry-standard 5 px
+  // "click vs drag" discrimination used by browsers for text-selection initiation.
+  //
+  // This is a global interact.js setting — it applies to every interactable on
+  // the page. We own all interactables here, so that is fine.
+  interact.pointerMoveTolerance(5);
+
   _videoOverlayInteractable = interact(slot)
     .draggable({
-      // Drag handle is the combined-panel header (only visible when floating).
-      // The per-pane #video-panel-head is display:none'd when floating, so
-      // it's not a valid handle anymore.
-      allowFrom: '#combined-panel-head',
-      // Only treat it as a drag after a small displacement; this keeps a
-      // click/tap on the resize edges from being racily picked up as a drag.
+      // Whole panel surface — including the <video> element — is a drag handle
+      // EXCEPT hard-click-only controls. The movement threshold above
+      // (pointerMoveTolerance=5) handles the video surface: a click (no movement)
+      // never starts a drag so native play/pause and native controls work normally;
+      // a deliberate swipe (>5 px) starts the drag and moves the panel.
+      //
+      // video is intentionally NOT in this list so dragging over the video
+      // surface moves the panel. Only elements that must never initiate a drag
+      // regardless of movement distance are listed here.
+      ignoreFrom: 'select, button, input, a, [data-no-drag]',
       startAxis: 'xy',
       lockAxis: 'xy',
       inertia: false,
       listeners: {
+        start: _onDragStart,
         move: _onDragMove,
-        end: _persist,
+        end: _onDragEnd,
       },
       modifiers: [
         interact.modifiers.restrictRect({

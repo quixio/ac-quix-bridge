@@ -485,15 +485,37 @@ body[data-video-mode='docked'] #topbar {
   background: var(--bg);
 }
 
-/* interact.js drives drag from #combined-panel-head when floating, and the
- * legacy #video-panel-head was the drag handle pre-float. Keep cursor
- * feedback on both. */
+/* interact.js drives drag from the whole #video-float-slot surface when
+ * floating. Cursor rules:
+ *   - Idle float surface: grab (whole slot)
+ *   - <video>: cursor:auto so the browser shows native-controls cursors
+ *     (scrubber, volume, fullscreen). The video IS a drag surface — a
+ *     movement threshold (pointerMoveTolerance=5) in video-overlay.js means
+ *     a simple click never starts a drag; only a deliberate swipe does.
+ *   - Other interactive children (select, button, input, a, [data-no-drag]):
+ *     cursor:auto — these are in ignoreFrom and never initiate drag.
+ *   - While dragging (body gets .overlay-dragging): grabbing on every child
+ *     including the video, overrides the auto cursor during active drag.
+ * The docked header (#video-panel-head, #combined-panel-head) returns to
+ * default — it is not a drag handle. */
 #video-panel-head,
 #combined-panel-head {
   cursor: default;
 }
-body[data-video-mode='floating'] #combined-panel-head {
-  cursor: move;
+body[data-video-mode='floating'] #video-float-slot {
+  cursor: grab;
+}
+body[data-video-mode='floating'] #video-float-slot video,
+body[data-video-mode='floating'] #video-float-slot select,
+body[data-video-mode='floating'] #video-float-slot button,
+body[data-video-mode='floating'] #video-float-slot input,
+body[data-video-mode='floating'] #video-float-slot a,
+body[data-video-mode='floating'] #video-float-slot [data-no-drag] {
+  cursor: auto;
+}
+body.overlay-dragging #video-float-slot,
+body.overlay-dragging #video-float-slot * {
+  cursor: grabbing !important;
 }
 
 /* ---------- Toasts ---------- */
