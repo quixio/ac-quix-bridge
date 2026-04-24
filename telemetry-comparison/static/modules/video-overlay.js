@@ -104,6 +104,11 @@ let _videoOverlayInteractable = null;
 // pointer is inside the edge-resize zone). Also used to suppress the
 // subsequent drag-end persist when a resize just occurred.
 let _isResizing = false;
+
+// Pinch-to-resize state: snapshot of the slot's pixel dimensions at the
+// moment a two-finger gesture begins. Cleared on gestureend.
+let _gestureStartWidth = 0;
+let _gestureStartHeight = 0;
 // Round 3: ResizeObserver watches the docked video body so auto-float fires
 // when the rendered column becomes too narrow even though the viewport is
 // roomy enough to pass _shouldAutoFloat()'s window.inner* checks. Connected
@@ -732,6 +737,71 @@ function _onResizeEnd() {
   _resizeTrackMap();
 }
 
+/**
+ * Pinch gesture handlers (interact.js `gesturable`).
+ *
+ * Pinch-to-resize scales the floating slot while preserving the aspect
+ * ratio snapshotted at gesture start. We do NOT use the interact.js
+ * `aspectRatio` modifier here because gesturable and resizable are
+ * separate actions — aspect ratio is enforced manually via the start-
+ * snapshot. Size is clamped to [MIN_VIDEO_WIDTH/HEIGHT … viewport-50px].
+ *
+ * Persistence: same pattern as drag/resize — _isResizing guard + _persist()
+ * on gestureend. The gesturestart flag prevents the drag-end persist from
+ * reading a stale size while the gesture is live.
+ */
+function _onGestureStart(event) {
+  const slot = event.target;
+  _gestureStartWidth = slot.offsetWidth;
+  _gestureStartHeight = slot.offsetHeight;
+  _isResizing = true;
+  event.preventDefault();
+}
+
+function _onGestureMove(event) {
+  const slot = event.target;
+  if (_gestureStartWidth <= 0) return;
+
+  // event.scale is the cumulative scale factor since gesturestart.
+  // Clamp to sensible bounds (50% shrink to 2x grow from start size).
+  const scale = Math.max(0.5, Math.min(2, event.scale));
+
+  const vw = window.innerWidth || document.documentElement.clientWidth;
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  const MARGIN = 50;
+
+  const rawW = _gestureStartWidth * scale;
+  const rawH = _gestureStartHeight * scale;
+
+  // Clamp width to [MIN_VIDEO_WIDTH, vw - 2*MARGIN] then derive height from
+  // the snapshotted aspect ratio so the panel stays at its original shape.
+  const clampedW = Math.min(Math.max(rawW, MIN_VIDEO_WIDTH), vw - MARGIN * 2);
+  const ar = _gestureStartHeight / _gestureStartWidth;
+  const clampedH = Math.min(Math.max(clampedW * ar, MIN_VIDEO_HEIGHT), vh - MARGIN * 2);
+
+  slot.style.width = clampedW + 'px';
+  slot.style.height = clampedH + 'px';
+
+  // Keep the slot on-screen (re-clamp position to fit new size).
+  const x = parseFloat(slot.dataset.x) || 0;
+  const y = parseFloat(slot.dataset.y) || 0;
+  const cx = Math.min(x, Math.max(0, vw - clampedW));
+  const cy = Math.min(y, Math.max(0, vh - clampedH));
+  slot.style.transform = `translate(${cx}px, ${cy}px)`;
+  slot.dataset.x = String(cx);
+  slot.dataset.y = String(cy);
+
+  event.preventDefault();
+}
+
+function _onGestureEnd() {
+  _gestureStartWidth = 0;
+  _gestureStartHeight = 0;
+  _isResizing = false;
+  _persist();
+  _resizeTrackMap();
+}
+
 function _initInteract() {
   if (_videoOverlayInteractable) return;
   if (typeof interact !== 'function') {
@@ -811,6 +881,18 @@ function _initInteract() {
           outer: 'parent',
         }),
       ],
+    })
+    // Two-finger pinch-to-resize. interact.js `gesturable` fires on two-
+    // pointer contacts. event.scale is cumulative from gesturestart; we
+    // snapshot the start dimensions in _onGestureStart and apply the ratio
+    // in _onGestureMove so each move is idempotent (no drifting increments).
+    // This is additive to drag: one-finger drag still moves the panel.
+    .gesturable({
+      listeners: {
+        start: _onGestureStart,
+        move: _onGestureMove,
+        end: _onGestureEnd,
+      },
     });
 }
 

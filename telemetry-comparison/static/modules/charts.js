@@ -77,13 +77,20 @@ export function toggleCornerOverlay(plotIdx, enabled) {
 }
 
 // ---------------------------------------------------------------------------
-// Marker drag — mousedown anywhere on the plot area starts dragging; window
-// mousemove/mouseup complete the gesture so a drag that leaves the plot
-// doesn't get stuck.
+// Marker drag — pointerdown/pointermove/pointerup covers mouse, touch, and
+// stylus in one API. setPointerCapture keeps the drag live even when the
+// finger or cursor leaves the chart area.
+//
+// touch-action: none is set on the div at attach time so the browser
+// doesn't intercept the touch for page scroll. Only the chart divs get
+// this treatment — body and parent containers are unaffected so page
+// scroll outside charts continues to work.
 // ---------------------------------------------------------------------------
 
 export function attachMarkerDrag(div) {
-  let dragging = false;
+  // Prevent the browser from claiming touch events on this specific chart
+  // div for scroll / zoom. Page scroll outside these divs is unaffected.
+  div.style.touchAction = 'none';
 
   // Use Plotly's actual xaxis pixel offset + length for precise mapping
   const pxToX = (ev) => {
@@ -97,24 +104,33 @@ export function attachMarkerDrag(div) {
     return xa.range[0] + frac * (xa.range[1] - xa.range[0]);
   };
 
-  div.addEventListener('mousedown', (ev) => {
+  div.addEventListener('pointerdown', (ev) => {
+    // button===0: left-click (mouse), primary touch/pen contact.
+    // Reject middle/right mouse buttons (button > 0).
     if (ev.button !== 0) return;
     const x = pxToX(ev);
     if (x === null) return;
-    dragging = true;
+    // Capture so pointermove/pointerup keep firing even when the pointer
+    // leaves the chart div (e.g. finger slides off the edge).
+    try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
     updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
     ev.preventDefault();
   });
 
-  window.addEventListener('mousemove', (ev) => {
-    if (!dragging) return;
+  div.addEventListener('pointermove', (ev) => {
+    // Only act while this pointer is captured (i.e. we own the drag)
+    if (!div.hasPointerCapture(ev.pointerId)) return;
     const x = pxToX(ev);
     if (x === null) return;
     updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
   });
 
-  window.addEventListener('mouseup', () => {
-    dragging = false;
+  div.addEventListener('pointerup', (ev) => {
+    try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+  });
+
+  div.addEventListener('pointercancel', (ev) => {
+    try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
   });
 }
 
@@ -249,7 +265,7 @@ export async function plot() {
           },
           yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
         },
-        { responsive: true, scrollZoom: false },
+        { responsive: true, scrollZoom: false, doubleClick: false },
       );
 
       attachMarkerDrag(plotDiv);
