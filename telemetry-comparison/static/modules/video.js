@@ -24,9 +24,16 @@ function setVideoStatus(msg, level) {
   el.className = 'video-status' + (level ? ' ' + level : '');
 }
 
+// Minimum time the loading overlay stays visible (ms).
+// Set high enough that Ludvík can confirm the overlay is actually firing;
+// lower to ~150 once confirmed working.
+const LOADING_MIN_DISPLAY_MS = 500;
+
 /**
  * Show the video loading overlay. Call at the top of every new load attempt.
  * No token check needed here — a new load always owns the overlay immediately.
+ * Records Date.now() on videoState so hideVideoLoading can enforce a minimum
+ * display time (prevents the overlay flashing invisible on cached/fast loads).
  */
 function showVideoLoading(label) {
   const overlay = document.getElementById('video-loading-overlay');
@@ -36,18 +43,33 @@ function showVideoLoading(label) {
   // 'hidden' is the sole toggle; the layout classes (flex, flex-col, etc.) stay
   // in the element's static class list and must never be removed.
   overlay.classList.remove('hidden');
+  videoState.loadingShownAt = Date.now();
 }
 
 /**
  * Hide the video loading overlay. Requires the caller's token to match the
  * current load token so that a stale load finishing late cannot clear the
  * overlay that a newer load already owns.
+ *
+ * Enforces LOADING_MIN_DISPLAY_MS: if the overlay was shown less than that
+ * many ms ago, defers the hide via setTimeout. The deferred callback re-checks
+ * the token so a newer load that started in the meantime keeps ownership.
  */
 function hideVideoLoading(token) {
   if (token !== undefined && token !== videoState.currentLoadToken) return;
   const overlay = document.getElementById('video-loading-overlay');
   if (!overlay) return;
-  overlay.classList.add('hidden');
+  const elapsed = Date.now() - (videoState.loadingShownAt || 0);
+  const remaining = LOADING_MIN_DISPLAY_MS - elapsed;
+  if (remaining > 0) {
+    setTimeout(() => {
+      // Re-check: a newer load may have taken over while we waited.
+      if (token !== undefined && token !== videoState.currentLoadToken) return;
+      overlay.classList.add('hidden');
+    }, remaining);
+  } else {
+    overlay.classList.add('hidden');
+  }
 }
 
 function showVideoElement() {
