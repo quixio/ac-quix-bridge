@@ -26,8 +26,6 @@ import {
   setMarkerPosition,
   getTrackZoom,
   getTrackData,
-  HAS_RVFC,
-  VIDEO_RAF_INTERVAL_MS,
   MAX_TRACE_ANNOTATIONS,
 } from './state.js';
 import { interpolateAt, _interp } from './data.js';
@@ -365,42 +363,37 @@ export function _onVideoFrame(_now, metadata) {
   }
 }
 
-// ---------- rAF fallback path (old browsers without RVFC) ------------------
+// ---------- rAF path (display-rate smoothing for low-fps sidecars) ---------
+// Sidecar sync frames land at the video fps (often 14–25 Hz) — RVFC would
+// cap marker updates at that rate, producing visible jumps. Instead we poll
+// video.currentTime every animation frame. The browser advances currentTime
+// continuously during playback (interpolated from the wall clock), and
+// lookupNormPosForTms already linearly interpolates between sparse sidecar
+// samples, so the marker position is smooth at display refresh rate.
 export function _videoRafLoop() {
   if (!videoState.isPlaying || !videoState.frames || !videoState.element) {
     videoState._rafId = null;
     return;
   }
-  const now = performance.now();
-  if (now - videoState._lastRafUpdate >= VIDEO_RAF_INTERVAL_MS) {
-    const rafScale = videoState.timeScale || 1;
-    const nd = lookupNormPosForTms(videoState.element.currentTime * 1000 * rafScale);
-    if (nd != null) {
-      updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
-    }
-    videoState._lastRafUpdate = now;
+  const rafScale = videoState.timeScale || 1;
+  const nd = lookupNormPosForTms(videoState.element.currentTime * 1000 * rafScale);
+  if (nd != null) {
+    updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
   }
   videoState._rafId = requestAnimationFrame(_videoRafLoop);
 }
 
-export function _startVideoSync(v) {
-  if (HAS_RVFC) {
-    v.requestVideoFrameCallback(_onVideoFrame);
-  } else {
-    if (videoState._rafId == null) {
-      videoState._lastRafUpdate = 0;
-      videoState._rafId = requestAnimationFrame(_videoRafLoop);
-    }
+export function _startVideoSync(_v) {
+  if (videoState._rafId == null) {
+    videoState._rafId = requestAnimationFrame(_videoRafLoop);
   }
 }
 
 export function _stopVideoSync() {
-  if (!HAS_RVFC && videoState._rafId != null) {
+  if (videoState._rafId != null) {
     cancelAnimationFrame(videoState._rafId);
     videoState._rafId = null;
   }
-  // RVFC path stops automatically: _onVideoFrame checks isPlaying before
-  // re-registering, so no explicit cancel is needed.
 }
 
 // ---------------------------------------------------------------------------
