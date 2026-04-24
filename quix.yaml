@@ -516,7 +516,7 @@ deployments:
         inputType: ProjectVariable
         description: Token to authenticate against QuixLake
         required: true
-        variableKey: pat_token
+        variableKey: quix_lake_pat
       - name: QUIXLAKE_URL
         inputType: FreeText
         description: Base URL of the QuixLake instance
