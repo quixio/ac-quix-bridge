@@ -50,10 +50,10 @@ deployments:
         required: true
         value: admin
       - name: MONGO_INITDB_ROOT_PASSWORD
-        inputType: Secret
+        inputType: ProjectVariable
         description: The root password to initialize MongoDB with
         required: true
-        secretKey: MONGO_ROOT_PASSWORD
+        variableKey: MONGO_ROOT_PASSWORD
   - name: Session Config Bridge
     application: session-config-bridge
     version: latest
@@ -136,9 +136,9 @@ deployments:
         description: REST Catalog URL for optional table registration (leave empty to skip)
         value: https://iceberg-catalog-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: CATALOG_AUTH_TOKEN
-        inputType: Secret
+        inputType: ProjectVariable
         description: If using a catalog, the respective auth token to access it
-        secretKey: pat
+        variableKey: pat
       - name: AUTO_DISCOVER
         inputType: Options
         description: Automatically register table in REST Catalog on first write
@@ -199,13 +199,13 @@ deployments:
           targetPort: 8080
     variables:
       - name: MONGO_USER
-        inputType: Secret
+        inputType: ProjectVariable
         required: true
-        secretKey: MONGO_USER
+        variableKey: MONGO_USER
       - name: MONGO_PASSWORD
-        inputType: Secret
+        inputType: ProjectVariable
         required: true
-        secretKey: MONGO_ROOT_PASSWORD
+        variableKey: MONGO_ROOT_PASSWORD
       - name: MONGO_HOST
         inputType: FreeText
         required: true
@@ -220,10 +220,10 @@ deployments:
         required: true
         value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: QUIX_LAKE_TOKEN
-        inputType: Secret
+        inputType: ProjectVariable
         description: Token to authenticate against QuixLake
         required: true
-        secretKey: pat_token
+        variableKey: pat_token
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
@@ -302,7 +302,7 @@ deployments:
         description: The notebook file to open (e.g., main.py)
         value: main.py
       - name: ANTHROPIC_API_KEY
-        inputType: Secret
+        inputType: ProjectVariable
         description: Token generated from https://platform.claude.com/settings/keys.
     plugin:
       embeddedView:
@@ -341,7 +341,7 @@ deployments:
         description: The notebook file to open (e.g., main.py)
         value: main.py
       - name: ANTHROPIC_API_KEY
-        inputType: Secret
+        inputType: ProjectVariable
         description: Token generated from https://platform.claude.com/settings/keys.
     plugin:
       embeddedView:
@@ -381,7 +381,7 @@ deployments:
         description: The notebook file to open (e.g., main.py)
         value: main.py
       - name: ANTHROPIC_API_KEY
-        inputType: Secret
+        inputType: ProjectVariable
         description: Token generated from https://platform.claude.com/settings/keys.
     plugin:
       embeddedView:
@@ -513,10 +513,10 @@ deployments:
           targetPort: 80
     variables:
       - name: QUIX_LAKE_TOKEN
-        inputType: Secret
+        inputType: ProjectVariable
         description: Token to authenticate against QuixLake
         required: true
-        secretKey: pat_token
+        variableKey: pat_token
       - name: QUIXLAKE_URL
         inputType: FreeText
         description: Base URL of the QuixLake instance
@@ -580,13 +580,13 @@ deployments:
         description: Metadata MongoDB username (only when METADATA_BACKEND=mongo)
         value: ''
       - name: METADATA_MONGO_PASSWORD
-        inputType: Secret
+        inputType: ProjectVariable
         description: Metadata MongoDB password (only when METADATA_BACKEND=mongo)
       - name: SECRET_KEY
-        inputType: Secret
+        inputType: ProjectVariable
         description: Encryption key for stored server passwords (Fernet)
         required: true
-        secretKey: MONGO_BACKUP_SECRET_KEY
+        variableKey: MONGO_BACKUP_SECRET_KEY
       - name: BLOB_BASE_PATH
         inputType: FreeText
         description: Base path in Quix blob storage for backup archives
