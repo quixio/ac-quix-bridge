@@ -371,20 +371,37 @@ export function syncVideoFromMarker(nd, source) {
   // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
   // dragging.
   if (Math.abs(v.currentTime - target) <= 0.015) return;
-  // Seek coalesce (round 4): a 13 Hz drag past the 15ms threshold still
-  // produces ~13 distinct seeks/sec. Assigning currentTime while the browser
-  // is mid-seek thrashes — it cancels and restarts, and can sit in a
-  // degenerate state for many seconds (observed: 29s stall on a fully
-  // buffered range). Instead, while v.seeking is already true we stash the
-  // newest target in videoState._pendingSeekTime; the 'seeked' listener in
-  // wireVideoElement() drains the stash exactly once. Newest stash wins —
-  // intermediate drag positions are dropped, which matches user intent.
-  if (v.seeking) {
-    videoState._pendingSeekTime = target;
-    return;
-  }
+  // Drag-end seek deferral (round 5): round 4 coalesced concurrent seeks
+  // (stash while v.seeking, drain on 'seeked'), which cut a 15-tick burst
+  // to ~2 seeks but still left mid-flight currentTime writes that confuse
+  // the browser's seek state machine — observed on tablet: even a single
+  // post-drag backward seek into a buffered region took 2.4s and landed at
+  // file END (115.0s) instead of the requested 11.1s. So during the drag
+  // we now write NOTHING to currentTime; we only stash the latest target
+  // in videoState._pendingSeekTime. The drain happens on pointerup /
+  // pointercancel via flushPendingSeek(), called from charts.js's
+  // attachMarkerDrag handlers — exactly one seek per drag, on release.
+  // The 'seeked' drain still has a role: if any *other* code path
+  // programmatically seeks while a stash is pending, it'll apply on the
+  // next 'seeked' just like before.
+  videoState._pendingSeekTime = target;
+}
+
+// ---------------------------------------------------------------------------
+// Drain hook for the round-5 drag-end seek deferral. Called from charts.js
+// attachMarkerDrag's pointerup / pointercancel handlers (option A from the
+// round-5 spec — explicit hook beats a global capture-phase listener because
+// the canonical "user released the drag" signal already lives in charts.js).
+// No-op if nothing is stashed. The 15ms threshold mirrors the entry guard.
+// ---------------------------------------------------------------------------
+export function flushPendingSeek() {
+  const v = videoState.element;
+  const pending = videoState._pendingSeekTime;
+  if (!v || pending == null) return;
   videoState._pendingSeekTime = null;
-  v.currentTime = target;
+  if (Math.abs(v.currentTime - pending) > 0.015) {
+    v.currentTime = pending;
+  }
 }
 
 // ---------- requestVideoFrameCallback path (frame-accurate) ----------------

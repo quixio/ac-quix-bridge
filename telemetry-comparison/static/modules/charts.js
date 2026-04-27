@@ -11,7 +11,7 @@
 
 import { appState, PLOTLY_LAYOUT } from './state.js';
 import { downsample, fetchTelemetry } from './data.js';
-import { updateMarker } from './sync.js';
+import { updateMarker, flushPendingSeek } from './sync.js';
 import { getSelections, getActiveSignals, chartTitle } from './selections.js';
 
 export function setStatus(msg, isError = false) {
@@ -173,11 +173,13 @@ export function attachMarkerDrag(div) {
   div.addEventListener('pointerup', (ev) => {
     pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    flushPendingSeek(); // round 5: drain the drag-end stash with one seek
   });
 
   div.addEventListener('pointercancel', (ev) => {
     pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    flushPendingSeek(); // round 5: drain the drag-end stash with one seek
   });
 }
 
