@@ -2,116 +2,48 @@
 
 Every partition combination currently available in the `ac_telemetry` QuixLake table. One section per session; fields inside each section are self-contained so semantic retrieval can surface a single session without losing column alignment.
 
-_Generated: 2026-04-23 14:58 UTC. Sessions: 10._
+_Generated: 2026-04-27 11:43 UTC. Sessions: 10._
 
 ## Sessions
 
-### daniel · BridgeConfigTest · ks_nurburgring · bmw_1m
+Each session is described in a short prose paragraph. The values shown are the literal partition values — use them verbatim in SQL `WHERE` clauses or plot trace JSON.
 
-- driver: `daniel`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `BridgeConfigTest`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-15T10:02:25.041Z`
-- laps: 1
+### Session 2026-04-15T10:02:25.041Z
 
-### daniel · ConfigBridgeTest · ks_nurburgring · bmw_1m
+Driver `daniel` ran experiment `BridgeConfigTest` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1. To reference this session, use `session_id = '2026-04-15T10:02:25.041Z'` together with `driver = 'daniel'`, `experiment = 'BridgeConfigTest'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `daniel`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `ConfigBridgeTest`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-15T09:13:37.600Z`
-- laps: 1
+### Session 2026-04-15T09:13:37.600Z
 
-### ludvik · VideoStartSeek · ks_nurburgring · bmw_1m
+Driver `daniel` ran experiment `ConfigBridgeTest` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1. To reference this session, use `session_id = '2026-04-15T09:13:37.600Z'` together with `driver = 'daniel'`, `experiment = 'ConfigBridgeTest'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `ludvik`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `VideoStartSeek`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-14T14:56:28.037Z`
-- laps: 1, 2
+### Session 2026-04-14T14:56:28.037Z
 
-### ludvik · video_streaming · ks_nurburgring · bmw_1m
+Driver `ludvik` ran experiment `VideoStartSeek` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1, 2. To reference this session, use `session_id = '2026-04-14T14:56:28.037Z'` together with `driver = 'ludvik'`, `experiment = 'VideoStartSeek'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `ludvik`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `video_streaming`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-14T11:42:08.107Z`
-- laps: 1, 2, 3
+### Session 2026-04-14T11:42:08.107Z
 
-### ludvik · video_streaming · NA · NA
+Driver `ludvik` ran experiment `video_streaming` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1, 2, 3. To reference this session, use `session_id = '2026-04-14T11:42:08.107Z'` together with `driver = 'ludvik'`, `experiment = 'video_streaming'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `ludvik`
-- carModel: `NA`
-- track: `NA`
-- experiment: `video_streaming`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-14T11:42:08.107Z`
-- laps: 1
+### Session 2026-04-14T11:42:08.107Z
 
-### ludvik · VideoSyncFix · ks_nurburgring · bmw_1m
+Driver `ludvik` ran experiment `video_streaming` on track `NA` in car `NA` (environment `prague_office`, test_rig `g29`). Recorded laps: 1. To reference this session, use `session_id = '2026-04-14T11:42:08.107Z'` together with `driver = 'ludvik'`, `experiment = 'video_streaming'`, `track = 'NA'`, `carModel = 'NA'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `ludvik`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `VideoSyncFix`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-17T06:35:49.976Z`
-- laps: 1
+### Session 2026-04-17T06:35:49.976Z
 
-### ludvik · VideoSyncFix · ks_nurburgring · bmw_1m
+Driver `ludvik` ran experiment `VideoSyncFix` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1. To reference this session, use `session_id = '2026-04-17T06:35:49.976Z'` together with `driver = 'ludvik'`, `experiment = 'VideoSyncFix'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `ludvik`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `VideoSyncFix`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-17T06:39:45.652Z`
-- laps: 1, 2, 3, 4
+### Session 2026-04-17T06:39:45.652Z
 
-### ludvik · VideoSyncLaps · ks_nurburgring · bmw_1m
+Driver `ludvik` ran experiment `VideoSyncFix` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1, 2, 3, 4. To reference this session, use `session_id = '2026-04-17T06:39:45.652Z'` together with `driver = 'ludvik'`, `experiment = 'VideoSyncFix'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `ludvik`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `VideoSyncLaps`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-14T13:59:55.013Z`
-- laps: 1, 2, 3
+### Session 2026-04-14T13:59:55.013Z
 
-### ludvik · VideoSyncLaps · ks_nurburgring · bmw_1m
+Driver `ludvik` ran experiment `VideoSyncLaps` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1, 2, 3. To reference this session, use `session_id = '2026-04-14T13:59:55.013Z'` together with `driver = 'ludvik'`, `experiment = 'VideoSyncLaps'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `ludvik`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `VideoSyncLaps`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-14T14:06:59.113Z`
-- laps: 1
+### Session 2026-04-14T14:06:59.113Z
 
-### tomas · VideoSyncLaps · ks_nurburgring · bmw_1m
+Driver `ludvik` ran experiment `VideoSyncLaps` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1. To reference this session, use `session_id = '2026-04-14T14:06:59.113Z'` together with `driver = 'ludvik'`, `experiment = 'VideoSyncLaps'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
 
-- driver: `tomas`
-- carModel: `bmw_1m`
-- track: `ks_nurburgring`
-- experiment: `VideoSyncLaps`
-- environment: `prague_office`
-- test_rig: `g29`
-- session_id: `2026-04-14T14:06:59.113Z`
-- laps: 1, 2, 3, 4, 5, 6
+### Session 2026-04-14T14:06:59.113Z
+
+Driver `tomas` ran experiment `VideoSyncLaps` on track `ks_nurburgring` in car `bmw_1m` (environment `prague_office`, test_rig `g29`). Recorded laps: 1, 2, 3, 4, 5, 6. To reference this session, use `session_id = '2026-04-14T14:06:59.113Z'` together with `driver = 'tomas'`, `experiment = 'VideoSyncLaps'`, `track = 'ks_nurburgring'`, `carModel = 'bmw_1m'`, `environment = 'prague_office'`, `test_rig = 'g29'`.
