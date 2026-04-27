@@ -199,11 +199,11 @@ deployments:
           targetPort: 8080
     variables:
       - name: MONGO_USER
-        inputType: ProjectVariable
+        inputType: Secret
         required: true
         variableKey: MONGO_USER
       - name: MONGO_PASSWORD
-        inputType: ProjectVariable
+        inputType: Secret
         required: true
         variableKey: MONGO_PASSWORD
       - name: MONGO_HOST
@@ -219,7 +219,7 @@ deployments:
         required: true
         value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: QUIX_LAKE_TOKEN
-        inputType: ProjectVariable
+        inputType: Secret
         required: true
         variableKey: quix_lake_pat
   - name: Test Manager - Frontend
