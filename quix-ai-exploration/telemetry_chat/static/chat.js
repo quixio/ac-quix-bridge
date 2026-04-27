@@ -184,7 +184,7 @@ async function submit() {
 
   activeAnswer = null;
   addMessage("user", text);
-  showProgress("Looking up sessions");
+  showProgress("Thinking…");
 
   try {
     const res = await fetch("/api/plot", {

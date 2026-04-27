@@ -15,7 +15,7 @@ Flow:
      Either way, we forward only the raw user message — the agent's
      system prompt + KBs already supply instructions, channels, and the
      sessions inventory.
-  3. Emit "Asking the agent" while it works, "Fetching telemetry N/total"
+  3. Emit "Thinking…" while the agent works, "Loading data N/total"
      per completed lake fetch (via asyncio.as_completed for live
      progress), and a final plot|clarify event.
 """
@@ -116,7 +116,7 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
         yield _event(
             {
                 "event": "status",
-                "message": "Asking the agent",
+                "message": "Thinking…",
                 "session_id": session_id,
             }
         )
@@ -242,7 +242,7 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
     yield _event(
         {
             "event": "status",
-            "message": "Fetching telemetry",
+            "message": "Loading data",
             "done": 0,
             "total": total,
             "session_id": session_id,
@@ -282,7 +282,7 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
         yield _event(
             {
                 "event": "status",
-                "message": "Fetching telemetry",
+                "message": "Loading data",
                 "done": done,
                 "total": total,
                 "session_id": session_id,
