@@ -169,6 +169,10 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
         reply = accum
     t_after_agent = time.monotonic()
 
+    if not reply.strip():
+        yield _error_event(session_id, "Agent returned an empty reply")
+        return
+
     if not JSON_FENCE_RE.search(reply):
         # Mode 2 / Mode 3 — agent answered in prose only. Already streamed.
         logger.info(

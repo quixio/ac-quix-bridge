@@ -229,11 +229,20 @@ async function readEventStream(body) {
     buffer = lines.pop() ?? "";
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed) handleEvent(JSON.parse(trimmed));
+      if (trimmed) parseAndHandle(trimmed);
     }
   }
   const tail = buffer.trim();
-  if (tail) handleEvent(JSON.parse(tail));
+  if (tail) parseAndHandle(tail);
+}
+
+/** @param {string} line */
+function parseAndHandle(line) {
+  try {
+    handleEvent(JSON.parse(line));
+  } catch (e) {
+    console.error("malformed event:", e, line.slice(0, 200));
+  }
 }
 
 /**
@@ -242,6 +251,25 @@ async function readEventStream(body) {
  * @type {HTMLElement | null}
  */
 let activeAnswer = null;
+
+/** @type {Set<HTMLElement>} */
+const pendingRender = new Set();
+let renderScheduled = false;
+
+/** @param {HTMLElement} body */
+function scheduleRender(body) {
+  pendingRender.add(body);
+  if (renderScheduled) return;
+  renderScheduled = true;
+  requestAnimationFrame(() => {
+    renderScheduled = false;
+    for (const el of pendingRender) {
+      el.innerHTML = renderMarkdown(el.dataset.raw || "");
+    }
+    pendingRender.clear();
+    scrollBottom(els.messages);
+  });
+}
 
 /**
  * @param {StatusEvent | AnswerDeltaEvent | ClarifyEvent | PlotEvent | ErrorEvent} evt
@@ -260,8 +288,7 @@ function handleEvent(evt) {
       }
       const body = /** @type {HTMLElement} */ (activeAnswer.querySelector(".body"));
       body.dataset.raw = (body.dataset.raw || "") + evt.text;
-      body.innerHTML = renderMarkdown(body.dataset.raw);
-      scrollBottom(els.messages);
+      scheduleRender(body);
       break;
     }
     case "clarify": {
@@ -286,16 +313,6 @@ function handleEvent(evt) {
 
 /** @param {PlotEvent} data */
 async function renderPlotEvent(data) {
-  const signals = data.charts.map((c) => c.signal).join(", ");
-  const counts = data.charts.map((c) => c.traces.length);
-  const min = Math.min(...counts);
-  const max = Math.max(...counts);
-  const countStr = min === max ? `${max}` : `${min}–${max}`;
-  const summary =
-    data.charts.length === 1
-      ? `Plotted ${max} trace(s) of ${signals}.`
-      : `Plotted ${data.charts.length} charts (${signals}), ${countStr} trace(s) per chart.`;
-  addMessage("assistant", summary);
   els.emptyState.classList.add("hidden");
   els.plotTitle.textContent = data.title || "";
   els.plotTitle.classList.toggle("visible", Boolean(data.title));
