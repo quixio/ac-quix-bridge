@@ -28,14 +28,15 @@ import logging
 import re
 import time
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, field_validator
 
 from .channels import raw_channels
+from .plans import AgentPlan, PlotPlan
 from .quix_ai import create_session, stream_message
 from .telemetry import get_telemetry
 
@@ -341,21 +342,34 @@ def _extract_json(text: str) -> dict[str, Any]:
     return parsed
 
 
-def _extract_signals(parsed: dict[str, Any]) -> list[str]:
-    """Accept `signals: [...]` (preferred) or legacy `signal: "..."` (single).
-    Strip any `[unit]` tag the agent may have copied from the display form.
+_PLAN_ADAPTER: TypeAdapter[AgentPlan] = TypeAdapter(AgentPlan)
+
+
+def _plan(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Validate a 'plot' JSON and return the plan (signals/traces/title/track).
+
+    Pydantic enforces shape (type discriminator, field types, non-empty
+    signals/traces). The post-checks below cover semantics Pydantic can't
+    see: channel-name validity, agent-cap enforcement (returned as 400 so
+    the caller can suggest narrowing), and the single-track invariant for
+    `normalizedCarPosition` overlay.
     """
-    raw = parsed.get("signals")
-    if raw is None and "signal" in parsed:
-        raw = [parsed["signal"]]
-    if not isinstance(raw, list) or not raw:
-        raise HTTPException(status_code=502, detail="plot.signals missing or invalid")
+    try:
+        validated = _PLAN_ADAPTER.validate_python(parsed)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Agent JSON shape invalid: {e}",
+        ) from e
+
+    if not isinstance(validated, PlotPlan):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Agent returned unexpected type: {validated.type!r}",
+        )
+
     signals: list[str] = []
-    for s in raw:
-        if not isinstance(s, str) or not s:
-            raise HTTPException(
-                status_code=502, detail=f"plot.signals entry invalid: {s!r}"
-            )
+    for s in validated.signals:
         clean = s.split("[", 1)[0].strip()
         if clean not in raw_channels():
             raise HTTPException(
@@ -363,46 +377,20 @@ def _extract_signals(parsed: dict[str, Any]) -> list[str]:
                 detail=f"plot.signals entry '{clean}' is not a known channel",
             )
         signals.append(clean)
-    return signals
 
-
-def _plan(parsed: dict[str, Any]) -> dict[str, Any]:
-    """Validate a 'plot' JSON and return the plan (signals/traces/title/track).
-
-    Synchronous — runs all the cheap, deterministic checks before any lake
-    fetches so failures surface immediately as a 4xx/502, not as a silent
-    drop inside asyncio.gather.
-    """
-    signals = _extract_signals(parsed)
     if len(signals) > MAX_SIGNALS:
         raise HTTPException(
             status_code=400,
             detail=f"Too many signals ({len(signals)}); cap is {MAX_SIGNALS}.",
         )
-
-    raw_traces = parsed.get("traces")
-    if not isinstance(raw_traces, list) or not raw_traces:
-        raise HTTPException(status_code=502, detail="plot.traces missing or empty")
-    if len(raw_traces) > MAX_TRACES:
+    if len(validated.traces) > MAX_TRACES:
         raise HTTPException(
             status_code=400,
-            detail=f"Too many traces ({len(raw_traces)}); cap is {MAX_TRACES}. "
-            "Ask the agent to narrow the selection.",
+            detail=f"Too many traces ({len(validated.traces)}); "
+            f"cap is {MAX_TRACES}. Ask the agent to narrow the selection.",
         )
 
-    traces: list[dict[str, Any]] = []
-    for i, raw in enumerate(raw_traces):
-        if not isinstance(raw, dict):
-            raise HTTPException(status_code=502, detail=f"trace[{i}] not an object")
-        trace = cast(dict[str, Any], raw)
-        if not isinstance(trace.get("lap"), int):
-            raise HTTPException(
-                status_code=502,
-                detail=f"trace[{i}].lap must be int, got {trace.get('lap')!r}",
-            )
-        traces.append(trace)
-
-    tracks = {t["track"] for t in traces if t.get("track")}
+    tracks = {t.track for t in validated.traces if t.track}
     if len(tracks) > 1:
         raise HTTPException(
             status_code=400,
@@ -412,8 +400,8 @@ def _plan(parsed: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "signals": signals,
-        "traces": traces,
-        "title": parsed.get("title", ""),
+        "traces": [t.model_dump() for t in validated.traces],
+        "title": validated.title,
         "track": next(iter(tracks), None),
     }
 

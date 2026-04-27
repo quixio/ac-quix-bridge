@@ -7,10 +7,27 @@ test the synchronous validation helpers it delegates to.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from fastapi import HTTPException
 
 from app.plot import _extract_json, _plan
+
+
+def _trace(**overrides: Any) -> dict[str, Any]:
+    """Full 8-field trace dict — overrides only the fields under test."""
+    base = {
+        "session_id": "s",
+        "lap": 1,
+        "driver": "d",
+        "carModel": "c",
+        "track": "t",
+        "experiment": "e",
+        "environment": "p",
+        "test_rig": "r",
+    }
+    return {**base, **overrides}
 
 
 def test_extract_json_picks_last_fenced_block() -> None:
@@ -58,7 +75,7 @@ def test_plan_rejects_unknown_signal() -> None:
         "type": "plot",
         "title": "x",
         "signals": ["not_a_real_channel"],
-        "traces": [{"lap": 1, "session_id": "abc"}],
+        "traces": [_trace()],
     }
     with pytest.raises(HTTPException) as exc:
         _plan(parsed)
@@ -70,7 +87,7 @@ def test_plan_strips_unit_bracket_from_signal() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh[km/h]"],
-        "traces": [{"lap": 1, "track": "t", "session_id": "s"}],
+        "traces": [_trace()],
     }
     plan = _plan(parsed)
     assert plan["signals"] == ["speedKmh"]
@@ -80,10 +97,7 @@ def test_plan_accepts_multiple_signals() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh", "gas", "brake"],
-        "traces": [
-            {"lap": 1, "track": "t", "session_id": "s"},
-            {"lap": 2, "track": "t", "session_id": "s"},
-        ],
+        "traces": [_trace(lap=1), _trace(lap=2)],
     }
     plan = _plan(parsed)
     assert plan["signals"] == ["speedKmh", "gas", "brake"]
@@ -91,8 +105,8 @@ def test_plan_accepts_multiple_signals() -> None:
     assert plan["track"] == "t"
 
 
-def test_plan_rejects_missing_signal() -> None:
-    parsed: dict = {"type": "plot", "title": "x", "traces": [{"lap": 1}]}
+def test_plan_rejects_missing_signals() -> None:
+    parsed: dict = {"type": "plot", "title": "x", "traces": [_trace()]}
     with pytest.raises(HTTPException) as exc:
         _plan(parsed)
     assert exc.value.status_code == 502
@@ -109,7 +123,7 @@ def test_plan_caps_too_many_traces() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh"],
-        "traces": [{"lap": i, "track": "t", "session_id": "s"} for i in range(10)],
+        "traces": [_trace(lap=i) for i in range(10)],
     }
     with pytest.raises(HTTPException) as exc:
         _plan(parsed)
@@ -133,7 +147,7 @@ def test_plan_caps_too_many_signals() -> None:
             "turboBoost",
             "heading",
         ],
-        "traces": [{"lap": 1, "track": "t", "session_id": "s"}],
+        "traces": [_trace()],
     }
     with pytest.raises(HTTPException) as exc:
         _plan(parsed)
@@ -145,24 +159,65 @@ def test_plan_rejects_non_int_lap() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh"],
-        "traces": [{"lap": "one", "track": "t", "session_id": "s"}],
+        "traces": [_trace(lap="one")],
     }
     with pytest.raises(HTTPException) as exc:
         _plan(parsed)
     assert exc.value.status_code == 502
-    assert "lap" in exc.value.detail
+    assert "lap" in exc.value.detail.lower()
 
 
 def test_plan_rejects_cross_track() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh"],
-        "traces": [
-            {"lap": 1, "track": "monza", "session_id": "s1"},
-            {"lap": 1, "track": "spa", "session_id": "s2"},
-        ],
+        "traces": [_trace(track="monza"), _trace(track="spa")],
     }
     with pytest.raises(HTTPException) as exc:
         _plan(parsed)
     assert exc.value.status_code == 400
     assert "multiple tracks" in exc.value.detail
+
+
+def test_plan_rejects_unknown_type() -> None:
+    parsed = {"type": "weird", "signals": ["speedKmh"], "traces": [_trace()]}
+    with pytest.raises(HTTPException) as exc:
+        _plan(parsed)
+    assert exc.value.status_code == 502
+
+
+def test_plan_rejects_clarify_through_plot_path() -> None:
+    """`_plan` is only called for plot type — clarify reaching it is a bug."""
+    parsed = {"type": "clarify", "question": "?", "options": []}
+    with pytest.raises(HTTPException) as exc:
+        _plan(parsed)
+    assert exc.value.status_code == 502
+
+
+def test_plan_ignores_extra_fields_on_trace() -> None:
+    parsed = {
+        "type": "plot",
+        "signals": ["speedKmh"],
+        "traces": [_trace(color_hint="red")],
+    }
+    plan = _plan(parsed)
+    assert "color_hint" not in plan["traces"][0]
+
+
+def test_plan_rejects_empty_signals_list() -> None:
+    parsed = {"type": "plot", "signals": [], "traces": [_trace()]}
+    with pytest.raises(HTTPException) as exc:
+        _plan(parsed)
+    assert exc.value.status_code == 502
+
+
+def test_plan_rejects_extra_fields_at_top_level() -> None:
+    parsed = {
+        "type": "plot",
+        "signals": ["speedKmh"],
+        "traces": [_trace()],
+        "weird_extra": 1,
+    }
+    with pytest.raises(HTTPException) as exc:
+        _plan(parsed)
+    assert exc.value.status_code == 502
