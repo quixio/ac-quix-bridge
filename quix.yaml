@@ -182,7 +182,6 @@ deployments:
     blobStorage:
       bind: true
   - name: Test Manager - Backend
-    excluded: true
     application: test-manager-backend
     version: latest
     deploymentType: Service
@@ -222,7 +221,7 @@ deployments:
       - name: QUIX_LAKE_TOKEN
         inputType: Secret
         required: true
-        value: pat_token
+        value: quix_lake_pat
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
