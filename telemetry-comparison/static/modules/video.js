@@ -16,6 +16,81 @@
 
 import { videoState } from './state.js';
 import { buildSyncLookups, highlightVideoLapTrace } from './sync.js';
+import { debugLog } from './debug-overlay.js';
+
+/**
+ * Round 6 — full-file background prefetch.
+ *
+ * After §6.1 the <video> element streams via HTTP Range against the proxy,
+ * which is fast for first paint but unpredictable for backward seeks: the
+ * browser is free to evict bytes behind the playhead, so a backward scrub
+ * round-trips through the proxy and GCS again. The fix: once the live Range
+ * path has reached `canplaythrough` (i.e. initial buffering is comfortably
+ * past), kick off a low-priority `fetch()` of the full MP4. The browser
+ * stores the 200 response in its HTTP cache (the proxy sets
+ * `Cache-Control: private, max-age=300` on full responses and `no-store` on
+ * 206 partials — that split, owned by `video_proxy.py`, is the load-bearing
+ * piece that makes this work). Subsequent Range requests issued by the
+ * <video> element on a backward seek are served from the HTTP cache, not
+ * from the proxy, so the seek resolves locally.
+ *
+ * The prefetch is fire-and-forget: we never read `response.body`, never
+ * `await` the promise, and only attach `.catch()` to swallow aborts.
+ *
+ * Skill-contract status: purely additive. Does not write `currentTime`,
+ * does not seek, does not touch `videoState.frames`/`framesByNd`, does not
+ * interact with the marker↔video sync logic. The only new side-effect on
+ * the lap-load lifecycle is starting (and aborting on lap switch) the
+ * background fetch.
+ */
+function _shouldSkipPrefetch() {
+  try {
+    if (localStorage.getItem('te-disable-prefetch') === '1') return 'manual';
+  } catch (_) {
+    /* localStorage may throw in privacy modes — treat as not set */
+  }
+  // navigator.connection is Chromium-only; missing on Firefox/Safari.
+  // When it's missing we don't have signal to skip on, so we proceed.
+  const conn = typeof navigator !== 'undefined' ? navigator.connection : null;
+  if (conn) {
+    if (conn.saveData === true) return 'saveData';
+    if (conn.effectiveType === '2g' || conn.effectiveType === 'slow-2g') {
+      return conn.effectiveType;
+    }
+  }
+  return null;
+}
+
+function _startBackgroundPrefetch(url) {
+  const skipReason = _shouldSkipPrefetch();
+  if (skipReason) {
+    debugLog(`[prefetch] skipped reason=${skipReason}`);
+    return;
+  }
+  // Abort any in-flight prefetch from a previous lap so rapid lap switches
+  // don't stack concurrent 30 MB downloads.
+  if (videoState._prefetchAbort) {
+    try {
+      videoState._prefetchAbort.abort();
+    } catch (_) {
+      /* nothing to do */
+    }
+  }
+  const ac = new AbortController();
+  videoState._prefetchAbort = ac;
+  // Truncate URL for log readability; full URL is visible in DevTools Network.
+  const shortUrl = url.length > 60 ? url.slice(0, 60) + '…' : url;
+  debugLog(`[prefetch] start url=${shortUrl}`);
+  // priority: 'low' is a Chrome/Edge 121+ hint; older browsers ignore unknown
+  // option keys silently. Safari has no native support yet but does not throw.
+  fetch(url, {
+    credentials: 'same-origin',
+    priority: 'low',
+    signal: ac.signal,
+  }).catch(() => {
+    /* fire-and-forget: aborts and network errors are both fine here */
+  });
+}
 
 function setVideoStatus(msg, level) {
   const el = document.getElementById('video-status');
@@ -177,6 +252,18 @@ export async function loadVideoForLapIdx(idx) {
   setVideoStatus('Loading video...');
   showVideoLoading('Loading video…');
 
+  // Round 6: abort any prior lap's background prefetch immediately on a new
+  // lap load (before we even know if the new lap has video). Avoids stacking
+  // concurrent full-file downloads across rapid lap switches.
+  if (videoState._prefetchAbort) {
+    try {
+      videoState._prefetchAbort.abort();
+    } catch (_) {
+      /* nothing to do */
+    }
+    videoState._prefetchAbort = null;
+  }
+
   let meta;
   try {
     const url = `/api/video/${encodeURIComponent(sid)}/${lap}`;
@@ -254,6 +341,21 @@ export async function loadVideoForLapIdx(idx) {
       function _onCanPlay() {
         video.removeEventListener('canplay', _onCanPlay);
         hideVideoLoading(capturedToken);
+      },
+      { once: true },
+    );
+    // Round 6: kick off a low-priority full-file prefetch only after the live
+    // Range path is comfortably playing. canplaythrough (not loadedmetadata or
+    // canplay) so we never starve initial buffering on slow networks.
+    const prefetchUrl = meta.mp4_url;
+    video.addEventListener(
+      'canplaythrough',
+      function _onCanPlayThrough() {
+        video.removeEventListener('canplaythrough', _onCanPlayThrough);
+        // Drop stale fires: if a newer lap was loaded between canplay and
+        // canplaythrough, don't kick off a prefetch for the superseded lap.
+        if (capturedToken !== videoState.currentLoadToken) return;
+        _startBackgroundPrefetch(prefetchUrl);
       },
       { once: true },
     );
