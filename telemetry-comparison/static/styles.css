@@ -789,3 +789,23 @@ body.overlay-dragging #video-float-slot * {
 ::-webkit-scrollbar-thumb:hover {
   background: #3e4263;
 }
+
+/* ---------- Plotly touch-action override (spec §6.3 round 3) ----------
+ * Plotly sets `touch-action: none` (inline, via JS at runtime) on its inner
+ * drag layers — `.nsewdrag`, `.drag`, `.draglayer`, the main SVG, etc. The
+ * browser's gesture-intent heuristic uses the EVENT TARGET's touch-action,
+ * not the ancestor's, so the `pan-y` we set on the outer chart div in
+ * charts.js attachMarkerDrag() is overridden the moment a finger lands on
+ * an inner SVG. Result: vertical page scroll is hijacked on touchscreens.
+ *
+ * Cascade `pan-y` into every descendant of a Plotly chart so the browser
+ * still permits vertical scroll wherever the finger lands. Horizontal pan
+ * is the marker drag, handled by pointermove + 6 px threshold in charts.js
+ * (pointercancel cleans up `pending` when the browser claims the gesture).
+ *
+ * `!important` is required because Plotly's rules are inline-style
+ * equivalent (set via JS at runtime); a normal cascade rule loses. */
+.js-plotly-plot,
+.js-plotly-plot * {
+  touch-action: pan-y !important;
+}
