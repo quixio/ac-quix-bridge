@@ -16,7 +16,9 @@
 
 import { videoState } from './state.js';
 import { buildSyncLookups, highlightVideoLapTrace } from './sync.js';
-import { initThumbPreview } from './thumb-preview.js';
+// Round 8.1: sprite preview overlay disabled — main <video> element does the
+// scrub via syncVideoFromMarker's paused-mode throttled live seek instead.
+// import { initThumbPreview } from './thumb-preview.js';
 import { debugLog } from './debug-overlay.js';
 
 /**
@@ -290,6 +292,13 @@ export async function loadVideoForLapIdx(idx) {
   // the new lap, so flip the live-seek gate back off until the new prefetch
   // (if any) resolves.
   videoState._prefetchDone = false;
+  // Round-2 fix: reset per-lap scrub state alongside the prefetch gate.
+  // A lap switch mid-drag (rare, but possible if the chart unmounts) skips
+  // pointerup, so flushPendingSeek never runs and stale values leak into
+  // the new lap's seeked-listener cascade.
+  videoState._lastLiveSeekAt = 0;
+  videoState._dragActive = false;
+  videoState._pendingSeekTime = null;
 
   let meta;
   try {
@@ -332,7 +341,7 @@ export async function loadVideoForLapIdx(idx) {
   // Wire up the marker-drag frame preview overlay for this lap. No-op when
   // the sidecar lacks a `thumbs` block (older laps) — drag still works,
   // just without the preview tile.
-  initThumbPreview(meta.sync);
+  // initThumbPreview(meta.sync); // disabled in Round 8.1
 
   if (!video) return;
   try {

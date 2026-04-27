@@ -13,7 +13,11 @@ import { appState, PLOTLY_LAYOUT, videoState } from './state.js';
 import { downsample, fetchTelemetry } from './data.js';
 import { updateMarker, flushPendingSeek } from './sync.js';
 import { getSelections, getActiveSignals, chartTitle } from './selections.js';
-import { showThumbPreviewAt, hideThumbPreview } from './thumb-preview.js';
+// Round 8.1: sprite-sheet preview overlay near the cursor disabled. The
+// main <video> element is the one that should show the scrubbed frame —
+// see syncVideoFromMarker's paused-mode throttled live scrub. Module is
+// still present in the repo but no longer wired.
+// import { showThumbPreviewAt, hideThumbPreview } from './thumb-preview.js';
 
 export function setStatus(msg, isError = false) {
   const el = document.getElementById('status');
@@ -139,8 +143,6 @@ export function attachMarkerDrag(div) {
     videoState._dragActive = true;
     const nd = Math.max(0, Math.min(1, x));
     updateMarker(nd, true, 'drag');
-    // Drag-time frame preview overlay (purely visual; no <video> seek).
-    showThumbPreviewAt(ev.clientX, ev.clientY, nd);
     ev.preventDefault();
   });
 
@@ -152,8 +154,6 @@ export function attachMarkerDrag(div) {
       if (x === null) return;
       const nd = Math.max(0, Math.min(1, x));
       updateMarker(nd, true, 'drag');
-      // Update preview overlay tile + position; no-op if no sprite is loaded.
-      showThumbPreviewAt(ev.clientX, ev.clientY, nd);
       return;
     }
 
@@ -181,15 +181,12 @@ export function attachMarkerDrag(div) {
     videoState._dragActive = true;
     const ndCommit = Math.max(0, Math.min(1, x));
     updateMarker(ndCommit, true, 'drag');
-    // Touch threshold passed — show preview from now on.
-    showThumbPreviewAt(ev.clientX, ev.clientY, ndCommit);
     ev.preventDefault();
   });
 
   div.addEventListener('pointerup', (ev) => {
     pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
-    hideThumbPreview();
     // Round 7.3: clear gate BEFORE flushing so the seeked listener's drain
     // (if it fires before flushPendingSeek's seek even starts) doesn't see
     // a stale _dragActive=true.

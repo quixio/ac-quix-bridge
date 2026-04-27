@@ -352,54 +352,80 @@ export function lookupNormPosForTms(t_ms) {
 export function syncVideoFromMarker(nd, source) {
   // Called from updateMarker.
   //   source==='video' : called by the video timeupdate handler — don't echo.
-  //   source==='drag'  : user dragged the marker → pause video (if playing),
+  //   source==='drag'  : user dragged the marker → pause video unconditionally,
   //                      then seek to the matching frame.
   //   else             : programmatic re-render (plot/init/etc) → leave video alone.
+  // Round-2 fix: pause is unconditional and the `!v.paused` gate is gone, so
+  // the very first drag tick after lap-load (with autoplay still in flight)
+  // commits to scrub instead of silently no-opping. Every early-return is
+  // breadcrumbed via debugLog and gated on localStorage.te-scrub-trace='1'
+  // so the overlay isn't drowned by 60 Hz drag spam during normal use.
+  const trace = _scrubTraceEnabled();
   const v = videoState.element;
-  if (!v || !videoState.frames) return;
-  if (source !== 'drag') return;
-  if (videoState.isPlaying) {
-    try {
-      v.pause();
-    } catch (_) {}
+  if (!v || !videoState.frames) {
+    if (trace) debugLog('[scrub] skipped: no element/frames');
+    return;
   }
+  if (source !== 'drag') return; // noisy guard — never logged
+  // Unconditional pause. HTMLMediaElement.pause() flips v.paused synchronously
+  // so the rest of this function can rely on the paused state. Idempotent.
+  try {
+    v.pause();
+  } catch (_) {}
   const t_ms = lookupTmsForNormPos(nd);
-  if (t_ms == null) return;
+  if (t_ms == null) {
+    if (trace) debugLog('[scrub] skipped: lookupTmsForNormPos returned null');
+    return;
+  }
   const scale = videoState.timeScale || 1;
   const target = t_ms / scale / 1000;
   // Smaller-than-frame deltas would just churn the video element. At 30 fps
   // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
   // dragging.
-  if (Math.abs(v.currentTime - target) <= 0.015) return;
+  if (Math.abs(v.currentTime - target) <= 0.015) {
+    if (trace) debugLog('[scrub] skipped: target == currentTime (within 15ms)');
+    return;
+  }
   // Always stash the latest target. Pointerup's flushPendingSeek will use
   // this to apply the *committed* seek regardless of which branch below
   // fires during the drag.
   videoState._pendingSeekTime = target;
 
-  // Round 8: throttled live scrub when video is paused AND the full file
-  // is in the HTTP cache. Reasoning:
-  //   - Round 7's "always live during drag" thrashed the decoder because
-  //     rapid currentTime writes during forward playback fragmented the
-  //     MediaSource buffer.
-  //   - When v.paused === true, no playback pipeline is decoding ahead;
-  //     a fresh seek doesn't have to interrupt in-flight decode work,
-  //     which is what made Round 7 collapse the buffer.
-  //   - Cache hits via Round 6 prefetch make the per-seek cost ~50ms.
-  //   - A 100ms minimum between seeks caps the rate at ~10 Hz — enough
-  //     for the user to *see* their scrubbing in the main video element,
-  //     low enough that the decoder pipeline keeps up.
-  // The sprite-sheet overlay (thumb-preview.js) keeps providing 60 Hz
-  // visual feedback so the gap between throttled video updates is
-  // covered by tile swaps near the cursor.
-  if (!videoState._prefetchDone) return;       // not cached → defer to release
-  if (!v.paused) return;                       // playing → defer to release
-  if (v.seeking) return;                       // mid-seek → next move will retry
+  // Round 8: throttled live scrub. Round-2 fix dropped the `!v.paused` gate;
+  // the unconditional pause above already moved us into paused-mode, so the
+  // remaining gates are: prefetch must be hot (so the seek is cheap), no
+  // seek already in flight (next move retries), and the 100 ms throttle
+  // window must have elapsed (caps the rate at ~10 Hz so the decoder
+  // pipeline stays stable).
+  if (!videoState._prefetchDone) {
+    if (trace) debugLog('[scrub] skipped: prefetch not done');
+    return;
+  }
+  if (v.seeking) {
+    if (trace) debugLog('[scrub] skipped: seek in flight');
+    return;
+  }
   const now = Date.now();
   const last = videoState._lastLiveSeekAt || 0;
-  if (now - last < SCRUB_THROTTLE_MS) return;  // throttle window not elapsed
+  if (now - last < SCRUB_THROTTLE_MS) {
+    if (trace) debugLog('[scrub] skipped: throttle window');
+    return;
+  }
   videoState._pendingSeekTime = null;
   videoState._lastLiveSeekAt = now;
   v.currentTime = target;
+  if (trace) debugLog(`[scrub] applied target=${target.toFixed(3)}s`);
+}
+
+// Round-2 visibility gate: the breadcrumbs above fire on every drag tick that
+// hits an early-return, which would flood the debug overlay during a normal
+// drag. Default off; enable with `localStorage.setItem('te-scrub-trace','1')`.
+function _scrubTraceEnabled() {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('te-scrub-trace') === '1';
+  } catch (_) {
+    return false;
+  }
 }
 
 // Round 8 throttle for paused-mode live scrub. 100ms ≈ 10 Hz, which
