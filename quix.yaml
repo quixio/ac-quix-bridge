@@ -580,6 +580,7 @@ deployments:
       - name: METADATA_MONGO_PASSWORD
         inputType: ProjectVariable
         description: Metadata MongoDB password (only when METADATA_BACKEND=mongo)
+        variableKey: MONGO_PASSWORD
       - name: SECRET_KEY
         inputType: ProjectVariable
         description: Encryption key for stored server passwords (Fernet)
