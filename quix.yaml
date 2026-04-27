@@ -221,7 +221,7 @@ deployments:
       - name: QUIX_LAKE_TOKEN
         inputType: ProjectVariable
         required: true
-        variableKey: pat_token
+        variableKey: quix_lake_pat
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
