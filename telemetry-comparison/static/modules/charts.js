@@ -106,32 +106,77 @@ export function attachMarkerDrag(div) {
     return xa.range[0] + frac * (xa.range[1] - xa.range[0]);
   };
 
+  // Pending touch state: tracks finger-down position before we commit to
+  // either a marker drag (horizontal intent) or surrendering to the browser
+  // for vertical scroll (pan-y). Mouse/pen bypass this entirely.
+  // Threshold: 6 px — small enough to feel responsive, large enough that
+  // an unintentional finger jitter on tap doesn't trigger a drag. Matches
+  // typical mobile gesture-intent thresholds (Plotly uses ~5, Maps ~8).
+  const GESTURE_THRESHOLD_PX = 6;
+  const pending = new Map(); // pointerId -> {startX, startY}
+
   div.addEventListener('pointerdown', (ev) => {
     // button===0: left-click (mouse), primary touch/pen contact.
     // Reject middle/right mouse buttons (button > 0).
     if (ev.button !== 0) return;
     const x = pxToX(ev);
     if (x === null) return;
-    // Capture so pointermove/pointerup keep firing even when the pointer
-    // leaves the chart div (e.g. finger slides off the edge).
+
+    if (ev.pointerType === 'touch') {
+      // Defer capture + preventDefault until we know the gesture is
+      // horizontal. Calling either now would void touch-action: pan-y
+      // and break vertical page scroll on touchscreens.
+      pending.set(ev.pointerId, { startX: ev.clientX, startY: ev.clientY });
+      return;
+    }
+
+    // Mouse / pen: claim the gesture immediately (existing behaviour).
     try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
     updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
     ev.preventDefault();
   });
 
   div.addEventListener('pointermove', (ev) => {
-    // Only act while this pointer is captured (i.e. we own the drag)
-    if (!div.hasPointerCapture(ev.pointerId)) return;
+    // Already-captured pointer (mouse, pen, or a touch we committed to):
+    // drive the marker.
+    if (div.hasPointerCapture(ev.pointerId)) {
+      const x = pxToX(ev);
+      if (x === null) return;
+      updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
+      return;
+    }
+
+    // Pending touch: decide intent.
+    const start = pending.get(ev.pointerId);
+    if (!start) return;
+    const dx = ev.clientX - start.startX;
+    const dy = ev.clientY - start.startY;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    if (adx < GESTURE_THRESHOLD_PX && ady < GESTURE_THRESHOLD_PX) return; // still waiting
+
+    if (ady > adx) {
+      // Vertical intent — abandon, let the browser scroll via pan-y.
+      pending.delete(ev.pointerId);
+      return;
+    }
+
+    // Horizontal intent — commit to marker drag.
+    pending.delete(ev.pointerId);
     const x = pxToX(ev);
     if (x === null) return;
+    try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
     updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
+    ev.preventDefault();
   });
 
   div.addEventListener('pointerup', (ev) => {
+    pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
   });
 
   div.addEventListener('pointercancel', (ev) => {
+    pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
   });
 }
