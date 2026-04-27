@@ -371,38 +371,21 @@ export function syncVideoFromMarker(nd, source) {
   // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
   // dragging.
   if (Math.abs(v.currentTime - target) <= 0.015) return;
-  // Round 5/7 split for the drag path:
+  // Round 7.2 — revert Round 7's live-during-drag mode. Diagnostic data on
+  // tablet: even with the prefetch fully cached (so Range requests hit disk,
+  // seek-stall ~60ms each), 24 mid-drag seeks in 400ms fragmented the
+  // MediaSource buffer into 5 disjoint ranges and left the decoder in a
+  // tangled state — `play` after the drag fired `waiting`, then `stalled`,
+  // and the video never recovered. Cache hits help **network** latency but
+  // don't protect the **decoder pipeline** from being shredded by rapid
+  // currentTime writes. So: regardless of `_prefetchDone`, we ALWAYS stash
+  // during drag and let `flushPendingSeek()` (called from charts.js's
+  // pointerup / pointercancel) issue the single seek on release.
   //
-  //   Round 5 (fallback, _prefetchDone === false): the live Range path can
-  //   still confuse the browser's seek state machine on backward scrub —
-  //   tablet observation: a single post-drag backward seek into a *buffered*
-  //   region took 2.4s and landed at file END (115.0s) instead of the
-  //   requested 11.1s. So during the drag we write NOTHING to currentTime;
-  //   we only stash the latest target. The drain happens on pointerup /
-  //   pointercancel via flushPendingSeek() (called from charts.js's
-  //   attachMarkerDrag handlers) — exactly one seek per drag, on release.
-  //
-  //   Round 7 (live, _prefetchDone === true): once the background prefetch
-  //   has cached the full MP4, every backward Range request is served from
-  //   the HTTP cache. With no proxy/GCS round-trip the only cost is decode,
-  //   which the round-4 coalesce already handles cleanly. So we revert to
-  //   round-4 semantics: stash only if the browser is mid-seek; otherwise
-  //   apply currentTime immediately for a frame-accurate drag preview.
-  //
-  // The 'seeked' drain still has a role in BOTH modes: if any other code
-  // path programmatically seeks while a stash is pending, it'll apply on the
-  // next 'seeked' just like before. flushPendingSeek() on pointerup is the
-  // canonical drain in round-5 mode and a usually-no-op safety in round-7
-  // mode (covers the case where v.seeking was true on the final drag tick).
-  if (videoState._prefetchDone) {
-    if (v.seeking) {
-      videoState._pendingSeekTime = target;
-      return;
-    }
-    videoState._pendingSeekTime = null;
-    v.currentTime = target;
-    return;
-  }
+  // `_prefetchDone` is still set and is still useful — it makes that single
+  // post-drag seek hit the HTTP cache instead of the proxy, so the seek
+  // completes fast even on slow upstream networks. We just don't try to
+  // preview during the drag itself.
   videoState._pendingSeekTime = target;
 }
 
