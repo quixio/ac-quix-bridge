@@ -398,25 +398,21 @@ button#send svg {
   transform: translate(-1.5px, 1.5px);
 }
 
-#progress {
-  padding: 60px 20px;
+#progress .body {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
+  gap: 8px;
   color: var(--muted);
-  font-size: 14px;
-  flex-shrink: 0;
 }
 
 #progress .spinner {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.9s linear infinite;
-  display: inline-block;
+  flex-shrink: 0;
 }
 
 @keyframes spin {

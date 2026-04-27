@@ -37,7 +37,7 @@ function addMessage(role, text) {
   div.className = `msg ${role}`;
   const r = document.createElement("div");
   r.className = "role";
-  r.textContent = role === "user" ? "you" : role === "assistant" ? "ai" : "error";
+  r.textContent = role === "user" ? "you" : role === "assistant" ? "Quix AI" : "error";
   const body = document.createElement("div");
   body.className = "body";
   body.textContent = text;
@@ -49,23 +49,25 @@ function addMessage(role, text) {
 }
 
 /**
- * Show a spinner + label inside the plot pane. Replaces any existing
- * progress node so multi-event streams don't stack.
+ * Show a spinner + label as a transient assistant row in the chat pane.
+ * Reuses the same `#progress` node across status events so the label updates
+ * in place. Cleared by `hideProgress` once a non-status event arrives, or by
+ * the next turn's `showProgress` resetting it. Plot pane is left untouched
+ * so prior charts remain visible during follow-up Mode 2/3 conversations.
  * @param {string} label
  * @param {number=} done
  * @param {number=} total
  */
 function showProgress(label, done, total) {
-  els.emptyState.classList.add("hidden");
-  clearCharts(els.plot);
   let prog = /** @type {HTMLElement | null} */ (document.getElementById("progress"));
   if (!prog) {
     prog = document.createElement("div");
     prog.id = "progress";
-    prog.className = "progress";
-    prog.innerHTML = '<span class="spinner"></span><span class="label"></span>';
-    const parent = /** @type {HTMLElement} */ (els.plot.parentElement);
-    parent.insertBefore(prog, els.plot);
+    prog.className = "msg assistant";
+    prog.innerHTML =
+      '<div class="role">Quix AI</div>' +
+      '<div class="body"><span class="spinner"></span><span class="label"></span></div>';
+    els.messages.appendChild(prog);
   }
   const labelEl = /** @type {HTMLElement} */ (prog.querySelector(".label"));
   const parts = [label];
@@ -73,6 +75,7 @@ function showProgress(label, done, total) {
     parts.push(`${done}/${total} traces`);
   }
   labelEl.textContent = parts.join(" — ");
+  scrollBottom(els.messages);
 }
 
 function hideProgress() {
