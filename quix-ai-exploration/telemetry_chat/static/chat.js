@@ -125,6 +125,12 @@ function addClarifyChips(options, messageEl) {
  * @property {Chart[]} charts
  */
 /**
+ * @typedef {Object} AnswerDeltaEvent
+ * @property {"answer_delta"} event
+ * @property {string} session_id
+ * @property {string} text
+ */
+/**
  * @typedef {Object} ClarifyEvent
  * @property {"clarify"} event
  * @property {string} session_id
@@ -221,26 +227,47 @@ async function readEventStream(body) {
 }
 
 /**
- * @param {StatusEvent | ClarifyEvent | PlotEvent | ErrorEvent} evt
+ * Per-turn assistant bubble accumulating `answer_delta` chunks. Reset between
+ * turns when status reopens, or when clarify/plot/error close out the turn.
+ * @type {HTMLElement | null}
+ */
+let activeAnswer = null;
+
+/**
+ * @param {StatusEvent | AnswerDeltaEvent | ClarifyEvent | PlotEvent | ErrorEvent} evt
  */
 function handleEvent(evt) {
   if (evt.session_id) sessionId = evt.session_id;
   switch (evt.event) {
     case "status":
+      activeAnswer = null;
       showProgress(evt.message, evt.done, evt.total);
       break;
+    case "answer_delta": {
+      hideProgress();
+      if (!activeAnswer) {
+        activeAnswer = addMessage("assistant", "");
+      }
+      const body = /** @type {HTMLElement} */ (activeAnswer.querySelector(".body"));
+      body.textContent = (body.textContent || "") + evt.text;
+      scrollBottom(els.messages);
+      break;
+    }
     case "clarify": {
       hideProgress();
+      activeAnswer = null;
       const msg = addMessage("assistant", evt.question);
       addClarifyChips(evt.options || [], msg);
       break;
     }
     case "plot":
       hideProgress();
+      activeAnswer = null;
       renderPlotEvent(evt);
       break;
     case "error":
       hideProgress();
+      activeAnswer = null;
       addMessage("error", `${evt.detail}${evt.status ? ` (${evt.status})` : ""}`.slice(0, 500));
       break;
   }

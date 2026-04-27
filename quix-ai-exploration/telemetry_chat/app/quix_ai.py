@@ -1,14 +1,14 @@
-"""Minimal Quix AI chat client — no workspace context.
+"""Minimal Quix AI chat client bound to a configured agent.
 
-Validated against `portal-api.dev.quix.io` by
-`quix-ai-exploration/probes/probe_chat_no_workspace.py`:
+Sessions are created against `config.AGENT_CONFIGURATION_ID` so the QuixLake
+Querier agent's system prompt + knowledge bases + MCP tools are in scope from
+turn 1. The backend therefore sends only the raw user message — no inline
+instructions, no sessions list, no channels dump.
 
-    POST /ai/api/sessions        body={}                 → 200 {id, ...}
+    POST /ai/api/sessions
+        body={"agentConfigurationId": <id>}              → 200 {id, ...}
     POST /ai/api/sessions/{id}/messages
-       body={"message": "...", "context": {}}            → 200 SSE stream
-
-Request shapes above are undocumented in the public Portal OpenAPI spec; if
-they change, update this module and re-run the probe.
+        body={"message": "...", "context": {}}           → 200 SSE stream
 """
 
 from __future__ import annotations
@@ -25,16 +25,21 @@ logger = logging.getLogger(__name__)
 
 
 async def create_session(client: httpx.AsyncClient) -> str:
-    """Open a new workspace-less Quix AI chat session. Returns the session UUID."""
+    """Open a Quix AI session bound to the QuixLake Querier agent. Returns
+    the session UUID."""
     r = await client.post(
         f"{config.PORTAL}/ai/api/sessions",
         headers=config.portal_headers(),
-        json={},
+        json={"agentConfigurationId": config.AGENT_CONFIGURATION_ID},
     )
     r.raise_for_status()
     data = r.json()
     session_id = data.get("id") or data["sessionId"]
-    logger.info("quix_ai: opened session %s", session_id)
+    logger.info(
+        "quix_ai: opened session %s (agent=%s)",
+        session_id,
+        config.AGENT_CONFIGURATION_ID,
+    )
     return session_id
 
 
@@ -90,19 +95,3 @@ def _short(evt: dict, limit: int = 200) -> str:
         text = evt.get("text", "")
         return f"text_delta: {text[:limit]!r}{'…' if len(text) > limit else ''}"
     return json.dumps(evt)[:500]
-
-
-async def collect_text(client: httpx.AsyncClient, session_id: str, message: str) -> str:
-    """Send a message and collect the full assistant text reply.
-
-    Buffers all `text_delta` events into one string. The chat orchestrator
-    uses this when it only cares about the final structured JSON output, not
-    about streaming intermediate tokens to the browser.
-    """
-    parts: list[str] = []
-    async for evt in stream_message(client, session_id, message):
-        if evt.get("type") == "text_delta":
-            parts.append(evt.get("text", ""))
-        elif evt.get("type") == "error":
-            raise RuntimeError(f"quix_ai upstream error: {evt.get('status')}")
-    return "".join(parts)

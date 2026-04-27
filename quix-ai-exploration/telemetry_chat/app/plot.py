@@ -10,11 +10,13 @@ progress as it arrives. Event shapes:
 
 Flow:
   1. Validate the request body (Pydantic).
-  2. First turn (no session_id): create a Quix AI chat session and build
-     the first-turn message with instructions + sessions list.
-     Subsequent turns: reuse session_id + send raw user message.
-  3. Emit "Looking up sessions" while the agent works, "Fetching telemetry
-     N/total" per completed lake fetch (via asyncio.as_completed for live
+  2. First turn (no session_id): open a Quix AI session bound to the
+     QuixLake Querier agent. Subsequent turns reuse the session_id.
+     Either way, we forward only the raw user message — the agent's
+     system prompt + KBs already supply instructions, channels, and the
+     sessions inventory.
+  3. Emit "Asking the agent" while it works, "Fetching telemetry N/total"
+     per completed lake fetch (via asyncio.as_completed for live
      progress), and a final plot|clarify event.
 """
 
@@ -34,9 +36,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .channels import raw_channels
-from .plot_prompt import build_first_turn_message
-from .quix_ai import collect_text, create_session
-from .sessions_cache import get_sessions
+from .quix_ai import create_session, stream_message
 from .telemetry import get_telemetry
 
 logger = logging.getLogger(__name__)
@@ -110,28 +110,73 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
     async with httpx.AsyncClient(timeout=120.0) as client:
         session_id = req.session_id
         if session_id is None:
-            yield _event({"event": "status", "message": "Looking up sessions"})
-            sessions = await get_sessions()
             session_id = await create_session(client)
-            outbound = build_first_turn_message(
-                user_message=req.message, sessions=sessions
-            )
-        else:
-            outbound = req.message
 
         yield _event(
             {
                 "event": "status",
-                "message": "Looking up sessions",
+                "message": "Asking the agent",
                 "session_id": session_id,
             }
         )
-        try:
-            reply = await collect_text(client, session_id, outbound)
-        except RuntimeError as e:
-            yield _error_event(session_id, e)
-            return
+        # Stream prose chunks straight through to the browser (`answer_delta`).
+        # Stop streaming once the agent starts emitting a ```json``` block —
+        # that's machine-readable and stays in the backend for plan parsing.
+        # Hold back the trailing 6 chars of unstreamed accum so a fence opener
+        # split across deltas (`"```"` then `"json..."`) never leaks visibly.
+        accum = ""
+        streamed = 0
+        json_seen = False
+        # len("```json") - 1 so we can always look one char ahead of the fence
+        # opener before emitting.
+        FENCE_LOOKAHEAD = 6
+        async for evt in stream_message(client, session_id, req.message):
+            t = evt.get("type")
+            if t == "error":
+                yield _error_event(session_id, f"upstream {evt.get('status')}")
+                return
+            if t != "text_delta":
+                continue
+            accum += evt.get("text", "")
+            if json_seen:
+                continue
+            fence_idx = accum.find("```json")
+            if fence_idx >= 0:
+                end = fence_idx
+                json_seen = True
+            else:
+                end = max(streamed, len(accum) - FENCE_LOOKAHEAD)
+            chunk = accum[streamed:end]
+            if chunk:
+                yield _event(
+                    {
+                        "event": "answer_delta",
+                        "session_id": session_id,
+                        "text": chunk,
+                    }
+                )
+                streamed = end
+        # Stream any tail bytes we held back when no fence was ever seen
+        # (Mode 2 / Mode 3 prose answers).
+        if not json_seen and streamed < len(accum):
+            yield _event(
+                {
+                    "event": "answer_delta",
+                    "session_id": session_id,
+                    "text": accum[streamed:],
+                }
+            )
+        reply = accum
     t_after_agent = time.monotonic()
+
+    if not JSON_FENCE_RE.search(reply):
+        # Mode 2 / Mode 3 — agent answered in prose only. Already streamed.
+        logger.info(
+            "plot answer (no JSON) in %.1fs: %d chars",
+            time.monotonic() - t_start,
+            streamed,
+        )
+        return
 
     try:
         parsed = _extract_json(reply)

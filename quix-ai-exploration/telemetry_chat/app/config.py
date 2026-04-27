@@ -21,7 +21,11 @@ QUIXLAKE_URL = os.environ.get("QUIXLAKE_URL", "")
 QUIX_LAKE_TOKEN = os.environ.get("QUIX_LAKE_TOKEN", "")
 TABLE_NAME = os.environ.get("TABLE_NAME", "ac_telemetry")
 
-SESSIONS_CACHE_TTL = float(os.environ.get("SESSIONS_CACHE_TTL", "60"))
+# QuixLake Querier agent (carries the system prompt + KBs + MCP tools).
+# Override via env if you need to point at a fork of the agent.
+AGENT_CONFIGURATION_ID = os.environ.get(
+    "QUIX_AI_AGENT_ID", "d578e2f5-c2b7-461a-90d2-70dfac450fb0"
+)
 
 # Set LOG_LEVEL=DEBUG in .env to see each Quix AI SSE event as it arrives.
 # Default INFO — app lifecycle + errors only, no per-event noise.
