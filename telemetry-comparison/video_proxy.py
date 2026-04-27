@@ -179,9 +179,22 @@ async def stream_video(
     if not mp4_path:
         raise HTTPException(404, f"Video not found: session={session_id} lap={lap}")
 
-    common = {
+    # Cache-Control deliberately differs by response type:
+    #   - 200 (full file, no Range): max-age=300 is safe — same URL, same body.
+    #   - 206 (partial content): no-store. Range-aware caching is fragile —
+    #     a stale 206 cached response served against a different Range gives
+    #     the browser bytes that don't match its request, the decoder gets
+    #     incomplete data, and playback hangs on backward seeks. `Vary: Range`
+    #     would be the correct standards way, but not all middleboxes honour
+    #     it; no-store is the bulletproof option for the partial-content path.
+    common_full = {
         "Accept-Ranges": "bytes",
         "Cache-Control": "private, max-age=300",
+    }
+    common_range = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+        "Vary": "Range",
     }
 
     if not range:
@@ -195,7 +208,7 @@ async def stream_video(
         return Response(
             content=data,
             media_type="video/mp4",
-            headers={**common, "Content-Length": str(len(data))},
+            headers={**common_full, "Content-Length": str(len(data))},
         )
 
     m = _RANGE_RE.match(range.strip())
@@ -207,7 +220,7 @@ async def stream_video(
     if start > end or start >= total:
         return Response(
             status_code=416,
-            headers={**common, "Content-Range": f"bytes */{total}"},
+            headers={**common_range, "Content-Range": f"bytes */{total}"},
         )
     length = end - start + 1
 
@@ -224,7 +237,7 @@ async def stream_video(
         status_code=206,
         media_type="video/mp4",
         headers={
-            **common,
+            **common_range,
             "Content-Length": str(len(chunk)),
             "Content-Range": f"bytes {start}-{end}/{total}",
         },
