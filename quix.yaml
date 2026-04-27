@@ -138,7 +138,7 @@ deployments:
       - name: CATALOG_AUTH_TOKEN
         inputType: ProjectVariable
         description: If using a catalog, the respective auth token to access it
-        variableKey: pat
+        variableKey: quix_lake_pat
       - name: AUTO_DISCOVER
         inputType: Options
         description: Automatically register table in REST Catalog on first write
