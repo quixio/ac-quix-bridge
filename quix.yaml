@@ -182,6 +182,7 @@ deployments:
     blobStorage:
       bind: true
   - name: Test Manager - Backend
+    excluded: true
     application: test-manager-backend
     version: latest
     deploymentType: Service
