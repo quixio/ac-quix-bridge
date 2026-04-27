@@ -5,8 +5,8 @@
  * This module owns:
  *   - populating the lap picker after Plot
  *   - fetching /api/video/{sid}/{lap} metadata + sidecar
- *   - deciding blob-buffer vs stream based on Content-Length
- *   - revoking the previous blob URL on lap switch
+ *   - assigning meta.mp4_url directly to <video src> for progressive playback
+ *     (browser handles streaming via HTTP Range against /api/video/{sid}/{lap}/mp4)
  *   - stale-token protection across interleaved loads
  *
  * It calls into sync.js at two well-defined points:
@@ -222,41 +222,15 @@ export async function loadVideoForLapIdx(idx) {
   } catch (_) {}
   videoState.isPlaying = false;
 
-  // Release previous blob URL
-  if (videoState.blobUrl) {
-    URL.revokeObjectURL(videoState.blobUrl);
-    videoState.blobUrl = null;
-  }
-
-  // Fetch the full MP4 into memory (up to 100 MB) so seeking is instant.
-  // Larger files fall back to streaming.
-  const MAX_BLOB_BYTES = 100 * 1048576;
-  setVideoStatus('Buffering video...');
-  showVideoLoading('Buffering video…');
+  // Browser handles streaming via HTTP Range against /api/video/{sid}/{lap}/mp4.
+  // The proxy supports Range; combined with -movflags +faststart on the recorder
+  // (ac_video_streaming/video_recorder.py) the moov atom is at the front, so the
+  // browser can decode the first frame after fetching only the head of the file.
+  setVideoStatus('Loading video…');
   try {
-    const headResp = await fetch(meta.mp4_url, { method: 'HEAD' });
-    if (token !== videoState.currentLoadToken) return;
-    const contentLen = parseInt(headResp.headers.get('Content-Length') || '0', 10);
-
-    let sizeMB = '?';
-    if (contentLen > 0 && contentLen <= MAX_BLOB_BYTES) {
-      const resp = await fetch(meta.mp4_url);
-      if (token !== videoState.currentLoadToken) return;
-      if (!resp.ok) {
-        setVideoStatus('Failed to buffer video (HTTP ' + resp.status + ')', 'error');
-        hideVideoLoading(token);
-        return;
-      }
-      const blob = await resp.blob();
-      if (token !== videoState.currentLoadToken) return;
-      videoState.blobUrl = URL.createObjectURL(blob);
-      video.src = videoState.blobUrl;
-      sizeMB = (blob.size / 1048576).toFixed(1);
-    } else {
-      // Too large or unknown size — stream directly
-      video.src = meta.mp4_url;
-      if (contentLen > 0) sizeMB = (contentLen / 1048576).toFixed(1);
-    }
+    video.preload = 'auto';
+    video.src = meta.mp4_url;
+    video.load();
     video.currentTime = 0;
     video.playbackRate = _currentVideoSpeed();
     // Compute timebase correction once MP4 metadata loads
@@ -287,16 +261,16 @@ export async function loadVideoForLapIdx(idx) {
 
     if (videoState.frames) {
       const dur = meta.sync.duration_ms ? (meta.sync.duration_ms / 1000).toFixed(1) + 's' : '?';
-      setVideoStatus(`${sizeMB} MB • ${dur} • sync ${videoState.frames.length} pts`);
+      setVideoStatus(`${dur} • sync ${videoState.frames.length} pts`);
     } else {
       setVideoStatus(
-        `${sizeMB} MB` + (meta.message ? ' • ' + meta.message : ''),
+        meta.message ? meta.message : 'Streaming',
         meta.has_sync ? '' : 'warn',
       );
     }
   } catch (e) {
     if (token !== videoState.currentLoadToken) return;
-    setVideoStatus('Video buffer failed: ' + (e.message || e), 'error');
+    setVideoStatus('Video load failed: ' + (e.message || e), 'error');
     hideVideoLoading(token);
   }
 }

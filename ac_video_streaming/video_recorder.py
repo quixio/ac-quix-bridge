@@ -133,6 +133,10 @@ class VideoRecorder:
                     "-crf", "28",
                     "-g", str(self._fps),  # keyframe every 1s for fast seeking
                     "-pix_fmt", "yuv420p",
+                    # moov atom at the front so HTTP Range-streaming clients
+                    # (telemetry-comparison) can decode the first frame after
+                    # fetching only the head of the file, not the whole MP4.
+                    "-movflags", "+faststart",
                     filepath,
                 ],
                 stdin=subprocess.PIPE,
@@ -298,6 +302,11 @@ class VideoRecorder:
                     # -r as output option sets the output timebase so the
                     # MP4 duration matches the actual capture wall-clock.
                     "-r", f"{fps:.4f}",
+                    # Preserve fast-start: the input has the moov atom at the
+                    # front from the initial encode, but `-c copy` without
+                    # +faststart can re-emit it at the tail. Keep it up front
+                    # so HTTP Range-streaming clients still get fast first paint.
+                    "-movflags", "+faststart",
                     tmp_path,
                 ],
                 stdout=subprocess.DEVNULL,

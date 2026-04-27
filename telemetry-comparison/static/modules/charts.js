@@ -81,16 +81,18 @@ export function toggleCornerOverlay(plotIdx, enabled) {
 // stylus in one API. setPointerCapture keeps the drag live even when the
 // finger or cursor leaves the chart area.
 //
-// touch-action: none is set on the div at attach time so the browser
-// doesn't intercept the touch for page scroll. Only the chart divs get
-// this treatment — body and parent containers are unaffected so page
-// scroll outside charts continues to work.
+// touch-action: pan-y opts the browser back into vertical page scroll while
+// keeping horizontal pointer events for marker drag. The browser's native
+// gesture-intent heuristic decides per-touch which direction wins, matching
+// platform UX (Twitter, Maps, etc.). No custom JS gesture-intent code — that
+// route is bug-prone for diagonal swipes.
 // ---------------------------------------------------------------------------
 
 export function attachMarkerDrag(div) {
-  // Prevent the browser from claiming touch events on this specific chart
-  // div for scroll / zoom. Page scroll outside these divs is unaffected.
-  div.style.touchAction = 'none';
+  // pan-y: browser handles vertical scroll; horizontal pointer events still
+  // reach this handler so the marker drag works. Pinch-zoom + double-tap-zoom
+  // remain enabled by default (we don't need to suppress them).
+  div.style.touchAction = 'pan-y';
 
   // Use Plotly's actual xaxis pixel offset + length for precise mapping
   const pxToX = (ev) => {

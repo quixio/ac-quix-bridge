@@ -742,7 +742,12 @@ body.overlay-dragging #video-float-slot * {
   }
 }
 
-/* ---------- Loading spinner ---------- */
+/* ---------- Loading spinner ----------
+   Keyframes are renamed `te-spin` to avoid collision with Tailwind Play CDN's
+   `@keyframes spin` (which is paired with its `.animate-spin` utility). When
+   both stylesheets define a same-named keyframe, the later definition wins
+   for any element resolved after it, which left our spinner visually frozen
+   in some load orders. */
 .loading-spinner {
   display: inline-block;
   width: 14px;
@@ -750,11 +755,20 @@ body.overlay-dragging #video-float-slot * {
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.6s linear infinite;
+  animation: te-spin 0.6s linear infinite;
   vertical-align: middle;
   margin-right: 0.4rem;
 }
-@keyframes spin {
+/* XL modifier used by the video-loading overlay. Geometry lives here (not as
+   inline style on the element) so the animation never has to compete with a
+   style.cssText reset and the markup stays declarative. */
+.loading-spinner--xl {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  margin-right: 0;
+}
+@keyframes te-spin {
   to {
     transform: rotate(360deg);
   }

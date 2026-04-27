@@ -123,7 +123,6 @@ export const videoState = {
   frames: null, // sorted-by-t_ms array of {t_ms, normPos} for the loaded lap
   framesByNd: null,
   isPlaying: false, // true between 'play' and 'pause'/'ended' events
-  blobUrl: null, // object URL for fully-buffered MP4
   loadingShownAt: 0, // Date.now() when overlay was last shown; used for min-display guard
 };
 
