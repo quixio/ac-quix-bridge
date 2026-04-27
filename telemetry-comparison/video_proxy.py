@@ -9,9 +9,14 @@ Telemetry endpoints are unaffected.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse, Response
@@ -93,6 +98,290 @@ def _find_video_paths(session_id: str, lap: int) -> tuple[str, str] | None:
 
 
 _RANGE_RE = re.compile(r"^bytes=(\d+)-(\d*)$")
+
+
+# ---------------------------------------------------------------------------
+# Sprite-sheet thumbnails for the marker-drag frame preview.
+# Spec: dev-planning/marker-drag-frame-preview/spec.md §5.2 (lazy proxy path).
+# Eager sprites are produced by the recorder (ac_video_streaming/video_recorder.py)
+# and uploaded as `<base>.thumbs.jpg` next to the MP4. When that file is
+# missing — laps recorded before the recorder change — we download the MP4,
+# run ffmpeg locally, upload the sprite, fold the `thumbs` block into the
+# `.sync.json` sidecar, and stream the bytes back. Per-key asyncio.Lock keeps
+# concurrent first-time requests for the same lap from running ffmpeg twice.
+# ---------------------------------------------------------------------------
+
+# Tile metadata mirrors the recorder. Tile width is computed per-MP4 from the
+# real aspect ratio; height is fixed at 90 px.
+_SPRITE_TILES = 100
+_SPRITE_COLS = 10
+_SPRITE_ROWS = 10
+_SPRITE_TILE_H = 90
+
+# Per-(session_id, lap) lock. Module-level lifetime; entries are popped after
+# the slow path completes so the registry doesn't grow unbounded over time.
+_sprite_locks: dict[tuple[str, int], asyncio.Lock] = {}
+
+
+def _sprite_blob_paths(safe_session: str, lap: int) -> tuple[str, str, str]:
+    """Return (folder, sprite_blob, sidecar_blob) for a given safe_session+lap."""
+    folder = f"{config.BLOB_VIDEO_PREFIX}/session_id={safe_session}"
+    base = f"{safe_session}_lap{lap:03d}"
+    return folder, f"{folder}/{base}.thumbs.jpg", f"{folder}/{base}.sync.json"
+
+
+def _find_sprite_paths(session_id: str, lap: int) -> tuple[str, str, str, str] | None:
+    """Locate the MP4 + canonical sprite/sidecar blob paths for this lap.
+
+    Returns (mp4_path, sprite_path, sidecar_path, safe_session) or None if
+    no MP4 exists for any session_id format variant.
+    """
+    if not blob_fs:
+        return None
+    for safe in _session_blob_variants(session_id):
+        folder, sprite_path, sidecar_path = _sprite_blob_paths(safe, lap)
+        mp4 = f"{folder}/{safe}_lap{lap:03d}.mp4"
+        try:
+            blob_fs.invalidate_cache(folder)
+            if blob_fs.exists(mp4):
+                return mp4, sprite_path, sidecar_path, safe
+        except Exception:
+            continue
+    return None
+
+
+def _probe_dimensions(mp4_path: str) -> tuple[int, int] | None:
+    """ffprobe a local MP4 for (width, height). Synchronous — call inside
+    asyncio.to_thread."""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=p=0:s=x",
+                mp4_path,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+        )
+        if proc.returncode != 0:
+            return None
+        out = proc.stdout.decode(errors="replace").strip()
+        if "x" not in out:
+            return None
+        w_s, h_s = out.split("x", 1)
+        return int(w_s), int(h_s)
+    except Exception:
+        return None
+
+
+def _run_sprite_ffmpeg(
+    mp4_path: str, sprite_path: str, duration_ms: int, tile_w: int, tile_h: int
+) -> bool:
+    """Run the single ffmpeg pass that produces the sprite. Returns True on
+    success. Synchronous — call inside asyncio.to_thread."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        logger.error("ffmpeg binary not found on PATH; cannot lazy-generate sprite")
+        return False
+    duration_s = max(duration_ms, 1) / 1000.0
+    vf = (
+        f"fps={_SPRITE_TILES}/{duration_s:.6f},"
+        f"scale={tile_w}:{tile_h}:force_original_aspect_ratio=decrease,"
+        f"pad={tile_w}:{tile_h}:(ow-iw)/2:(oh-ih)/2:color=black,"
+        f"tile={_SPRITE_COLS}x{_SPRITE_ROWS}"
+    )
+    try:
+        proc = subprocess.run(
+            [
+                ffmpeg, "-y",
+                "-i", mp4_path,
+                "-vf", vf,
+                "-frames:v", "1",
+                "-q:v", "5",
+                sprite_path,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=180,
+        )
+        if proc.returncode != 0:
+            logger.warning(
+                "Lazy sprite ffmpeg failed (%d): %s",
+                proc.returncode,
+                proc.stderr.decode(errors="replace")[:300],
+            )
+            return False
+        return True
+    except Exception:
+        logger.exception("Lazy sprite ffmpeg crashed: %s", mp4_path)
+        return False
+
+
+def _read_sidecar(sidecar_blob: str) -> dict | None:
+    """Read + parse the sidecar JSON from blob storage. Returns None if the
+    blob is missing or the body isn't valid JSON."""
+    if not blob_fs:
+        return None
+    try:
+        body = blob_fs.cat(sidecar_blob)
+    except FileNotFoundError:
+        return None
+    except Exception:
+        logger.exception("Failed to read sidecar for sprite merge: %s", sidecar_blob)
+        return None
+    try:
+        return json.loads(body)
+    except Exception:
+        logger.exception("Sidecar JSON parse failed: %s", sidecar_blob)
+        return None
+
+
+def _generate_sprite_sync(mp4_blob_path: str, sprite_blob_path: str, sidecar_blob_path: str) -> bytes | None:
+    """Synchronous slow path: download MP4, ffprobe, ffmpeg, upload sprite,
+    merge thumbs block into sidecar JSON. Returns the sprite bytes on success.
+    Run inside asyncio.to_thread so the FastAPI event loop stays responsive."""
+    if not blob_fs:
+        return None
+    tmp_dir = tempfile.mkdtemp(prefix="thumbs_")
+    mp4_local = os.path.join(tmp_dir, "in.mp4")
+    sprite_local = os.path.join(tmp_dir, "out.thumbs.jpg")
+    try:
+        # 1. Download MP4 to a temp file. blob_fs.cat returns bytes; for a
+        #    multi-hundred-MB lap that's a transient memory hit but avoids
+        #    needing a streaming download API on the blob filesystem.
+        try:
+            mp4_bytes = blob_fs.cat(mp4_blob_path)
+        except Exception:
+            logger.exception("Failed to download MP4 for sprite gen: %s", mp4_blob_path)
+            return None
+        with open(mp4_local, "wb") as fh:
+            fh.write(mp4_bytes)
+        del mp4_bytes  # let GC reclaim
+
+        # 2. Probe + decide tile dims (height=90, width preserves aspect).
+        dims = _probe_dimensions(mp4_local)
+        if dims is None or dims[0] <= 0 or dims[1] <= 0:
+            logger.warning("ffprobe failed for %s, skipping sprite gen", mp4_blob_path)
+            return None
+        src_w, src_h = dims
+        tile_h = _SPRITE_TILE_H
+        tile_w = max(2, int(round(tile_h * src_w / src_h)))
+        if tile_w % 2:
+            tile_w += 1
+
+        # 3. Determine duration from the existing sidecar if available so the
+        #    sample times align with what the frontend reads. Fall back to an
+        #    ffprobe-of-MP4 duration if no sidecar yet.
+        existing_sidecar = _read_sidecar(sidecar_blob_path)
+        duration_ms = 0
+        if existing_sidecar:
+            duration_ms = int(existing_sidecar.get("duration_ms") or 0)
+        if duration_ms <= 0:
+            ffprobe = shutil.which("ffprobe")
+            if ffprobe:
+                try:
+                    proc = subprocess.run(
+                        [
+                            ffprobe, "-v", "error",
+                            "-show_entries", "format=duration",
+                            "-of", "csv=p=0",
+                            mp4_local,
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        timeout=15,
+                    )
+                    if proc.returncode == 0:
+                        duration_ms = int(round(float(proc.stdout.decode().strip()) * 1000))
+                except Exception:
+                    pass
+        if duration_ms <= 0:
+            logger.warning("Could not determine duration for %s; skipping sprite", mp4_blob_path)
+            return None
+
+        # 4. Run ffmpeg.
+        if not _run_sprite_ffmpeg(mp4_local, sprite_local, duration_ms, tile_w, tile_h):
+            return None
+        with open(sprite_local, "rb") as fh:
+            sprite_bytes = fh.read()
+        if not sprite_bytes:
+            return None
+
+        # 5. Upload sprite.
+        try:
+            blob_fs.pipe(sprite_blob_path, sprite_bytes)
+        except Exception:
+            logger.exception("Failed to upload generated sprite: %s", sprite_blob_path)
+            # Still return bytes to the caller — at least the current request
+            # gets a response; future requests will retry generation.
+            return sprite_bytes
+
+        # 6. Merge `thumbs` block into the existing sidecar (or write a stub).
+        #    Read-modify-write: blob writes are atomic at the object level,
+        #    so partial reads are not a concern. If the sidecar is missing
+        #    we skip — the Telemetry Explorer's main /api/video/{sid}/{lap}
+        #    handler degrades gracefully on missing sidecars already.
+        thumbs_block = {
+            "url": os.path.basename(sprite_blob_path),
+            "tiles": _SPRITE_TILES,
+            "cols": _SPRITE_COLS,
+            "rows": _SPRITE_ROWS,
+            "tile_w": tile_w,
+            "tile_h": tile_h,
+            "ms_per_tile": int(round(duration_ms / _SPRITE_TILES)),
+            "duration_ms": duration_ms,
+        }
+        if existing_sidecar is not None:
+            existing_sidecar["thumbs"] = thumbs_block
+            try:
+                blob_fs.pipe(sidecar_blob_path, json.dumps(existing_sidecar).encode())
+            except Exception:
+                logger.exception("Failed to update sidecar with thumbs block: %s", sidecar_blob_path)
+        return sprite_bytes
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+async def _ensure_sprite(
+    mp4_blob_path: str, sprite_blob_path: str, sidecar_blob_path: str,
+    session_id: str, lap: int,
+) -> bytes | None:
+    """Lazy-generate the sprite under a per-lap asyncio.Lock. Re-checks the
+    blob inside the lock to absorb concurrent first-request races."""
+    key = (session_id, lap)
+    lock = _sprite_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _sprite_locks[key] = lock
+    try:
+        async with lock:
+            # Re-check — another waiter may have just finished generating.
+            try:
+                if blob_fs.exists(sprite_blob_path):
+                    try:
+                        return blob_fs.cat(sprite_blob_path)
+                    except Exception:
+                        logger.exception("Failed to read just-generated sprite: %s", sprite_blob_path)
+                        return None
+            except Exception:
+                # exists() failure shouldn't be fatal; fall through to generation.
+                pass
+            return await asyncio.to_thread(
+                _generate_sprite_sync, mp4_blob_path, sprite_blob_path, sidecar_blob_path
+            )
+    finally:
+        # Clean up the lock entry so the registry doesn't leak. Safe even
+        # under contention — a follow-up request just re-creates the lock.
+        _sprite_locks.pop(key, None)
 
 
 @router.get("/api/video/{session_id}/{lap}")
@@ -241,4 +530,58 @@ async def stream_video(
             "Content-Length": str(len(chunk)),
             "Content-Range": f"bytes {start}-{end}/{total}",
         },
+    )
+
+
+@router.get("/api/video/{session_id}/{lap}/thumbs.jpg")
+async def get_thumbs(session_id: str, lap: int):
+    """Serve the marker-drag preview sprite. Fast path returns the cached
+    blob; slow path lazy-generates it via ffmpeg, uploads back to blob, and
+    folds the `thumbs` block into the sidecar JSON. See spec
+    dev-planning/marker-drag-frame-preview/spec.md §5.2.
+    """
+    if not blob_fs:
+        raise HTTPException(503, "Blob storage not connected")
+
+    paths = _find_sprite_paths(session_id, lap)
+    if not paths:
+        raise HTTPException(404, f"Video not found: session={session_id} lap={lap}")
+    mp4_path, sprite_path, sidecar_path, _safe_session = paths
+
+    # Fast path — sprite already exists in blob.
+    try:
+        if blob_fs.exists(sprite_path):
+            try:
+                data = blob_fs.cat(sprite_path)
+                return Response(
+                    content=data,
+                    media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=300"},
+                )
+            except Exception as e:
+                logger.exception("Failed to read existing sprite: %s", sprite_path)
+                raise HTTPException(500, "Failed to read sprite") from e
+    except HTTPException:
+        raise
+    except Exception:
+        # exists() may raise on transient blob errors; fall through to lazy
+        # generation rather than 500-ing on a recoverable hiccup.
+        pass
+
+    # Slow path — generate, upload, return bytes.
+    try:
+        sprite_bytes = await _ensure_sprite(
+            mp4_path, sprite_path, sidecar_path, session_id, lap
+        )
+    except Exception as e:
+        logger.exception("Lazy sprite generation failed for %s lap %d", session_id, lap)
+        raise HTTPException(500, "Failed to generate sprite") from e
+
+    if not sprite_bytes:
+        raise HTTPException(500, "Sprite generation produced no output")
+
+    return Response(
+        content=sprite_bytes,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=300"},
     )

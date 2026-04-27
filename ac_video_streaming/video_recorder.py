@@ -78,6 +78,7 @@ class VideoRecorder:
         self._last_meta: tuple[int, float | None] | None = None
         self._force_next_sample = False
         self._effective_fps: float | None = None  # set by finish_lap remux logic
+        self._thumbs_block: dict | None = None     # set by finish_lap sprite step
         os.makedirs(output_dir, exist_ok=True)
 
     @property
@@ -154,6 +155,7 @@ class VideoRecorder:
             self._last_meta = None
             self._force_next_sample = True  # always sample frame 0
             self._effective_fps = None      # will be set in finish_lap()
+            self._thumbs_block = None       # will be set in finish_lap() sprite step
             logger.info(
                 "Recording started: %s (%dx%d @ %dfps, sidecar every %d frames)",
                 filename, self._rec_w, self._rec_h, self._fps, self._sample_interval,
@@ -267,6 +269,17 @@ class VideoRecorder:
         # telemetry), rename the MP4 now that ffmpeg has released it.
         path = self._rename_to_session_id(path)
 
+        # Sprite sheet for marker-drag frame preview (Telemetry Explorer).
+        # Best-effort: failure logs a warning and the proxy lazy-fallback
+        # generates the sprite on first request from the Explorer instead.
+        if path and self._frame_index > 0:
+            duration_ms = int(round(self._frame_index * 1000.0 / effective_fps))
+            try:
+                self._thumbs_block = self._generate_sprite(path, duration_ms)
+            except Exception:
+                logger.exception("Sprite generation raised; continuing without thumbs")
+                self._thumbs_block = None
+
         self._write_sidecar(path)
         self._cleanup_process()
         if path:
@@ -286,6 +299,139 @@ class VideoRecorder:
         # giving (frame_index - 1) intervals.
         intervals = max(1, self._frame_index - 1)
         return intervals * 1000.0 / wall_span_ms
+
+    # -------- sprite generation (marker-drag frame preview) ----------------
+    # 100-tile sprite sheet rendered from the finalized MP4. Built in
+    # finish_lap() right after the remux step — the MP4 file already has its
+    # final timebase, so the per-tile sample times line up exactly with the
+    # sidecar's t_ms field. Failure here is non-fatal: we log and skip
+    # injecting the `thumbs` sidecar block; the proxy will lazy-generate the
+    # sprite on first request from Telemetry Explorer instead. Spec ref:
+    # dev-planning/marker-drag-frame-preview/spec.md §5.1.
+    SPRITE_TILES = 100
+    SPRITE_COLS = 10
+    SPRITE_ROWS = 10
+    SPRITE_TILE_H = 90  # tile width is computed from actual MP4 aspect ratio
+
+    @staticmethod
+    def sprite_path_for(mp4_path: str) -> str:
+        """Return the sprite JPEG path that pairs with an MP4 path."""
+        if mp4_path.lower().endswith(".mp4"):
+            return mp4_path[:-4] + ".thumbs.jpg"
+        return mp4_path + ".thumbs.jpg"
+
+    def _probe_mp4_dimensions(self, mp4_path: str) -> tuple[int, int] | None:
+        """ffprobe the first video stream for width/height. Returns None on
+        any failure — caller falls back to internal _rec_w/_rec_h."""
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            # static_ffmpeg.add_paths() (already invoked in _find_ffmpeg) puts
+            # ffprobe alongside ffmpeg, so a second which() should find it.
+            try:
+                import static_ffmpeg
+                static_ffmpeg.add_paths()
+                ffprobe = shutil.which("ffprobe")
+            except ImportError:
+                pass
+        if not ffprobe:
+            return None
+        try:
+            proc = subprocess.run(
+                [
+                    ffprobe, "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=width,height",
+                    "-of", "csv=p=0:s=x",
+                    mp4_path,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+            )
+            if proc.returncode != 0:
+                return None
+            out = proc.stdout.decode(errors="replace").strip()
+            # Output format: "1920x1080"
+            if "x" not in out:
+                return None
+            w_s, h_s = out.split("x", 1)
+            return int(w_s), int(h_s)
+        except Exception:
+            return None
+
+    def _generate_sprite(self, mp4_path: str, duration_ms: int) -> dict | None:
+        """Run a single ffmpeg pass to produce a 10x10 JPEG sprite next to the
+        MP4. Returns the `thumbs` sidecar block on success, None on failure."""
+        if not mp4_path or not os.path.exists(mp4_path) or duration_ms <= 0:
+            return None
+
+        # Tile width — preserve actual MP4 aspect at height=90. Even-rounded
+        # to keep ffmpeg's scale filter happy on hardware paths.
+        dims = self._probe_mp4_dimensions(mp4_path)
+        if dims is not None and dims[0] > 0 and dims[1] > 0:
+            src_w, src_h = dims
+        else:
+            src_w, src_h = self._rec_w, self._rec_h
+        if src_h <= 0 or src_w <= 0:
+            return None
+        tile_h = self.SPRITE_TILE_H
+        tile_w = max(2, int(round(tile_h * src_w / src_h)))
+        if tile_w % 2:
+            tile_w += 1
+
+        sprite_path = self.sprite_path_for(mp4_path)
+        duration_s = duration_ms / 1000.0
+        # fps=N/dur produces exactly N evenly spaced samples across the file.
+        # scale+pad keeps aspect even if a future capture is non-16:9.
+        vf = (
+            f"fps={self.SPRITE_TILES}/{duration_s:.6f},"
+            f"scale={tile_w}:{tile_h}:force_original_aspect_ratio=decrease,"
+            f"pad={tile_w}:{tile_h}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"tile={self.SPRITE_COLS}x{self.SPRITE_ROWS}"
+        )
+        try:
+            proc = subprocess.run(
+                [
+                    self._ffmpeg, "-y",
+                    "-i", mp4_path,
+                    "-vf", vf,
+                    "-frames:v", "1",
+                    "-q:v", "5",
+                    sprite_path,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=120,
+            )
+            if proc.returncode != 0:
+                logger.warning(
+                    "Sprite generation failed (%d) for %s: %s",
+                    proc.returncode,
+                    os.path.basename(mp4_path),
+                    proc.stderr.decode(errors="replace")[:300],
+                )
+                if os.path.exists(sprite_path):
+                    try: os.remove(sprite_path)
+                    except Exception: pass
+                return None
+        except Exception:
+            logger.exception("Sprite generation crashed for %s", mp4_path)
+            return None
+
+        ms_per_tile = int(round(duration_ms / self.SPRITE_TILES))
+        return {
+            # `url` is the proxy route the frontend hits; the recorder doesn't
+            # know the Explorer's session_id format, so we leave it as a
+            # filename hint and let the proxy/frontend build the real URL.
+            "url": os.path.basename(sprite_path),
+            "tiles": self.SPRITE_TILES,
+            "cols": self.SPRITE_COLS,
+            "rows": self.SPRITE_ROWS,
+            "tile_w": tile_w,
+            "tile_h": tile_h,
+            "ms_per_tile": ms_per_tile,
+            "duration_ms": duration_ms,
+        }
 
     def _remux_with_fps(self, mp4_path: str, fps: float) -> bool:
         """Rewrite the MP4 timebase to the actual fps using `-c copy` (no
@@ -370,6 +516,11 @@ class VideoRecorder:
             "frame_count": self._frame_index,
             "frames": self._sidecar_entries,
         }
+        # Sprite sheet metadata for the Telemetry Explorer marker-drag preview.
+        # Absent when sprite generation failed — the proxy will fill it in on
+        # first request.
+        if self._thumbs_block is not None:
+            payload["thumbs"] = self._thumbs_block
         try:
             with open(sidecar_path, "w") as f:
                 json.dump(payload, f)

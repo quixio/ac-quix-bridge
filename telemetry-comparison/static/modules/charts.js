@@ -13,6 +13,7 @@ import { appState, PLOTLY_LAYOUT } from './state.js';
 import { downsample, fetchTelemetry } from './data.js';
 import { updateMarker, flushPendingSeek } from './sync.js';
 import { getSelections, getActiveSignals, chartTitle } from './selections.js';
+import { showThumbPreviewAt, hideThumbPreview } from './thumb-preview.js';
 
 export function setStatus(msg, isError = false) {
   const el = document.getElementById('status');
@@ -132,7 +133,10 @@ export function attachMarkerDrag(div) {
 
     // Mouse / pen: claim the gesture immediately (existing behaviour).
     try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
-    updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
+    const nd = Math.max(0, Math.min(1, x));
+    updateMarker(nd, true, 'drag');
+    // Drag-time frame preview overlay (purely visual; no <video> seek).
+    showThumbPreviewAt(ev.clientX, ev.clientY, nd);
     ev.preventDefault();
   });
 
@@ -142,7 +146,10 @@ export function attachMarkerDrag(div) {
     if (div.hasPointerCapture(ev.pointerId)) {
       const x = pxToX(ev);
       if (x === null) return;
-      updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
+      const nd = Math.max(0, Math.min(1, x));
+      updateMarker(nd, true, 'drag');
+      // Update preview overlay tile + position; no-op if no sprite is loaded.
+      showThumbPreviewAt(ev.clientX, ev.clientY, nd);
       return;
     }
 
@@ -166,19 +173,24 @@ export function attachMarkerDrag(div) {
     const x = pxToX(ev);
     if (x === null) return;
     try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
-    updateMarker(Math.max(0, Math.min(1, x)), true, 'drag');
+    const ndCommit = Math.max(0, Math.min(1, x));
+    updateMarker(ndCommit, true, 'drag');
+    // Touch threshold passed — show preview from now on.
+    showThumbPreviewAt(ev.clientX, ev.clientY, ndCommit);
     ev.preventDefault();
   });
 
   div.addEventListener('pointerup', (ev) => {
     pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    hideThumbPreview();
     flushPendingSeek(); // round 5: drain the drag-end stash with one seek
   });
 
   div.addEventListener('pointercancel', (ev) => {
     pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    hideThumbPreview();
     flushPendingSeek(); // round 5: drain the drag-end stash with one seek
   });
 }

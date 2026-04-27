@@ -16,6 +16,7 @@
 
 import { videoState } from './state.js';
 import { buildSyncLookups, highlightVideoLapTrace } from './sync.js';
+import { initThumbPreview } from './thumb-preview.js';
 import { debugLog } from './debug-overlay.js';
 
 /**
@@ -328,6 +329,10 @@ export async function loadVideoForLapIdx(idx) {
     videoState.frames = null;
     videoState.framesByNd = null;
   }
+  // Wire up the marker-drag frame preview overlay for this lap. No-op when
+  // the sidecar lacks a `thumbs` block (older laps) — drag still works,
+  // just without the preview tile.
+  initThumbPreview(meta.sync);
 
   if (!video) return;
   try {

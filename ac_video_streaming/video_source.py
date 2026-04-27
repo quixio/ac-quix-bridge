@@ -131,6 +131,13 @@ class ACVideoSource(Source):
                 os.path.basename(local_path),
             )
 
+        # Sprite sheet for marker-drag frame preview. Best-effort: missing
+        # sprite is fine because the Telemetry Explorer proxy lazy-generates
+        # it on first request when absent.
+        sprite_path = VideoRecorder.sprite_path_for(local_path)
+        if os.path.exists(sprite_path):
+            self._upload_one(sprite_path, f"{folder}/{os.path.basename(sprite_path)}")
+
     def _upload_one(self, local_path: str, blob_path: str):
         """Upload one local file to blob_path, then delete it locally."""
         filename = os.path.basename(local_path)
