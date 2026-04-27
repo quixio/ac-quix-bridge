@@ -135,6 +135,20 @@ async def _plot_events(req: PlotRequest) -> AsyncIterator[bytes]:
             if t == "error":
                 yield _error_event(session_id, f"upstream {evt.get('status')}")
                 return
+            if t == "tool_call_start" and not json_seen:
+                # Flush any held tail of pre-tool prose, then break the bubble
+                # so post-tool prose lands in a fresh assistant message.
+                if streamed < len(accum):
+                    yield _event(
+                        {
+                            "event": "answer_delta",
+                            "session_id": session_id,
+                            "text": accum[streamed:],
+                        }
+                    )
+                    streamed = len(accum)
+                yield _event({"event": "answer_break", "session_id": session_id})
+                continue
             if t != "text_delta":
                 continue
             accum += evt.get("text", "")

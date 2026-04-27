@@ -291,6 +291,9 @@ function handleEvent(evt) {
       scheduleRender(body);
       break;
     }
+    case "answer_break":
+      activeAnswer = null;
+      break;
     case "clarify": {
       hideProgress();
       activeAnswer = null;
