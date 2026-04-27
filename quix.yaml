@@ -205,7 +205,7 @@ deployments:
       - name: MONGO_PASSWORD
         inputType: ProjectVariable
         required: true
-        variableKey: MONGO_PASSWORD
+        variableKey: MONGO_ROOT_PASSWORD
       - name: MONGO_HOST
         inputType: FreeText
         required: true
@@ -221,7 +221,7 @@ deployments:
       - name: QUIX_LAKE_TOKEN
         inputType: ProjectVariable
         required: true
-        variableKey: quix_lake_pat
+        variableKey: pat_token
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
