@@ -28,47 +28,32 @@ When the user doesn't specify an environment, default to `environment = 'prague_
 
 For the full column list with labels and units, consult `kb_ac_channels.md` or call `GET /schema?table=ac_telemetry`.
 
-## Time columns — use integer-millisecond versions for math
+## Time columns — pick the right one for the question
 
-| Column | Meaning |
-|---|---|
-| `iCurrentTime` | ms elapsed in the CURRENT lap, resets to 0 at each lap crossing |
-| `iLastTime` | ms of the most recently completed lap, updates at the crossing |
-| `iBestTime` | ms of the best lap in the session so far |
-| `currentTime`, `lastTime`, `bestTime` | `"mm:ss.SSS"` formatted **strings** — display only |
+| Column | Meaning | Use for |
+|---|---|---|
+| `timestamp_ms` | Wall-clock capture time of the sample (ms since epoch). Never resets. | **Lap durations** (`MAX - MIN` per partition lap) |
+| `iCurrentTime` | Running session timer (ms). Resets at lap crossings BUT does **not** reset across driver/config switches that share a `session_id`. | Sub-lap timing within one driver's clean run only |
+| `iLastTime` | At any sample, holds the value of `iCurrentTime` at the previous lap crossing. | Rare — see gotchas below |
+| `iBestTime` | Running session-best lap (ms), reset only when a new best is set. | Best-lap leaderboards |
+| `currentTime`, `lastTime`, `bestTime` | `"mm:ss.SSS"` strings — display only | Never aggregate (lexical sort is wrong) |
 
-**Never order or aggregate by the string fields.** Lexicographic sort on `"1:59.012"` vs `"2:00.050"` produces wrong answers. Always use the `i*Time` columns for ranking, comparison, or math.
+## Lap durations — use `timestamp_ms`, not `iCurrentTime`
 
-## Lap-time gotchas (non-obvious, AC-specific)
-
-### `iLastTime` is aliased across samples
-
-`iLastTime` on a sample tagged `lap = N` holds the time of lap **N-1**, not lap N. AC writes the value once at the lap crossing and leaves it through all subsequent samples.
-
-Two idioms to get per-lap times:
-
-**Simple (preferred for display)** — `iCurrentTime` resets to 0 each lap, so the MAX within (session_id, lap) is that lap's duration. Accuracy ~16 ms off by one sample interval.
+For "how long did lap N take", **always** compute wall-clock from `timestamp_ms`:
 
 ```sql
 SELECT driver, session_id, lap,
-       MAX(iCurrentTime) / 1000.0 AS lap_time_s
+       (MAX(timestamp_ms) - MIN(timestamp_ms)) / 1000.0 AS duration_s
 FROM ac_telemetry
-WHERE environment = 'prague_office' AND lap >= 1
+WHERE environment = 'prague_office' AND track = 'ks_nurburgring'
 GROUP BY driver, session_id, lap
 ORDER BY session_id, lap
 ```
 
-**Exact** — use `iLastTime` with the `lap - 1` rename to align lap number with the lap it describes.
+`MAX(iCurrentTime)` looks tempting (it's the ms since the last lap crossing) but is **wrong** in our data when a `session_id` carries data from more than one driver/config — the timer doesn't reset on driver switches, so the first partition lap of the new driver inherits the prior accumulated time and reports 70-100 s longer than reality. `timestamp_ms` deltas are immune to this.
 
-```sql
-SELECT session_id,
-       lap - 1                    AS completed_lap,
-       MAX(iLastTime) / 1000.0    AS lap_time_s
-FROM ac_telemetry
-WHERE environment = 'prague_office' AND lap >= 2 AND iLastTime > 0
-GROUP BY session_id, lap
-ORDER BY session_id, completed_lap
-```
+`iLastTime` is also dangerous: it equals lap N's duration only if `iCurrentTime` started at 0 in lap N. After a driver switch, that assumption breaks.
 
 ## Filter rules
 
@@ -104,14 +89,14 @@ SELECT driver,
        ROUND(STDDEV(lap_time_s), 3) AS stddev_s
 FROM (
   SELECT driver, session_id, lap,
-         MAX(iCurrentTime) / 1000.0 AS lap_time_s
+         (MAX(timestamp_ms) - MIN(timestamp_ms)) / 1000.0 AS lap_time_s
   FROM ac_telemetry
   WHERE environment = 'prague_office'
     AND track = 'ks_nurburgring'
     AND carModel = 'bmw_1m'
-    AND lap >= 1
+    AND lap >= 2  -- skip lap 1 (out-lap, may also carry timer noise)
   GROUP BY driver, session_id, lap
-  HAVING MAX(iCurrentTime) BETWEEN 30000 AND 600000  -- 30 s to 10 min, excludes pauses + incomplete
+  HAVING (MAX(timestamp_ms) - MIN(timestamp_ms)) BETWEEN 30000 AND 600000  -- 30 s to 10 min, excludes pauses + incomplete
 ) lap_times
 GROUP BY driver
 HAVING COUNT(*) >= 2
@@ -133,3 +118,46 @@ ORDER BY session_id, lap
 ```
 
 Substitute other signal columns (e.g. `rpms`, `tyreTempFL`, `brakeTempRR`) to aggregate any telemetry channel per lap.
+
+## Time-field gotchas
+
+These rules apply whenever a query touches the time columns. Skipping them produces silently-wrong durations.
+
+### `iCurrentTime` is the session timer, not lap duration
+
+`iCurrentTime` is AC's running session clock (ms). It is monotonic within an AC sim run but does **not** reset between drivers when the same `session_id` is reused — e.g. if a session was started under driver A's config and the active driver was switched to B mid-session, B's first partition lap inherits A's accumulated `iCurrentTime`. Lap 1 then looks ~70-100 s longer than it really was.
+
+**Symptom**: `MAX(iCurrentTime) - MIN(iCurrentTime)` for a partition lap exceeds wall-clock for that lap.
+
+**Reliable wall-clock duration:**
+
+```sql
+SELECT driver, session_id, lap,
+       (MAX(timestamp_ms) - MIN(timestamp_ms)) / 1000.0 AS duration_s
+FROM ac_telemetry
+WHERE environment = 'prague_office' AND track = 'ks_nurburgring'
+GROUP BY driver, session_id, lap
+ORDER BY duration_s
+```
+
+`timestamp_ms` is the wall-clock capture time of each sample and never resets.
+
+### `iLastTime` from lap N+1 only equals lap N's duration if `iCurrentTime` started at 0 in lap N
+
+`iLastTime` holds the value of `iCurrentTime` at the moment the previous lap completed (i.e. the running session timer at finish-line crossing). It equals lap N's wall-clock duration only when `iCurrentTime` started at 0 at the beginning of lap N. After driver/config switches, this assumption breaks. Stick with `timestamp_ms` deltas for duration.
+
+### Lap 1 is unreliable for time analysis — skip by default
+
+Lap 1 is typically an out-lap (rolling start, pit exit) and additionally absorbs any `iCurrentTime` carryover from earlier session activity. For lap-time aggregates default to `WHERE lap >= 2` unless the user explicitly asks about lap 1. Lap 1 is fine for signal-range queries (top speed, max RPM) — those are not time-derived.
+
+### Lap-boundary partition lag (~80 ms / ~4 samples at 50 Hz)
+
+When a car crosses the start/finish line, three events happen in sequence over ~80 ms:
+
+1. `normalizedCarPosition` wraps from ~0.99 → ~0.001.
+2. ~60 ms later, `iCurrentTime` resets to ~0 and `iLastTime` / `iBestTime` are updated.
+3. ~20 ms after that, `completedLaps` and the partition `lap` increment.
+
+So the last ~4 samples of a partition `lap=N` (at 50 Hz) are physically already on lap N+1 (low `normalizedCarPosition`). The lag is symmetric — the same ~80 ms slips off the start of `lap=N+1` — so it cancels across consecutive laps in `MAX(timestamp_ms) - MIN(timestamp_ms)` lap-duration calculations. It only matters if a query inspects the precise first/last samples of a partition.
+
+`completedLaps` is AC's own lap counter; partition `lap = completedLaps + 1` (the lap currently being driven).

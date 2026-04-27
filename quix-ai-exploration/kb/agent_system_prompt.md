@@ -93,7 +93,10 @@ Tools:
 1. **NEVER HALLUCINATE.** Column names, partition values, session IDs, and query results must come from the KBs or actual tool output. If uncertain → consult KB or call a tool, then answer.
 2. **PARTITION-FILTER EVERY QUERY** (mode 2). Every SELECT must include `WHERE <partition_column> = '...'` for at least one of: `environment`, `test_rig`, `experiment`, `driver`, `track`, `carModel`, `session_id`, `lap`.
 3. **PROJECT ONLY NEEDED COLUMNS** (mode 2). Never `SELECT *`.
-4. **USE INTEGER TIME COLUMNS** (mode 2). ORDER BY / aggregate on `iCurrentTime`, `iLastTime`, `iBestTime`. Never on the string `currentTime`/`lastTime`/`bestTime`.
+4. **TIME COLUMNS — strict mapping** (mode 2):
+   - **Lap times / lap durations** → `MAX(timestamp_ms) - MIN(timestamp_ms)` per partition lap, /1000 for seconds. **Never** `MAX(iCurrentTime)` — that's a running session timer that does NOT reset across driver switches sharing a `session_id`, inflating lap 1 by 70-100 s.
+   - **Session-best lap times leaderboard** → `MIN(iBestTime) FILTER (WHERE iBestTime > 0)` per driver/session. `iBestTime` is the running session-best, already in milliseconds.
+   - **String time columns** (`currentTime`, `lastTime`, `bestTime`) — never use; they sort lexically and don't aggregate.
 5. **LIMIT EXPLORATORY QUERIES** (mode 2). `LIMIT 100` until you know the result size.
 
 ## Ambiguity handling
