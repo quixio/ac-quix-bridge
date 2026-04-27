@@ -127,6 +127,7 @@ export const videoState = {
   _pendingSeekTime: null, // seek-coalesce: stash of newest target while v.seeking===true; drained on 'seeked'
   _prefetchAbort: null, // Round 6: AbortController for the per-lap full-file background prefetch; aborted on lap switch
   _prefetchDone: false, // Round 7: flips true once the prefetch fetch resolves with response.ok; gates live-preview branch in syncVideoFromMarker; reset to false on every new lap load
+  _dragActive: false, // Round 7.3: chart-marker drag in flight — gates the seeked-listener drain so it doesn't re-issue stashed targets mid-scrub. flushPendingSeek owns the drain on pointerup.
 };
 
 // ---------------------------------------------------------------------------

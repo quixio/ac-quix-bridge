@@ -486,17 +486,22 @@ export function wireVideoElement() {
   // While paused, native HTML5 video controls (or the user's marker drag)
   // can step the frame; reflect any seek in the marker so the dot follows.
   v.addEventListener('seeked', () => {
-    // Seek coalesce drain (round 4): while the previous seek was in flight,
-    // syncVideoFromMarker may have stashed newer drag targets in
-    // _pendingSeekTime. Apply the latest one now (only if it still differs
-    // by more than the 15ms threshold from where we landed). This caps the
-    // browser-visible seek count at ~2 per drag burst regardless of how
-    // many marker events fired in between.
-    const pending = videoState._pendingSeekTime;
-    if (pending != null) {
-      videoState._pendingSeekTime = null;
-      if (Math.abs(v.currentTime - pending) > 0.015) {
-        v.currentTime = pending;
+    // Round 7.3: while a chart-marker drag is active, do NOT drain the
+    // pending stash here. The drain re-issues currentTime which spawns
+    // another seek which fires another seeked which drains again — a
+    // cascade that defeats Round 7.2's "zero seeks during drag" intent.
+    // While dragging, leave the stash for flushPendingSeek() to drain
+    // exactly once on pointerup/pointercancel.
+    if (!videoState._dragActive) {
+      // Seek coalesce drain (round 4): for non-drag seeks (initial lap
+      // load, native <video controls> scrub bar, etc.), apply the latest
+      // pending if any. The 15ms threshold mirrors the entry guard.
+      const pending = videoState._pendingSeekTime;
+      if (pending != null) {
+        videoState._pendingSeekTime = null;
+        if (Math.abs(v.currentTime - pending) > 0.015) {
+          v.currentTime = pending;
+        }
       }
     }
     if (videoState.isPlaying || !videoState.frames) return;

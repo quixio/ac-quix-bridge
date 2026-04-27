@@ -9,7 +9,7 @@
  * creating a charts→video import cycle.
  */
 
-import { appState, PLOTLY_LAYOUT } from './state.js';
+import { appState, PLOTLY_LAYOUT, videoState } from './state.js';
 import { downsample, fetchTelemetry } from './data.js';
 import { updateMarker, flushPendingSeek } from './sync.js';
 import { getSelections, getActiveSignals, chartTitle } from './selections.js';
@@ -133,6 +133,10 @@ export function attachMarkerDrag(div) {
 
     // Mouse / pen: claim the gesture immediately (existing behaviour).
     try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    // Round 7.3: gate the seeked-listener drain in sync.js so it doesn't
+    // re-issue a stashed pending while we're still scrubbing. flushPendingSeek
+    // on pointerup/cancel is the only sanctioned drain during a drag.
+    videoState._dragActive = true;
     const nd = Math.max(0, Math.min(1, x));
     updateMarker(nd, true, 'drag');
     // Drag-time frame preview overlay (purely visual; no <video> seek).
@@ -173,6 +177,8 @@ export function attachMarkerDrag(div) {
     const x = pxToX(ev);
     if (x === null) return;
     try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    // Round 7.3: see pointerdown comment.
+    videoState._dragActive = true;
     const ndCommit = Math.max(0, Math.min(1, x));
     updateMarker(ndCommit, true, 'drag');
     // Touch threshold passed — show preview from now on.
@@ -184,6 +190,10 @@ export function attachMarkerDrag(div) {
     pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
     hideThumbPreview();
+    // Round 7.3: clear gate BEFORE flushing so the seeked listener's drain
+    // (if it fires before flushPendingSeek's seek even starts) doesn't see
+    // a stale _dragActive=true.
+    videoState._dragActive = false;
     flushPendingSeek(); // round 5: drain the drag-end stash with one seek
   });
 
@@ -191,6 +201,7 @@ export function attachMarkerDrag(div) {
     pending.delete(ev.pointerId);
     try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
     hideThumbPreview();
+    videoState._dragActive = false;
     flushPendingSeek(); // round 5: drain the drag-end stash with one seek
   });
 }

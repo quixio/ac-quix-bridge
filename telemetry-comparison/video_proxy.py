@@ -10,6 +10,7 @@ Telemetry endpoints are unaffected.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -242,6 +243,145 @@ def _read_sidecar(sidecar_blob: str) -> dict | None:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Speculative `thumbs` metadata for old laps whose sidecar predates the
+# recorder change (no `thumbs` block on disk). We synthesise a block from a
+# quick ffprobe of the MP4 head — moov atom is at the front thanks to
+# `+faststart` (ac_video_streaming/video_recorder.py), so a 256 KB head-read
+# is normally enough. The block is injected into the metadata response so the
+# frontend's existing logic kicks in: it requests /thumbs.jpg, the lazy
+# generation path runs, the real sidecar gets updated. Without this hydration,
+# the frontend bails before ever asking for the sprite and old laps stay
+# preview-less forever.
+#
+# Result is cached in a small LRU keyed on (session_id, lap) so reloading the
+# same lap doesn't re-ffprobe. Cleared on process restart; no persistence.
+# ---------------------------------------------------------------------------
+
+_SPECULATIVE_HEAD_BYTES = 256 * 1024
+
+
+def _ffprobe_local_dims_and_duration(mp4_local: str) -> tuple[int, int, int] | None:
+    """ffprobe a local MP4 for (width, height, duration_ms). Returns None on
+    any failure. Synchronous."""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-show_entries", "format=duration",
+                "-of", "default=nw=1:nk=1",
+                mp4_local,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+        )
+        if proc.returncode != 0:
+            return None
+        lines = [ln.strip() for ln in proc.stdout.decode(errors="replace").splitlines() if ln.strip()]
+        # Output order: width, height, duration (one per line).
+        if len(lines) < 3:
+            return None
+        w = int(lines[0])
+        h = int(lines[1])
+        dur_ms = int(round(float(lines[2]) * 1000))
+        if w <= 0 or h <= 0 or dur_ms <= 0:
+            return None
+        return w, h, dur_ms
+    except Exception:
+        return None
+
+
+@functools.lru_cache(maxsize=100)
+def _speculative_thumbs_cached(safe_session: str, lap: int, mp4_blob_path: str) -> dict | None:
+    """Cached synthesis of a `thumbs` block for an old lap missing one.
+
+    Strategy:
+      1. Open the MP4 in blob_fs and read just the first ~256 KB. Faststart
+         puts the moov atom at the front, so ffprobe extracts width/height/
+         duration without us ever having to download the full file.
+      2. If head-only ffprobe fails (pre-faststart lap, or unusual mux),
+         fall back to a full download. Slower but correct.
+      3. Compute tile_h=90, tile_w preserves aspect (rounded to even px to
+         match the recorder/proxy ffmpeg conventions). ms_per_tile is
+         duration_ms/100 rounded.
+
+    Cache key includes `mp4_blob_path` so a rare path-variant change for the
+    same logical lap won't reuse a stale dim. lru_cache is process-local;
+    eviction is automatic at maxsize=100.
+    """
+    if not blob_fs:
+        return None
+
+    tmp_dir = tempfile.mkdtemp(prefix="thumbs_meta_")
+    head_local = os.path.join(tmp_dir, "head.mp4")
+    full_local = os.path.join(tmp_dir, "full.mp4")
+    try:
+        # 1. Try head-read first — cheap and usually sufficient with faststart.
+        dims = None
+        try:
+            with blob_fs.open(mp4_blob_path, "rb") as fh:
+                head_bytes = fh.read(_SPECULATIVE_HEAD_BYTES)
+            if head_bytes:
+                with open(head_local, "wb") as out:
+                    out.write(head_bytes)
+                dims = _ffprobe_local_dims_and_duration(head_local)
+        except Exception:
+            logger.exception("Speculative thumbs head-read failed: %s", mp4_blob_path)
+
+        # 2. Fallback: full download. Only triggered for pre-faststart laps or
+        #    edge muxes where the moov atom isn't in the first 256 KB.
+        if dims is None:
+            logger.info(
+                "Speculative thumbs head-read insufficient; falling back to full download: %s",
+                mp4_blob_path,
+            )
+            try:
+                full_bytes = blob_fs.cat(mp4_blob_path)
+                with open(full_local, "wb") as out:
+                    out.write(full_bytes)
+                del full_bytes
+                dims = _ffprobe_local_dims_and_duration(full_local)
+            except Exception:
+                logger.exception("Speculative thumbs full-download failed: %s", mp4_blob_path)
+                return None
+
+        if dims is None:
+            return None
+        src_w, src_h, duration_ms = dims
+        tile_h = _SPRITE_TILE_H
+        tile_w = max(2, int(round(tile_h * src_w / src_h)))
+        if tile_w % 2:
+            tile_w += 1
+
+        # `url` is just the basename — same shape the eager-recorder writes
+        # and the lazy-generation path uses. Frontend builds the full
+        # /api/video/{sid}/{lap}/thumbs.jpg path itself; this string is a
+        # no-op there but kept for symmetry with the on-disk schema.
+        base = f"{safe_session}_lap{lap:03d}.thumbs.jpg"
+        return {
+            "url": base,
+            "tiles": _SPRITE_TILES,
+            "cols": _SPRITE_COLS,
+            "rows": _SPRITE_ROWS,
+            "tile_w": tile_w,
+            "tile_h": tile_h,
+            "ms_per_tile": int(round(duration_ms / _SPRITE_TILES)),
+            "duration_ms": duration_ms,
+            "_speculative": True,
+        }
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def _generate_sprite_sync(mp4_blob_path: str, sprite_blob_path: str, sidecar_blob_path: str) -> bytes | None:
     """Synchronous slow path: download MP4, ffprobe, ffmpeg, upload sprite,
     merge thumbs block into sidecar JSON. Returns the sprite bytes on success.
@@ -420,6 +560,24 @@ async def get_video_meta(session_id: str, lap: int):
         pass
     except Exception:
         logger.exception("Failed to read sidecar JSON: %s", sidecar_path)
+
+    # Hydrate speculative `thumbs` for old laps so the frontend's drag-preview
+    # path engages and triggers lazy /thumbs.jpg generation. Without this the
+    # check `if (!syncMeta.thumbs)` in thumb-preview.js short-circuits and the
+    # lazy fallback never fires for back-catalogue laps. We only hydrate when
+    # the sidecar parsed cleanly AND lacks a real `thumbs` block — never
+    # overwrite a recorder- or lazy-generation-written block.
+    if sync is not None and not sync.get("thumbs"):
+        # session_id format on disk = parent folder name after `session_id=`.
+        # Path shape: {prefix}/session_id={safe}/{safe}_lap{nnn}.mp4
+        safe_session = os.path.basename(os.path.dirname(mp4_path)).split("session_id=", 1)[-1]
+        try:
+            speculative = _speculative_thumbs_cached(safe_session, lap, mp4_path)
+        except Exception:
+            logger.exception("Speculative thumbs synthesis crashed: %s lap %d", session_id, lap)
+            speculative = None
+        if speculative is not None:
+            sync["thumbs"] = speculative
 
     return JSONResponse(
         {

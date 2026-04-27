@@ -110,6 +110,9 @@ export function initThumbPreview(syncMeta) {
   debugLog(
     `[thumbs] loaded tiles=${thumbs.tiles} tile=${thumbs.tile_w}x${thumbs.tile_h} ms_per_tile=${thumbs.ms_per_tile}`,
   );
+  if (thumbs._speculative) {
+    debugLog('[thumbs] speculative metadata; first request will trigger lazy generation');
+  }
 }
 
 /**
