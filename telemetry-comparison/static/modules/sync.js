@@ -370,9 +370,21 @@ export function syncVideoFromMarker(nd, source) {
   // Smaller-than-frame deltas would just churn the video element. At 30 fps
   // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
   // dragging.
-  if (Math.abs(v.currentTime - target) > 0.015) {
-    v.currentTime = target;
+  if (Math.abs(v.currentTime - target) <= 0.015) return;
+  // Seek coalesce (round 4): a 13 Hz drag past the 15ms threshold still
+  // produces ~13 distinct seeks/sec. Assigning currentTime while the browser
+  // is mid-seek thrashes — it cancels and restarts, and can sit in a
+  // degenerate state for many seconds (observed: 29s stall on a fully
+  // buffered range). Instead, while v.seeking is already true we stash the
+  // newest target in videoState._pendingSeekTime; the 'seeked' listener in
+  // wireVideoElement() drains the stash exactly once. Newest stash wins —
+  // intermediate drag positions are dropped, which matches user intent.
+  if (v.seeking) {
+    videoState._pendingSeekTime = target;
+    return;
   }
+  videoState._pendingSeekTime = null;
+  v.currentTime = target;
 }
 
 // ---------- requestVideoFrameCallback path (frame-accurate) ----------------
@@ -455,6 +467,19 @@ export function wireVideoElement() {
   // While paused, native HTML5 video controls (or the user's marker drag)
   // can step the frame; reflect any seek in the marker so the dot follows.
   v.addEventListener('seeked', () => {
+    // Seek coalesce drain (round 4): while the previous seek was in flight,
+    // syncVideoFromMarker may have stashed newer drag targets in
+    // _pendingSeekTime. Apply the latest one now (only if it still differs
+    // by more than the 15ms threshold from where we landed). This caps the
+    // browser-visible seek count at ~2 per drag burst regardless of how
+    // many marker events fired in between.
+    const pending = videoState._pendingSeekTime;
+    if (pending != null) {
+      videoState._pendingSeekTime = null;
+      if (Math.abs(v.currentTime - pending) > 0.015) {
+        v.currentTime = pending;
+      }
+    }
     if (videoState.isPlaying || !videoState.frames) return;
     const seekScale = videoState.timeScale || 1;
     const nd = lookupNormPosForTms(v.currentTime * 1000 * seekScale);

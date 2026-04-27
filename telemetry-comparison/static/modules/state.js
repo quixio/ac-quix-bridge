@@ -124,6 +124,7 @@ export const videoState = {
   framesByNd: null,
   isPlaying: false, // true between 'play' and 'pause'/'ended' events
   loadingShownAt: 0, // Date.now() when overlay was last shown; used for min-display guard
+  _pendingSeekTime: null, // seek-coalesce: stash of newest target while v.seeking===true; drained on 'seeked'
 };
 
 // ---------------------------------------------------------------------------
