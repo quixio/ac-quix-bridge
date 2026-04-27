@@ -88,14 +88,26 @@ function _startBackgroundPrefetch(url) {
     priority: 'low',
     signal: ac.signal,
   })
-    .then((response) => {
-      // Round 7: flip the live-seek gate once the prefetch response lands.
-      // We don't read response.body — the browser caches the 200 regardless,
-      // so subsequent Range requests from <video> are served from disk cache.
-      if (response && response.ok) {
-        videoState._prefetchDone = true;
-        debugLog('[prefetch] complete — live seek enabled');
+    .then(async (response) => {
+      // Round 7.1: flip the live-seek gate only AFTER the body has fully
+      // streamed. The original Round 7 flipped on the response headers,
+      // but at that point the 30 MB body is still in flight and — because
+      // we never read it — some browsers cancel the stream entirely, so
+      // nothing reaches the HTTP cache. Subsequent Range requests from
+      // <video> miss the cache, hit the proxy, and the seek-storm returns.
+      //
+      // Drain the body via a getReader() loop and discard each chunk. This
+      // forces the browser to actually receive every byte (populating the
+      // disk-backed HTTP cache) without holding more than one chunk in JS
+      // heap at a time. Total JS memory footprint: one chunk (~64 KB).
+      if (!response || !response.ok || !response.body) return;
+      const reader = response.body.getReader();
+      while (true) {
+        const { done } = await reader.read();
+        if (done) break;
       }
+      videoState._prefetchDone = true;
+      debugLog('[prefetch] complete — live seek enabled');
     })
     .catch(() => {
       /* fire-and-forget: aborts and network errors are both fine here */
