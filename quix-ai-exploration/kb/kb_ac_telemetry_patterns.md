@@ -60,44 +60,91 @@ ORDER BY session_id, lap
 - **Sentinel zeros** — `iLastTime = 0` and `iBestTime = 0` mean "no lap completed in this session yet." Always filter `iLastTime > 0` (or `iBestTime > 0`) before aggregating, or the minimum will report 0 for any aborted session.
 - **`NA`/`NA` hybrid rows** — some rows have `track = 'NA'` AND `carModel = 'NA'`; these are AC's mid-transition state (loading, menu). Filter `WHERE track <> 'NA' AND carModel <> 'NA'` unless the user specifically wants transitions.
 
+## Clean-lap filter (default for any lap-time aggregate)
+
+Most sessions contain two laps that aren't real racing laps:
+
+1. **Lap 1 — out-lap.** Driver leaves the pit/menu, drives slowly to the line, then crosses it for the first time. `timestamp_ms`-based duration captures this approach time, so lap 1 is always inflated.
+2. **The last lap of each session — incomplete.** The driver typically stops recording mid-lap. The partition for the highest `lap` value in that session is partial.
+
+A **clean lap** is therefore one with `lap >= 2 AND lap < MAX(lap) per session`. Sessions with fewer than 3 partition laps (most test/probe sessions) contain **zero clean laps** — they get filtered out entirely.
+
+For best / worst / average / consistency queries, default to clean laps only. Always mention the filter in the answer ("excluded out-lap and incomplete final laps") and call out drivers/sessions that ended up with **0 clean laps** so the user knows why they're missing. If the user explicitly asks about lap 1, all laps, or short test sessions, drop the filter for that turn.
+
 ## Canonical SQL patterns (analysis mode)
 
-These are examples you can adapt when the user asks a computed question. All three use the same partition-filter + sentinel-filter + GROUP BY structure; only the aggregate changes.
+All time-based aggregates use `timestamp_ms` for duration and the clean-lap subquery for filtering. `iBestTime` is a fallback shortcut for "best lap" only — it cannot give "worst" or stddev.
 
-### 1. Lap leaderboard (fastest lap per driver)
+### 1. Lap leaderboard — best AND worst clean lap per driver
 
 ```sql
 SELECT driver,
-       MIN(iBestTime) / 1000.0 AS best_lap_s
-FROM ac_telemetry
-WHERE environment = 'prague_office'
-  AND track = 'ks_nurburgring'
-  AND carModel = 'bmw_1m'
-  AND iBestTime > 0
+       ROUND(MIN(duration_s), 3) AS best_s,
+       ROUND(MAX(duration_s), 3) AS worst_s,
+       COUNT(*) AS clean_laps
+FROM (
+  SELECT lap_table.driver, lap_table.duration_s
+  FROM (
+    SELECT driver, session_id, lap,
+           (MAX(timestamp_ms) - MIN(timestamp_ms)) / 1000.0 AS duration_s
+    FROM ac_telemetry
+    WHERE environment = 'prague_office'
+      AND track = 'ks_nurburgring'
+      AND carModel = 'bmw_1m'
+      AND lap >= 2
+    GROUP BY driver, session_id, lap
+  ) lap_table
+  JOIN (
+    SELECT driver, session_id, MAX(lap) AS last_lap
+    FROM ac_telemetry
+    WHERE environment = 'prague_office'
+      AND track = 'ks_nurburgring'
+      AND carModel = 'bmw_1m'
+    GROUP BY driver, session_id
+  ) last_per_session
+    ON lap_table.driver = last_per_session.driver
+   AND lap_table.session_id = last_per_session.session_id
+  WHERE lap_table.lap < last_per_session.last_lap
+) clean
 GROUP BY driver
-ORDER BY best_lap_s ASC
+ORDER BY best_s
 ```
 
-### 2. Lap-time consistency (stddev across completed laps)
+`MIN(iBestTime) FILTER (WHERE iBestTime > 0)` gives the same `best_s` more cheaply since AC validates internally — use it as a shortcut when only "best" is needed.
 
-QuixLake only accepts plain `SELECT` — **WITH / CTE is rejected** (`only SELECT allowed`). Use a subquery instead.
+### 2. Lap-time consistency (stddev across clean laps)
+
+QuixLake rejects WITH/CTE — use subqueries.
 
 ```sql
 SELECT driver,
-       COUNT(*) AS laps,
-       ROUND(AVG(lap_time_s), 3)    AS avg_s,
-       ROUND(STDDEV(lap_time_s), 3) AS stddev_s
+       COUNT(*) AS clean_laps,
+       ROUND(AVG(duration_s), 3)    AS avg_s,
+       ROUND(STDDEV(duration_s), 3) AS stddev_s
 FROM (
-  SELECT driver, session_id, lap,
-         (MAX(timestamp_ms) - MIN(timestamp_ms)) / 1000.0 AS lap_time_s
-  FROM ac_telemetry
-  WHERE environment = 'prague_office'
-    AND track = 'ks_nurburgring'
-    AND carModel = 'bmw_1m'
-    AND lap >= 2  -- skip lap 1 (out-lap, may also carry timer noise)
-  GROUP BY driver, session_id, lap
-  HAVING (MAX(timestamp_ms) - MIN(timestamp_ms)) BETWEEN 30000 AND 600000  -- 30 s to 10 min, excludes pauses + incomplete
-) lap_times
+  SELECT lap_table.driver, lap_table.duration_s
+  FROM (
+    SELECT driver, session_id, lap,
+           (MAX(timestamp_ms) - MIN(timestamp_ms)) / 1000.0 AS duration_s
+    FROM ac_telemetry
+    WHERE environment = 'prague_office'
+      AND track = 'ks_nurburgring'
+      AND carModel = 'bmw_1m'
+      AND lap >= 2
+    GROUP BY driver, session_id, lap
+  ) lap_table
+  JOIN (
+    SELECT driver, session_id, MAX(lap) AS last_lap
+    FROM ac_telemetry
+    WHERE environment = 'prague_office'
+      AND track = 'ks_nurburgring'
+      AND carModel = 'bmw_1m'
+    GROUP BY driver, session_id
+  ) last_per_session
+    ON lap_table.driver = last_per_session.driver
+   AND lap_table.session_id = last_per_session.session_id
+  WHERE lap_table.lap < last_per_session.last_lap
+) clean
 GROUP BY driver
 HAVING COUNT(*) >= 2
 ORDER BY stddev_s ASC
