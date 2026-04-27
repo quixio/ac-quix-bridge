@@ -6,7 +6,12 @@
     <title>Telemetry Chat</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
     <link rel="stylesheet" href="/static/style.css" />
-    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+    <script
+      src="https://cdn.plot.ly/plotly-2.35.2.min.js"
+      integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7"
+      crossorigin="anonymous"
+      charset="utf-8"
+    ></script>
   </head>
   <body>
     <div class="app dock-right">
@@ -101,6 +106,13 @@
         </footer>
       </div>
     </div>
+    <script type="importmap">
+      {
+        "imports": {
+          "markdown-it": "/static/vendor/markdown-it.js"
+        }
+      }
+    </script>
     <script type="module" src="/static/chat.js"></script>
   </body>
 </html>

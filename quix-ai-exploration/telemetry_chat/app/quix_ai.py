@@ -59,11 +59,11 @@ async def stream_message(
         "POST", url, headers=config.portal_headers(streaming=True), json=body
     ) as r:
         if r.status_code != 200:
-            body = await r.aread()
+            err_body = await r.aread()
             logger.warning(
                 "quix_ai: upstream %d on message POST — body: %s",
                 r.status_code,
-                body[:1000].decode("utf-8", errors="replace"),
+                err_body[:1000].decode("utf-8", errors="replace"),
             )
             yield {"type": "error", "status": r.status_code}
             return

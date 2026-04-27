@@ -4,6 +4,7 @@
  * into the prompt flow.
  */
 
+import { renderMarkdown } from "./markdown.js";
 import { clearCharts, renderCharts } from "./plot.js";
 
 /** @type {string | null} */
@@ -40,7 +41,12 @@ function addMessage(role, text) {
   r.textContent = role === "user" ? "you" : role === "assistant" ? "Quix AI" : "error";
   const body = document.createElement("div");
   body.className = "body";
-  body.textContent = text;
+  if (role === "assistant") {
+    body.dataset.raw = text;
+    body.innerHTML = renderMarkdown(text);
+  } else {
+    body.textContent = text;
+  }
   div.appendChild(r);
   div.appendChild(body);
   els.messages.appendChild(div);
@@ -176,6 +182,7 @@ async function submit() {
   autoResize();
   refreshSendState();
 
+  activeAnswer = null;
   addMessage("user", text);
   showProgress("Looking up sessions");
 
@@ -252,7 +259,8 @@ function handleEvent(evt) {
         activeAnswer = addMessage("assistant", "");
       }
       const body = /** @type {HTMLElement} */ (activeAnswer.querySelector(".body"));
-      body.textContent = (body.textContent || "") + evt.text;
+      body.dataset.raw = (body.dataset.raw || "") + evt.text;
+      body.innerHTML = renderMarkdown(body.dataset.raw);
       scrollBottom(els.messages);
       break;
     }
@@ -375,7 +383,9 @@ for (const btn of document.querySelectorAll("#empty-state .suggestions button"))
     const prompt = /** @type {HTMLButtonElement} */ (btn).dataset.prompt;
     if (!prompt) return;
     els.prompt.value = prompt;
-    submit();
+    autoResize();
+    refreshSendState();
+    els.prompt.focus();
   });
 }
 
