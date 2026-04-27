@@ -29,6 +29,32 @@ import {
   MAX_TRACE_ANNOTATIONS,
 } from './state.js';
 import { interpolateAt, _interp } from './data.js';
+import { debugLog } from './debug-overlay.js';
+
+// ---------------------------------------------------------------------------
+// Touch pause flag for the rAF marker loop.
+//
+// Tablet diagnostic (option 3 from
+// dev-planning/telemetry-explorer-touch-responsiveness/discussion.md): while
+// the floating video plays, the rAF loop polls video.currentTime at ~60 Hz
+// and rebuilds Plotly shapes/annotations on every chart. That eats main-
+// thread budget that pointer dispatch needs. We suspend the loop body while
+// any pointer is down so taps on the Float/Dock button get instant
+// dispatch; the loop resumes the moment the pointer lifts.
+//
+// IMPORTANT: we do NOT cancelAnimationFrame here — the rAF id keeps cycling
+// and the body just no-ops while paused. That way `pointerup` doesn't have
+// to re-prime the loop; the next scheduled frame just notices `_touchPauseDepth
+// === 0` and runs normally. Resume latency = one frame (~16 ms).
+//
+// `_touchPauseDepth` is a counter, not a boolean, because multitouch can
+// fire several `pointerdown`s before any `pointerup`. Counting ensures the
+// loop only resumes after every finger has lifted (depth back to 0).
+// `pointercancel` and `touchcancel` decrement just like `pointerup`. A
+// safety watchdog (re-zero on `visibilitychange`) prevents a stuck flag
+// from permanently freezing the marker if the OS swallows a release event.
+// ---------------------------------------------------------------------------
+let _touchPauseDepth = 0;
 
 /**
  * Readout strip under the top bar: displays the current marker as a
@@ -375,6 +401,13 @@ export function _videoRafLoop() {
     videoState._rafId = null;
     return;
   }
+  // Touch suspension: while at least one pointer is down anywhere on the page
+  // we no-op the body. The rAF id keeps cycling so resume on pointerup is
+  // instant — one frame later the next tick runs full updateMarker work.
+  if (_touchPauseDepth > 0) {
+    videoState._rafId = requestAnimationFrame(_videoRafLoop);
+    return;
+  }
   const rafScale = videoState.timeScale || 1;
   const nd = lookupNormPosForTms(videoState.element.currentTime * 1000 * rafScale);
   if (nd != null) {
@@ -427,6 +460,132 @@ export function wireVideoElement() {
     const nd = lookupNormPosForTms(v.currentTime * 1000 * seekScale);
     if (nd == null) return;
     updateMarker(Math.max(0, Math.min(1, nd)), true, 'video');
+  });
+
+  _wireTouchPauseListeners();
+  _wireVideoEventInstrumentation(v);
+}
+
+// ---------------------------------------------------------------------------
+// Touch-pause: capture-phase pointer/touch listeners on the document increment
+// `_touchPauseDepth` so the rAF loop body short-circuits while any finger is
+// down (option 3 in the touch-responsiveness discussion doc).
+//
+// Capture phase is critical: we must observe pointerdown before any
+// stopPropagation()/preventDefault() further down the tree (e.g. the
+// `#btn-video-float` carve-out from option 4) can swallow the event. We never
+// preventDefault here ourselves — we only count.
+// ---------------------------------------------------------------------------
+function _wireTouchPauseListeners() {
+  if (typeof document === 'undefined' || _touchPauseListenersWired) return;
+  _touchPauseListenersWired = true;
+
+  const onDown = () => {
+    _touchPauseDepth++;
+    if (_touchPauseDepth === 1) debugLog('[touch] paused rAF');
+  };
+  const onUp = () => {
+    if (_touchPauseDepth > 0) _touchPauseDepth--;
+    if (_touchPauseDepth === 0) debugLog('[touch] resumed rAF');
+  };
+
+  // pointer* events fire on all modern browsers (incl. iPadOS Safari ≥13).
+  // touch* listeners are belt-and-braces in case a browser fires touchstart
+  // without a corresponding pointerdown (older Android WebViews). Both
+  // increment the same counter; double-counting is fine because both
+  // counterparts also fire on release, keeping the depth balanced.
+  document.addEventListener('pointerdown', onDown, { capture: true, passive: true });
+  document.addEventListener('pointerup', onUp, { capture: true, passive: true });
+  document.addEventListener('pointercancel', onUp, { capture: true, passive: true });
+  document.addEventListener('touchstart', onDown, { capture: true, passive: true });
+  document.addEventListener('touchend', onUp, { capture: true, passive: true });
+  document.addEventListener('touchcancel', onUp, { capture: true, passive: true });
+
+  // Watchdog: if the OS swallows a release (rare — happens on iOS when an
+  // alert pops over the page mid-touch), tab visibility changing back forces
+  // the depth to 0 so the marker can never permanently freeze.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && _touchPauseDepth !== 0) {
+      _touchPauseDepth = 0;
+      debugLog('[touch] watchdog reset depth=0');
+    }
+  });
+}
+let _touchPauseListenersWired = false;
+
+// ---------------------------------------------------------------------------
+// `<video>` event instrumentation (option E in the discussion doc).
+//
+// Logs every relevant lifecycle / network / decode event to the on-page
+// debug overlay. The pair we care most about is `seeking` → `seeked`: the
+// elapsed delta is the metric that distinguishes "browser instantly served
+// from buffer" from "browser is round-tripping a fresh Range request",
+// which is the back-and-forth scrub stall pattern from §"forward-then-
+// backward seek stalls" in the same discussion doc.
+//
+// All log lines are routed through `debugLog`, which is a no-op unless the
+// overlay is active (`?debug=1` or `localStorage.te-debug = '1'`), so this
+// has zero runtime cost in normal use.
+// ---------------------------------------------------------------------------
+function _formatBuffered(v) {
+  try {
+    const b = v.buffered;
+    if (!b || b.length === 0) return '[]';
+    const parts = [];
+    for (let i = 0; i < b.length; i++) {
+      parts.push(`(${b.start(i).toFixed(2)},${b.end(i).toFixed(2)})`);
+    }
+    return '[' + parts.join(',') + ']';
+  } catch (_) {
+    return '[?]';
+  }
+}
+
+function _logVideoEvent(v, name) {
+  try {
+    const t = Number.isFinite(v.currentTime) ? v.currentTime.toFixed(3) : '?';
+    debugLog(
+      `[video] ${name} t=${t}s buffered=${_formatBuffered(v)} readyState=${v.readyState} networkState=${v.networkState}`,
+    );
+  } catch (_) {
+    /* never throw from a logger */
+  }
+}
+
+function _wireVideoEventInstrumentation(v) {
+  const events = [
+    'stalled',
+    'waiting',
+    'error',
+    'loadstart',
+    'loadedmetadata',
+    'canplay',
+    'canplaythrough',
+    'ratechange',
+    'pause',
+    'play',
+    'emptied',
+    'ended',
+  ];
+  for (const ev of events) {
+    v.addEventListener(ev, () => _logVideoEvent(v, ev));
+  }
+
+  // seeking ↔ seeked timing. performance.now() is monotonic so even across
+  // tab-throttled rAF ticks the delta is the real wall-clock duration the
+  // browser spent recovering buffer / decoding the keyframe.
+  let _seekStartedAt = null;
+  v.addEventListener('seeking', () => {
+    _seekStartedAt = performance.now();
+    _logVideoEvent(v, 'seeking');
+  });
+  v.addEventListener('seeked', () => {
+    if (_seekStartedAt != null) {
+      const dt = (performance.now() - _seekStartedAt).toFixed(1);
+      debugLog(`[video] seek-stall ${dt}ms`);
+      _seekStartedAt = null;
+    }
+    _logVideoEvent(v, 'seeked');
   });
 }
 

@@ -818,13 +818,31 @@ function _initInteract() {
   // threshold the action never starts, so preventDefault() is never called and
   // the native click (play/pause, control bar tap) fires normally.
   //
-  // 5 px: enough to absorb sub-pixel jitter and tiny involuntary hand tremor
-  // without requiring a deliberate swipe. Matches the industry-standard 5 px
-  // "click vs drag" discrimination used by browsers for text-selection initiation.
-  //
-  // This is a global interact.js setting — it applies to every interactable on
-  // the page. We own all interactables here, so that is fine.
-  interact.pointerMoveTolerance(5);
+  // 10 px (option 4 in the touch-responsiveness discussion doc): tablets show
+  // measurably noisier touch signal than mice; the previous 5 px default was
+  // tight enough that a normal-feeling tap on the Float/Dock button could
+  // drift across the threshold, get classified as a drag, and have its click
+  // event swallowed. 10 px accommodates tablet finger drift while still
+  // discriminating cleanly against deliberate swipes. Desktop mouse use is
+  // unaffected — a real mouse drag intent moves >>10 px immediately.
+  interact.pointerMoveTolerance(10);
+
+  // Defense-in-depth carve-out for the dock toggle button. ignoreFrom on
+  // both `.draggable()` and `.resizable()` below already lists `button`, so
+  // the Float/Dock button SHOULD be invisible to interact.js — but on
+  // tablets we have observed taps still being eaten by the gesture
+  // recognizer, suggesting interact.js receives the pointerdown at the slot
+  // level before its ignoreFrom filter runs descendant matching. Calling
+  // stopPropagation() on the button's own pointerdown + click handlers
+  // prevents the events from ever reaching the slot's interactable, so the
+  // gesture recognizer cannot consider them at all. Belt-and-braces.
+  const floatBtn = document.getElementById('btn-video-float');
+  if (floatBtn) {
+    const stop = (e) => e.stopPropagation();
+    floatBtn.addEventListener('pointerdown', stop);
+    floatBtn.addEventListener('click', stop);
+    floatBtn.addEventListener('touchstart', stop, { passive: true });
+  }
 
   _videoOverlayInteractable = interact(slot)
     .draggable({
