@@ -126,6 +126,7 @@ export const videoState = {
   loadingShownAt: 0, // Date.now() when overlay was last shown; used for min-display guard
   _pendingSeekTime: null, // seek-coalesce: stash of newest target while v.seeking===true; drained on 'seeked'
   _prefetchAbort: null, // Round 6: AbortController for the per-lap full-file background prefetch; aborted on lap switch
+  _prefetchDone: false, // Round 7: flips true once the prefetch fetch resolves with response.ok; gates live-preview branch in syncVideoFromMarker; reset to false on every new lap load
 };
 
 // ---------------------------------------------------------------------------

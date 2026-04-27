@@ -87,9 +87,19 @@ function _startBackgroundPrefetch(url) {
     credentials: 'same-origin',
     priority: 'low',
     signal: ac.signal,
-  }).catch(() => {
-    /* fire-and-forget: aborts and network errors are both fine here */
-  });
+  })
+    .then((response) => {
+      // Round 7: flip the live-seek gate once the prefetch response lands.
+      // We don't read response.body — the browser caches the 200 regardless,
+      // so subsequent Range requests from <video> are served from disk cache.
+      if (response && response.ok) {
+        videoState._prefetchDone = true;
+        debugLog('[prefetch] complete — live seek enabled');
+      }
+    })
+    .catch(() => {
+      /* fire-and-forget: aborts and network errors are both fine here */
+    });
 }
 
 function setVideoStatus(msg, level) {
@@ -263,6 +273,10 @@ export async function loadVideoForLapIdx(idx) {
     }
     videoState._prefetchAbort = null;
   }
+  // Round 7: each lap starts fresh — the prior lap's cached MP4 doesn't help
+  // the new lap, so flip the live-seek gate back off until the new prefetch
+  // (if any) resolves.
+  videoState._prefetchDone = false;
 
   let meta;
   try {
