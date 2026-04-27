@@ -371,23 +371,41 @@ export function syncVideoFromMarker(nd, source) {
   // a frame is ~33ms; 15ms is ~half a frame and still feels responsive while
   // dragging.
   if (Math.abs(v.currentTime - target) <= 0.015) return;
-  // Round 7.2 — revert Round 7's live-during-drag mode. Diagnostic data on
-  // tablet: even with the prefetch fully cached (so Range requests hit disk,
-  // seek-stall ~60ms each), 24 mid-drag seeks in 400ms fragmented the
-  // MediaSource buffer into 5 disjoint ranges and left the decoder in a
-  // tangled state — `play` after the drag fired `waiting`, then `stalled`,
-  // and the video never recovered. Cache hits help **network** latency but
-  // don't protect the **decoder pipeline** from being shredded by rapid
-  // currentTime writes. So: regardless of `_prefetchDone`, we ALWAYS stash
-  // during drag and let `flushPendingSeek()` (called from charts.js's
-  // pointerup / pointercancel) issue the single seek on release.
-  //
-  // `_prefetchDone` is still set and is still useful — it makes that single
-  // post-drag seek hit the HTTP cache instead of the proxy, so the seek
-  // completes fast even on slow upstream networks. We just don't try to
-  // preview during the drag itself.
+  // Always stash the latest target. Pointerup's flushPendingSeek will use
+  // this to apply the *committed* seek regardless of which branch below
+  // fires during the drag.
   videoState._pendingSeekTime = target;
+
+  // Round 8: throttled live scrub when video is paused AND the full file
+  // is in the HTTP cache. Reasoning:
+  //   - Round 7's "always live during drag" thrashed the decoder because
+  //     rapid currentTime writes during forward playback fragmented the
+  //     MediaSource buffer.
+  //   - When v.paused === true, no playback pipeline is decoding ahead;
+  //     a fresh seek doesn't have to interrupt in-flight decode work,
+  //     which is what made Round 7 collapse the buffer.
+  //   - Cache hits via Round 6 prefetch make the per-seek cost ~50ms.
+  //   - A 100ms minimum between seeks caps the rate at ~10 Hz — enough
+  //     for the user to *see* their scrubbing in the main video element,
+  //     low enough that the decoder pipeline keeps up.
+  // The sprite-sheet overlay (thumb-preview.js) keeps providing 60 Hz
+  // visual feedback so the gap between throttled video updates is
+  // covered by tile swaps near the cursor.
+  if (!videoState._prefetchDone) return;       // not cached → defer to release
+  if (!v.paused) return;                       // playing → defer to release
+  if (v.seeking) return;                       // mid-seek → next move will retry
+  const now = Date.now();
+  const last = videoState._lastLiveSeekAt || 0;
+  if (now - last < SCRUB_THROTTLE_MS) return;  // throttle window not elapsed
+  videoState._pendingSeekTime = null;
+  videoState._lastLiveSeekAt = now;
+  v.currentTime = target;
 }
+
+// Round 8 throttle for paused-mode live scrub. 100ms ≈ 10 Hz, which
+// in tablet testing keeps the decoder stable while still letting the
+// user see frame-by-frame motion in the main <video> as they drag.
+const SCRUB_THROTTLE_MS = 100;
 
 // ---------------------------------------------------------------------------
 // Drain hook for the round-5 drag-end seek deferral. Called from charts.js
@@ -399,6 +417,9 @@ export function syncVideoFromMarker(nd, source) {
 export function flushPendingSeek() {
   const v = videoState.element;
   const pending = videoState._pendingSeekTime;
+  // Reset the Round-8 throttle so the *next* drag starts with an immediate
+  // live seek rather than inheriting the current drag's window.
+  videoState._lastLiveSeekAt = 0;
   if (!v || pending == null) return;
   videoState._pendingSeekTime = null;
   if (Math.abs(v.currentTime - pending) > 0.015) {
