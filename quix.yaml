@@ -199,13 +199,13 @@ deployments:
           targetPort: 8080
     variables:
       - name: MONGO_USER
-        inputType: Secret
+        inputType: FreeText
         required: true
-        value: MONGO_USER
+        value: admin
       - name: MONGO_PASSWORD
-        inputType: Secret
+        inputType: FreeText
         required: true
-        value: MONGO_PASSWORD
+        value: pat-2630e90ad1584ad5bfcdbb6b071d890c
       - name: MONGO_HOST
         inputType: FreeText
         required: true
@@ -219,9 +219,9 @@ deployments:
         required: true
         value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: QUIX_LAKE_TOKEN
-        inputType: Secret
+        inputType: FreeText
         required: true
-        value: quix_lake_pat
+        value: pat-4364c7c6e46d415fa03a5e755caf8417
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
