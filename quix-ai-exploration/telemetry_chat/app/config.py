@@ -17,6 +17,10 @@ load_dotenv(ROOT / ".env")
 PORTAL = os.environ.get("QUIX_PORTAL_API", "").rstrip("/")
 QUIX_TOKEN = os.environ.get("QUIX_TOKEN", "")
 
+# Shared password gating every route. Empty = all requests 401 (fail closed).
+# Set as a Quix Secret variable in cloud deployments; share via password manager.
+SHARED_PASSWORD = os.environ.get("SHARED_PASSWORD", "")
+
 QUIXLAKE_URL = os.environ.get("QUIXLAKE_URL", "")
 QUIX_LAKE_TOKEN = os.environ.get("QUIX_LAKE_TOKEN", "")
 TABLE_NAME = os.environ.get("TABLE_NAME", "ac_telemetry")

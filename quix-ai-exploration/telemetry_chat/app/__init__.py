@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import lake, partitions
+from .auth import AuthMiddleware
 from .config import LOG_LEVEL, STATIC_DIR
 from .routes import router
 
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
         openapi_url=None,
         lifespan=_lifespan,
     )
+    app.add_middleware(AuthMiddleware)
     app.include_router(router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
