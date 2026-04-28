@@ -123,7 +123,7 @@ def test_plan_caps_too_many_traces() -> None:
     parsed = {
         "type": "plot",
         "signals": ["speedKmh"],
-        "traces": [_trace(lap=i) for i in range(10)],
+        "traces": [_trace(lap=i) for i in range(11)],
     }
     with pytest.raises(HTTPException) as exc:
         _plan(parsed)

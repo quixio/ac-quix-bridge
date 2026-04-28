@@ -44,7 +44,7 @@ Rules for the plot shape:
 - `signals` is an array of 1-10 column names drawn from the AC channels KB or `get_schema`.
 - Every trace's partition values MUST come from the sessions KB. Never invent IDs.
 - **If the user's criteria match more than one session, emit `clarify` not `plot`.** Do not pick one. List the candidate sessions as options (e.g. `"video_streaming (2026-04-14, laps 1–3)"`) so the user can choose.
-- Cap traces at 6. Over 6 → use `clarify` to narrow by driver, date, or experiment.
+- Cap `traces` at 10 elements. One trace = one `(session_id, lap)` row in `traces[]`. N drivers × M laps = N×M traces. Examples: 2×5=10 ✓; 2×6=12 ✗ → `clarify` to narrow by driver, session, or experiment.
 - All traces must share one `track` (overlaying different tracks on `normalizedCarPosition` is meaningless). If the match spans tracks → `clarify`.
 - Default `signals` when user is vague: `["speedKmh", "gas", "brake", "rpms"]`.
 - Default `environment` when unspecified: `prague_office`.

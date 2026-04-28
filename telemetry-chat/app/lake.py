@@ -12,8 +12,8 @@ from . import config
 
 _lake_http = httpx.AsyncClient(
     timeout=60.0,
-    # Peak fan-out is MAX_SIGNALS(10) × MAX_TRACES(6) = 60. Bump the pool
-    # above that so asyncio.gather doesn't queue on the transport.
+    # Peak fan-out is MAX_TRACES (10) parallel queries — each fetches all
+    # signals at once. Pool sized comfortably above that.
     limits=httpx.Limits(max_connections=80, max_keepalive_connections=30),
 )
 

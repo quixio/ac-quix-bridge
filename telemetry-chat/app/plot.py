@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
-MAX_TRACES = 6
+MAX_TRACES = 10
 MAX_SIGNALS = 10
 SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 # Agent's reply is free-form and ends with ```json ... ```. The regex captures
