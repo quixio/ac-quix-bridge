@@ -13,18 +13,30 @@ import { applyPlotPlan } from './ai-plot-glue.js';
 
 const _MOCK_PLAN = {
   type: 'plot',
-  title: 'Ludvik VideoSyncFix - Laps 1-4',
+  title: 'Ludvik (laps 2-3) vs Tomas (laps 3-4) — ks_nurburgring',
   signals: ['speedKmh', 'gas', 'brake', 'rpms'],
-  traces: [1, 2, 3, 4].map((lap) => ({
-    session_id: '2026-04-17T06:39:45.652Z',
-    lap,
-    driver: 'ludvik',
-    carModel: 'bmw_1m',
-    track: 'ks_nurburgring',
-    experiment: 'VideoSyncFix',
-    environment: 'prague_office',
-    test_rig: 'g29',
-  })),
+  traces: [
+    ...[2, 3].map((lap) => ({
+      session_id: '2026-04-17T06:39:45.652Z',
+      lap,
+      driver: 'ludvik',
+      carModel: 'bmw_1m',
+      track: 'ks_nurburgring',
+      experiment: 'VideoSyncFix',
+      environment: 'prague_office',
+      test_rig: 'g29',
+    })),
+    ...[3, 4].map((lap) => ({
+      session_id: '2026-04-14T14:06:59.113Z',
+      lap,
+      driver: 'tomas',
+      carModel: 'bmw_1m',
+      track: 'ks_nurburgring',
+      experiment: 'VideoSyncLaps',
+      environment: 'prague_office',
+      test_rig: 'g29',
+    })),
+  ],
 };
 
 let _messages = [];
@@ -48,7 +60,7 @@ async function _mockSend(_userMsg) {
   await new Promise((r) => setTimeout(r, 1000));
   // Pop the status, replace with the canned answer
   _messages.pop();
-  _push('assistant', 'Plotting Ludvik’s 4 laps from VideoSyncFix.');
+  _push('assistant', 'Plotting Ludvik laps 2-3 vs Tomas laps 3-4 on ks_nurburgring.');
   applyPlotPlan(_MOCK_PLAN);
 }
 
