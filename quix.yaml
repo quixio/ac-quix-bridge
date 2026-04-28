@@ -532,6 +532,50 @@ deployments:
         order: 0
     blobStorage:
       bind: true
+  - name: Telemetry Chat
+    application: telemetry-chat
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 500
+      memory: 1000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: telemetrychat
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: QUIX_TOKEN
+        inputType: Secret
+        description: Quix PAT used to call the Quix AI agent
+        required: true
+        secretKey: pat_token
+      - name: QUIXLAKE_URL
+        inputType: FreeText
+        description: Base URL of the QuixLake instance
+        required: true
+        value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
+      - name: QUIX_LAKE_TOKEN
+        inputType: Secret
+        description: Token to authenticate against QuixLake
+        required: true
+        secretKey: pat_token
+      - name: TABLE_NAME
+        inputType: FreeText
+        description: QuixLake table name for telemetry data
+        value: ac_telemetry
+      - name: SHARED_PASSWORD
+        inputType: Secret
+        description: Shared password for HTTP Basic auth gating the whole app
+        required: true
+        secretKey: TELEMETRY_CHAT_PASSWORD
+      - name: LOG_LEVEL
+        inputType: FreeText
+        description: Python logging level
+        value: INFO
   - name: MongoDB Backup Manager
     application: mongodb-backup-manager
     version: latest

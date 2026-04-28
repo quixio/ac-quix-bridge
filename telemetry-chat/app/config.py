@@ -14,7 +14,12 @@ CHANNELS_FILE = STATIC_DIR / "channels.json"
 
 load_dotenv(ROOT / ".env")
 
-PORTAL = os.environ.get("QUIX_PORTAL_API", "").rstrip("/")
+# Quix Cloud auto-injects `Quix__Portal__Api` on every deployment. Locally,
+# put the same name in `.env`. Falls back to `QUIX_PORTAL_API` for backward
+# compat with older local setups.
+PORTAL = (
+    os.environ.get("Quix__Portal__Api") or os.environ.get("QUIX_PORTAL_API", "")
+).rstrip("/")
 QUIX_TOKEN = os.environ.get("QUIX_TOKEN", "")
 
 # Shared password gating every route. Empty = all requests 401 (fail closed).

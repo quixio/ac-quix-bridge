@@ -1,0 +1,35 @@
+name: telemetry-chat
+language: docker
+variables:
+  - name: QUIX_TOKEN
+    inputType: Secret
+    description: Quix PAT used to call the Quix AI agent endpoint
+    required: true
+    secretKey: pat
+  - name: QUIX_AI_AGENT_ID
+    inputType: FreeText
+    description: Override the default QuixLake Querier agent UUID (optional)
+  - name: QUIXLAKE_URL
+    inputType: FreeText
+    description: Base URL of the QuixLake instance
+    required: true
+  - name: QUIX_LAKE_TOKEN
+    inputType: Secret
+    description: Token to authenticate against QuixLake
+    required: true
+    secretKey: pat
+  - name: TABLE_NAME
+    inputType: FreeText
+    description: QuixLake table name for telemetry data
+    defaultValue: ac_telemetry
+  - name: SHARED_PASSWORD
+    inputType: Secret
+    description: Shared password for HTTP Basic auth gating the whole app
+    required: true
+    secretKey: TELEMETRY_CHAT_PASSWORD
+  - name: LOG_LEVEL
+    inputType: FreeText
+    description: Python logging level (INFO or DEBUG)
+    defaultValue: INFO
+dockerfile: dockerfile
+defaultFile: main.py
