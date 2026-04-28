@@ -30,12 +30,7 @@
   box-sizing: border-box;
 }
 body {
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    monospace;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
 }
 
 /* ---------- Runtime-built: selection rows ---------- */
@@ -268,7 +263,7 @@ select:focus {
   cursor: pointer;
   user-select: none;
 }
-.chart-header input[type='checkbox'] {
+.chart-header input[type="checkbox"] {
   accent-color: var(--accent);
 }
 
@@ -295,7 +290,7 @@ select:focus {
 }
 
 /* ---------- Collapsible panels (data-collapsible / body) ---------- */
-[data-collapsible][data-collapsed='true'] [data-collapsible-body] {
+[data-collapsible][data-collapsed="true"] [data-collapsible-body] {
   display: none;
 }
 
@@ -305,20 +300,19 @@ select:focus {
  * filling height via a max-height, showing only its header. This replaces
  * the old :has()-on-topbar reflow that relied on #topbar-map being a direct
  * grid child of #topbar — now it's a grandchild via #combined-panel. */
-body[data-video-mode='docked']
-  #combined-panel-body:has(#topbar-map[data-collapsed='true']) {
+body[data-video-mode="docked"] #combined-panel-body:has(#topbar-map[data-collapsed="true"]) {
   flex-direction: column;
   gap: 0.5rem;
 }
-body[data-video-mode='docked']
-  #combined-panel-body:has(#topbar-map[data-collapsed='true'])
+body[data-video-mode="docked"]
+  #combined-panel-body:has(#topbar-map[data-collapsed="true"])
   #topbar-map {
   flex: 0 0 auto;
   min-height: 0;
   order: -1;
 }
-body[data-video-mode='docked']
-  #combined-panel-body:has(#topbar-map[data-collapsed='true'])
+body[data-video-mode="docked"]
+  #combined-panel-body:has(#topbar-map[data-collapsed="true"])
   #video-panel {
   flex: 1 1 auto;
   min-height: 0;
@@ -438,16 +432,16 @@ body[data-video-mode='docked']
     display: none !important;
   }
 }
-body[data-video-mode='floating'] #video-float-slot {
+body[data-video-mode="floating"] #video-float-slot {
   display: block;
 }
-body[data-video-mode='floating'] #video-dock-slot {
+body[data-video-mode="floating"] #video-dock-slot {
   display: none;
 }
-body[data-video-mode='floating'] #topbar-placeholder {
+body[data-video-mode="floating"] #topbar-placeholder {
   display: flex;
 }
-body[data-video-mode='docked'] #topbar-placeholder {
+body[data-video-mode="docked"] #topbar-placeholder {
   display: none;
 }
 
@@ -469,28 +463,28 @@ body[data-video-mode='docked'] #topbar-placeholder {
  * overflow: hidden on the head clips any residual sub-pixel overflow
  * from elements that are transitioning to display:none rather than
  * generating a scrollbar. */
-body[data-video-mode='floating'] #combined-panel-head {
+body[data-video-mode="floating"] #combined-panel-head {
   flex-wrap: nowrap;
   min-width: 0;
   overflow: hidden;
 }
-body[data-video-mode='floating'] #combined-panel-head-right {
+body[data-video-mode="floating"] #combined-panel-head-right {
   flex-shrink: 0;
   min-width: 0;
 }
-body[data-video-mode='floating'] #btn-combined-dock {
+body[data-video-mode="floating"] #btn-combined-dock {
   flex-shrink: 0;
   white-space: nowrap;
 }
-body[data-video-mode='floating'] #video-controls {
+body[data-video-mode="floating"] #video-controls {
   min-width: 0;
   overflow: hidden;
 }
-body[data-video-mode='floating'] #combined-tabs {
+body[data-video-mode="floating"] #combined-tabs {
   min-width: 0;
   flex-shrink: 0;
 }
-body[data-video-mode='floating'] #track-readout {
+body[data-video-mode="floating"] #track-readout {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -499,7 +493,7 @@ body[data-video-mode='floating'] #track-readout {
 }
 
 /* Floating: combined panel fills the slot and gets accent border/shadow. */
-body[data-video-mode='floating'] #combined-panel {
+body[data-video-mode="floating"] #combined-panel {
   width: 100%;
   height: 100%;
   background: var(--surface);
@@ -510,28 +504,28 @@ body[data-video-mode='floating'] #combined-panel {
 }
 /* Floating: the combined-panel-head becomes visible (host of tab switcher +
  * Dock button + relocated video controls). Docked: hidden. */
-body[data-video-mode='floating'] #combined-panel-head {
+body[data-video-mode="floating"] #combined-panel-head {
   display: flex;
 }
-body[data-video-mode='docked'] #combined-panel-head {
+body[data-video-mode="docked"] #combined-panel-head {
   display: none;
 }
 /* Floating: the individual pane headers (#video-panel-head and
  * #topbar-map > header) hide so the combined-panel-head is the only chrome.
  * The body expands to consume the vacated space. */
-body[data-video-mode='floating'] #video-panel-head,
-body[data-video-mode='floating'] #topbar-map > header {
+body[data-video-mode="floating"] #video-panel-head,
+body[data-video-mode="floating"] #topbar-map > header {
   display: none;
 }
 /* Floating: each pane fills the combined-panel-body; they are not
  * side-by-side flex children anymore. The data-active-tab attribute toggles
  * which of them is shown. */
-body[data-video-mode='floating'] #combined-panel-body {
+body[data-video-mode="floating"] #combined-panel-body {
   flex-direction: column;
   gap: 0;
 }
-body[data-video-mode='floating'] #video-panel,
-body[data-video-mode='floating'] #topbar-map {
+body[data-video-mode="floating"] #video-panel,
+body[data-video-mode="floating"] #topbar-map {
   flex: 1 1 auto;
   min-height: 0;
   border: none;
@@ -539,22 +533,18 @@ body[data-video-mode='floating'] #topbar-map {
   background: transparent;
 }
 /* Tab visibility rules — the inactive pane is display:none'd. */
-body[data-video-mode='floating']
-  #combined-panel[data-active-tab='video']
-  #topbar-map {
+body[data-video-mode="floating"] #combined-panel[data-active-tab="video"] #topbar-map {
   display: none;
 }
-body[data-video-mode='floating']
-  #combined-panel[data-active-tab='map']
-  #video-panel {
+body[data-video-mode="floating"] #combined-panel[data-active-tab="map"] #video-panel {
   display: none;
 }
 
 /* Tab button active-state styling via attribute selector — Tailwind Play
  * CDN can't JIT dynamic class strings, so we drive the active state off
  * the stable data-active-tab attribute on the combined-panel. */
-#combined-panel[data-active-tab='video'] .combined-tab[data-tab='video'],
-#combined-panel[data-active-tab='map'] .combined-tab[data-tab='map'] {
+#combined-panel[data-active-tab="video"] .combined-tab[data-tab="video"],
+#combined-panel[data-active-tab="map"] .combined-tab[data-tab="map"] {
   background: rgba(79, 142, 247, 0.15);
   border-color: var(--accent);
   color: var(--accent);
@@ -568,14 +558,14 @@ body[data-video-mode='floating']
  * and "compact" keeps the corner legend visible. Supersede that: in
  * floating mode the corner legend is always hidden, regardless of tier.
  * Docked mode still uses the §11 tier logic on the 35% column. */
-body[data-video-mode='floating'] #corner-legend {
+body[data-video-mode="floating"] #corner-legend {
   display: none;
 }
 
 /* Floating-mode topbar — collapse to the compact placeholder strip. Drop
  * the fixed h-[clamp(...)] height from the Tailwind utilities so the topbar
  * only consumes the placeholder's own height. */
-body[data-video-mode='floating'] #topbar {
+body[data-video-mode="floating"] #topbar {
   grid-template-columns: 1fr;
   height: auto;
 }
@@ -593,7 +583,7 @@ body[data-video-mode='floating'] #topbar {
  *
  * In floating mode this rule is NOT applied — the topbar there is just the
  * compact placeholder strip and behaves as a normal flex child. */
-body[data-video-mode='docked'] #topbar {
+body[data-video-mode="docked"] #topbar {
   position: sticky;
   top: 0;
   z-index: 30;
@@ -617,15 +607,15 @@ body[data-video-mode='docked'] #topbar {
 #combined-panel-head {
   cursor: default;
 }
-body[data-video-mode='floating'] #video-float-slot {
+body[data-video-mode="floating"] #video-float-slot {
   cursor: grab;
 }
-body[data-video-mode='floating'] #video-float-slot video,
-body[data-video-mode='floating'] #video-float-slot select,
-body[data-video-mode='floating'] #video-float-slot button,
-body[data-video-mode='floating'] #video-float-slot input,
-body[data-video-mode='floating'] #video-float-slot a,
-body[data-video-mode='floating'] #video-float-slot [data-no-drag] {
+body[data-video-mode="floating"] #video-float-slot video,
+body[data-video-mode="floating"] #video-float-slot select,
+body[data-video-mode="floating"] #video-float-slot button,
+body[data-video-mode="floating"] #video-float-slot input,
+body[data-video-mode="floating"] #video-float-slot a,
+body[data-video-mode="floating"] #video-float-slot [data-no-drag] {
   cursor: auto;
 }
 body.overlay-dragging,
@@ -809,3 +799,261 @@ body.overlay-dragging #video-float-slot * {
 .js-plotly-plot * {
   touch-action: pan-y !important;
 }
+
+/* =============================================================================
+ * AI chat panel — floating-only, drag/resize via interact.js, toggle via
+ * `#chat-toggle` (fixed bottom-right). Panel itself is `#chat-float-slot`,
+ * which contains `#chat-panel`. Geometry is set by chat-overlay.js via
+ * inline transform/width/height — these rules supply look + container-query
+ * shrink behaviour at narrow widths.
+ *
+ * Container query thresholds chosen to be tighter than the video panel's
+ * (700/550/450/370/300) since chat is naturally tall+narrow. */
+/* While a chat panel drag/resize is in progress, suppress text selection
+ * everywhere — otherwise dragging over the message list text would create
+ * an accidental selection that lingers after the gesture. */
+body.chat-gesturing,
+body.chat-gesturing * {
+  user-select: none !important;
+}
+
+/* Two-layer structure: the OUTER #chat-float-slot is transparent and
+ * adds an 8 px halo of empty space around the visible panel. interact.js
+ * resizes the slot, so its bounding box (which includes the halo) is
+ * what the cursor must enter to grab a resize edge — hit area extends
+ * BEYOND the visible panel edges. The INNER #chat-panel carries the
+ * actual chrome (bg, border, shadow). */
+#chat-float-slot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  /* 8 px transparent halo — interact.js resize zone extends out to the
+   * outer edge of this padding, so the cursor changes to the resize
+   * arrow as soon as it enters the halo. Combined with `margin: 10` in
+   * interact.js, that gives ~18 px of grabbable area centered on each
+   * visible edge of the inner panel. */
+  padding: 8px;
+  box-sizing: border-box;
+  touch-action: none;
+}
+
+#chat-float-slot.hidden {
+  display: none;
+}
+
+#chat-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--color-surface, #1f2533);
+  border: 1px solid var(--color-brd, #2d3441);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+#chat-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-brd, #2d3441);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  cursor: move;
+  user-select: none;
+  background: var(--color-surface, #1f2533);
+}
+
+#chat-panel-head .chat-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#chat-panel-head .chat-close {
+  border: none;
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+#chat-panel-head .chat-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+#chat-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.chat-msg {
+  padding: 8px 10px;
+  border-radius: 8px;
+  max-width: 85%;
+  word-break: break-word;
+}
+
+.chat-msg-user {
+  background: rgba(99, 179, 237, 0.18);
+  align-self: flex-end;
+}
+
+.chat-msg-assistant {
+  background: rgba(255, 255, 255, 0.04);
+  align-self: flex-start;
+}
+
+.chat-msg-assistant-status {
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  font-style: italic;
+  align-self: flex-start;
+}
+
+#chat-input-row {
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-brd, #2d3441);
+  background: var(--color-surface, #1f2533);
+}
+
+/* Combined input area: textarea + absolute-positioned send button. The
+ * textarea reserves right padding for the button; the button sits inside
+ * the visual rectangle of the prompt. */
+.chat-prompt-wrap {
+  position: relative;
+  background: var(--color-bg, #0f1318);
+  border: 1px solid var(--color-brd, #2d3441);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+.chat-prompt-wrap:focus-within {
+  border-color: var(--color-accent, #63b3ed);
+}
+
+#chat-input {
+  width: 100%;
+  /* Right padding reserves space for the absolute send button. */
+  padding: 10px 48px 10px 12px;
+  min-height: 38px;
+  max-height: 160px;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  outline: none;
+  display: block;
+  box-sizing: border-box;
+}
+
+#chat-send {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 30px;
+  height: 30px;
+  background: var(--color-accent, #63b3ed);
+  color: #0b0f15;
+  border: none;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+#chat-send:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+#chat-send:disabled {
+  background: var(--color-brd, #2d3441);
+  color: var(--color-muted, #94a3b8);
+  cursor: not-allowed;
+}
+#chat-send svg {
+  display: block;
+  /* Paper-plane glyph is visually top-right heavy; nudge down-left to
+   * read as centered inside the small button. */
+  transform: translate(-1px, 1px);
+}
+
+/* Toggle button — fixed bottom-right, pill shape. */
+#chat-toggle {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 99;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--color-accent, #63b3ed);
+  color: #0b0f15;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+#chat-toggle:hover {
+  filter: brightness(1.08);
+}
+#chat-toggle[aria-expanded="true"] {
+  background: var(--color-surface, #1f2533);
+  color: var(--color-accent, #63b3ed);
+  border: 1px solid var(--color-accent, #63b3ed);
+}
+
+/* Quix icon — used in toggle button (variant flips on expanded state) and in
+ * chat panel header (always light variant, since the head sits on a dark
+ * surface). Two SVG files live side-by-side; CSS toggles visibility instead
+ * of swapping the src so neither asset has to be re-fetched on state change. */
+.quix-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-block;
+  vertical-align: middle;
+}
+#chat-toggle .quix-icon {
+  width: 24px;
+  height: 24px;
+}
+#chat-toggle .quix-icon-light {
+  display: none;
+}
+#chat-toggle[aria-expanded="true"] .quix-icon-dark {
+  display: none;
+}
+#chat-toggle[aria-expanded="true"] .quix-icon-light {
+  display: inline-block;
+}
+#chat-panel-head .quix-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* No container-query reflow: header, input bar, and message paddings
+ * stay fixed regardless of panel width so there is nothing visually
+ * shifting as the user resizes. The panel itself just gets narrower /
+ * taller; the chrome inside it does not scale. */

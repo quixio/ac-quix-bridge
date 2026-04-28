@@ -37,10 +37,7 @@
     <!-- Trimmed stylesheet: keyframes, scrollbar, Plotly overrides only. -->
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
-  <body
-    data-video-mode="docked"
-    class="min-h-screen bg-bg text-slate-200 font-sans text-sm flex flex-col"
-  >
+  <body data-video-mode="docked" class="min-h-screen bg-bg text-slate-200 font-sans text-sm flex flex-col">
     <!-- =====================================================================
          TOP BAR — flex child (not fixed). Collapses vertically to 1 column
          below the lg breakpoint so laptops don't get crushed.
@@ -60,19 +57,11 @@
            (video + map), not just the video panel. The ID is preserved so
            existing CSS rules and the video-overlay controller keep working
            without further renames. -->
-      <div
-        id="video-dock-slot"
-        class="min-w-0 min-h-0 flex col-span-1 lg:col-span-2"
-        data-hidden-when-floating
-      >
+      <div id="video-dock-slot" class="min-w-0 min-h-0 flex col-span-1 lg:col-span-2" data-hidden-when-floating>
         <!-- COMBINED PANEL: owns both the video pane and the map pane. In docked
              mode it is a horizontal flex splitting 65/35 between #video-panel
              and #topbar-map. In floating mode it shows only the active-tab pane. -->
-        <section
-          id="combined-panel"
-          data-active-tab="video"
-          class="w-full min-w-0 min-h-0 flex flex-col"
-        >
+        <section id="combined-panel" data-active-tab="video" class="w-full min-w-0 min-h-0 flex flex-col">
           <!-- Combined panel head: hidden in docked mode, visible when floating.
                Hosts the tab switcher, relocated video controls, and the
                Dock button. The per-pane headers (#video-panel-head,
@@ -106,10 +95,7 @@
                  `dockBtn.parentNode` lookup broke silently if the structure
                  changed. Using a dedicated ID is self-documenting and
                  survives future markup edits. -->
-            <div
-              id="combined-panel-head-right"
-              class="flex gap-1.5 items-center flex-nowrap shrink-0"
-            >
+            <div id="combined-panel-head-right" class="flex gap-1.5 items-center flex-nowrap shrink-0">
               <!-- Floating-mode video controls mirror the docked ones by moving
                    the same #video-controls element into this header on float.
                    app.js targets controls by ID, so relocation is safe. -->
@@ -127,10 +113,7 @@
           <!-- Combined panel body: in docked mode a horizontal 65/35 flex row
                hosting the two panes side-by-side. In floating mode one of the
                two panes is display:none'd via the data-active-tab attribute. -->
-          <div
-            id="combined-panel-body"
-            class="flex-1 min-h-0 flex flex-row gap-3"
-          >
+          <div id="combined-panel-body" class="flex-1 min-h-0 flex flex-row gap-3">
             <!-- VIDEO PANE ----------------------------------------------------
                  Everything that used to live directly inside #video-dock-slot
                  is now inside this pane. IDs preserved: #video-panel,
@@ -146,23 +129,17 @@
                 class="flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-brd select-none"
               >
                 <div class="flex items-center gap-3 min-w-0">
-                  <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold shrink-0">
-                    Video
-                  </div>
+                  <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold shrink-0">Video</div>
                   <!-- Track position readout. video-overlay.js reparents this
                        element between here (docked) and #combined-panel-head
                        (floating) so it remains visible in both modes.
                        sync.js:updateReadout() targets #readout-pos-text by ID. -->
-                  <span
-                    id="track-readout"
-                    class="font-mono text-[0.68rem] text-accent tabular-nums"
-                  ><span id="readout-pos-text">0.0%</span></span>
+                  <span id="track-readout" class="font-mono text-[0.68rem] text-accent tabular-nums"
+                    ><span id="readout-pos-text">0.0%</span></span
+                  >
                 </div>
                 <div class="flex gap-1.5 items-center flex-wrap">
-                  <div
-                    id="video-controls"
-                    class="hidden items-center gap-2 text-[0.7rem] text-muted"
-                  >
+                  <div id="video-controls" class="hidden items-center gap-2 text-[0.7rem] text-muted">
                     <select
                       id="video-lap-select"
                       class="bg-[#0b0d13] text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem] disabled:opacity-50 disabled:cursor-not-allowed"
@@ -183,10 +160,7 @@
                         <option value="5">5x</option>
                       </select>
                     </label>
-                    <div
-                      id="video-status"
-                      class="text-[0.62rem] text-muted leading-tight min-h-[0.9rem]"
-                    ></div>
+                    <div id="video-status" class="text-[0.62rem] text-muted leading-tight min-h-[0.9rem]"></div>
                   </div>
                   <button
                     id="btn-video-float"
@@ -226,11 +200,9 @@
                   aria-label="Video loading"
                 >
                   <div class="loading-spinner loading-spinner--xl"></div>
-                  <span
-                    id="video-loading-label"
-                    class="text-[0.75rem] font-medium"
-                    style="color:var(--text-muted)"
-                  >Loading video…</span>
+                  <span id="video-loading-label" class="text-[0.75rem] font-medium" style="color: var(--text-muted)"
+                    >Loading video…</span
+                  >
                 </div>
               </div>
             </section>
@@ -246,9 +218,7 @@
               class="min-w-0 min-h-0 flex-[35] flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden"
             >
               <header class="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-brd">
-                <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
-                  Track Map
-                </div>
+                <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">Track Map</div>
                 <button
                   id="btn-collapse-map"
                   class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
@@ -258,10 +228,7 @@
                   -
                 </button>
               </header>
-              <div
-                data-collapsible-body
-                class="flex-1 min-h-0 px-2 pt-1.5 pb-2 flex flex-col gap-1"
-              >
+              <div data-collapsible-body class="flex-1 min-h-0 px-2 pt-1.5 pb-2 flex flex-col gap-1">
                 <div class="flex flex-1 min-h-0 gap-1.5">
                   <div id="track-map" class="flex-1 min-h-0 min-w-0"></div>
                   <div
@@ -281,11 +248,7 @@
                     value="1"
                     oninput="onZoomChange(this.value)"
                   />
-                  <span
-                    id="track-zoom-val"
-                    class="text-slate-200 min-w-[2.2rem] text-right tabular-nums"
-                    >1.0x</span
-                  >
+                  <span id="track-zoom-val" class="text-slate-200 min-w-[2.2rem] text-right tabular-nums">1.0x</span>
                 </div>
               </div>
             </section>
@@ -328,9 +291,7 @@
          SCROLLING CONTENT — capped width on ultrawide for readability.
          ===================================================================== -->
     <main class="flex-1 w-full px-4 md:px-6 xl:px-8 py-4 pb-10">
-      <h1 class="text-[1.15rem] font-semibold mb-[0.9rem]">
-        Telemetry <span class="text-accent">Explorer</span>
-      </h1>
+      <h1 class="text-[1.15rem] font-semibold mb-[0.9rem]">Telemetry <span class="text-accent">Explorer</span></h1>
 
       <!-- Session/Lap selection -->
       <section
@@ -370,15 +331,9 @@
       </section>
 
       <!-- Signal picker -->
-      <section
-        id="panel-signals"
-        data-collapsible
-        class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4"
-      >
+      <section id="panel-signals" data-collapsible class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4">
         <header class="flex justify-between items-center mb-3">
-          <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
-            Signals
-          </div>
+          <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">Signals</div>
           <button
             class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
             onclick="togglePanel('panel-signals', this)"
@@ -401,6 +356,60 @@
       id="toasts"
       class="fixed top-3 left-0 right-0 z-[10000] flex flex-col items-center gap-2 pointer-events-none"
     ></div>
+
+    <!-- AI Chat — floating panel + bottom-right toggle. Geometry is set by
+         chat-overlay.js (transform/width/height), defaults to hidden until
+         user clicks the toggle. -->
+    <button id="chat-toggle" type="button" aria-label="Toggle AI chat" aria-expanded="false" title="Ask Quix AI">
+      <img class="quix-icon quix-icon-dark" src="/static/quix-icon-dark.svg" alt="" />
+      <img class="quix-icon quix-icon-light" src="/static/quix-icon-light.svg" alt="" />
+    </button>
+    <div id="chat-float-slot" class="hidden" role="dialog" aria-label="AI chat panel">
+      <section id="chat-panel">
+        <header id="chat-panel-head">
+          <span class="chat-title">
+            <img class="quix-icon quix-icon-light" src="/static/quix-icon-light.svg" alt="" />
+            Quix AI
+          </span>
+          <button
+            type="button"
+            class="chat-close"
+            aria-label="Close chat"
+            onclick="document.getElementById('chat-toggle').click()"
+          >
+            ×
+          </button>
+        </header>
+        <div id="chat-messages" aria-live="polite"></div>
+        <div id="chat-input-row">
+          <div class="chat-prompt-wrap">
+            <textarea
+              id="chat-input"
+              rows="1"
+              placeholder="Ask Quix AI…"
+              autocomplete="off"
+              aria-label="Message"
+            ></textarea>
+            <button id="chat-send" type="button" aria-label="Send">
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <!-- Non-module scripts in dependency order. All share global scope so
          inline onclick= handlers resolve without imports. -->

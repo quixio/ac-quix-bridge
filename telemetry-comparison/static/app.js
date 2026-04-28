@@ -20,6 +20,8 @@ import { setStatus } from './modules/charts.js';
 // Side-effect import: installs window.onVideoLapChange/onVideoSpeedChange
 // and the document 'plot-complete' listener that drives the lap picker.
 import './modules/video.js';
+import { initChatOverlay } from './modules/chat-overlay.js';
+import { initChat } from './modules/chat.js';
 
 // ---------------------------------------------------------------------------
 // Panel collapse/expand — keyed to inline onclick= in index.html. The CSS
@@ -49,6 +51,8 @@ window.toggleTopbarPanel = toggleTopbarPanel;
 (async () => {
   setStatus('<span class="loading-spinner"></span> Loading...');
   wireVideoElement();
+  initChatOverlay();
+  initChat();
 
   // Render the first row immediately so the user sees dropdown placeholders
   // in a "loading…" state rather than a blank panel while we fetch sessions.
@@ -91,11 +95,7 @@ window.toggleTopbarPanel = toggleTopbarPanel;
       // Fast path: fetch ONLY the matching session (~300-400 ms), render
       // immediately. Then refetch the full list in the background so that
       // cascading dropdowns work when the user wants to compare.
-      const [filtered] = await Promise.all([
-        fetchSessions(defaults),
-        loadChannels(),
-        fetchTrack(),
-      ]);
+      const [filtered] = await Promise.all([fetchSessions(defaults), loadChannels(), fetchTrack()]);
 
       if (filtered.length === 0) {
         // The URL params didn't match any session. Skip the broken render
