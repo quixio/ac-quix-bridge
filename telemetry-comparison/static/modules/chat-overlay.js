@@ -30,10 +30,10 @@ const VIEWPORT_MARGIN = 16;
 function _readState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULTS };
+    if (!raw) return { ...DEFAULTS, _firstVisit: true };
     return { ...DEFAULTS, ...JSON.parse(raw) };
   } catch (_) {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, _firstVisit: true };
   }
 }
 
@@ -93,18 +93,55 @@ function _show(state) {
     ? { x: state.x, y: state.y, width: state.width, height: state.height }
     : _defaultGeometry();
   _applyGeometry(slot, geom);
+  // Cancel a pending hide if the user re-opened mid-exit-animation.
+  if (_hideTimer !== null) {
+    clearTimeout(_hideTimer);
+    _hideTimer = null;
+  }
+  slot.classList.remove('leaving');
+  // Apply entrance state BEFORE unhiding so the slot becomes visible at
+  // the offset+faded position; we then drop the class on the next frame
+  // and the CSS transition runs from there to the resting style.
+  slot.classList.add('entering');
   slot.classList.remove('hidden');
   if (toggle) toggle.setAttribute('aria-expanded', 'true');
-  // Focus the input on every show so the user can type immediately. Defer
-  // one frame so the panel is laid out before focus calls scrollIntoView.
-  requestAnimationFrame(_focusInput);
+  requestAnimationFrame(() => {
+    slot.classList.remove('entering');
+    _focusInput();
+  });
 }
+
+const HIDE_TRANSITION_MS = 220;
+let _hideTimer = null;
 
 function _hide() {
   const slot = document.getElementById('chat-float-slot');
   const toggle = document.getElementById('chat-toggle');
-  if (slot) slot.classList.add('hidden');
   if (toggle) toggle.setAttribute('aria-expanded', 'false');
+  if (!slot) return;
+
+  // Already hidden — no animation needed (also covers the initial-load path
+  // where _hide() runs before the panel has ever been shown).
+  if (slot.classList.contains('hidden')) return;
+
+  const reduceMotion =
+    window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (reduceMotion) {
+    slot.classList.add('hidden');
+    return;
+  }
+
+  // Run the exit transition: add `.leaving` so CSS animates the panel out,
+  // then flip to `.hidden` once the animation completes. Cancel any prior
+  // pending hide so rapid toggles don't pile up timers.
+  if (_hideTimer !== null) clearTimeout(_hideTimer);
+  slot.classList.add('leaving');
+  _hideTimer = setTimeout(() => {
+    slot.classList.remove('leaving');
+    slot.classList.add('hidden');
+    _hideTimer = null;
+  }, HIDE_TRANSITION_MS);
 }
 
 function _isVisible() {
@@ -230,6 +267,16 @@ export function initChatOverlay() {
   const state = _readState();
   if (state.visible) {
     _show(state);
+  } else if (state._firstVisit) {
+    // Polite first-visit auto-open — like Intercom/Drift. After ~1.5 s
+    // the panel slides in and persists `visible:true`. Subsequent visits
+    // just respect the stored state, so a user who closes it stays
+    // closed forever.
+    _hide();
+    setTimeout(() => {
+      _show(_readState());
+      _persistFromSlot(document.getElementById('chat-float-slot'), true);
+    }, 1500);
   } else {
     _hide();
   }
