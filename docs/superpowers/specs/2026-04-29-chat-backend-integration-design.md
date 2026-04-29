@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-29
 **Branch:** `feature/sc-72383/integrate-quix-ai-chat-into-telemetry`
-**Scope:** Wire the floating/docked chat panel (slices 1+2 already shipped) to a real backend that talks to the Quix AI QuixLake Querier agent. Replace the hardcoded mock plot plan with live Mode 1 (plot) + Mode 2 (analysis prose) + Mode 3 (clarify) responses.
+**Scope:** Wire the floating/docked chat panel (slices 1+2 already shipped) to a real backend that talks to the Quix AI QuixLake Querier agent. Replace the hardcoded mock plot plan with live Mode 1 (viz plan, can emit `plot` or `clarify`) + Mode 2 (analysis prose) + Mode 3 (deep-analysis defer) responses.
 
 ## Goal
 
@@ -98,7 +98,9 @@ app.include_router(chat.router)  # next to track_loader, video_proxy
 
 ## Data flow
 
-### Mode 1 (Plot)
+The QuixLake Querier agent system prompt picks one of three modes per turn (see `quix-ai-exploration/kb/agent_system_prompt.md`). Mode 1 has two output shapes (`plot` or `clarify`). Mode 2 is prose with SQL via MCP. Mode 3 is a short defer sentence for things outside SQL's reach (ML / clustering / FFT / etc).
+
+### Mode 1 (Viz plan) — happy path: plot
 
 ```
 1. User types "plot Ludvik laps 2-3 vs Tomas laps 3-4 ks_nurburgring"
@@ -110,13 +112,27 @@ app.include_router(chat.router)  # next to track_loader, video_proxy
    d. Stream text_delta → answer_delta events to frontend
       (hold back 6 chars to detect ```json fence cleanly)
    e. Once ```json fence seen → stop streaming text, accumulate JSON
-   f. Parse final JSON via plans.py → PlotPlan (Pydantic)
+   f. Parse final JSON via plans.py → PlotPlan (Pydantic, type="plot")
    g. Emit {event: "plot", plan: {...}}
 4. Frontend chat.js:
    - answer_delta events → append to current bubble (markdown re-render)
    - plot event → applyPlotPlan(plan) → fills dropdowns, ticks laps,
      activates signal chips, calls window.plot()
    - existing /api/telemetry path renders charts (single source of truth)
+```
+
+### Mode 1 (Viz plan) — sub-shape: clarify
+
+The agent emits a clarify object instead of a plot when the user's criteria
+match more than one session, span multiple tracks, or exceed the trace cap.
+
+```
+1. User: "plot ludvik bmw" (ambiguous — multiple sessions match)
+2. Agent emits {type: "clarify", question: "Which session?", options: [...]}
+3. Backend: parse via plans.py → ClarifyPlan, emit {event: "clarify", ...}
+4. Frontend: render question + option chips. Clicking a chip sends that
+   option text as the next chat message; the agent re-runs Mode 1 with
+   the disambiguated criteria.
 ```
 
 ### Mode 2 (Analysis)
@@ -132,14 +148,22 @@ app.include_router(chat.router)  # next to track_loader, video_proxy
 8. Frontend: two bubbles in chat (pre + post-tool prose), both markdown-rendered
 ```
 
-### Mode 3 (Clarify)
+### Mode 3 (Deep-analysis defer)
+
+Triggered when the user asks for ML/clustering/anomaly/FFT/racing-line
+optimisation/driving-style analysis — anything beyond plain SQL. Agent
+replies with a single short sentence saying it's not supported yet.
 
 ```
-1. User: "show fastest" (ambiguous)
-2. Agent emits {type: "clarify", question: "Which driver?", options: [...]}
-3. Backend: clarify event with options
-4. Frontend: render question + buttons. Click sends option as next message
+1. User: "find anomalies in tyre temps across all sessions"
+2. Agent (per system prompt): one-line refusal — no tool calls, no SQL,
+   no JSON fence
+3. Backend: streams text_delta as answer_delta, no plot/clarify event
+4. Frontend: single assistant bubble with the refusal text (markdown rendered)
 ```
+
+From the wire's perspective Mode 3 is identical to a Mode-2 prose answer
+with no tool call — backend doesn't need to detect it explicitly.
 
 ### Conversation state
 
@@ -161,7 +185,7 @@ Any upstream failure (Portal 5xx, agent timeout, plan validation failure) → `{
 
 | File | Cases |
 |---|---|
-| `tests/test_chat.py` | JSONL stream: `status` emitted first; `answer_delta` accumulates; fence triggers `plot` event; `clarify` event shape; `error` event when agent returns 5xx. `respx` mocks `/ai/api/sessions` + `/ai/api/sessions/{id}/messages`. |
+| `tests/test_chat.py` | JSONL stream: `status` emitted first; `answer_delta` accumulates; fence with `type:"plot"` → `plot` event; fence with `type:"clarify"` → `clarify` event; no fence + no tool call (Mode 3 defer) → just `answer_delta` then done; tool_call_start → `answer_break` event; agent 5xx → `error` event. `respx` mocks `/ai/api/sessions` + `/ai/api/sessions/{id}/messages`. |
 | `tests/test_plans.py` | Pydantic validation: `PlotPlan` happy path; `MAX_TRACES` cap; `MAX_SIGNALS` cap; single-track invariant; malformed agent JSON → 502 ; `ClarifyPlan` accepts `options[]`. |
 
 No real Quix Portal calls in CI. Reuse telemetry-chat's `respx` patterns verbatim.
@@ -172,9 +196,10 @@ No real Quix Portal calls in CI. Reuse telemetry-chat's `respx` patterns verbati
 
 ### Manual smoke (after wiring)
 
-- **Plot:** "plot Ludvik laps 2-3 ks_nurburgring speed throttle" → dropdowns auto-fill, charts render.
-- **Analysis:** "fastest lap on bmw_1m ks_nurburgring" → prose answer with markdown.
-- **Clarify:** "show fastest" → buttons appear; clicking sends as next message.
+- **Mode 1 plot:** "plot Ludvik laps 2-3 ks_nurburgring speed throttle" → dropdowns auto-fill, charts render.
+- **Mode 1 clarify:** "plot ludvik bmw" → option chips appear; clicking sends as next message; agent re-runs Mode 1 with the chosen option.
+- **Mode 2 analysis:** "fastest lap on bmw_1m ks_nurburgring" → prose answer with markdown.
+- **Mode 3 defer:** "find anomalies in tyre temps" → short "not supported yet" sentence; no plot, no SQL.
 - **Error:** hit endpoint with bogus token → red bubble with status.
 
 ### Quality gates
