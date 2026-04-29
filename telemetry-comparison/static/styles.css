@@ -251,7 +251,7 @@ select:focus {
 .chart-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0 0.5rem 0.25rem 0.5rem;
   font-size: 0.78rem;
   color: var(--text-muted);
