@@ -34,6 +34,17 @@
     <!-- interact.js — drag + resize for the floating video overlay -->
     <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
 
+    <!-- Self-hosted markdown-it for chat answer rendering. Importmap lets
+         ES modules `import MarkdownIt from "markdown-it"` resolve to the
+         local vendor bundle without a CDN dep. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "markdown-it": "/static/vendor/markdown-it.js"
+        }
+      }
+    </script>
+
     <!-- Trimmed stylesheet: keyframes, scrollbar, Plotly overrides only. -->
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
