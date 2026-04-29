@@ -58,7 +58,6 @@ with open(config.CHANNELS_FILE) as f:
 CHANNELS = {k: v for k, v in _raw.items() if not k.startswith("_")}
 
 
-
 # Shared async client for QuixLake /query calls. Same rationale as
 # partition_walker._http_client: amortise TLS + connection pool across all
 # requests, and use an async transport so concurrent /api/telemetry calls

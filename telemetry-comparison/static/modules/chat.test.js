@@ -124,9 +124,7 @@ describe('chat.js JSONL handling', () => {
   });
 
   it('error event renders red bubble', async () => {
-    _stubFetch([
-      { event: 'error', session_id: 's', detail: 'boom', status: 502 },
-    ]);
+    _stubFetch([{ event: 'error', session_id: 's', detail: 'boom', status: 502 }]);
     const { initChat } = await import('./chat.js');
     initChat();
     document.getElementById('chat-input').value = 'x';
