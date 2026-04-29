@@ -383,6 +383,13 @@ body {
 [data-collapsible][data-collapsed="true"] [data-collapsible-body] {
   display: none;
 }
+/* When the body is hidden, drop the header's bottom margin too — otherwise
+ * the section's bottom padding stacks with the header's margin and the
+ * collapsed panel looks bottom-heavy. Two-attribute specificity (0,0,2,1)
+ * beats Tailwind's `.mb-3` utility (0,0,1,0) which is on the header. */
+[data-collapsible][data-collapsed="true"] > header {
+  margin-bottom: 0;
+}
 
 /* When the track map is collapsed in docked mode, #combined-panel-body (the
  * 65/35 flex row inside #combined-panel) adapts by shrinking the map flex
