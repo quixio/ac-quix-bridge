@@ -288,68 +288,81 @@
     ></div>
 
     <!-- =====================================================================
-         SCROLLING CONTENT — capped width on ultrawide for readability.
+         SCROLLING CONTENT + RIGHT-SIDEBAR DOCK SLOT.
+         #main-row is a flex-row so the docked chat sidebar lives next to
+         <main> only (topbar untouched). When chat is floating, the slot is
+         hidden and <main> takes the full row width.
          ===================================================================== -->
-    <main class="flex-1 w-full px-4 md:px-6 xl:px-8 py-4 pb-10">
-      <h1 class="text-[1.15rem] font-semibold mb-[0.9rem]">Telemetry <span class="text-accent">Explorer</span></h1>
+    <div id="main-row" class="flex flex-1 min-h-0 w-full">
+      <main class="flex-1 min-w-0 px-4 md:px-6 xl:px-8 py-4 pb-10">
+        <h1 class="text-[1.15rem] font-semibold mb-[0.9rem]">Telemetry <span class="text-accent">Explorer</span></h1>
 
-      <!-- Session/Lap selection -->
-      <section
-        id="panel-sessions"
-        data-collapsible
-        class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4"
-      >
-        <header class="flex justify-between items-center mb-3">
-          <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
-            Select sessions and laps to overlay
-          </div>
-          <button
-            class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
-            onclick="togglePanel('panel-sessions', this)"
-          >
-            -
-          </button>
-        </header>
-        <div data-collapsible-body>
-          <div id="selections" class="flex flex-col gap-3"></div>
-          <div class="mt-3 flex gap-2">
+        <!-- Session/Lap selection -->
+        <section
+          id="panel-sessions"
+          data-collapsible
+          class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4"
+        >
+          <header class="flex justify-between items-center mb-3">
+            <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
+              Select sessions and laps to overlay
+            </div>
             <button
-              class="bg-ok hover:bg-[#2ab886] border-0 rounded-md px-[0.7rem] py-[0.3rem] text-white text-[0.78rem] font-semibold cursor-pointer transition-colors"
-              onclick="addRow()"
+              class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
+              onclick="togglePanel('panel-sessions', this)"
             >
-              + Add Session
+              -
             </button>
-            <button
-              id="btn-plot"
-              class="bg-accent hover:bg-[#3a7ae4] border-0 rounded-md px-[0.7rem] py-[0.3rem] text-white text-[0.78rem] font-semibold cursor-pointer transition-colors disabled:bg-brd disabled:cursor-wait"
-              onclick="plot()"
-            >
-              Plot
-            </button>
+          </header>
+          <div data-collapsible-body>
+            <div id="selections" class="flex flex-col gap-3"></div>
+            <div class="mt-3 flex gap-2">
+              <button
+                class="bg-ok hover:bg-[#2ab886] border-0 rounded-md px-[0.7rem] py-[0.3rem] text-white text-[0.78rem] font-semibold cursor-pointer transition-colors"
+                onclick="addRow()"
+              >
+                + Add Session
+              </button>
+              <button
+                id="btn-plot"
+                class="bg-accent hover:bg-[#3a7ae4] border-0 rounded-md px-[0.7rem] py-[0.3rem] text-white text-[0.78rem] font-semibold cursor-pointer transition-colors disabled:bg-brd disabled:cursor-wait"
+                onclick="plot()"
+              >
+                Plot
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- Signal picker -->
-      <section id="panel-signals" data-collapsible class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4">
-        <header class="flex justify-between items-center mb-3">
-          <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">Signals</div>
-          <button
-            class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
-            onclick="togglePanel('panel-signals', this)"
-          >
-            -
-          </button>
-        </header>
-        <div data-collapsible-body>
-          <div id="signal-container">Loading channels...</div>
-        </div>
-      </section>
+        <!-- Signal picker -->
+        <section
+          id="panel-signals"
+          data-collapsible
+          class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4"
+        >
+          <header class="flex justify-between items-center mb-3">
+            <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">Signals</div>
+            <button
+              class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
+              onclick="togglePanel('panel-signals', this)"
+            >
+              -
+            </button>
+          </header>
+          <div data-collapsible-body>
+            <div id="signal-container">Loading channels...</div>
+          </div>
+        </section>
 
-      <!-- Charts -->
-      <div id="charts" class="flex flex-col gap-1"></div>
-      <div id="status" class="text-[0.78rem] text-muted mt-3"></div>
-    </main>
+        <!-- Charts -->
+        <div id="charts" class="flex flex-col gap-1"></div>
+        <div id="status" class="text-[0.78rem] text-muted mt-3"></div>
+      </main>
+
+      <!-- Chat sidebar slot — chat-overlay.js reparents #chat-panel here in
+         docked mode. Hidden when floating; fixed width handled in CSS. -->
+      <aside id="chat-dock-slot" class="hidden shrink-0" role="complementary" aria-label="AI chat dock"></aside>
+    </div>
 
     <!-- Toast stack — fixed top-center, above the floating video (z-40). -->
     <div
@@ -371,14 +384,25 @@
             <img class="quix-icon quix-icon-light" src="/static/quix-icon-light.svg" alt="" />
             Quix AI
           </span>
-          <button
-            type="button"
-            class="chat-close"
-            aria-label="Close chat"
-            onclick="document.getElementById('chat-toggle').click()"
-          >
-            ×
-          </button>
+          <div class="chat-head-actions">
+            <button
+              id="chat-mode-toggle"
+              type="button"
+              class="chat-mode-btn"
+              aria-label="Toggle dock/float"
+              title="Dock"
+            >
+              Dock
+            </button>
+            <button
+              type="button"
+              class="chat-close"
+              aria-label="Close chat"
+              onclick="document.getElementById('chat-toggle').click()"
+            >
+              ×
+            </button>
+          </div>
         </header>
         <div id="chat-messages" aria-live="polite"></div>
         <div id="chat-input-row">

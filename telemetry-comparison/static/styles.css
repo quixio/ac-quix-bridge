@@ -898,6 +898,30 @@ body.chat-gesturing * {
   gap: 8px;
 }
 
+#chat-panel-head .chat-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#chat-panel-head .chat-mode-btn {
+  border: 1px solid var(--color-brd, #2d3441);
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  border-radius: 4px;
+}
+#chat-panel-head .chat-mode-btn:hover {
+  border-color: var(--color-accent, #63b3ed);
+  color: var(--color-accent, #63b3ed);
+}
+
 #chat-panel-head .chat-close {
   border: none;
   background: transparent;
@@ -1078,3 +1102,73 @@ body.chat-gesturing * {
  * stay fixed regardless of panel width so there is nothing visually
  * shifting as the user resizes. The panel itself just gets narrower /
  * taller; the chrome inside it does not scale. */
+
+/* =============================================================================
+ * DOCKED MODE — chat-overlay.js reparents #chat-panel into
+ * <aside id="chat-dock-slot"> when the viewport allows it. The slot is a
+ * fixed-width right column inside #main-row; the panel fills it.
+ *
+ * Width matches the floating default (400 px) so toggling between modes
+ * is not jarring. Border + background are kept; the drop-shadow and
+ * rounded right edge are dropped so the sidebar looks built-in instead
+ * of pasted on top.
+ * ============================================================================= */
+#chat-dock-slot {
+  width: 400px;
+  border-left: 1px solid var(--color-brd, #2d3441);
+  background: var(--color-surface, #1f2533);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Polite reflow when toggling dock/float so charts don't snap. */
+  transition: width 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* App-shell layout when chat is docked: lock body to viewport height, move
+ * scrolling into the <main> column. Topbar stays at top, sidebar fills the
+ * row, charts/signals scroll inside main. Restores normal page scroll when
+ * floating so existing behaviour for narrow viewports is unchanged. */
+body[data-chat-mode="docked"] {
+  height: 100vh;
+  overflow: hidden;
+}
+body[data-chat-mode="docked"] #main-row {
+  min-height: 0;
+}
+body[data-chat-mode="docked"] #main-row > main {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+#chat-dock-slot.hidden {
+  display: none;
+}
+
+/* When the panel lives inside the dock slot, strip floating chrome. */
+body[data-chat-mode="docked"] #chat-dock-slot #chat-panel {
+  flex: 1 1 auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  /* Floating mode applies an entrance transform; reset for docked so the
+   * panel sits flush. */
+  transform: none;
+  opacity: 1;
+}
+
+/* Drag cursor only meaningful while floating — strip it when docked. */
+body[data-chat-mode="docked"] #chat-panel-head {
+  cursor: default;
+}
+
+/* Ensure the floating slot stays out of the way when docked. The .hidden
+ * class on #chat-float-slot already does display:none, but belt-and-braces
+ * the visibility here so any stray transition state can't bleed through. */
+body[data-chat-mode="docked"] #chat-float-slot {
+  display: none !important;
+}
+
+/* The toggle button is bottom-right floating chrome — keep it fixed in
+ * floating mode (default), but in docked mode the dock sidebar already
+ * shows the panel; the toggle still serves as a Close-from-anywhere
+ * button so we keep it visible. No special override needed. */
