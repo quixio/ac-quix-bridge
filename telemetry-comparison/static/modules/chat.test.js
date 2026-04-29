@@ -61,7 +61,7 @@ describe('chat.js JSONL handling', () => {
 
     const bubbles = document.querySelectorAll('.chat-msg-assistant');
     expect(bubbles).toHaveLength(1);
-    expect(bubbles[0].dataset.raw).toBe('Hello world.');
+    expect(bubbles[0].textContent).toBe('Hello world.');
   });
 
   it('answer_break splits prose into two bubbles', async () => {
