@@ -47,6 +47,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+config.validate_env()
+
 app = FastAPI(title="Telemetry Comparison")
 app.include_router(chat.router)
 app.include_router(track_loader.router)

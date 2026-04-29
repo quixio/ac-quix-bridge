@@ -220,3 +220,23 @@ def test_session_id_validation() -> None:
     with TestClient(app) as client:
         r = client.post("/api/chat", json={"message": "x", "session_id": "bad id with spaces"})
         assert r.status_code == 422
+
+
+def test_missing_quix_token_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Empty QUIX_TOKEN must surface a clean JSONL error before any HTTP call."""
+    monkeypatch.setattr(config, "QUIX_TOKEN", "")
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "x"}).content)
+    err = next(e for e in events if e["event"] == "error")
+    assert "QUIX_TOKEN" in err["detail"]
+    assert err["status"] == 503
+
+
+def test_missing_portal_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Empty Quix__Portal__Api must surface a clean JSONL error before any HTTP call."""
+    monkeypatch.setattr(config, "PORTAL", "")
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "x"}).content)
+    err = next(e for e in events if e["event"] == "error")
+    assert "Quix__Portal__Api" in err["detail"]
+    assert err["status"] == 503

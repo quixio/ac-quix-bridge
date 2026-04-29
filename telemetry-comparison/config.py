@@ -7,12 +7,15 @@ read attributes off this module rather than capturing values at import time.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
@@ -24,16 +27,15 @@ QUIXLAKE_URL = os.getenv("QUIXLAKE_URL")
 QUIX_LAKE_TOKEN = os.getenv("QUIX_LAKE_TOKEN")
 BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
 
-# Quix Portal API base. Auto-injected as `Quix__Portal__Api` in Quix Cloud;
-# falls back to `QUIX_PORTAL_API` for local dev.
-PORTAL = (
-    os.getenv("Quix__Portal__Api") or os.getenv("QUIX_PORTAL_API") or ""  # noqa: SIM112
-).rstrip("/")
+# Quix Portal API base. `Quix__Portal__Api` is the canonical name — Quix Cloud
+# auto-injects it on every deployment, and we use the same name in local .env.
+PORTAL = os.getenv("Quix__Portal__Api", "").rstrip("/")  # noqa: SIM112
 QUIX_TOKEN = os.getenv("QUIX_TOKEN", "")
 
 # QuixLake Querier agent (system prompt + KBs + MCP tools live on it).
 # Override via env if you need to point at a fork of the agent.
-AGENT_CONFIGURATION_ID = os.getenv("QUIX_AI_AGENT_ID", "d578e2f5-c2b7-461a-90d2-70dfac450fb0")
+_DEFAULT_AGENT_ID = "d578e2f5-c2b7-461a-90d2-70dfac450fb0"
+AGENT_CONFIGURATION_ID = os.getenv("QUIX_AI_AGENT_ID", _DEFAULT_AGENT_ID)
 
 
 def portal_headers(*, streaming: bool = False) -> dict[str, str]:
@@ -44,6 +46,29 @@ def portal_headers(*, streaming: bool = False) -> dict[str, str]:
     if streaming:
         headers["Accept"] = "text/event-stream"
     return headers
+
+
+def validate_env() -> None:
+    """Log missing/default env vars at startup so misconfig is visible up
+    front. ERRORs for hard requirements; WARNs for soft (default-backed)
+    settings. Does not raise — request-time guards (in main.py / chat.py)
+    still surface clean errors to the caller.
+    """
+    required = {
+        "QUIXLAKE_URL": QUIXLAKE_URL,
+        "QUIX_LAKE_TOKEN": QUIX_LAKE_TOKEN,
+        "Quix__Portal__Api": PORTAL,
+        "QUIX_TOKEN": QUIX_TOKEN,
+    }
+    for name, value in required.items():
+        if not value:
+            logger.error("Required env var %s is not set", name)
+
+    if AGENT_CONFIGURATION_ID == _DEFAULT_AGENT_ID and not os.getenv("QUIX_AI_AGENT_ID"):
+        logger.warning(
+            "QUIX_AI_AGENT_ID not set — using default QuixLake Querier agent %s",
+            _DEFAULT_AGENT_ID,
+        )
 
 
 CORNER_THRESHOLDS = {"hairpin_max": 60, "tight_max": 150, "sweeper_max": 400}

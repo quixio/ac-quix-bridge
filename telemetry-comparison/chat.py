@@ -34,6 +34,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, field_validator
 
+import config
 from plans import AgentPlan, ClarifyPlan, PlotPlan
 from quix_ai import create_session, stream_message
 
@@ -96,6 +97,25 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
         req.message[:80],
         req.session_id or "<new>",
     )
+
+    # Upfront guard — catch missing config before httpx rejects an empty
+    # Bearer header with a cryptic message. Same shape as main.py's QuixLake
+    # guard but emitted as a JSONL error event instead of a 500.
+    missing = [
+        name
+        for name, value in (
+            ("Quix__Portal__Api", config.PORTAL),
+            ("QUIX_TOKEN", config.QUIX_TOKEN),
+        )
+        if not value
+    ]
+    if missing:
+        yield _error_event(
+            None,
+            f"Missing required env var(s): {', '.join(missing)}. Set them in .env before chatting.",
+            status=503,
+        )
+        return
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         session_id = req.session_id
