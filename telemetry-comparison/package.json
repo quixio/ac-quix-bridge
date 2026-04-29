@@ -6,12 +6,15 @@
   "scripts": {
     "format": "prettier --write 'static/**/*.{js,css,html}'",
     "format:check": "prettier --check 'static/**/*.{js,css,html}'",
-    "lint": "eslint 'static/**/*.js'"
+    "lint": "eslint 'static/**/*.js'",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",
     "eslint": "^9.14.0",
     "globals": "^15.12.0",
-    "prettier": "^3.3.3"
+    "jsdom": "^29.1.0",
+    "prettier": "^3.3.3",
+    "vitest": "^4.1.5"
   }
 }
