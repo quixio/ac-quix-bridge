@@ -361,6 +361,14 @@
             </button>
           </header>
           <div data-collapsible-body>
+            <input
+              id="signal-filter"
+              class="signal-filter-input"
+              type="search"
+              placeholder="Filter signals…"
+              autocomplete="off"
+              oninput="filterSignals(this.value)"
+            />
             <div id="signal-container">Loading channels...</div>
           </div>
         </section>

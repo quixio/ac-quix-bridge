@@ -237,6 +237,39 @@ body {
   background: #2ab886;
 }
 
+/* Signal-filter input — class-targeted to beat Tailwind preflight resets.
+ * Fixed 320 px by default, capped at 100 % of the container so it shrinks
+ * with the panel on narrow viewports. */
+.signal-filter-input {
+  width: 320px;
+  max-width: 100%;
+  margin-bottom: 0.6rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+}
+.signal-filter-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+.signal-filter-input:focus {
+  border-color: var(--accent);
+}
+
+/* Filter visibility helpers — `!important` is required because the chip
+ * collapse machinery (toggleCat) writes inline `style="display:none"` on
+ * extra chips. Class wins over inline only via importance. */
+.chip-filter-hidden {
+  display: none !important;
+}
+.chip-filter-visible {
+  display: inline !important;
+}
+
 /* ---------- Runtime-built: signal chips / category sections ---------- */
 .signal-chips {
   display: flex;
