@@ -1172,3 +1172,113 @@ body[data-chat-mode="docked"] #chat-float-slot {
  * floating mode (default), but in docked mode the dock sidebar already
  * shows the panel; the toggle still serves as a Close-from-anywhere
  * button so we keep it visible. No special override needed. */
+
+/* =============================================================================
+ * Chat backend polish — status spinner, clarify chips, error bubble,
+ * markdown-rendered assistant body. Scoped to .chat-msg-* classes that
+ * chat.js writes; styles.css already covers the panel chrome.
+ * ============================================================================= */
+
+#chat-progress {
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  font-style: italic;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#chat-progress::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-muted, #94a3b8);
+  border-top-color: var(--color-accent, #63b3ed);
+  border-radius: 50%;
+  animation: chat-spin 0.8s linear infinite;
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Markdown-rendered assistant body — tighten default browser styles. */
+.chat-msg-assistant > p {
+  margin: 0 0 6px 0;
+}
+.chat-msg-assistant > p:last-child {
+  margin-bottom: 0;
+}
+.chat-msg-assistant > ul,
+.chat-msg-assistant > ol {
+  margin: 0 0 6px 18px;
+  padding: 0;
+}
+.chat-msg-assistant code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.chat-msg-assistant pre {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.82em;
+}
+.chat-msg-assistant table {
+  border-collapse: collapse;
+  margin: 6px 0;
+}
+.chat-msg-assistant th,
+.chat-msg-assistant td {
+  border: 1px solid var(--color-brd, #2d3441);
+  padding: 3px 8px;
+  font-size: 0.85em;
+}
+.chat-msg-assistant a {
+  color: var(--color-accent, #63b3ed);
+}
+
+/* Clarify chips — appear inline beneath an assistant question bubble. */
+.chat-clarify-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.chat-clarify-chip {
+  border: 1px solid var(--color-brd, #2d3441);
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  border-radius: 999px;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+.chat-clarify-chip:hover {
+  border-color: var(--color-accent, #63b3ed);
+  color: var(--color-accent, #63b3ed);
+}
+
+/* Error bubble — red, pinned-left, no markdown rendering. */
+.chat-msg-error {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fecaca;
+  align-self: flex-start;
+  padding: 8px 10px;
+  border-radius: 8px;
+  max-width: 85%;
+  word-break: break-word;
+  font-size: 0.85rem;
+}
