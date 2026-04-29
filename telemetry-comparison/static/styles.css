@@ -15,15 +15,18 @@
  */
 
 :root {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --border: #2d3047;
-  --text: #e2e8f0;
-  --text-muted: #8892a4;
-  --accent: #4f8ef7;
-  --green: #34d399;
+  /* Palette aligned with Test Manager + Quix Cloud (neutral charcoal,
+   * Quix-blue accent) so the iframe boundary on the TM /analysis tab is
+   * visually seamless. */
+  --bg: #1a1a1a;
+  --surface: #222229;
+  --border: #3e3e46;
+  --text: #eaedf0;
+  --text-muted: #a8b1c0;
+  --accent: #0064ff;
+  --green: #059669;
   --orange: #f59e0b;
-  --red: #f87171;
+  --red: #ff3f41;
   --row-control-h: 32px;
 }
 
@@ -94,7 +97,7 @@ body {
  * exactly the same y-extent regardless of text metrics. */
 .part-select {
   background-color: var(--bg);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%238892a4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l5 5 5-5'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23a8b1c0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l5 5 5-5'/></svg>");
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 12px 8px;
@@ -152,7 +155,7 @@ body {
   border-color: var(--accent);
 }
 .lap-cb.checked {
-  background: rgba(79, 142, 247, 0.15);
+  background: rgba(0, 100, 255, 0.15);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -178,7 +181,7 @@ body {
   transition: background 0.15s;
 }
 .btn:hover {
-  background: #3a7ae4;
+  background: #0050cc;
 }
 .btn:disabled {
   background: var(--border);
@@ -228,13 +231,13 @@ body {
   background: var(--red);
 }
 .btn-danger:hover {
-  background: #e05858;
+  background: #cc3234;
 }
 .btn-add {
   background: var(--green);
 }
 .btn-add:hover {
-  background: #2ab886;
+  background: #047857;
 }
 
 /* Signal-filter input — class-targeted to beat Tailwind preflight resets.
@@ -289,7 +292,7 @@ body {
   user-select: none;
 }
 .chip.active {
-  background: rgba(79, 142, 247, 0.2);
+  background: rgba(0, 100, 255, 0.2);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -642,7 +645,7 @@ body[data-video-mode="floating"] #combined-panel[data-active-tab="map"] #video-p
  * the stable data-active-tab attribute on the combined-panel. */
 #combined-panel[data-active-tab="video"] .combined-tab[data-tab="video"],
 #combined-panel[data-active-tab="map"] .combined-tab[data-tab="map"] {
-  background: rgba(79, 142, 247, 0.15);
+  background: rgba(0, 100, 255, 0.15);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -946,8 +949,8 @@ body.chat-gesturing * {
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  background: var(--color-surface, #1f2533);
-  border: 1px solid var(--color-brd, #2d3441);
+  background: var(--color-surface, #222229);
+  border: 1px solid var(--color-brd, #3e3e46);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   overflow: hidden;
@@ -979,14 +982,14 @@ body.chat-gesturing * {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--color-brd, #2d3441);
+  border-bottom: 1px solid var(--color-brd, #3e3e46);
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   font-weight: 600;
   cursor: move;
   user-select: none;
-  background: var(--color-surface, #1f2533);
+  background: var(--color-surface, #222229);
 }
 
 #chat-panel-head .chat-title {
@@ -1002,7 +1005,7 @@ body.chat-gesturing * {
 }
 
 #chat-panel-head .chat-mode-btn {
-  border: 1px solid var(--color-brd, #2d3441);
+  border: 1px solid var(--color-brd, #3e3e46);
   background: transparent;
   color: var(--color-muted, #94a3b8);
   cursor: pointer;
@@ -1015,8 +1018,8 @@ body.chat-gesturing * {
   border-radius: 4px;
 }
 #chat-panel-head .chat-mode-btn:hover {
-  border-color: var(--color-accent, #63b3ed);
-  color: var(--color-accent, #63b3ed);
+  border-color: var(--color-accent, #0064ff);
+  color: var(--color-accent, #0064ff);
 }
 
 #chat-panel-head .chat-close {
@@ -1071,8 +1074,8 @@ body.chat-gesturing * {
 
 #chat-input-row {
   padding: 10px 12px;
-  border-top: 1px solid var(--color-brd, #2d3441);
-  background: var(--color-surface, #1f2533);
+  border-top: 1px solid var(--color-brd, #3e3e46);
+  background: var(--color-surface, #222229);
 }
 
 /* Combined input area: textarea + absolute-positioned send button. The
@@ -1080,13 +1083,13 @@ body.chat-gesturing * {
  * the visual rectangle of the prompt. */
 .chat-prompt-wrap {
   position: relative;
-  background: var(--color-bg, #0f1318);
-  border: 1px solid var(--color-brd, #2d3441);
+  background: var(--color-bg, #1a1a1a);
+  border: 1px solid var(--color-brd, #3e3e46);
   border-radius: 8px;
   transition: border-color 0.15s;
 }
 .chat-prompt-wrap:focus-within {
-  border-color: var(--color-accent, #63b3ed);
+  border-color: var(--color-accent, #0064ff);
 }
 
 #chat-input {
@@ -1112,8 +1115,8 @@ body.chat-gesturing * {
   bottom: 5px;
   width: 30px;
   height: 30px;
-  background: var(--color-accent, #63b3ed);
-  color: #0b0f15;
+  background: var(--color-accent, #0064ff);
+  color: #fff;
   border: none;
   border-radius: 6px;
   display: inline-flex;
@@ -1127,7 +1130,7 @@ body.chat-gesturing * {
   filter: brightness(1.08);
 }
 #chat-send:disabled {
-  background: var(--color-brd, #2d3441);
+  background: var(--color-brd, #3e3e46);
   color: var(--color-muted, #94a3b8);
   cursor: not-allowed;
 }
@@ -1147,7 +1150,7 @@ body.chat-gesturing * {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  background: var(--color-accent, #63b3ed);
+  background: var(--color-accent, #0064ff);
   color: #0b0f15;
   border: none;
   cursor: pointer;
@@ -1162,9 +1165,9 @@ body.chat-gesturing * {
   filter: brightness(1.08);
 }
 #chat-toggle[aria-expanded="true"] {
-  background: var(--color-surface, #1f2533);
-  color: var(--color-accent, #63b3ed);
-  border: 1px solid var(--color-accent, #63b3ed);
+  background: var(--color-surface, #222229);
+  color: var(--color-accent, #0064ff);
+  border: 1px solid var(--color-accent, #0064ff);
 }
 
 /* Quix icon — used in toggle button (variant flips on expanded state) and in
@@ -1215,8 +1218,8 @@ body.chat-gesturing * {
    * resize the panel by writing --chat-dock-w on :root. Defaults to 400 px
    * and is clamped (320-50% viewport) by the resize logic in chat-overlay.js. */
   width: var(--chat-dock-w, 400px);
-  border-left: 1px solid var(--color-brd, #2d3441);
-  background: var(--color-surface, #1f2533);
+  border-left: 1px solid var(--color-brd, #3e3e46);
+  background: var(--color-surface, #222229);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1245,7 +1248,7 @@ body.chat-resizing #chat-dock-slot {
 }
 #chat-dock-resizer:hover,
 body.chat-resizing #chat-dock-resizer {
-  background: var(--color-accent, #63b3ed);
+  background: var(--color-accent, #0064ff);
   opacity: 0.35;
 }
 
@@ -1324,7 +1327,7 @@ body[data-chat-mode="docked"] #chat-float-slot {
   width: 12px;
   height: 12px;
   border: 2px solid var(--color-muted, #94a3b8);
-  border-top-color: var(--color-accent, #63b3ed);
+  border-top-color: var(--color-accent, #0064ff);
   border-radius: 50%;
   animation: chat-spin 0.8s linear infinite;
 }
@@ -1366,12 +1369,12 @@ body[data-chat-mode="docked"] #chat-float-slot {
 }
 .chat-msg-assistant th,
 .chat-msg-assistant td {
-  border: 1px solid var(--color-brd, #2d3441);
+  border: 1px solid var(--color-brd, #3e3e46);
   padding: 3px 8px;
   font-size: 0.85em;
 }
 .chat-msg-assistant a {
-  color: var(--color-accent, #63b3ed);
+  color: var(--color-accent, #0064ff);
 }
 
 /* Clarify chips — appear inline beneath an assistant question bubble. */
@@ -1382,7 +1385,7 @@ body[data-chat-mode="docked"] #chat-float-slot {
   margin-top: 8px;
 }
 .chat-clarify-chip {
-  border: 1px solid var(--color-brd, #2d3441);
+  border: 1px solid var(--color-brd, #3e3e46);
   background: transparent;
   color: var(--color-muted, #94a3b8);
   cursor: pointer;
@@ -1395,14 +1398,14 @@ body[data-chat-mode="docked"] #chat-float-slot {
     color 0.15s;
 }
 .chat-clarify-chip:hover {
-  border-color: var(--color-accent, #63b3ed);
-  color: var(--color-accent, #63b3ed);
+  border-color: var(--color-accent, #0064ff);
+  color: var(--color-accent, #0064ff);
 }
 
 /* Error bubble — red, pinned-left, no markdown rendering. */
 .chat-msg-error {
-  background: rgba(248, 113, 113, 0.12);
-  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(255, 63, 65, 0.12);
+  border: 1px solid rgba(255, 63, 65, 0.4);
   color: #fecaca;
   align-self: flex-start;
   padding: 8px 10px;

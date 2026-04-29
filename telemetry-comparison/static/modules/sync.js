@@ -162,7 +162,7 @@ export function updateMarker(nd, forceTrack, source) {
         yanchor: 'top',
         xshift: 6,
         yshift: -(shown * ROW_H) - 2,
-        font: { color: '#8892a4', size: 9, style: 'italic' },
+        font: { color: '#a8b1c0', size: 9, style: 'italic' },
         bgcolor: 'rgba(15,17,23,0.7)',
         borderpad: 1,
       });

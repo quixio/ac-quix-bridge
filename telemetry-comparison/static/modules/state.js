@@ -17,8 +17,8 @@
 export const TRACE_COLORS = [
   '#4f8ef7',
   '#f59e0b',
-  '#34d399',
-  '#f87171',
+  '#059669',
+  '#ff3f41',
   '#a78bfa',
   '#ec4899',
   '#06b6d4',
@@ -55,15 +55,16 @@ export const PART_LABELS = {
   session_id: 'Session',
 };
 
+// Mirrors the dark palette in styles.css :root + tailwind.config.
 export const PLOTLY_LAYOUT = {
-  paper_bgcolor: '#1a1d27',
-  plot_bgcolor: '#1a1d27',
-  font: { color: '#e2e8f0', size: 11 },
+  paper_bgcolor: '#222229',
+  plot_bgcolor: '#222229',
+  font: { color: '#eaedf0', size: 11 },
   legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 8 } },
   margin: { t: 10, r: 60, b: 40, l: 55 },
   height: 240,
-  xaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047' },
-  yaxis: { color: '#8892a4', gridcolor: '#2d3047', zerolinecolor: '#2d3047', autorange: true },
+  xaxis: { color: '#a8b1c0', gridcolor: '#3e3e46', zerolinecolor: '#3e3e46' },
+  yaxis: { color: '#a8b1c0', gridcolor: '#3e3e46', zerolinecolor: '#3e3e46', autorange: true },
 };
 
 export const DEFAULT_ACTIVE = new Set(['speedKmh', 'gas', 'brake', 'rpms']);

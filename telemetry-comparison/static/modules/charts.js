@@ -62,8 +62,8 @@ function buildCornerAnnotations() {
     yanchor: 'top',
     text: c.label,
     showarrow: false,
-    font: { size: 10, color: '#e2e8f0' },
-    bgcolor: 'rgba(15,17,23,0.6)',
+    font: { size: 10, color: '#eaedf0' },
+    bgcolor: 'rgba(26,26,26,0.6)',
     borderpad: 2,
   }));
 }
