@@ -145,6 +145,26 @@ function _focusInput() {
   if (input) input.focus();
 }
 
+/** Force every Plotly chart in #charts to re-layout after the chat panel
+ *  toggles between hidden / floating / docked. Plotly's `responsive:true`
+ *  observer doesn't always pick up the reflow caused by the dock-slot's
+ *  CSS transition, leaving charts at their pre-toggle width and clipping
+ *  on the right. Two rAF ticks let the browser commit the reflow first. */
+function _resizePlots() {
+  if (typeof window.Plotly?.Plots?.resize !== 'function') return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      for (const div of document.querySelectorAll('#charts .js-plotly-plot')) {
+        try {
+          window.Plotly.Plots.resize(div);
+        } catch (_) {
+          /* non-fatal — chart may have been torn down between frames */
+        }
+      }
+    });
+  });
+}
+
 function _getPanel() {
   return document.getElementById('chat-panel');
 }
@@ -172,6 +192,7 @@ function _reparentToDock() {
   // so it doesn't intercept clicks via its 8 px halo. Geometry stays in
   // dataset so re-floating restores the previous position.
   float.classList.add('hidden');
+  _resizePlots();
   return true;
 }
 
@@ -192,6 +213,7 @@ function _reparentToFloat() {
     : _defaultGeometry();
   _applyGeometry(float, geom);
   float.classList.remove('hidden');
+  _resizePlots();
   return true;
 }
 
@@ -241,6 +263,9 @@ function _hide() {
     const dock = _getDockSlot();
     if (dock) dock.classList.add('hidden');
     _updateToggleVisibility();
+    // Hiding the docked sidebar reflows <main> wider; resize charts so
+    // they fill the new space instead of staying clipped at old width.
+    _resizePlots();
     return;
   }
 
