@@ -1305,9 +1305,13 @@ body[data-chat-mode="docked"] #chat-float-slot {
  * ============================================================================= */
 
 #chat-progress {
-  background: transparent;
+  /* Render as a proper assistant bubble — same bg/padding/radius as a real
+   * .chat-msg-assistant (.chat-msg already gives padding + border-radius via
+   * its base rule). The italic muted look from .chat-msg-assistant-status
+   * is intentionally overridden here. */
+  background: rgba(255, 255, 255, 0.04);
   color: var(--color-muted, #94a3b8);
-  font-style: italic;
+  font-style: normal;
   align-self: flex-start;
   display: flex;
   align-items: center;

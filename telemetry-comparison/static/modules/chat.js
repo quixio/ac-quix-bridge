@@ -161,6 +161,13 @@ function _handleEvent(evt) {
   }
 }
 
+function _refreshSendDisabled() {
+  const sendBtn = document.getElementById('chat-send');
+  const input = document.getElementById('chat-input');
+  if (!sendBtn || !input) return;
+  sendBtn.disabled = _sending || !input.value.trim();
+}
+
 async function _submit() {
   const input = document.getElementById('chat-input');
   if (!input || _sending) return;
@@ -168,6 +175,7 @@ async function _submit() {
   if (!text) return;
   _sending = true;
   input.value = '';
+  _refreshSendDisabled();
 
   _activeAnswer = null;
   _addMessage('user', text);
@@ -192,6 +200,7 @@ async function _submit() {
   } finally {
     _sending = false;
     input.focus();
+    _refreshSendDisabled();
   }
 }
 
@@ -207,4 +216,6 @@ export function initChat() {
       _submit();
     }
   });
+  input.addEventListener('input', _refreshSendDisabled);
+  _refreshSendDisabled();
 }

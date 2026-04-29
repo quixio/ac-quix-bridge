@@ -580,6 +580,14 @@ export function initChatOverlay() {
     panel.addEventListener('click', (ev) => {
       const target = ev.target;
       if (target.closest('button, textarea, input, a')) return;
+      // Skip focus-stealing when the click lands on a bubble (or its
+      // descendants) — users select assistant text there to copy and the
+      // focus snap was killing their selection. Empty area inside the
+      // message list still focuses the input.
+      if (target.closest('.chat-msg')) return;
+      // Also skip if the click ends a text selection elsewhere in the panel.
+      const selection = window.getSelection?.();
+      if (selection && selection.toString().length > 0) return;
       _focusInput();
     });
   }

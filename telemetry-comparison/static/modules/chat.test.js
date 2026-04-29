@@ -46,6 +46,16 @@ async function _flush() {
   await new Promise((r) => requestAnimationFrame(r));
 }
 
+/** Mirror what a real user does: type in the textarea, then click send.
+ *  Setting `.value` programmatically does NOT fire `input`, so the send
+ *  button stays disabled by `_refreshSendDisabled`. The dispatch wakes it. */
+function _typeAndSend(text) {
+  const input = document.getElementById('chat-input');
+  input.value = text;
+  input.dispatchEvent(new Event('input'));
+  document.getElementById('chat-send').click();
+}
+
 describe('chat.js JSONL handling', () => {
   it('renders answer_delta chunks as a single assistant bubble', async () => {
     _stubFetch([
@@ -55,8 +65,7 @@ describe('chat.js JSONL handling', () => {
     ]);
     const { initChat } = await import('./chat.js');
     initChat();
-    document.getElementById('chat-input').value = 'hi';
-    document.getElementById('chat-send').click();
+    _typeAndSend('hi');
     await _flush();
 
     const bubbles = document.querySelectorAll('.chat-msg-assistant');
@@ -72,8 +81,7 @@ describe('chat.js JSONL handling', () => {
     ]);
     const { initChat } = await import('./chat.js');
     initChat();
-    document.getElementById('chat-input').value = 'q';
-    document.getElementById('chat-send').click();
+    _typeAndSend('q');
     await _flush();
 
     const bubbles = document.querySelectorAll('.chat-msg-assistant');
@@ -91,8 +99,7 @@ describe('chat.js JSONL handling', () => {
 
     const { initChat } = await import('./chat.js');
     initChat();
-    document.getElementById('chat-input').value = 'plot';
-    document.getElementById('chat-send').click();
+    _typeAndSend('plot');
     await _flush();
 
     expect(applyPlotPlanSpy).toHaveBeenCalledWith({
@@ -113,8 +120,7 @@ describe('chat.js JSONL handling', () => {
     ]);
     const { initChat } = await import('./chat.js');
     initChat();
-    document.getElementById('chat-input').value = 'show';
-    document.getElementById('chat-send').click();
+    _typeAndSend('show');
     await _flush();
 
     const chips = document.querySelectorAll('.chat-clarify-chip');
@@ -127,8 +133,7 @@ describe('chat.js JSONL handling', () => {
     _stubFetch([{ event: 'error', session_id: 's', detail: 'boom', status: 502 }]);
     const { initChat } = await import('./chat.js');
     initChat();
-    document.getElementById('chat-input').value = 'x';
-    document.getElementById('chat-send').click();
+    _typeAndSend('x');
     await _flush();
 
     const err = document.querySelector('.chat-msg-error');
