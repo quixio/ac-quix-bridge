@@ -70,7 +70,11 @@ export function addRow(defaults) {
         <span class="lap-info">...</span>
       </div>
     </div>
-    <button class="btn btn-xs btn-danger" onclick="removeRow(${idx})">x</button>`;
+    <button class="btn btn-xs btn-danger" onclick="removeRow(${idx})" aria-label="Remove session">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 4 L12 12 M12 4 L4 12"/>
+      </svg>
+    </button>`;
 
   row.innerHTML = html;
   document.getElementById('selections').appendChild(row);

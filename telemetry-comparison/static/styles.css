@@ -24,6 +24,7 @@
   --green: #34d399;
   --orange: #f59e0b;
   --red: #f87171;
+  --row-control-h: 32px;
 }
 
 * {
@@ -34,17 +35,30 @@ body {
 }
 
 /* ---------- Runtime-built: selection rows ---------- */
+/* Override the parent .gap-3 (0.75rem) so spacing between rows comes from
+ * each row's own symmetric padding instead. Avoids divider-line asymmetry
+ * (parent gap above + smaller padding-bottom below) and gives each row a
+ * single source of truth for its breathing space. */
+#selections {
+  gap: 0;
+}
 .selection-row {
   display: flex;
-  align-items: last baseline;
+  /* Bottom-align: chips/select/X all share their bottom edge. `last baseline`
+   * (former value) broke for the close button because it has no text content
+   * and falls back to "baseline = margin-box bottom". */
+  align-items: flex-end;
   gap: 0.5rem;
   flex-wrap: wrap;
-  padding-bottom: 0.5rem;
+  padding: 0.6rem 0;
   border-bottom: 1px solid var(--border);
 }
+.selection-row:first-child {
+  padding-top: 0;
+}
 .selection-row:last-child {
-  border-bottom: none;
   padding-bottom: 0;
+  border-bottom: none;
 }
 .part-group {
   display: flex;
@@ -65,24 +79,40 @@ body {
  * its longest option without overflowing the flex row (flex-wrap:wrap
  * on .selection-row handles graceful degradation below 1280px).
  * Principle: content determines width; container constrains overflow. */
+/* Selection-row controls (dropdown / lap chip / × button) share font-size
+ * + vertical padding so they render at identical heights and the row reads
+ * flat. `appearance: none` on select strips Chrome/Safari's native arrow;
+ * we draw our own chevron as an inline SVG background.
+ *
+ * We target `.part-select` (specificity 0,0,1,0) instead of bare `select`
+ * (0,0,0,1) so we beat Tailwind Play CDN's preflight reset, which injects
+ * a `select { padding: 0; ... }` rule late in the cascade. */
+/* Shared control height for every interactive child of .selection-row.
+ * Pinning a concrete height avoids drift between selects (which auto-size
+ * to padding + font * line-height + border) and the close button (which
+ * had to declare width/height for its SVG icon). All three render at
+ * exactly the same y-extent regardless of text metrics. */
 .part-select {
-  min-width: 72px;
-  max-width: none;
-  width: auto;
-}
-
-/* Inputs built at runtime (keeps app.js selectors intact). */
-select {
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%238892a4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l5 5 5-5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.3rem 0.5rem;
+  padding: 0 26px 0 0.65rem;
   color: var(--text);
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   outline: none;
-  min-width: 0;
+  min-width: 120px;
+  max-width: none;
+  width: auto;
+  height: var(--row-control-h);
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
 }
-select:focus {
+.part-select:focus {
   border-color: var(--accent);
 }
 
@@ -104,15 +134,19 @@ select:focus {
 .lap-cb {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.2rem;
-  padding: 0.15rem 0.45rem;
+  padding: 0 0.6rem;
   border-radius: 6px;
   border: 1px solid var(--border);
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
   cursor: pointer;
   user-select: none;
   transition: all 0.15s;
+  min-width: 32px;
+  height: var(--row-control-h);
+  box-sizing: border-box;
 }
 .lap-cb:hover {
   border-color: var(--accent);
@@ -155,8 +189,31 @@ select:focus {
   font-size: 0.78rem;
 }
 .btn-xs {
-  padding: 0.15rem 0.4rem;
-  font-size: 0.68rem;
+  padding: 0 0.6rem;
+  font-size: 0.82rem;
+  /* Transparent border keeps box-sizing identical to bordered siblings
+   * (.lap-cb, select) so they render at the same visual height in a
+   * .selection-row. */
+  border: 1px solid transparent;
+  min-width: 32px;
+  height: var(--row-control-h);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Selection-row close button — square footprint (height inherited from
+ * .btn-xs above) with a centered SVG close icon. */
+.selection-row .btn-xs.btn-danger {
+  width: 32px;
+  padding: 0;
+  line-height: 0;
+}
+.selection-row .btn-xs.btn-danger svg {
+  display: block;
+  width: 12px;
+  height: 12px;
 }
 .btn-outline {
   background: transparent;
