@@ -24,6 +24,28 @@ QUIXLAKE_URL = os.getenv("QUIXLAKE_URL")
 QUIX_LAKE_TOKEN = os.getenv("QUIX_LAKE_TOKEN")
 BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
 
+# Quix Portal API base. Auto-injected as `Quix__Portal__Api` in Quix Cloud;
+# falls back to `QUIX_PORTAL_API` for local dev.
+PORTAL = (
+    os.getenv("Quix__Portal__Api") or os.getenv("QUIX_PORTAL_API") or ""  # noqa: SIM112
+).rstrip("/")
+QUIX_TOKEN = os.getenv("QUIX_TOKEN", "")
+
+# QuixLake Querier agent (system prompt + KBs + MCP tools live on it).
+# Override via env if you need to point at a fork of the agent.
+AGENT_CONFIGURATION_ID = os.getenv("QUIX_AI_AGENT_ID", "d578e2f5-c2b7-461a-90d2-70dfac450fb0")
+
+
+def portal_headers(*, streaming: bool = False) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {QUIX_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    if streaming:
+        headers["Accept"] = "text/event-stream"
+    return headers
+
+
 CORNER_THRESHOLDS = {"hairpin_max": 60, "tight_max": 150, "sweeper_max": 400}
 TRACK_COLORS = {
     "hairpin": "#f87171",
