@@ -1211,14 +1211,42 @@ body.chat-gesturing * {
  * of pasted on top.
  * ============================================================================= */
 #chat-dock-slot {
-  width: 400px;
+  /* Width is a CSS variable so the drag handle on the left edge can
+   * resize the panel by writing --chat-dock-w on :root. Defaults to 400 px
+   * and is clamped (320-50% viewport) by the resize logic in chat-overlay.js. */
+  width: var(--chat-dock-w, 400px);
   border-left: 1px solid var(--color-brd, #2d3441);
   background: var(--color-surface, #1f2533);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
   /* Polite reflow when toggling dock/float so charts don't snap. */
   transition: width 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Suppress the polite width transition while the user is actively dragging
+ * the resizer — otherwise width chases the cursor 180 ms behind. */
+body.chat-resizing #chat-dock-slot {
+  transition: none;
+}
+
+/* Drag handle on the left edge of the dock slot. Sits over the border so
+ * the visible affordance is the cursor change + a faint accent on hover. */
+#chat-dock-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+  touch-action: none;
+}
+#chat-dock-resizer:hover,
+body.chat-resizing #chat-dock-resizer {
+  background: var(--color-accent, #63b3ed);
+  opacity: 0.35;
 }
 
 /* App-shell layout when chat is docked: lock body to viewport height, move

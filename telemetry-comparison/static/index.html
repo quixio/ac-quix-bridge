@@ -380,7 +380,9 @@
 
       <!-- Chat sidebar slot — chat-overlay.js reparents #chat-panel here in
          docked mode. Hidden when floating; fixed width handled in CSS. -->
-      <aside id="chat-dock-slot" class="hidden shrink-0" role="complementary" aria-label="AI chat dock"></aside>
+      <aside id="chat-dock-slot" class="hidden shrink-0" role="complementary" aria-label="AI chat dock">
+        <div id="chat-dock-resizer" aria-hidden="true"></div>
+      </aside>
     </div>
 
     <!-- Toast stack — fixed top-center, above the floating video (z-40). -->

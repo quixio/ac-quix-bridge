@@ -25,11 +25,18 @@ const DEFAULTS = {
   y: -1,
   width: 400,
   height: 650,
+  dockWidth: 400,
 };
 
 const MIN_WIDTH = 280;
 const MIN_HEIGHT = 320;
 const VIEWPORT_MARGIN = 16;
+
+/** Docked sidebar width bounds. Floor matches MIN_WIDTH so dock and float
+ *  share a sensible minimum; ceiling caps at half the viewport so charts
+ *  always retain at least 50% of the screen. */
+const MIN_DOCK_WIDTH = 320;
+const MAX_DOCK_WIDTH_RATIO = 0.5;
 
 /** Auto-dock thresholds. Below either dimension we stay floating, and the
  *  Dock toggle button is hidden so the user can't pick docked on a screen
@@ -143,6 +150,57 @@ function _applyGeometry(slot, geom) {
 function _focusInput() {
   const input = document.getElementById('chat-input');
   if (input) input.focus();
+}
+
+function _clampDockWidth(value) {
+  const vw = window.innerWidth || document.documentElement.clientWidth || 1280;
+  return Math.max(MIN_DOCK_WIDTH, Math.min(vw * MAX_DOCK_WIDTH_RATIO, value));
+}
+
+function _applyDockWidth(width) {
+  document.documentElement.style.setProperty('--chat-dock-w', `${_clampDockWidth(width)}px`);
+}
+
+function _wireDockResizer() {
+  const handle = document.getElementById('chat-dock-resizer');
+  if (!handle) return;
+  let dragging = false;
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragging = true;
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch (_) {
+      /* non-fatal */
+    }
+    document.body.classList.add('chat-gesturing', 'chat-resizing');
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    // Sidebar is right-anchored: the gap between cursor x and viewport
+    // right edge is the desired width.
+    const vw = window.innerWidth;
+    _applyDockWidth(vw - e.clientX);
+  });
+  const end = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    try {
+      handle.releasePointerCapture(e.pointerId);
+    } catch (_) {
+      /* non-fatal */
+    }
+    document.body.classList.remove('chat-gesturing', 'chat-resizing');
+    const w =
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--chat-dock-w')) ||
+      DEFAULTS.dockWidth;
+    const cur = _readState();
+    _persist({ ...cur, dockWidth: w });
+    _resizePlots();
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
 }
 
 /** Force every Plotly chart in #charts to re-layout after the chat panel
@@ -448,6 +506,10 @@ function _onResize() {
   _setMode(_currentMode());
   _updateToggleVisibility();
 
+  // Reclamp dock width (the 50% ceiling is viewport-relative).
+  const cur = _readState();
+  _applyDockWidth(cur.dockWidth ?? DEFAULTS.dockWidth);
+
   // Reclamp floating geometry if visible.
   if (_currentMode() === 'floating' && _isVisible()) {
     const slot = _getFloatSlot();
@@ -484,11 +546,13 @@ export function initChatOverlay() {
   _setMode(_viewportAllowsDock() ? 'docked' : 'floating');
 
   _wireInteract(slot);
+  _wireDockResizer();
 
   const modeBtn = document.getElementById('chat-mode-toggle');
   if (modeBtn) modeBtn.addEventListener('click', _toggleMode);
 
   const state = _readState();
+  _applyDockWidth(state.dockWidth ?? DEFAULTS.dockWidth);
   if (state.visible) {
     _show(state);
   } else if (state._firstVisit) {
