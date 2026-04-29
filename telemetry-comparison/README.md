@@ -6,6 +6,7 @@ FastAPI service that serves a Plotly UI for cross-run/lap telemetry comparison, 
 
 - **`main.py`** — FastAPI app + plotting routes (`/api/sessions`, `/api/telemetry`, `/api/channels`).
 - **`config.py`** — Central config: environment variables, paths, rendering constants.
+- **`auth.py`** — Shared-password HTTP Basic ASGI middleware gating every route + the static mount. Empty `SHARED_PASSWORD` = closed.
 - **`chat.py`** — `POST /api/chat` JSONL streaming route forwarding the Quix AI QuixLake Querier agent.
 - **`plans.py`** — Pydantic models for the agent's structured plot/clarify output.
 - **`quix_ai.py`** — httpx client for Quix AI sessions + SSE message streaming.
@@ -17,6 +18,7 @@ FastAPI service that serves a Plotly UI for cross-run/lap telemetry comparison, 
 
 | Variable | Default | Notes |
 |---|---|---|
+| `SHARED_PASSWORD` | (required) | Shared password for HTTP Basic auth on every route. Empty = closed (every request 401). Set as a Quix Secret in cloud deployments; share via password manager. |
 | `QUIXLAKE_URL` | (required) | QuixLake base URL. |
 | `QUIX_LAKE_TOKEN` | (required) | Bearer token for QuixLake API. |
 | `TABLE_NAME` | `ac_telemetry` | QuixLake table name. |

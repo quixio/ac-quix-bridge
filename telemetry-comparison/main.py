@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import auth
 import chat
 import config
 import track_loader
@@ -50,6 +51,10 @@ logger = logging.getLogger(__name__)
 config.validate_env()
 
 app = FastAPI(title="Telemetry Comparison")
+# Shared-password gate covering every route INCLUDING the static mount —
+# add as ASGI middleware so it wraps `app.mount(...)` too. Empty
+# SHARED_PASSWORD = closed (every request 401).
+app.add_middleware(auth.AuthMiddleware)
 app.include_router(chat.router)
 app.include_router(track_loader.router)
 app.include_router(video_proxy.router)

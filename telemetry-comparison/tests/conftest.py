@@ -17,8 +17,19 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import config
 import main
+
+
+@pytest.fixture(autouse=True)
+def _bypass_auth(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the shared-password gate for every test except the ones in
+    test_auth.py that exercise the gate directly. Tests that need the real
+    middleware can request the `real_auth` marker."""
+    if request.node.get_closest_marker("real_auth"):
+        return
+    monkeypatch.setattr(auth, "_password_matches", lambda _h: True)
 
 
 @pytest.fixture

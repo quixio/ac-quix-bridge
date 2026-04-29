@@ -32,6 +32,11 @@ BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
 PORTAL = os.getenv("Quix__Portal__Api", "").rstrip("/")  # noqa: SIM112
 QUIX_TOKEN = os.getenv("QUIX_TOKEN", "")
 
+# Shared-password gate (HTTP Basic) covering every route. Empty = closed
+# (all requests 401). Set as a Quix Secret variable in cloud deployments;
+# share via password manager.
+SHARED_PASSWORD = os.getenv("SHARED_PASSWORD", "")
+
 # QuixLake Querier agent (system prompt + KBs + MCP tools live on it).
 # Override via env if you need to point at a fork of the agent.
 _DEFAULT_AGENT_ID = "d578e2f5-c2b7-461a-90d2-70dfac450fb0"
@@ -59,6 +64,7 @@ def validate_env() -> None:
         "QUIX_LAKE_TOKEN": QUIX_LAKE_TOKEN,
         "Quix__Portal__Api": PORTAL,
         "QUIX_TOKEN": QUIX_TOKEN,
+        "SHARED_PASSWORD": SHARED_PASSWORD,
     }
     for name, value in required.items():
         if not value:
