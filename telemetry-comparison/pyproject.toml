@@ -15,6 +15,7 @@ dependencies = [
 	"quixlake-sdk",
 	"quixportal[all]==2.0.1",
 	"python-dotenv",
+	"pydantic>=2.13.2",
 ]
 
 [dependency-groups]
@@ -25,6 +26,7 @@ dev = [
 	"httpx",  # for FastAPI TestClient
 	"ruff",
 	"ty",
+	"respx>=0.23.1",
 ]
 
 [tool.pytest.ini_options]

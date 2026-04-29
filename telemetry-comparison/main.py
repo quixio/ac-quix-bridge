@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import chat
 import config
 import track_loader
 import video_proxy
@@ -47,6 +48,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Telemetry Comparison")
+app.include_router(chat.router)
 app.include_router(track_loader.router)
 app.include_router(video_proxy.router)
 
