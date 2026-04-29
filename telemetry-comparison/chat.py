@@ -178,7 +178,15 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
         yield _error_event(session_id, "Agent returned an empty reply")
         return
 
-    # No fence -> Mode 2 / Mode 3 prose answer; everything already streamed.
+    # Detect an unclosed fence — upstream stream cut mid-JSON.
+    if "```json" in reply and not JSON_FENCE_RE.search(reply):
+        yield _error_event(
+            session_id,
+            "Agent reply was truncated (unclosed ```json``` block).",
+        )
+        return
+
+    # No fence at all -> Mode 2 / Mode 3 prose answer; everything already streamed.
     if not JSON_FENCE_RE.search(reply):
         logger.info("chat answer (no JSON) in %.1fs", time.monotonic() - t_start)
         return

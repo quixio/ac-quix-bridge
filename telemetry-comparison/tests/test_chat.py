@@ -164,6 +164,27 @@ def test_agent_5xx_emits_error_event() -> None:
 
 
 @respx.mock
+def test_unclosed_fence_emits_error_event() -> None:
+    """Upstream truncation mid-JSON should not silently land in Mode 2."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "sess-trunc"})
+    sse_body = _sse(
+        [
+            {"type": "text_delta", "text": "Plotting. "},
+            {"type": "text_delta", "text": '```json\n{"type": "plot"'},
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/sess-trunc/messages").respond(
+        200, content=sse_body
+    )
+
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "plot"}).content)
+
+    err = next(e for e in events if e["event"] == "error")
+    assert "truncated" in err["detail"].lower()
+
+
+@respx.mock
 def test_session_id_reused_when_provided() -> None:
     """Frontend sends session_id on follow-up turns; backend skips create."""
     create_route = respx.post("https://portal.test/ai/api/sessions").respond(

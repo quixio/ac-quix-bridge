@@ -36,7 +36,9 @@ async def create_session(client: httpx.AsyncClient) -> str:
     )
     r.raise_for_status()
     data = r.json()
-    session_id = data.get("id") or data["sessionId"]
+    session_id = data.get("id") or data.get("sessionId")
+    if not session_id:
+        raise httpx.HTTPError("Quix Portal session response missing 'id'/'sessionId'")
     logger.info(
         "quix_ai: opened session %s (agent=%s)",
         session_id,
