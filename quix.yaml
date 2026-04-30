@@ -512,7 +512,7 @@ deployments:
         inputType: ProjectVariable
         description: Token to authenticate against QuixLake
         required: true
-        variableKey: quix_lake_pat
+        variableKey: pat_token
       - name: QUIXLAKE_URL
         inputType: FreeText
         description: Base URL of the QuixLake instance
@@ -533,12 +533,12 @@ deployments:
         variableKey: TELEMETRY_CHAT_PASSWORD
       - name: QUIX_TOKEN
         inputType: ProjectVariable
-        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat).
+        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
         required: true
-        variableKey: quix_lake_pat
+        variableKey: pat_token
       - name: QUIX_AI_AGENT_ID
         inputType: FreeText
-        description: Quix AI agent ID for the QuixLake Querier. Leave empty to use the built-in default.
+        description: Quix AI agent ID for the QuixLake Querier (system prompt + KBs + MCP tools). Leave empty to use the built-in default.
         value: d578e2f5-c2b7-461a-90d2-70dfac450fb0
     plugin:
       embeddedView:
