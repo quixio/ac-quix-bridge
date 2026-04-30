@@ -528,6 +528,20 @@ deployments:
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
+      - name: SHARED_PASSWORD
+        inputType: ProjectVariable
+        description: Password for HTTP Basic auth gating every route. Empty = all requests 401.
+        required: true
+        variableKey: SHARED_PASSWORD
+      - name: QUIX_TOKEN
+        inputType: ProjectVariable
+        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat).
+        required: true
+        variableKey: quix_lake_pat
+      - name: QUIX_AI_AGENT_ID
+        inputType: FreeText
+        description: Quix AI agent ID for the QuixLake Querier. Leave empty to use the built-in default.
+        value: d578e2f5-c2b7-461a-90d2-70dfac450fb0
     plugin:
       embeddedView:
         enabled: true

@@ -18,5 +18,19 @@ variables:
     inputType: FreeText
     description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
     defaultValue: ac_video
+  - name: SHARED_PASSWORD
+    inputType: Secret
+    description: Password for HTTP Basic auth gating every route. Empty = all requests 401.
+    required: true
+    secretKey: SHARED_PASSWORD
+  - name: QUIX_TOKEN
+    inputType: Secret
+    description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
+    required: true
+    secretKey: pat
+  - name: QUIX_AI_AGENT_ID
+    inputType: FreeText
+    description: Quix AI agent ID for the QuixLake Querier (system prompt + KBs + MCP tools). Leave empty to use the built-in default.
+    defaultValue: d578e2f5-c2b7-461a-90d2-70dfac450fb0
 dockerfile: dockerfile
 defaultFile: main.py
