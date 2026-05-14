@@ -533,7 +533,7 @@ deployments:
         variableKey: TELEMETRY_CHAT_PASSWORD
       - name: QUIX_TOKEN
         inputType: ProjectVariable
-        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
+        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works. 
         required: true
         variableKey: pat_token
       - name: QUIX_AI_AGENT_ID
