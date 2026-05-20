@@ -1,12 +1,11 @@
-"""Shared-password Basic auth gate."""
+"""Bearer-token auth gate."""
 
 from __future__ import annotations
-
-import base64
 
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import config
 from main import app
 
@@ -15,60 +14,114 @@ from main import app
 pytestmark = pytest.mark.real_auth
 
 
-def _basic(user: str, password: str) -> dict[str, str]:
-    creds = base64.b64encode(f"{user}:{password}".encode()).decode()
-    return {"Authorization": f"Basic {creds}"}
+VALID_TOKEN = "valid-token-123456"
+WORKSPACE = "workspace-abc"
+
+
+class _StubAuth:
+    """Mimics `quixportal.auth.Auth` — accepts only `VALID_TOKEN`."""
+
+    def validate_permissions(
+        self, token: str, resource_type: str, resource_id: str, permission: str
+    ) -> bool:
+        return token == VALID_TOKEN and resource_id == WORKSPACE
 
 
 @pytest.fixture(autouse=True)
-def _stub_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "SHARED_PASSWORD", "letmein")
+def _stub_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "API_AUTH_ACTIVE", True)
+    monkeypatch.setattr(config, "LOCAL_DEV_MODE", False)
+    monkeypatch.setattr(config, "WORKSPACE_ID", WORKSPACE)
+    monkeypatch.setattr(auth, "_auth_impl", lambda: _StubAuth())
 
 
-def test_no_credentials_returns_401() -> None:
-    with TestClient(app) as c:
-        r = c.get("/health")
-        assert r.status_code == 401
-        assert "Basic" in r.headers.get("WWW-Authenticate", "")
+@pytest.fixture
+def client() -> TestClient:
+    return TestClient(app)
 
 
-def test_wrong_password_returns_401() -> None:
-    with TestClient(app) as c:
-        r = c.get("/health", headers=_basic("alice", "nope"))
-        assert r.status_code == 401
+def test_api_route_requires_bearer(client: TestClient) -> None:
+    r = client.get("/api/channels")
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Not Authenticated"
+    assert "Bearer" in r.headers.get("WWW-Authenticate", "")
 
 
-def test_valid_password_passes() -> None:
-    with TestClient(app) as c:
-        r = c.get("/health", headers=_basic("alice", "letmein"))
-        assert r.status_code == 200
+def test_api_route_rejects_invalid_token(client: TestClient) -> None:
+    r = client.get("/api/channels", headers={"Authorization": "Bearer wrong-token"})
+    assert r.status_code == 401
 
 
-def test_username_is_ignored() -> None:
-    """Any username works — only the password is checked."""
-    with TestClient(app) as c:
-        for user in ("alice", "bob", ""):
-            r = c.get("/health", headers=_basic(user, "letmein"))
-            assert r.status_code == 200, f"failed for user={user!r}"
+def test_api_route_accepts_valid_bearer(client: TestClient) -> None:
+    r = client.get("/api/channels", headers={"Authorization": f"Bearer {VALID_TOKEN}"})
+    assert r.status_code == 200
 
 
-def test_static_route_also_gated() -> None:
-    """Middleware must cover app.mount(...) too — not just route deps."""
-    with TestClient(app) as c:
-        r = c.get("/static/index.html")
-        assert r.status_code == 401
+def test_lowercase_bearer_accepted(client: TestClient) -> None:
+    r = client.get("/api/channels", headers={"Authorization": f"bearer {VALID_TOKEN}"})
+    assert r.status_code == 200
 
 
-def test_empty_shared_password_locks_everything(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Closed-by-default — empty env var means no caller can pass."""
-    monkeypatch.setattr(config, "SHARED_PASSWORD", "")
-    with TestClient(app) as c:
-        # Even valid-looking creds fail because expected is empty.
-        r = c.get("/health", headers=_basic("alice", "anything"))
-        assert r.status_code == 401
+def test_non_bearer_scheme_rejected(client: TestClient) -> None:
+    """Only `Bearer ` (or `bearer `) is accepted — Basic/Digest/raw are rejected."""
+    r = client.get("/api/channels", headers={"Authorization": f"Basic {VALID_TOKEN}"})
+    assert r.status_code == 401
 
 
-def test_malformed_basic_header_returns_401() -> None:
-    with TestClient(app) as c:
-        r = c.get("/health", headers={"Authorization": "Basic not-base64-!!!"})
-        assert r.status_code == 401
+def test_raw_token_without_scheme_rejected(client: TestClient) -> None:
+    r = client.get("/api/channels", headers={"Authorization": VALID_TOKEN})
+    assert r.status_code == 401
+
+
+def test_empty_authorization_header_rejected(client: TestClient) -> None:
+    r = client.get("/api/channels", headers={"Authorization": ""})
+    assert r.status_code == 401
+
+
+def test_public_paths_open_without_token(client: TestClient) -> None:
+    assert client.get("/health").status_code == 200
+    assert client.get("/").status_code == 200
+
+
+def test_static_files_open_without_token(client: TestClient) -> None:
+    """SPA shell + assets load before the token handshake completes."""
+    r = client.get("/static/index.html")
+    # The file may not exist in the test layout, but routing must reach the
+    # static mount (i.e. NOT be 401-blocked by middleware).
+    assert r.status_code != 401
+
+
+def test_api_auth_active_false_bypasses_everything(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "API_AUTH_ACTIVE", False)
+    r = client.get("/api/channels")  # no token at all
+    assert r.status_code == 200
+
+
+def test_local_dev_mode_uses_local_auth(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LOCAL_DEV_MODE swaps in LocalAuth, which grants everything."""
+    from local_auth import LocalAuth
+
+    monkeypatch.setattr(auth, "_auth_impl", lambda: LocalAuth())
+    monkeypatch.setattr(config, "LOCAL_DEV_MODE", True)
+    r = client.get("/api/channels", headers={"Authorization": "Bearer literally-anything"})
+    assert r.status_code == 200
+
+
+def test_validation_exception_returns_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Portal SDK / network failure — not a bad token. Surface as 503 so
+    callers can retry instead of dropping the session as auth-failed."""
+
+    class _BoomAuth:
+        def validate_permissions(self, *_a: object, **_kw: object) -> bool:
+            raise RuntimeError("portal exploded")
+
+    monkeypatch.setattr(auth, "_auth_impl", lambda: _BoomAuth())
+    r = client.get("/api/channels", headers={"Authorization": f"Bearer {VALID_TOKEN}"})
+    assert r.status_code == 503
+    assert r.json()["detail"] == "Auth service unavailable"

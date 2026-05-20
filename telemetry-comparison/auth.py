@@ -1,48 +1,86 @@
-"""Shared-password HTTP Basic auth for the whole app.
+"""Bearer-token auth gate for API routes.
 
-One `SHARED_PASSWORD` env var, gated on every request via an ASGI
-middleware so static-file mounts are also covered (FastAPI route-level
-dependencies don't reach `app.mount(...)`). Username is ignored —
-colleagues type any user + the shared password. Browser caches the
-credentials and resends `Authorization: Basic …` on every subsequent
-request, so the prompt only appears once per browser session.
+Validates `Authorization: Bearer <token>` against Quix Portal via the
+`quixportal` SDK, scoped to this workspace. Public paths (the SPA shell,
+static assets, health probe) bypass the gate so the frontend can boot
+and run its token handshake before making any /api/* call.
 
-Empty `SHARED_PASSWORD` = closed (every request 401). No accidental
-"left auth disabled in prod" mode.
-
-Stage 2 (TM iframe integration) will extend `_password_matches` to also
-accept `Authorization: Bearer <token>` validated against TM's auth
-source. Until then, Basic-auth-only.
+Bypass switches:
+- `LOCAL_DEV_MODE=true` → `LocalAuth` mock (all-grant)
+- `API_AUTH_ACTIVE=false` → middleware no-op
 """
 
 from __future__ import annotations
 
-import base64
-import secrets
+import json
+import logging
+from functools import lru_cache
+from typing import Any
 
-from fastapi import status
-from fastapi.responses import Response
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 import config
 
-_UNAUTHORIZED = Response(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    headers={"WWW-Authenticate": 'Basic realm="telemetry-explorer"'},
-)
+logger = logging.getLogger(__name__)
+
+# Routes served before the frontend has obtained a token. Everything else
+# (i.e. /api/*) requires a valid Bearer token.
+_PUBLIC_PATHS: tuple[str, ...] = ("/", "/health", "/favicon.ico")
+_PUBLIC_PREFIXES: tuple[str, ...] = ("/static/",)
 
 
-def _password_matches(auth_header: str) -> bool:
-    expected = config.SHARED_PASSWORD.encode("utf-8")
-    if not expected or not auth_header.startswith("Basic "):
-        return False
-    try:
-        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
-        _, password = decoded.split(":", 1)
-    except (ValueError, UnicodeDecodeError):
-        return False
-    return secrets.compare_digest(password.encode("utf-8"), expected)
+def _token_preview(token: str) -> str:
+    if not token:
+        return "<empty>"
+    if len(token) <= 12:
+        return f"<short:{len(token)}>"
+    return f"{token[:6]}...{token[-4:]} (len={len(token)})"
+
+
+@lru_cache(maxsize=1)
+def _auth_impl() -> Any:
+    if config.LOCAL_DEV_MODE:
+        from local_auth import LocalAuth
+
+        return LocalAuth()
+    from quixportal.auth import Auth
+
+    return Auth()
+
+
+def _extract_bearer(auth_header: str) -> str | None:
+    """Return the token from an `Authorization: Bearer <t>` header, else None.
+    Other schemes (Basic, Digest, etc.) and raw values are rejected so we
+    don't forward arbitrary header content to the Portal SDK.
+    """
+    if not auth_header:
+        return None
+    if auth_header.startswith(("Bearer ", "bearer ")):
+        return auth_header[7:]
+    return None
+
+
+def _is_public(path: str) -> bool:
+    if path in _PUBLIC_PATHS:
+        return True
+    return any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES)
+
+
+async def _send_json_error(send: Send, status_code: int, detail: str) -> None:
+    body = json.dumps({"detail": detail}).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status_code,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+                (b"www-authenticate", b'Bearer realm="telemetry-explorer"'),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 class AuthMiddleware:
@@ -50,14 +88,43 @@ class AuthMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # `lifespan` passes through (startup/shutdown have no auth).
-        # Browsers can't send Basic auth on a WebSocket upgrade, so any WS
-        # attempt would 401 — no WS routes today, fine to leave that posture.
         if scope["type"] == "lifespan":
             await self.app(scope, receive, send)
             return
-        auth = Headers(scope=scope).get("authorization", "")
-        if not _password_matches(auth):
-            await _UNAUTHORIZED(scope, receive, send)
+
+        if not config.API_AUTH_ACTIVE:
+            await self.app(scope, receive, send)
             return
+
+        path = scope.get("path", "")
+        if _is_public(path):
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        token = _extract_bearer(headers.get("authorization", ""))
+        if token is None:
+            logger.info("[auth] %s — REJECTED: missing or non-Bearer Authorization", path)
+            await _send_json_error(send, 401, "Not Authenticated")
+            return
+
+        try:
+            ok = _auth_impl().validate_permissions(token, "Workspace", config.WORKSPACE_ID, "Read")
+        except Exception:
+            # Portal SDK / network failure — not a bad token. Surface as 503
+            # so callers can retry instead of dropping the session.
+            logger.exception("[auth] %s — token validation raised", path)
+            await _send_json_error(send, 503, "Auth service unavailable")
+            return
+
+        if not ok:
+            logger.info(
+                "[auth] %s — REJECTED: invalid token (token=%s)",
+                path,
+                _token_preview(token),
+            )
+            await _send_json_error(send, 401, "Not Authenticated")
+            return
+
+        logger.debug("[auth] %s — OK (token_len=%d)", path, len(token))
         await self.app(scope, receive, send)
