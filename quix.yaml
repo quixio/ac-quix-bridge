@@ -390,7 +390,6 @@ deployments:
         inputType: ProjectVariable
         description: Token to authenticate against QuixLake
         required: true
-        secret: true
         variableKey: pat_token
       - name: QUIXLAKE_URL
         inputType: FreeText
@@ -409,7 +408,6 @@ deployments:
         inputType: ProjectVariable
         description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
         required: true
-        secret: true
         variableKey: pat_token
       - name: QUIX_AI_AGENT_ID
         inputType: FreeText
