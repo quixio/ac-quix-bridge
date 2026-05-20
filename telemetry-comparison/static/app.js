@@ -22,6 +22,11 @@ import { setStatus } from './modules/charts.js';
 import './modules/video.js';
 import { initChatOverlay } from './modules/chat-overlay.js';
 import { initChat } from './modules/chat.js';
+import { initAuth, installFetchOverride } from './modules/auth.js';
+
+// Replace window.fetch BEFORE any module-level call fires so /api/* requests
+// from data.js, chat.js, video.js, etc. all transparently carry the Bearer.
+installFetchOverride();
 
 // ---------------------------------------------------------------------------
 // Panel collapse/expand — keyed to inline onclick= in index.html. The CSS
@@ -50,6 +55,15 @@ window.toggleTopbarPanel = toggleTopbarPanel;
 
 (async () => {
   setStatus('<span class="loading-spinner"></span> Loading...');
+  // Block until we have a valid Bearer token — every /api/* call beyond
+  // this point relies on it. initAuth runs the embedded handshake (postMessage
+  // to parent) or the PAT dialog (standalone).
+  try {
+    await initAuth();
+  } catch (e) {
+    setStatus('Authentication failed: ' + e.message, true);
+    return;
+  }
   wireVideoElement();
   initChatOverlay();
   initChat();

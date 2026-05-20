@@ -458,6 +458,37 @@
       </section>
     </div>
 
+    <!-- Auth gate — PAT dialog for standalone mode. Hidden by default; shown
+         by auth.js when no token is available (or the stored one expired). -->
+    <div
+      id="auth-dialog"
+      role="dialog"
+      aria-modal="true"
+      style="display: none"
+      class="fixed inset-0 z-[10000] items-center justify-center bg-black/70 backdrop-blur-sm"
+    >
+      <div class="w-full max-w-md rounded-lg border border-brd bg-surface p-5 shadow-2xl">
+        <h2 class="text-base font-semibold text-white">Authentication required</h2>
+        <p class="mt-2 text-sm text-muted">Paste a Quix Personal Access Token (PAT) to access Telemetry Explorer.</p>
+        <input
+          id="auth-token-input"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          class="mt-3 w-full rounded border border-brd bg-bg px-3 py-2 text-sm text-white outline-none focus:border-accent"
+          placeholder="pat_..."
+        />
+        <p id="auth-token-error" class="mt-1.5 text-xs text-danger min-h-[1em]"></p>
+        <button
+          id="auth-token-submit"
+          type="button"
+          class="mt-3 w-full rounded bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+        >
+          Sign in
+        </button>
+      </div>
+    </div>
+
     <!-- Non-module scripts in dependency order. All share global scope so
          inline onclick= handlers resolve without imports. -->
     <script src="/static/modules/toast.js"></script>

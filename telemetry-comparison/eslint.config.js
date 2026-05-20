@@ -36,15 +36,38 @@ export default [
     },
   },
   {
-    files: ['static/app.js', 'static/modules/state.js', 'static/modules/data.js',
-            'static/modules/selections.js', 'static/modules/sync.js',
-            'static/modules/charts.js', 'static/modules/video.js'],
+    files: [
+      'static/app.js',
+      'static/modules/state.js',
+      'static/modules/data.js',
+      'static/modules/selections.js',
+      'static/modules/sync.js',
+      'static/modules/charts.js',
+      'static/modules/video.js',
+      'static/modules/auth.js',
+    ],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
       globals: {
         ...globals.browser,
         Plotly: 'readonly',
+      },
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+  },
+  {
+    files: ['static/modules/*.test.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        ...globals.node,
       },
     },
     rules: {
