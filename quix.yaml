@@ -90,8 +90,6 @@ deployments:
       cpu: 500
       memory: 1000
       replicas: 1
-    network:
-      serviceName: dynamic-configuration-manager
     configuration:
       topic: ac-telemetry-config
       mongoHost: mongodb
@@ -514,7 +512,7 @@ deployments:
         inputType: ProjectVariable
         description: Token to authenticate against QuixLake
         required: true
-        variableKey: quix_lake_pat
+        variableKey: pat_token
       - name: QUIXLAKE_URL
         inputType: FreeText
         description: Base URL of the QuixLake instance
@@ -528,6 +526,20 @@ deployments:
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
+      - name: SHARED_PASSWORD
+        inputType: ProjectVariable
+        description: Password for HTTP Basic auth gating every route. Empty = all requests 401.
+        required: true
+        variableKey: TELEMETRY_CHAT_PASSWORD
+      - name: QUIX_TOKEN
+        inputType: ProjectVariable
+        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works. 
+        required: true
+        variableKey: pat_token
+      - name: QUIX_AI_AGENT_ID
+        inputType: FreeText
+        description: Quix AI agent ID for the QuixLake Querier (system prompt + KBs + MCP tools). Leave empty to use the built-in default.
+        value: d578e2f5-c2b7-461a-90d2-70dfac450fb0
     plugin:
       embeddedView:
         enabled: true

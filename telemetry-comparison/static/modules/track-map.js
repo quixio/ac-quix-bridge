@@ -37,7 +37,7 @@ function renderTrackMap() {
     y: pts.map((p) => -p.z),
     mode: 'lines',
     type: 'scatter',
-    line: { color: '#3a3f55', width: 5, shape: 'spline', smoothing: 0.7 },
+    line: { color: '#3e3e46', width: 5, shape: 'spline', smoothing: 0.7 },
     hoverinfo: 'skip',
     showlegend: false,
   });
@@ -91,7 +91,7 @@ function renderTrackMap() {
       y: [-c.mid_z],
       mode: 'markers+text',
       type: 'scatter',
-      marker: { color: colors[c.severity], size: 16, line: { color: '#0f1117', width: 1.5 } },
+      marker: { color: colors[c.severity], size: 16, line: { color: '#1a1a1a', width: 1.5 } },
       text: [c.label],
       textfont: { color: '#fff', size: 9, family: 'monospace' },
       hoverinfo: 'text',
@@ -158,9 +158,9 @@ function renderTrackMap() {
 
   // Layout: legend on top, no grid, no axis titles
   const layout = {
-    paper_bgcolor: '#1a1d27',
-    plot_bgcolor: '#1a1d27',
-    font: { color: '#e2e8f0', size: 9 },
+    paper_bgcolor: '#222229',
+    plot_bgcolor: '#222229',
+    font: { color: '#eaedf0', size: 9 },
     margin: { t: 40, r: 4, b: 4, l: 4 },
     showlegend: true,
     legend: {
@@ -438,7 +438,9 @@ function onZoomChange(v) {
   // subsequent rAF or setTimeout callbacks that are NOT part of this zoom.
   _zoomInProgress = true;
   applyZoom();
-  Promise.resolve().then(() => { _zoomInProgress = false; });
+  Promise.resolve().then(() => {
+    _zoomInProgress = false;
+  });
 }
 
 function applyZoom() {

@@ -70,7 +70,11 @@ export function addRow(defaults) {
         <span class="lap-info">...</span>
       </div>
     </div>
-    <button class="btn btn-xs btn-danger" onclick="removeRow(${idx})">x</button>`;
+    <button class="btn btn-xs btn-danger" onclick="removeRow(${idx})" aria-label="Remove session">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 4 L12 12 M12 4 L4 12"/>
+      </svg>
+    </button>`;
 
   row.innerHTML = html;
   document.getElementById('selections').appendChild(row);
@@ -251,7 +255,7 @@ export function renderChannelChips() {
       const m = appState.channels[col];
       const active = DEFAULT_ACTIVE.has(col) ? ' active' : '';
       const hidden = collapsed && i >= MAX_VISIBLE ? ' style="display:none" data-extra' : '';
-      html += `<span class="chip${active}" data-signal="${col}"${hidden}>${m.label}</span>`;
+      html += `<span class="chip${active}" data-signal="${col}" data-label="${m.label}"${hidden}>${m.label}</span>`;
     }
     html += '</div></div>';
   }
@@ -268,6 +272,45 @@ export function toggleCat(catId, btn) {
   btn.textContent = showing ? 'show all' : 'show less';
 }
 
+/**
+ * Live-filter the signal chips. Match logic:
+ *  - normalize both query and candidate by lowercasing and stripping every
+ *    non-alphanumeric char so `g-force` and `gforce` are equivalent,
+ *  - run plain substring match (chars must appear contiguously) on both
+ *    the channel name (`data-signal`) and the human label (`data-label`).
+ *
+ * Subsequence matching was tried first but produced too many false positives
+ * (e.g. `lap` matching `wheelAngularSpeed` via L-A-P walk). Substring with
+ * normalize is the simplest variant that still catches the common case
+ * (`gfor` → `G-Force Lateral`).
+ *
+ * Empty query restores the original collapse state. Categories with zero
+ * matching chips collapse out of view.
+ */
+function _normalize(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+export function filterSignals(query) {
+  const q = _normalize(query);
+  for (const sec of document.querySelectorAll('#signal-container .cat-section')) {
+    let anyVisible = false;
+    for (const chip of sec.querySelectorAll('.chip')) {
+      const matches =
+        !q ||
+        _normalize(chip.dataset.signal).includes(q) ||
+        _normalize(chip.dataset.label || '').includes(q);
+      chip.classList.toggle('chip-filter-hidden', !!q && !matches);
+      // chip-filter-visible overrides the inline display:none that the
+      // collapse machinery sets on `[data-extra]` chips, so a matching
+      // chip still surfaces even if its category is collapsed.
+      chip.classList.toggle('chip-filter-visible', !!q && matches);
+      if (matches) anyVisible = true;
+    }
+    sec.classList.toggle('chip-filter-hidden', !!q && !anyVisible);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Expose inline-HTML handlers on window.
 // The handlers are invoked by string templates built in this module
@@ -280,3 +323,4 @@ window.removeRow = removeRow;
 window.onPartChange = onPartChange;
 window.toggleAllLaps = toggleAllLaps;
 window.toggleCat = toggleCat;
+window.filterSignals = filterSignals;

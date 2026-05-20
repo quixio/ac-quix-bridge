@@ -1,0 +1,144 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Hoist the spy so vi.mock factory (which runs before imports) can reference it.
+const applyPlotPlanSpy = vi.fn();
+
+vi.mock('./ai-plot-glue.js', () => ({ applyPlotPlan: applyPlotPlanSpy }));
+
+beforeEach(() => {
+  document.body.innerHTML = `
+    <div id="chat-messages"></div>
+    <textarea id="chat-input"></textarea>
+    <button id="chat-send"></button>
+  `;
+  applyPlotPlanSpy.mockClear();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  document.body.innerHTML = '';
+});
+
+function _ndjson(events) {
+  const body = events.map((e) => JSON.stringify(e)).join('\n');
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(body));
+      controller.close();
+    },
+  });
+}
+
+function _stubFetch(events) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: true,
+      body: _ndjson(events),
+      text: async () => '',
+    })),
+  );
+}
+
+async function _flush() {
+  // Allow stream reader + rAF batches to settle.
+  await new Promise((r) => setTimeout(r, 10));
+  await new Promise((r) => requestAnimationFrame(r));
+}
+
+/** Mirror what a real user does: type in the textarea, then click send.
+ *  Setting `.value` programmatically does NOT fire `input`, so the send
+ *  button stays disabled by `_refreshSendDisabled`. The dispatch wakes it. */
+function _typeAndSend(text) {
+  const input = document.getElementById('chat-input');
+  input.value = text;
+  input.dispatchEvent(new Event('input'));
+  document.getElementById('chat-send').click();
+}
+
+describe('chat.js JSONL handling', () => {
+  it('renders answer_delta chunks as a single assistant bubble', async () => {
+    _stubFetch([
+      { event: 'status', session_id: 's1', message: 'Thinking…' },
+      { event: 'answer_delta', session_id: 's1', text: 'Hello ' },
+      { event: 'answer_delta', session_id: 's1', text: 'world.' },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('hi');
+    await _flush();
+
+    const bubbles = document.querySelectorAll('.chat-msg-assistant');
+    expect(bubbles).toHaveLength(1);
+    expect(bubbles[0].textContent).toBe('Hello world.');
+  });
+
+  it('answer_break splits prose into two bubbles', async () => {
+    _stubFetch([
+      { event: 'answer_delta', session_id: 's', text: 'Pre.' },
+      { event: 'answer_break', session_id: 's' },
+      { event: 'answer_delta', session_id: 's', text: 'Post.' },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('q');
+    await _flush();
+
+    const bubbles = document.querySelectorAll('.chat-msg-assistant');
+    expect(bubbles).toHaveLength(2);
+  });
+
+  it('plot event calls applyPlotPlan', async () => {
+    _stubFetch([
+      {
+        event: 'plot',
+        session_id: 's',
+        plan: { type: 'plot', signals: ['speedKmh'], traces: [] },
+      },
+    ]);
+
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('plot');
+    await _flush();
+
+    expect(applyPlotPlanSpy).toHaveBeenCalledWith({
+      type: 'plot',
+      signals: ['speedKmh'],
+      traces: [],
+    });
+  });
+
+  it('clarify event renders option chips', async () => {
+    _stubFetch([
+      {
+        event: 'clarify',
+        session_id: 's',
+        question: 'Which?',
+        options: ['a', 'b'],
+      },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('show');
+    await _flush();
+
+    const chips = document.querySelectorAll('.chat-clarify-chip');
+    expect(chips).toHaveLength(2);
+    expect(chips[0].textContent).toBe('a');
+    expect(chips[1].textContent).toBe('b');
+  });
+
+  it('error event renders red bubble', async () => {
+    _stubFetch([{ event: 'error', session_id: 's', detail: 'boom', status: 502 }]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('x');
+    await _flush();
+
+    const err = document.querySelector('.chat-msg-error');
+    expect(err).not.toBeNull();
+    expect(err.textContent).toContain('boom');
+    expect(err.textContent).toContain('502');
+  });
+});

@@ -62,8 +62,8 @@ function buildCornerAnnotations() {
     yanchor: 'top',
     text: c.label,
     showarrow: false,
-    font: { size: 10, color: '#e2e8f0' },
-    bgcolor: 'rgba(15,17,23,0.6)',
+    font: { size: 10, color: '#eaedf0' },
+    bgcolor: 'rgba(26,26,26,0.6)',
     borderpad: 2,
   }));
 }
@@ -136,7 +136,11 @@ export function attachMarkerDrag(div) {
     }
 
     // Mouse / pen: claim the gesture immediately (existing behaviour).
-    try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    try {
+      div.setPointerCapture(ev.pointerId);
+    } catch (_) {
+      /* non-fatal */
+    }
     // Round 7.3: gate the seeked-listener drain in sync.js so it doesn't
     // re-issue a stashed pending while we're still scrubbing. flushPendingSeek
     // on pointerup/cancel is the only sanctioned drain during a drag.
@@ -176,7 +180,11 @@ export function attachMarkerDrag(div) {
     pending.delete(ev.pointerId);
     const x = pxToX(ev);
     if (x === null) return;
-    try { div.setPointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    try {
+      div.setPointerCapture(ev.pointerId);
+    } catch (_) {
+      /* non-fatal */
+    }
     // Round 7.3: see pointerdown comment.
     videoState._dragActive = true;
     const ndCommit = Math.max(0, Math.min(1, x));
@@ -186,7 +194,11 @@ export function attachMarkerDrag(div) {
 
   div.addEventListener('pointerup', (ev) => {
     pending.delete(ev.pointerId);
-    try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    try {
+      div.releasePointerCapture(ev.pointerId);
+    } catch (_) {
+      /* non-fatal */
+    }
     // Round 7.3: clear gate BEFORE flushing so the seeked listener's drain
     // (if it fires before flushPendingSeek's seek even starts) doesn't see
     // a stale _dragActive=true.
@@ -196,7 +208,11 @@ export function attachMarkerDrag(div) {
 
   div.addEventListener('pointercancel', (ev) => {
     pending.delete(ev.pointerId);
-    try { div.releasePointerCapture(ev.pointerId); } catch (_) { /* non-fatal */ }
+    try {
+      div.releasePointerCapture(ev.pointerId);
+    } catch (_) {
+      /* non-fatal */
+    }
     hideThumbPreview();
     videoState._dragActive = false;
     flushPendingSeek(); // round 5: drain the drag-end stash with one seek
@@ -273,8 +289,8 @@ export async function plot() {
       // Header with corner overlay checkbox
       const header = document.createElement('div');
       header.className = 'chart-header';
+      // Title is rendered as the Plotly y-axis label; no need to repeat it here.
       header.innerHTML = `
-        <span>${chartTitle(signal)}</span>
         <label>
           <input type="checkbox" id="corner-cb-${si}" onchange="toggleCornerOverlay(${si}, this.checked)">
           Show corners
