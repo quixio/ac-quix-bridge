@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { MainLayout } from "@/components/layout/main-layout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -15,7 +15,20 @@ import {
   BookOpenText,
 } from "lucide-react";
 import { useTestsApi } from "@/lib/hooks/use-api";
+import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
 import { LeaderboardTab } from "@/components/analysis/leaderboard-tab";
+
+// Telemetry Explorer deployment URL — baked at build time. `_ORIGIN` is the
+// scheme+host+port part, used to gate the auth-token postMessage handshake
+// to/from the embedded iframe.
+const EXPLORER_BASE_URL = process.env.NEXT_PUBLIC_TELEMETRY_EXPLORER_URL ?? "";
+const EXPLORER_ORIGIN = (() => {
+  try {
+    return new URL(EXPLORER_BASE_URL).origin;
+  } catch {
+    return "";
+  }
+})();
 
 const ANALYSIS_TABS = [
   {
@@ -84,18 +97,17 @@ function PlaceholderTab({ tab }: { tab: (typeof ANALYSIS_TABS)[number] }) {
 
 function CompareTab({ testId }: { testId: string | null }) {
   const testsApi = useTestsApi();
+  const { token } = useQuixAuth();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Telemetry Explorer base URL — resolved from env or fallback
-  const explorerBaseUrl = process.env.NEXT_PUBLIC_TELEMETRY_EXPLORER_URL || "";
-
   useEffect(() => {
     if (!testId) {
       // No test selected — show explorer without filters
-      if (explorerBaseUrl) {
-        setIframeUrl(explorerBaseUrl);
+      if (EXPLORER_BASE_URL) {
+        setIframeUrl(EXPLORER_BASE_URL);
       }
       return;
     }
@@ -112,7 +124,7 @@ function CompareTab({ testId }: { testId: string | null }) {
         if (params.driver) qs.set("driver", params.driver);
         if (params.track) qs.set("track", params.track);
         if (params.carModel) qs.set("carModel", params.carModel);
-        setIframeUrl(`${explorerBaseUrl}?${qs.toString()}`);
+        setIframeUrl(`${EXPLORER_BASE_URL}?${qs.toString()}`);
       } catch (err) {
         setError(
           err instanceof Error
@@ -120,8 +132,8 @@ function CompareTab({ testId }: { testId: string | null }) {
             : "Failed to load telemetry parameters",
         );
         // Fall back to unfiltered explorer
-        if (explorerBaseUrl) {
-          setIframeUrl(explorerBaseUrl);
+        if (EXPLORER_BASE_URL) {
+          setIframeUrl(EXPLORER_BASE_URL);
         }
       } finally {
         setLoading(false);
@@ -131,7 +143,26 @@ function CompareTab({ testId }: { testId: string | null }) {
     fetchParams();
   }, [testId]);
 
-  if (!explorerBaseUrl) {
+  // Forward the auth token to the Telemetry Explorer iframe on request.
+  // TE's frontend posts `REQUEST_AUTH_TOKEN` after load; we reply with the
+  // current Quix token. Origin- AND source-checked to prevent token leak to
+  // any window other than the iframe we control.
+  useEffect(() => {
+    if (!iframeUrl || !token || !EXPLORER_ORIGIN) return;
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== EXPLORER_ORIGIN) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.data?.type !== "REQUEST_AUTH_TOKEN") return;
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: "AUTH_TOKEN", token },
+        EXPLORER_ORIGIN,
+      );
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [iframeUrl, token]);
+
+  if (!EXPLORER_BASE_URL) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-16 text-center">
@@ -171,6 +202,7 @@ function CompareTab({ testId }: { testId: string | null }) {
 
   return (
     <iframe
+      ref={iframeRef}
       src={iframeUrl}
       className="w-full border-0 rounded-lg"
       style={{ height: "calc(100vh - 12rem)" }}
