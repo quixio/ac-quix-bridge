@@ -447,3 +447,33 @@ class DeploymentReference(BaseModel):
     public_url: str | None = None
     embedded_view_url: str | None = None
     internal_url: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard
+# ---------------------------------------------------------------------------
+
+
+class BestLapEntry(BaseModel):
+    """A single row in the leaderboard: one driver's best lap within a
+    (track, car, experiment) scope.
+
+    `best_lap_ms` is the fastest per-lap timestamp delta (in milliseconds)
+    observed across every lap-partition for this (track, car, experiment,
+    driver). See `routes/leaderboard.py` for the aggregation details, including
+    the "drop highest lap per session" guard that filters out the in-progress
+    lap of each session.
+
+    The `session_id` / `lap_number` / `achieved_at` fields are reserved for
+    V2 extensions (deep-link to Compare, date achieved column) and are always
+    `None` in V1.
+    """
+
+    track: str
+    car: str
+    experiment: str
+    driver: str
+    best_lap_ms: int
+    session_id: str | None = None
+    lap_number: int | None = None
+    achieved_at: datetime | None = None

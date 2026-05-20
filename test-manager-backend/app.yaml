@@ -20,6 +20,16 @@ variables:
     inputType: FreeText
     multiline: false
     required: true
+  - name: QUIXLAKE_URL
+    inputType: FreeText
+    multiline: false
+    defaultValue: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
+    required: true
+  - name: QUIX_LAKE_TOKEN
+    inputType: Secret
+    multiline: false
+    defaultValue: pat_token
+    required: true
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

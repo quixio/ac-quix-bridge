@@ -41,6 +41,7 @@ import { settingsApi as settingsApiRaw } from "../api/settings";
 import { portalApi as portalApiRaw } from "../api/portal";
 import { driversApi as driversApiRaw } from "../api/drivers";
 import { environmentsApi as environmentsApiRaw } from "../api/environments";
+import { leaderboardApi as leaderboardApiRaw } from "../api/leaderboard";
 
 /**
  * Generic helper to create an authenticated API client hook
@@ -184,3 +185,14 @@ export const useDriversApi = createAuthenticatedApi(driversApiRaw);
  * Authenticated Environments API Hook
  */
 export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw);
+
+/**
+ * Authenticated Leaderboard API Hook
+ *
+ * @example
+ * ```typescript
+ * const leaderboardApi = useLeaderboardApi()
+ * const rows = await leaderboardApi.getBestLaps()
+ * ```
+ */
+export const useLeaderboardApi = createAuthenticatedApi(leaderboardApiRaw);

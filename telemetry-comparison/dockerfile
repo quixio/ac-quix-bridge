@@ -4,6 +4,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=UTF-8
 
+# ffmpeg + ffprobe (same package on Debian) are required by video_proxy.py's
+# lazy sprite-sheet generation path: when a lap recorded before the recorder
+# change is requested for the first time, the proxy probes dimensions and
+# runs a single ffmpeg pass to produce the thumbnails sprite. Image size
+# growth ~80–120 MB; spec ref: dev-planning/marker-drag-frame-preview/spec.md.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt .

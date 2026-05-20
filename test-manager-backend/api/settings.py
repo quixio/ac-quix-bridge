@@ -48,6 +48,21 @@ class Settings(BaseSettings):
         None, description="Topic/table name for test measurements in the Data Lake"
     )
 
+    # Direct QuixLake connection — used by the leaderboard endpoint to query
+    # the shared lake without going through the Settings-UI deployment ref.
+    # Matches the env vars wired on the Telemetry Explorer deployment in
+    # `quix.yaml`; both deployments talk to the same lake.
+    quixlake_url: str | None = Field(
+        None,
+        alias="QUIXLAKE_URL",
+        description="Base URL of the shared QuixLake instance",
+    )
+    quix_lake_token: str | None = Field(
+        None,
+        alias="QUIX_LAKE_TOKEN",
+        description="PAT authenticating against the shared QuixLake",
+    )
+
     # Nested settings
     mongo: MongoSettings = Field(default_factory=MongoSettings)
 

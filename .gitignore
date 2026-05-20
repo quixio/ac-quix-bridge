@@ -31,3 +31,9 @@ telemetry-comparison/mock/
 
 # Node tooling (prettier + eslint for telemetry-comparison/static)
 node_modules/
+
+# Planning / scratch docs
+dev-planning/
+
+# scratch
+.tmp/

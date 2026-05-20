@@ -16,6 +16,7 @@ from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
 from .routes.integrations import router as integrations_router
+from .routes.leaderboard import router as leaderboard_router
 from .routes.logbook import router as logbook_router
 from .routes.portal import router as portal_router
 from .routes.tests import router as tests_router
@@ -210,6 +211,9 @@ def create_app() -> FastAPI:
     )
     application.include_router(portal_router, tags=["portal"], prefix="/api/v1")
     application.include_router(settings_router, tags=["settings"], prefix="/api/v1")
+    application.include_router(
+        leaderboard_router, tags=["leaderboard"], prefix="/api/v1"
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

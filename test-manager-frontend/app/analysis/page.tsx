@@ -15,6 +15,7 @@ import {
   BookOpenText,
 } from "lucide-react";
 import { useTestsApi } from "@/lib/hooks/use-api";
+import { LeaderboardTab } from "@/components/analysis/leaderboard-tab";
 
 const ANALYSIS_TABS = [
   {
@@ -193,7 +194,7 @@ function AnalysisPageContent() {
 
   return (
     <MainLayout noPadding>
-      <div className="max-w-7xl px-6 pt-3 pb-6">
+      <div className="w-full px-6 pt-3 pb-6">
         <h1 className="mb-3 text-3xl font-bold tracking-tight">Analysis</h1>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
@@ -218,7 +219,13 @@ function AnalysisPageContent() {
             <CompareTab testId={testId} />
           </TabsContent>
 
-          {ANALYSIS_TABS.filter((t) => t.value !== "compare").map((tab) => (
+          <TabsContent value="leaderboard">
+            <LeaderboardTab />
+          </TabsContent>
+
+          {ANALYSIS_TABS.filter(
+            (t) => t.value !== "compare" && t.value !== "leaderboard",
+          ).map((tab) => (
             <TabsContent key={tab.value} value={tab.value}>
               <PlaceholderTab tab={tab} />
             </TabsContent>
