@@ -39,7 +39,11 @@ const _origFetch = window.fetch.bind(window);
 function _isTrustedOrigin(origin) {
   if (origin === window.location.origin) return true;
   try {
-    return _TRUSTED_ORIGIN_PATTERN.test(new URL(origin).hostname);
+    const host = new URL(origin).hostname;
+    // `localhost` / 127.0.0.1 cover the local dev loop where TM and TE
+    // run on the same host but different ports.
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+    return _TRUSTED_ORIGIN_PATTERN.test(host);
   } catch {
     return false;
   }
