@@ -390,6 +390,7 @@ deployments:
         inputType: ProjectVariable
         description: Token to authenticate against QuixLake
         required: true
+        secret: true
         variableKey: pat_token
       - name: QUIXLAKE_URL
         inputType: FreeText
@@ -404,15 +405,11 @@ deployments:
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
-      - name: SHARED_PASSWORD
-        inputType: ProjectVariable
-        description: Password for HTTP Basic auth gating every route. Empty = all requests 401.
-        required: true
-        variableKey: TELEMETRY_CHAT_PASSWORD
       - name: QUIX_TOKEN
         inputType: ProjectVariable
         description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
         required: true
+        secret: true
         variableKey: pat_token
       - name: QUIX_AI_AGENT_ID
         inputType: FreeText
