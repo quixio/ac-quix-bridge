@@ -25,9 +25,14 @@ import config
 logger = logging.getLogger(__name__)
 
 # Routes served before the frontend has obtained a token. Everything else
-# (i.e. /api/*) requires a valid Bearer token.
+# (i.e. /api/*) requires a valid Bearer token. `/api/video/` is public
+# because `<video src>` / `<img src>` element loads bypass `window.fetch` —
+# the browser does not auto-attach an Authorization header on media-element
+# range requests, so a gated route would 401. The data is replay footage of
+# already-recorded laps; treat as low-sensitivity. Tighten with a query-
+# param token if the videos become sensitive.
 _PUBLIC_PATHS: tuple[str, ...] = ("/", "/health", "/favicon.ico")
-_PUBLIC_PREFIXES: tuple[str, ...] = ("/static/",)
+_PUBLIC_PREFIXES: tuple[str, ...] = ("/static/", "/api/video/")
 
 
 def _token_preview(token: str) -> str:

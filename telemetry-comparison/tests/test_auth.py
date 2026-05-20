@@ -91,6 +91,14 @@ def test_static_files_open_without_token(client: TestClient) -> None:
     assert r.status_code != 401
 
 
+def test_video_routes_open_without_token(client: TestClient) -> None:
+    """`<video src>` / `<img src>` element loads can't carry a Bearer header,
+    so /api/video/* must bypass the middleware. Routing should reach the
+    video proxy (which may then 404, but NOT 401)."""
+    r = client.get("/api/video/some-session/1/mp4")
+    assert r.status_code != 401
+
+
 def test_api_auth_active_false_bypasses_everything(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
