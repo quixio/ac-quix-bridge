@@ -42,6 +42,7 @@ import { portalApi as portalApiRaw } from "../api/portal";
 import { driversApi as driversApiRaw } from "../api/drivers";
 import { environmentsApi as environmentsApiRaw } from "../api/environments";
 import { leaderboardApi as leaderboardApiRaw } from "../api/leaderboard";
+import { analysesApi as analysesApiRaw } from "../api/analyses";
 
 /**
  * Generic helper to create an authenticated API client hook
@@ -196,3 +197,16 @@ export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw);
  * ```
  */
 export const useLeaderboardApi = createAuthenticatedApi(leaderboardApiRaw);
+
+/**
+ * Authenticated Analyses API Hook
+ *
+ * @example
+ * ```typescript
+ * const analysesApi = useAnalysesApi()
+ * const { analysis_id } = await analysesApi.create({ test_id, session_id })
+ * const analysis = await analysesApi.get(analysis_id)
+ * const list = await analysesApi.list({ testId, sessionId })
+ * ```
+ */
+export const useAnalysesApi = createAuthenticatedApi(analysesApiRaw);
