@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api.models import (
@@ -14,6 +15,27 @@ from api.models import (
     RequirementCheck,
     SaveAnalysisPayload,
 )
+from tests.conftest import TestFactory
+
+
+def _create_test_with_session(
+    client: TestClient,
+    create_test: TestFactory,
+    session_id: str = "2026-05-22T10:30:00",
+) -> tuple[str, str]:
+    """Create a test and attach one session to it. Returns (test_id, session_id)."""
+    _, created = create_test()
+    test_id = created["test_id"]
+    response = client.post(
+        f"/api/v1/tests/{test_id}/sessions",
+        json={
+            "session_id": session_id,
+            "track": "ks_nurburgring",
+            "car_model": "bmw_1m",
+        },
+    )
+    assert response.status_code == 200
+    return test_id, session_id
 
 
 # --- Nested types --------------------------------------------------------- #
@@ -127,3 +149,134 @@ def test_analysis_list_query_status_literal():
     assert q.status == "complete"
     with pytest.raises(ValidationError):
         AnalysisListQuery(status="bogus")  # ty: ignore[invalid-argument-type]
+
+
+# --- Routes: POST /api/v1/analyses ---------------------------------------- #
+
+
+def test_post_analysis_creates_pending_doc_and_returns_202(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    test_id, session_id = _create_test_with_session(client, create_test)
+
+    response = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": session_id},
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert "analysis_id" in body
+
+    # Verify by fetching via GET — tests behaviour rather than Mongo internals.
+    detail = client.get(f"/api/v1/analyses/{body['analysis_id']}")
+    assert detail.status_code == 200
+    doc = detail.json()
+    assert doc["status"] == "pending"
+    assert doc["test_id"] == test_id
+    assert doc["session_id"] == session_id
+    assert doc["summary_md"] == ""
+    assert doc["kpis"] == []
+
+
+def test_post_analysis_rejects_unknown_session_id(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    _, created = create_test()
+    test_id = created["test_id"]
+    response = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": "2099-01-01T00:00:00Z"},
+    )
+    assert response.status_code == 400
+
+
+def test_post_analysis_rejects_unknown_test(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/analyses",
+        json={"test_id": "TST-9999", "session_id": "2026-01-01T00:00:00Z"},
+    )
+    assert response.status_code == 404
+
+
+# --- Routes: GET /api/v1/analyses/{id} ------------------------------------ #
+
+
+def test_get_analysis_by_id(client: TestClient, create_test: TestFactory) -> None:
+    test_id, session_id = _create_test_with_session(client, create_test)
+
+    created = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": session_id},
+    ).json()
+    analysis_id = created["analysis_id"]
+
+    response = client.get(f"/api/v1/analyses/{analysis_id}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == analysis_id
+    assert body["status"] == "pending"
+
+
+def test_get_analysis_unknown_id_404(client: TestClient) -> None:
+    response = client.get("/api/v1/analyses/nonexistent-uuid")
+    assert response.status_code == 404
+
+
+# --- Routes: GET /api/v1/analyses (list) ---------------------------------- #
+
+
+def test_list_analyses_filters_by_test_id(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """Two tests, one analysis each. Filter by test_id returns only matching one."""
+    t1, s1 = _create_test_with_session(
+        client, create_test, session_id="2026-05-22T10:30:00"
+    )
+    t2, s2 = _create_test_with_session(
+        client, create_test, session_id="2026-05-22T11:00:00"
+    )
+
+    client.post("/api/v1/analyses", json={"test_id": t1, "session_id": s1})
+    client.post("/api/v1/analyses", json={"test_id": t2, "session_id": s2})
+
+    response = client.get(f"/api/v1/analyses?test_id={t1}")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["test_id"] == t1
+
+
+def test_list_analyses_sorted_desc_by_created_at(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    t, s = _create_test_with_session(client, create_test)
+
+    first = client.post(
+        "/api/v1/analyses", json={"test_id": t, "session_id": s}
+    ).json()["analysis_id"]
+    second = client.post(
+        "/api/v1/analyses", json={"test_id": t, "session_id": s}
+    ).json()["analysis_id"]
+
+    response = client.get(f"/api/v1/analyses?test_id={t}")
+    items = response.json()["items"]
+    assert items[0]["id"] == second
+    assert items[1]["id"] == first
+
+
+def test_list_analyses_pagination(client: TestClient, create_test: TestFactory) -> None:
+    t, s = _create_test_with_session(client, create_test)
+
+    for _ in range(5):
+        client.post("/api/v1/analyses", json={"test_id": t, "session_id": s})
+
+    response = client.get(f"/api/v1/analyses?test_id={t}&page=1&page_size=2")
+    body = response.json()
+    assert body["total"] == 5
+    assert len(body["items"]) == 2
+    assert body["page"] == 1
+
+
+def test_list_analyses_rejects_invalid_status(client: TestClient) -> None:
+    response = client.get("/api/v1/analyses?status=bogus")
+    assert response.status_code == 422

@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import mongo
+from .routes.analyses import router as analyses_router
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
@@ -214,6 +215,7 @@ def create_app() -> FastAPI:
     application.include_router(
         leaderboard_router, tags=["leaderboard"], prefix="/api/v1"
     )
+    application.include_router(analyses_router, tags=["analyses"], prefix="/api/v1")
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
