@@ -37,3 +37,6 @@ dev-planning/
 
 # scratch
 .tmp/
+
+# quix-ai-config writes script-state to its own .env
+quix-ai-config/.env
