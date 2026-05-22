@@ -141,6 +141,7 @@ class LogbookEntry(BaseModel):
 
     id: str = Field(..., alias="_id")
     test_id: str
+    session_id: str | None = None  # None = test-wide note
     created_at: datetime = Field(default_factory=now)
     content: str
 
@@ -149,13 +150,14 @@ class LogbookEntryCreate(BaseModel):
     """Request model for creating a logbook entry."""
 
     content: str = Field(..., min_length=1)
+    session_id: str | None = None
 
 
 class LogbookEntryUpdate(BaseModel):
     """Request model for updating a logbook entry."""
 
     content: str | None = Field(default=None, min_length=1)
-    timestamp: datetime | None = None
+    session_id: str | None = None  # explicit set/change/clear
 
 
 # ============================================================================

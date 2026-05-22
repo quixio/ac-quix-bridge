@@ -27,9 +27,11 @@ def _get_auth_implementation():
     """
     if os.getenv("LOCAL_DEV_MODE") == "true":
         from .local_auth import LocalAuth
+
         return LocalAuth()
     else:
         from quixportal.auth import Auth
+
         return Auth()
 
 
@@ -44,7 +46,7 @@ def validate_token(
 ) -> Callable[..., None]:
     def inner(
         request: Request,
-        auth_instance = Depends(auth),
+        auth_instance=Depends(auth),
         settings: Settings = Depends(get_settings),
         authorization: Optional[str] = Header(default=None),
     ) -> None:
@@ -54,7 +56,9 @@ def validate_token(
         path = request.url.path
 
         if authorization is None:
-            logger.info("[auth] %s %s — REJECTED: no Authorization header", permission, path)
+            logger.warning(
+                "[auth] %s %s — REJECTED: no Authorization header", permission, path
+            )
             raise HTTPException(status_code=403, detail="Not Allowed")
 
         if authorization.startswith(("bearer ", "Bearer ")):
@@ -68,15 +72,21 @@ def validate_token(
             token, "Workspace", settings.workspace_id, permission
         )
         if not ok:
-            logger.info(
+            logger.warning(
                 "[auth] %s %s — REJECTED: invalid token (scheme=%s, token=%s)",
-                permission, path, scheme, _token_preview(token),
+                permission,
+                path,
+                scheme,
+                _token_preview(token),
             )
             raise HTTPException(status_code=403, detail="Not Allowed")
 
-        logger.info(
+        logger.debug(
             "[auth] %s %s — OK (scheme=%s, token=%s)",
-            permission, path, scheme, _token_preview(token),
+            permission,
+            path,
+            scheme,
+            _token_preview(token),
         )
         return None
 

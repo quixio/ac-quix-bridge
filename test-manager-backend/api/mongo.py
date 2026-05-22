@@ -49,6 +49,7 @@ def connect(settings: MongoSettings) -> None:
 
     # Logbook collection
     _mongo.logbook.create_index("test_id")
+    _mongo.logbook.create_index([("test_id", 1), ("session_id", 1), ("created_at", -1)])
 
 
 def disconnect() -> None:

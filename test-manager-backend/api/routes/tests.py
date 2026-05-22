@@ -33,11 +33,7 @@ def build_partition_values(
     here avoids a DCM round-trip on a hot read path (Analyze button).
     """
     rig = mongo.devices.find_one({"_id": test.test_rig_device_id})
-    rig_name = (
-        rig["name"].lower().replace(" ", "_")
-        if rig
-        else test.test_rig_device_id
-    )
+    rig_name = rig["name"].lower().replace(" ", "_") if rig else test.test_rig_device_id
     env = mongo.environments.find_one({"_id": test.environment_id})
     env_name = (
         env["name"].lower().replace(" ", "_").replace("'", "")
@@ -285,7 +281,7 @@ def get_test_full(
     test = resolve_test_names(Test(**test_doc), mongo)
     logbook = [
         LogbookEntry(**e)
-        for e in mongo.logbook.find({"test_id": test_id}).sort("timestamp", -1)
+        for e in mongo.logbook.find({"test_id": test_id}).sort("created_at", -1)
     ]
 
     return TestFullData(test=test, logbook=logbook)

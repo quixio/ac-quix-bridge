@@ -306,6 +306,7 @@ export default function TestDetailPage() {
             <LogbookEntryForm
               testId={testId}
               entry={editingEntry || undefined}
+              sessions={test.sessions}
               onSubmit={handleLogbookSubmit}
               onCancel={() => {
                 setShowLogbookDialog(false);
