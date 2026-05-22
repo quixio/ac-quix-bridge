@@ -51,6 +51,12 @@ def connect(settings: MongoSettings) -> None:
     _mongo.logbook.create_index("test_id")
     _mongo.logbook.create_index([("test_id", 1), ("session_id", 1), ("created_at", -1)])
 
+    # Analyses collection
+    _mongo.analyses.create_index(
+        [("test_id", 1), ("session_id", 1), ("created_at", -1)]
+    )
+    _mongo.analyses.create_index([("status", 1), ("updated_at", 1)])
+
 
 def disconnect() -> None:
     _mongo.client.close()
