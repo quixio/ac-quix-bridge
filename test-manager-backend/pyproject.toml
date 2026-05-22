@@ -17,6 +17,7 @@ dependencies = [
 	"python-multipart",
 	"quixportal",
 	"quixlake-sdk",
+	"mcp>=1.0.0",
 ]
 
 [dependency-groups]

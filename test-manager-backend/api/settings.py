@@ -63,6 +63,13 @@ class Settings(BaseSettings):
         description="PAT authenticating against the shared QuixLake",
     )
 
+    # Shared secret for the /mcp endpoint (X-API-Key). Empty disables /mcp.
+    testmanager_mcp_api_key: str = Field(
+        "",
+        alias="TESTMANAGER_MCP_API_KEY",
+        description="Shared secret for the /mcp X-API-Key auth",
+    )
+
     # Nested settings
     mongo: MongoSettings = Field(default_factory=MongoSettings)
 
