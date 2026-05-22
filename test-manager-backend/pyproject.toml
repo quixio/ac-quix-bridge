@@ -23,7 +23,9 @@ dependencies = [
 [dependency-groups]
 dev = [
 	"pytest",
+	"pytest-asyncio>=0.23",
 	"pytest-cov",
+	"respx>=0.21",
 	"ruff",
 	"ty",
 	"httpx",
@@ -32,6 +34,7 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = "."
+asyncio_mode = "auto"
 filterwarnings = [
 	# api.models.Test is a Pydantic BaseModel; pytest's class collector flags
 	# it because the name starts with "Test". Narrow filter — any OTHER class

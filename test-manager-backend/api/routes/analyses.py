@@ -1,6 +1,8 @@
 """CRUD routes for AI-generated session analyses."""
 
+import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
@@ -8,6 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pymongo.database import Database
 
+from ..analysis_runner import run_analysis
 from ..auth import read_permission, update_permission
 from ..models import Analysis, AnalysisCreate
 from ..mongo import get_mongo
@@ -18,19 +21,9 @@ router = APIRouter()
 
 IN_PROGRESS_STATUSES = ("pending", "running", "fetching", "analyzing", "saving")
 
-
-def _spawn_runner_stub(analysis_id: str, test_id: str, session_id: str) -> None:
-    """Placeholder for the async runner. Real impl lands in Phase 5.
-
-    Keeps the doc in `pending` state — the test confirms this behaviour.
-    Phase 5 swaps this for asyncio.create_task(run_analysis(...)).
-    """
-    logger.info(
-        "[analyses] runner spawn DEFERRED (Phase 5): analysis=%s test=%s session=%s",
-        analysis_id,
-        test_id,
-        session_id,
-    )
+# Hold strong refs to spawned tasks so Python's GC doesn't kill them
+# mid-run (asyncio.create_task only holds a weak reference).
+_RUNNING_TASKS: set[asyncio.Task[None]] = set()
 
 
 @router.post(
@@ -76,7 +69,24 @@ def create_analysis(
         payload.session_id,
     )
 
-    _spawn_runner_stub(analysis_id, payload.test_id, payload.session_id)
+    # Spawn the async runner only when Quix.AI is configured. In tests the env
+    # var is unset so the doc stays in `pending` (matches Phase 3 contract).
+    if os.getenv("Quix__Portal__Api") and os.getenv("QUIX_AI_POST_RACE_AGENT_ID"):
+        task = asyncio.create_task(
+            run_analysis(
+                mongo,
+                analysis_id=analysis_id,
+                test_id=payload.test_id,
+                session_id=payload.session_id,
+            )
+        )
+        _RUNNING_TASKS.add(task)
+        task.add_done_callback(_RUNNING_TASKS.discard)
+    else:
+        logger.warning(
+            "[analyses] runner not started — Quix__Portal__Api or "
+            "QUIX_AI_POST_RACE_AGENT_ID unset (test or misconfig)"
+        )
     return {"analysis_id": analysis_id}
 
 
