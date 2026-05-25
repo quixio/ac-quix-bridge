@@ -90,8 +90,6 @@ deployments:
       cpu: 500
       memory: 1000
       replicas: 1
-    network:
-      serviceName: dynamic-configuration-manager
     configuration:
       topic: ac-telemetry-config
       mongoHost: mongodb
