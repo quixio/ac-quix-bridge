@@ -38,7 +38,7 @@ asyncio_mode = "auto"
 # `uv run pytest` (default) excludes them.
 markers = [
 	"e2e: browser-driven tests against a running dev server (slow; opt-in)",
-	"real_auth: run with the real shared-password middleware (conftest skips its bypass)",
+	"real_auth: run with the real Bearer-token middleware (conftest skips its bypass)",
 ]
 addopts = "-m 'not e2e'"
 

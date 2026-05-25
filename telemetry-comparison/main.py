@@ -51,9 +51,9 @@ logger = logging.getLogger(__name__)
 config.validate_env()
 
 app = FastAPI(title="Telemetry Comparison")
-# Shared-password gate covering every route INCLUDING the static mount —
-# add as ASGI middleware so it wraps `app.mount(...)` too. Empty
-# SHARED_PASSWORD = closed (every request 401).
+# Bearer-token gate covering every /api/* route. Mounted as ASGI middleware
+# so static + SPA shell can serve unauthenticated and the frontend can run
+# its token handshake before making any /api call.
 app.add_middleware(auth.AuthMiddleware)
 app.include_router(chat.router)
 app.include_router(track_loader.router)

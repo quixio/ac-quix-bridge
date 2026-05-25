@@ -6,7 +6,8 @@ FastAPI service that serves a Plotly UI for cross-run/lap telemetry comparison, 
 
 - **`main.py`** — FastAPI app + plotting routes (`/api/sessions`, `/api/telemetry`, `/api/channels`).
 - **`config.py`** — Central config: environment variables, paths, rendering constants.
-- **`auth.py`** — Shared-password HTTP Basic ASGI middleware gating every route + the static mount. Empty `SHARED_PASSWORD` = closed.
+- **`auth.py`** — Bearer-token ASGI middleware gating `/api/*` routes. Validates `Authorization: Bearer <token>` against Quix Portal via the `quixportal` SDK. Public paths (`/`, `/static/*`, `/health`) bypass so the SPA can boot.
+- **`local_auth.py`** — Dev mock implementing the same interface; activated by `LOCAL_DEV_MODE=true`.
 - **`chat.py`** — `POST /api/chat` JSONL streaming route forwarding the Quix AI QuixLake Querier agent.
 - **`plans.py`** — Pydantic models for the agent's structured plot/clarify output.
 - **`quix_ai.py`** — httpx client for Quix AI sessions + SSE message streaming.
@@ -18,7 +19,9 @@ FastAPI service that serves a Plotly UI for cross-run/lap telemetry comparison, 
 
 | Variable | Default | Notes |
 |---|---|---|
-| `SHARED_PASSWORD` | (required) | Shared password for HTTP Basic auth on every route. Empty = closed (every request 401). Set as a Quix Secret in cloud deployments; share via password manager. |
+| `Quix__Workspace__Id` | (auto-injected) | Workspace ID used when validating user Bearer tokens. Set by Quix Cloud; for local dev populate via `.env`. |
+| `API_AUTH_ACTIVE` | `true` | Set to `false` to bypass auth entirely (tests, some local flows). |
+| `LOCAL_DEV_MODE` | `false` | When `true`, swaps in `LocalAuth` (all permissions granted) instead of calling Quix Portal. |
 | `QUIXLAKE_URL` | (required) | QuixLake base URL. |
 | `QUIX_LAKE_TOKEN` | (required) | Bearer token for QuixLake API. |
 | `TABLE_NAME` | `ac_telemetry` | QuixLake table name. |

@@ -32,10 +32,11 @@ BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
 PORTAL = os.getenv("Quix__Portal__Api", "").rstrip("/")  # noqa: SIM112
 QUIX_TOKEN = os.getenv("QUIX_TOKEN", "")
 
-# Shared-password gate (HTTP Basic) covering every route. Empty = closed
-# (all requests 401). Set as a Quix Secret variable in cloud deployments;
-# share via password manager.
-SHARED_PASSWORD = os.getenv("SHARED_PASSWORD", "")
+# Bearer-token auth gate. Tokens are validated against Quix Portal via the
+# `quixportal` SDK, scoped to this workspace.
+WORKSPACE_ID = os.getenv("Quix__Workspace__Id", "")  # noqa: SIM112
+API_AUTH_ACTIVE = os.getenv("API_AUTH_ACTIVE", "true").lower() == "true"
+LOCAL_DEV_MODE = os.getenv("LOCAL_DEV_MODE", "").lower() == "true"
 
 # QuixLake Querier agent (system prompt + KBs + MCP tools live on it).
 # Override via env if you need to point at a fork of the agent.
@@ -64,11 +65,17 @@ def validate_env() -> None:
         "QUIX_LAKE_TOKEN": QUIX_LAKE_TOKEN,
         "Quix__Portal__Api": PORTAL,
         "QUIX_TOKEN": QUIX_TOKEN,
-        "SHARED_PASSWORD": SHARED_PASSWORD,
     }
     for name, value in required.items():
         if not value:
             logger.error("Required env var %s is not set", name)
+
+    if API_AUTH_ACTIVE and not LOCAL_DEV_MODE and not WORKSPACE_ID:
+        logger.error("Quix__Workspace__Id is not set — Bearer-token auth will reject every request")
+    if not API_AUTH_ACTIVE:
+        logger.warning("API_AUTH_ACTIVE=false — all requests bypass authentication")
+    if LOCAL_DEV_MODE:
+        logger.warning("LOCAL_DEV_MODE=true — using mock auth (all permissions granted)")
 
     if AGENT_CONFIGURATION_ID == _DEFAULT_AGENT_ID and not os.getenv("QUIX_AI_AGENT_ID"):
         logger.warning(

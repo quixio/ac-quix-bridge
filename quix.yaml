@@ -90,6 +90,8 @@ deployments:
       cpu: 500
       memory: 1000
       replicas: 1
+    network:
+      serviceName: dynamic-configuration-manager
     configuration:
       topic: ac-telemetry-config
       mongoHost: mongodb
@@ -255,7 +257,7 @@ deployments:
         inputType: FreeText
         description: Public URL of the Telemetry Explorer deployment
         required: true
-        value: https://telemetryexplorer-quixdev-acquixbridge-leaderboard.deployments-dev.quix.io
+        value: https://telemetryexplorer-quixdev-acquixbridge-testmanager.deployments-dev.quix.io
     plugin:
       embeddedView:
         enabled: true
@@ -269,130 +271,6 @@ deployments:
       globalItem:
         show: true
         label: Test Manager
-        order: 0
-  - name: RaceTelemetryAnalysis
-    application: racetelemetryanalysis
-    version: latest
-    deploymentType: Service
-    resources:
-      cpu: 500
-      memory: 2000
-      replicas: 1
-    publicAccess:
-      enabled: true
-      urlPrefix: racetelemetryanalysis
-    state:
-      enabled: true
-      size: 1
-    network:
-      ports:
-        - port: 80
-          targetPort: 8080
-    variables:
-      - name: MARIMO_MODE
-        inputType: Options
-        description: Mode to run Marimo in
-        value: edit
-      - name: MARIMO_NOTEBOOK
-        inputType: FreeText
-        description: The notebook file to open (e.g., main.py)
-        value: main.py
-      - name: ANTHROPIC_API_KEY
-        inputType: ProjectVariable
-        description: Token generated from https://platform.claude.com/settings/keys.
-    plugin:
-      embeddedView:
-        enabled: true
-        hideHeader: true
-        default: true
-      sidebarItem:
-        show: true
-        icon: note_alt
-        badge: BETA
-  - name: RawDataVisualization
-    application: rawdatavisualization
-    version: latest
-    deploymentType: Service
-    resources:
-      cpu: 500
-      memory: 200
-      replicas: 1
-    publicAccess:
-      enabled: true
-      urlPrefix: rawdatavisualization
-    state:
-      enabled: true
-      size: 1
-    network:
-      ports:
-        - port: 80
-          targetPort: 8080
-    variables:
-      - name: MARIMO_MODE
-        inputType: Options
-        description: Mode to run Marimo in
-        value: edit
-      - name: MARIMO_NOTEBOOK
-        inputType: FreeText
-        description: The notebook file to open (e.g., main.py)
-        value: main.py
-      - name: ANTHROPIC_API_KEY
-        inputType: ProjectVariable
-        description: Token generated from https://platform.claude.com/settings/keys.
-    plugin:
-      embeddedView:
-        enabled: true
-        hideHeader: true
-        default: true
-      sidebarItem:
-        show: true
-        icon: note_alt
-        order: 0
-        badge: BETA
-  - name: RawDataVisualizationApp
-    application: rawdatavisualization
-    version: latest
-    deploymentType: Service
-    resources:
-      cpu: 500
-      memory: 200
-      replicas: 1
-    publicAccess:
-      enabled: true
-      urlPrefix: app-rawdatavisualization
-    state:
-      enabled: true
-      size: 1
-    network:
-      ports:
-        - port: 80
-          targetPort: 8080
-    variables:
-      - name: MARIMO_MODE
-        inputType: Options
-        description: Mode to run Marimo in
-        value: run
-      - name: MARIMO_NOTEBOOK
-        inputType: FreeText
-        description: The notebook file to open (e.g., main.py)
-        value: main.py
-      - name: ANTHROPIC_API_KEY
-        inputType: ProjectVariable
-        description: Token generated from https://platform.claude.com/settings/keys.
-    plugin:
-      embeddedView:
-        enabled: true
-        hideHeader: true
-        default: true
-      sidebarItem:
-        show: true
-        icon: note_alt
-        order: 0
-        badge: BETA
-      globalItem:
-        show: true
-        label: Telemetry Analysis
-        icon: rocket_launch
         order: 0
   - name: AC Video Streaming
     application: ac_video_streaming
@@ -526,14 +404,9 @@ deployments:
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
-      - name: SHARED_PASSWORD
-        inputType: ProjectVariable
-        description: Password for HTTP Basic auth gating every route. Empty = all requests 401.
-        required: true
-        variableKey: TELEMETRY_CHAT_PASSWORD
       - name: QUIX_TOKEN
         inputType: ProjectVariable
-        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works. 
+        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
         required: true
         variableKey: pat_token
       - name: QUIX_AI_AGENT_ID

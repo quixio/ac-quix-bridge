@@ -24,12 +24,18 @@ import main
 
 @pytest.fixture(autouse=True)
 def _bypass_auth(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Skip the shared-password gate for every test except the ones in
+    """Disable the Bearer-token gate for every test except the ones in
     test_auth.py that exercise the gate directly. Tests that need the real
     middleware can request the `real_auth` marker."""
     if request.node.get_closest_marker("real_auth"):
         return
-    monkeypatch.setattr(auth, "_password_matches", lambda _h: True)
+    monkeypatch.setattr(config, "API_AUTH_ACTIVE", False)
+    monkeypatch.setattr(auth, "_auth_impl", lambda: _AlwaysAllow())
+
+
+class _AlwaysAllow:
+    def validate_permissions(self, *_args: object, **_kwargs: object) -> bool:
+        return True
 
 
 @pytest.fixture
