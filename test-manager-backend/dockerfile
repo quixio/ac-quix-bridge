@@ -5,6 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 	PYTHONIOENCODING=UTF-8 \
 	UV_COMPILE_BYTECODE=1
 
+ARG MAINAPPPATH=.
+
 WORKDIR /app
 
 # Install system dependencies for healthcheck
@@ -13,8 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy project
-ADD . /app
+# Copy project (build context = repo root, MAINAPPPATH = app subdir incl. merged includedFolders)
+COPY "${MAINAPPPATH}" /app
 
 # Install dependencies with uv
 RUN uv sync --frozen --no-cache
