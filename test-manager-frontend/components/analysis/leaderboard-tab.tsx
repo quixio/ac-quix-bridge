@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import { ApiError } from "@/lib/api/client"
-import { useLeaderboard } from "@/lib/hooks/use-leaderboard"
+import { Loader2 } from "lucide-react"
+
+import { EmptyState } from "@/components/shared/empty-state"
 import {
   Select,
   SelectContent,
@@ -11,172 +11,188 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
-import { EmptyState } from "@/components/shared/empty-state"
-import { Trophy } from "lucide-react"
-import { LeaderboardTable, type RankedLap } from "./leaderboard-table"
+import { LivePositionsTable } from "@/components/analysis/live-positions-table"
+import { BestLapsTable } from "@/components/analysis/best-laps-table"
+import { useLivePositions } from "@/lib/hooks/use-live-positions"
 
 /**
- * Leaderboard tab — one fetch on mount, three dropdowns (Track / Car /
- * Experiment), and a flat per-driver best-lap table filtered client-side.
+ * Multi-driver live-positions leaderboard.
  *
- * Filter options come from the distinct partition values present in the
- * payload, so experiments with zero valid laps never appear in the
- * dropdown (this is an intentional V1 trade-off, see spec §5.6 / Q1).
+ * The page polls the backend every 3.5 s for the full 60-row response,
+ * then filters down to one (track, car, experiment) group selected via
+ * three dropdowns. The active driver's rank inside the group shifts at
+ * sector boundaries based on his cumulative-at-sector time vs. each
+ * historical driver's cumulative-at-sector time.
+ *
+ * On first load the dropdowns auto-select the alphabetically-first
+ * value of each list. The selection sticks across polls; if the
+ * currently-selected option disappears from the response (shouldn't
+ * happen in sim mode but could in real mode) we re-snap to the first
+ * available one.
  */
 export function LeaderboardTab() {
-  const router = useRouter()
-  const { data, loading, error, refetch, tracks, cars, experiments } =
-    useLeaderboard()
+  const { rows, tracks, cars, experiments, loading, error } = useLivePositions()
 
-  const [selectedTrack, setSelectedTrack] = useState<string | null>(null)
-  const [selectedCar, setSelectedCar] = useState<string | null>(null)
-  const [selectedExperiment, setSelectedExperiment] = useState<string | null>(
-    null
+  const [track, setTrack] = useState<string | null>(null)
+  const [car, setCar] = useState<string | null>(null)
+  const [experiment, setExperiment] = useState<string | null>(null)
+
+  // Initial / fallback selection. We use the alphabetically-first option
+  // — same pattern as the previous (pre-reset) leaderboard. The fallback
+  // also catches the case where a previously-selected value isn't
+  // present in the latest response.
+  useEffect(() => {
+    if (tracks.length === 0) return
+    if (!track || !tracks.includes(track)) setTrack(tracks[0])
+  }, [tracks, track])
+
+  useEffect(() => {
+    if (cars.length === 0) return
+    if (!car || !cars.includes(car)) setCar(cars[0])
+  }, [cars, car])
+
+  useEffect(() => {
+    if (experiments.length === 0) return
+    if (!experiment || !experiments.includes(experiment)) {
+      setExperiment(experiments[0])
+    }
+  }, [experiments, experiment])
+
+  const filteredRows = useMemo(() => {
+    if (!track || !car || !experiment) return []
+    return rows.filter(
+      (r) => r.track === track && r.car === car && r.experiment === experiment,
+    )
+  }, [rows, track, car, experiment])
+
+  // Drives the two-vs-one-table layout below. Real mode has no active
+  // driver when nobody is currently driving; LOCAL_DEV_MODE always has
+  // the sim's "Ludvík" row active.
+  const hasActive = useMemo(
+    () => filteredRows.some((r) => r.is_active),
+    [filteredRows],
   )
 
-  // Auto-select the first alphabetical value in each dropdown once the
-  // payload arrives. Reselect only if the current selection is absent
-  // from the new option list (e.g. after a refetch that removed it).
-  useEffect(() => {
-    if (tracks.length && (selectedTrack === null || !tracks.includes(selectedTrack))) {
-      setSelectedTrack(tracks[0])
-    }
-  }, [tracks, selectedTrack])
-
-  useEffect(() => {
-    if (cars.length && (selectedCar === null || !cars.includes(selectedCar))) {
-      setSelectedCar(cars[0])
-    }
-  }, [cars, selectedCar])
-
-  useEffect(() => {
-    if (
-      experiments.length &&
-      (selectedExperiment === null || !experiments.includes(selectedExperiment))
-    ) {
-      setSelectedExperiment(experiments[0])
-    }
-  }, [experiments, selectedExperiment])
-
-  // Filter + sort + rank in one memo so the table gets a stable row
-  // identity whenever any of the three selections change.
-  const rankedRows = useMemo<RankedLap[]>(() => {
-    if (!selectedTrack || !selectedCar || !selectedExperiment) return []
-    const filtered = data.filter(
-      (r) =>
-        r.track === selectedTrack &&
-        r.car === selectedCar &&
-        r.experiment === selectedExperiment
-    )
-    const sorted = [...filtered].sort((a, b) => a.best_lap_ms - b.best_lap_ms)
-    return sorted.map((r, i) => ({ ...r, rank: i + 1 }))
-  }, [data, selectedTrack, selectedCar, selectedExperiment])
-
-  // --- Loading skeleton ---
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="flex flex-wrap gap-4">
-          <Skeleton className="h-16 w-[180px]" />
-          <Skeleton className="h-16 w-[180px]" />
-          <Skeleton className="h-16 w-[180px]" />
-        </div>
-        <Skeleton className="h-64 w-full" />
-      </div>
-    )
-  }
-
-  // --- Error state ---
-  if (error) {
-    // 501 from the backend = measurements integration not configured.
-    // S7 in the spec — route the user to Settings.
-    if (error instanceof ApiError && error.status === 501) {
-      return (
-        <EmptyState
-          icon={<Trophy className="h-12 w-12" />}
-          title="Measurements service not configured"
-          description="The leaderboard needs a measurements deployment configured. Set one up in Settings to enable best-lap queries."
-          action={{
-            label: "Open Settings",
-            onClick: () => router.push("/settings"),
-          }}
-        />
-      )
-    }
+  if (loading && rows.length === 0) {
     return (
       <EmptyState
-        icon={<Trophy className="h-12 w-12" />}
-        title="Failed to load leaderboard"
-        description={error.message}
-        action={{ label: "Retry", onClick: refetch }}
+        icon={<Loader2 className="h-12 w-12 animate-spin" />}
+        title="Loading leaderboard…"
+        description="Fetching live positions from the backend."
       />
     )
   }
 
-  // --- Default render: dropdowns always visible, table shows empty state ---
-  // Rendering the dropdowns even with zero data lets the user confirm the
-  // page is alive while waiting for the first lap. The table handles its
-  // own empty message.
-  const isLakeEmpty = data.length === 0
+  if (error && rows.length === 0) {
+    return (
+      <EmptyState
+        icon={<Loader2 className="h-12 w-12" />}
+        title="Could not load leaderboard"
+        description={error.message}
+      />
+    )
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-4">
-        <FilterSelect
-          label="Track"
-          value={selectedTrack}
-          options={tracks}
-          onChange={setSelectedTrack}
-        />
-        <FilterSelect
-          label="Car"
-          value={selectedCar}
-          options={cars}
-          onChange={setSelectedCar}
-        />
-        <FilterSelect
-          label="Experiment"
-          value={selectedExperiment}
-          options={experiments}
-          onChange={setSelectedExperiment}
-        />
-      </div>
-
-      {isLakeEmpty ? (
-        <EmptyState
-          icon={<Trophy className="h-12 w-12" />}
-          title="No laps recorded yet"
-          description="Drive a session in Assetto Corsa with the telemetry source running. Laps appear here automatically once the first complete lap is recorded."
-        />
+    <div className="flex w-full flex-col gap-6 py-6">
+      <FilterBar
+        track={track}
+        car={car}
+        experiment={experiment}
+        tracks={tracks}
+        cars={cars}
+        experiments={experiments}
+        onTrack={setTrack}
+        onCar={setCar}
+        onExperiment={setExperiment}
+      />
+      {filteredRows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No rows for this combination yet.
+        </p>
+      ) : hasActive ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr] lg:gap-8">
+          <LivePositionsTable rows={filteredRows} />
+          <BestLapsTable rows={filteredRows} />
+        </div>
       ) : (
-        <LeaderboardTable data={rankedRows} />
+        <div className="mx-auto w-full max-w-3xl">
+          <p className="mb-3 text-sm text-muted-foreground">
+            No live session right now — showing historical best laps
+          </p>
+          <BestLapsTable rows={filteredRows} />
+        </div>
       )}
     </div>
   )
 }
 
-interface FilterSelectProps {
+interface FilterBarProps {
+  track: string | null
+  car: string | null
+  experiment: string | null
+  tracks: string[]
+  cars: string[]
+  experiments: string[]
+  onTrack: (v: string) => void
+  onCar: (v: string) => void
+  onExperiment: (v: string) => void
+}
+
+function FilterBar(props: FilterBarProps) {
+  return (
+    <div className="flex flex-wrap items-end gap-4">
+      <FilterSelect
+        label="Track"
+        value={props.track}
+        options={props.tracks}
+        onChange={props.onTrack}
+        testid="filter-track"
+      />
+      <FilterSelect
+        label="Car"
+        value={props.car}
+        options={props.cars}
+        onChange={props.onCar}
+        testid="filter-car"
+      />
+      <FilterSelect
+        label="Experiment"
+        value={props.experiment}
+        options={props.experiments}
+        onChange={props.onExperiment}
+        testid="filter-experiment"
+      />
+    </div>
+  )
+}
+
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+  testid,
+}: {
   label: string
   value: string | null
   options: string[]
-  onChange: (value: string) => void
-}
-
-function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
+  onChange: (v: string) => void
+  testid: string
+}) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-medium text-muted-foreground">
+    <div className="flex min-w-[180px] flex-col gap-1">
+      <label className="text-xs uppercase tracking-wider text-muted-foreground">
         {label}
       </label>
-      <Select value={value ?? undefined} onValueChange={onChange}>
-        <SelectTrigger className="w-[180px]">
+      <Select value={value ?? ""} onValueChange={onChange}>
+        <SelectTrigger data-testid={testid}>
           <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
         </SelectTrigger>
         <SelectContent>
-          {options.map((opt) => (
-            <SelectItem key={opt} value={opt}>
-              {opt}
+          {options.map((o) => (
+            <SelectItem key={o} value={o}>
+              {o}
             </SelectItem>
           ))}
         </SelectContent>

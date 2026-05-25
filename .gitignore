@@ -34,6 +34,12 @@ node_modules/
 
 # Planning / scratch docs
 dev-planning/
+docs/
+
+# Local Docker build-context overrides (Windows symlink workaround etc.)
+.dockerignore
 
 # scratch
 .tmp/
+
+docker-compose.dev.yml

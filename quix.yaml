@@ -222,6 +222,25 @@ deployments:
         inputType: ProjectVariable
         required: true
         variableKey: quix_lake_pat
+      - name: LOCAL_DEV_MODE
+        inputType: FreeText
+        required: false
+        value: "false"
+      - name: LIVE_TELEMETRY_ENABLED
+        inputType: FreeText
+        description: Set true to start the Kafka consumer that powers the live-positions endpoint.
+        required: false
+        value: "true"
+      - name: Quix__Sdk__Token
+        inputType: ProjectVariable
+        description: Workspace SDK token used by QuixStreams to consume ac-telemetry-raw.
+        required: true
+        variableKey: quix_lake_pat
+      - name: Quix__Portal__Api
+        inputType: FreeText
+        description: Quix Portal API URL (dev workspace = portal-api.dev.quix.io; never platform.quix.io).
+        required: false
+        value: https://portal-api.dev.quix.io
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest

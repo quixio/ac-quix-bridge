@@ -450,30 +450,109 @@ class DeploymentReference(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Leaderboard
+# Leaderboard — Ghost Lap (single-driver live comparison vs personal best)
 # ---------------------------------------------------------------------------
 
 
-class BestLapEntry(BaseModel):
-    """A single row in the leaderboard: one driver's best lap within a
-    (track, car, experiment) scope.
+class LiveDriverState(BaseModel):
+    """Snapshot of the currently-active driver's live lap state.
 
-    `best_lap_ms` is the fastest per-lap timestamp delta (in milliseconds)
-    observed across every lap-partition for this (track, car, experiment,
-    driver). See `routes/leaderboard.py` for the aggregation details, including
-    the "drop highest lap per session" guard that filters out the in-progress
-    lap of each session.
+    Built either from the most-recent message captured by the live-telemetry
+    consumer (real mode) or synthesised deterministically by the in-process
+    simulator (LOCAL_DEV_MODE). The frontend polls this once every 500 ms.
 
-    The `session_id` / `lap_number` / `achieved_at` fields are reserved for
-    V2 extensions (deep-link to Compare, date achieved column) and are always
-    `None` in V1.
+    `normalized_position` is AC's `normalizedCarPosition` field — a 0..1
+    progress around the lap, used as the abscissa for the ghost-reference
+    lookup. `best_lap_ms_session` is AC's `iBestTime` (best completed lap
+    so far this session); may be `None` before the first lap completes.
+
+    `segment_times_ms` records the live driver's `current_lap_time_ms` at
+    the moment they crossed each of the 10 evenly-spaced segment boundaries
+    on the current lap. Index `i` holds the time at pos `(i+1)/10`. Entries
+    are `None` until that boundary has been crossed in this lap; the whole
+    list resets to `[None]*10` when `completedLaps` advances.
+    """
+
+    driver: str
+    car: str
+    track: str
+    experiment: str
+    current_lap: int
+    current_lap_time_ms: int
+    normalized_position: float
+    best_lap_ms_session: int | None = None
+    segment_times_ms: list[int | None] = Field(default_factory=lambda: [None] * 10)
+    last_normalized_position: float = 0.0
+
+
+class GhostSample(BaseModel):
+    """One point on the ghost reference curve.
+
+    `pos` is `normalizedCarPosition` (0..1) and `time_ms` is the lap-relative
+    elapsed time at that position in the historical best lap.
+    """
+
+    pos: float
+    time_ms: int
+
+
+class GhostReference(BaseModel):
+    """The driver's personal-best lap on a (car, track), resampled to 101
+    fixed positions for cheap client-side interpolation.
+
+    `samples` is always length 101 with `pos` running 0.00, 0.01, ..., 1.00.
+    `source_session_id` and `source_lap` point back to the lake partition
+    the curve was extracted from so the UI can show provenance.
+
+    `segment_cumulative_ms` is the ghost's cumulative time at the END of
+    each of the 10 evenly-spaced segments (positions 0.10, 0.20, ..., 1.00).
+    Pre-computed server-side so the segment-breakdown table doesn't have to
+    re-interpolate every tick.
+    """
+
+    driver: str
+    car: str
+    track: str
+    best_lap_ms: int
+    samples: list[GhostSample]
+    source_session_id: str
+    source_lap: int
+    segment_cumulative_ms: list[int] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard — multi-driver live positions (Analysis Leaderboard tab)
+# ---------------------------------------------------------------------------
+
+
+class LivePositionEntry(BaseModel):
+    """One row of the multi-driver live-positions table.
+
+    The endpoint returns a flat list of these — 5 entries per
+    (track, car, experiment) group. The frontend filters by the three
+    fields then sorts by `rank`.
+
+    Field semantics:
+
+    * `best_lap_ms` — historical personal best on this combo. `None`
+      for the active driver before he completes his first lap of the
+      current sim run.
+    * `is_active` — exactly one row per (track, car, experiment) has
+      this `True`. That row's `current_lap_time_ms` is his real elapsed
+      time on the current lap; everyone else's is the *ghost estimate*
+      of where they'd be at the active driver's current map position.
+    * `current_lap` — only populated for the active row.
+    * `rank` — 1..5 within the group, computed server-side from
+      cumulative-at-sector-boundary times.
     """
 
     track: str
     car: str
     experiment: str
     driver: str
-    best_lap_ms: int
-    session_id: str | None = None
-    lap_number: int | None = None
-    achieved_at: datetime | None = None
+    best_lap_ms: int | None = None
+    best_lap_number: int | None = None
+    is_active: bool = False
+    current_lap: int | None = None
+    current_lap_time_ms: int
+    rank: int

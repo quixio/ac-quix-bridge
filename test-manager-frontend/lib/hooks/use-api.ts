@@ -187,12 +187,12 @@ export const useDriversApi = createAuthenticatedApi(driversApiRaw);
 export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw);
 
 /**
- * Authenticated Leaderboard API Hook
+ * Authenticated Leaderboard API Hook (multi-driver live positions).
  *
  * @example
  * ```typescript
  * const leaderboardApi = useLeaderboardApi()
- * const rows = await leaderboardApi.getBestLaps()
+ * const rows = await leaderboardApi.getLivePositions()
  * ```
  */
 export const useLeaderboardApi = createAuthenticatedApi(leaderboardApiRaw);

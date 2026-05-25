@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from . import mongo
+from . import live_telemetry, mongo
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
@@ -63,7 +63,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     mongo.connect(settings.mongo)
 
+    # Ghost-lap live consumer. No-op in LOCAL_DEV_MODE or when
+    # LIVE_TELEMETRY_ENABLED!=true. Failure inside `start()` is contained
+    # (the consumer thread logs+exits) so the API stays up.
+    live_telemetry.start()
+
     yield
+    live_telemetry.stop()
     mongo.disconnect()
 
 
