@@ -222,6 +222,14 @@ deployments:
         inputType: ProjectVariable
         required: true
         variableKey: quix_lake_pat
+      - name: TESTMANAGER_MCP_API_KEY
+        inputType: ProjectVariable
+        required: false
+        variableKey: TESTMANAGER_MCP_API_KEY
+      - name: QUIX_AI_POST_RACE_AGENT_ID
+        inputType: FreeText
+        required: false
+        value: ""
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
