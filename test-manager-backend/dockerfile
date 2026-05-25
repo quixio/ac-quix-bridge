@@ -15,8 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy project (build context = repo root, MAINAPPPATH = app subdir incl. merged includedFolders)
+# Copy project (build context = repo root, MAINAPPPATH = app subdir)
 COPY "${MAINAPPPATH}" /app
+
+# Copy includedFolders siblings declared in app.yaml
+COPY shared /app/shared
 
 # Install dependencies with uv
 RUN uv sync --frozen --no-cache
