@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import mongo
-from shared.post_race_ai.runner import cleanup_orphans
+from shared.post_race_ai.runner import BatchAnalysisAI
 from .routes import mcp as mcp_router
 from .routes.analyses import router as analyses_router
 from .routes.devices import router as devices_router
@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     mcp_router.install(app, mongo=mongo.get_mongo())
 
     # Mark stuck non-terminal analyses as orphaned on every restart.
-    cleanup_orphans(mongo.get_mongo())
+    BatchAnalysisAI(mongo.get_mongo()).cleanup_orphans()
 
     yield
     mongo.disconnect()

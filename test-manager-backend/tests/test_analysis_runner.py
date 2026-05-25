@@ -14,7 +14,7 @@ from pymongo.database import Database
 from testcontainers.mongodb import MongoDbContainer
 
 import shared.post_race_ai.runner as runner_mod
-from shared.post_race_ai.runner import cleanup_orphans, run_analysis
+from shared.post_race_ai.runner import BatchAnalysisAI
 from tests.conftest import TestFactory
 
 
@@ -156,8 +156,8 @@ async def test_runner_happy_path_marks_complete(
         {"$set": {"status": "complete", "summary_md": "ok"}},
     )
 
-    await run_analysis(
-        mongo_db, analysis_id=aid, test_id=test_id, session_id=session_id
+    await BatchAnalysisAI(mongo_db).run(
+        analysis_id=aid, test_id=test_id, session_id=session_id
     )
 
     doc = mongo_db.analyses.find_one({"_id": aid})
@@ -206,8 +206,8 @@ async def test_runner_no_save_marks_failed(
         )
     )
 
-    await run_analysis(
-        mongo_db, analysis_id=aid, test_id=test_id, session_id=session_id
+    await BatchAnalysisAI(mongo_db).run(
+        analysis_id=aid, test_id=test_id, session_id=session_id
     )
 
     doc = mongo_db.analyses.find_one({"_id": aid})
@@ -233,8 +233,8 @@ async def test_runner_sse_drop_marks_failed(
         side_effect=httpx.ReadError("connection reset")
     )
 
-    await run_analysis(
-        mongo_db, analysis_id=aid, test_id=test_id, session_id=session_id
+    await BatchAnalysisAI(mongo_db).run(
+        analysis_id=aid, test_id=test_id, session_id=session_id
     )
 
     doc = mongo_db.analyses.find_one({"_id": aid})
@@ -262,8 +262,8 @@ async def test_runner_timeout_marks_failed(
 
     with respx.mock(assert_all_called=False) as mock:
         mock.post(f"{PORTAL}/ai/api/sessions").mock(side_effect=_hang)
-        await run_analysis(
-            mongo_db, analysis_id=aid, test_id=test_id, session_id=session_id
+        await BatchAnalysisAI(mongo_db).run(
+            analysis_id=aid, test_id=test_id, session_id=session_id
         )
 
     doc = mongo_db.analyses.find_one({"_id": aid})
@@ -300,7 +300,7 @@ def test_cleanup_orphans_marks_stuck_pending_failed(
         }
     )
 
-    n = cleanup_orphans(mongo_db)
+    n = BatchAnalysisAI(mongo_db).cleanup_orphans()
     assert n == 1
 
     doc = mongo_db.analyses.find_one({"_id": aid})

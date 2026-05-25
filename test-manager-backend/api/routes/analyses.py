@@ -10,7 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pymongo.database import Database
 
-from shared.post_race_ai.runner import run_analysis
+from shared.post_race_ai.runner import BatchAnalysisAI
 from ..auth import read_permission, update_permission
 from ..models import Analysis, AnalysisCreate
 from ..mongo import get_mongo
@@ -72,9 +72,9 @@ def create_analysis(
     # Spawn the async runner only when Quix.AI is configured. In tests the env
     # var is unset so the doc stays in `pending` (matches Phase 3 contract).
     if os.getenv("Quix__Portal__Api") and os.getenv("QUIX_AI_POST_RACE_AGENT_ID"):
+        analyzer = BatchAnalysisAI(mongo)
         task = asyncio.create_task(
-            run_analysis(
-                mongo,
+            analyzer.run(
                 analysis_id=analysis_id,
                 test_id=payload.test_id,
                 session_id=payload.session_id,
