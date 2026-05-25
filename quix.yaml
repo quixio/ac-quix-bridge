@@ -97,7 +97,7 @@ deployments:
       mongoHost: mongodb
       mongoPort: 27017
       mongoUser: admin
-      mongoPasswordSecret: MONGO_ROOT_PASSWORD
+      mongoPasswordSecret: MONGO_PASSWORD
       mongoDatabase: ac_telemetry
       mongoCollection: experiment_configs
   - name: AC Telemetry Lake sink
@@ -205,7 +205,7 @@ deployments:
       - name: MONGO_PASSWORD
         inputType: ProjectVariable
         required: true
-        variableKey: MONGO_ROOT_PASSWORD
+        variableKey: MONGO_PASSWORD
       - name: MONGO_HOST
         inputType: FreeText
         required: true
