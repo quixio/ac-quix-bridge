@@ -53,7 +53,6 @@ deployments:
         inputType: ProjectVariable
         description: The root password to initialize MongoDB with
         required: true
-        secret: true
         variableKey: MONGO_PASSWORD
   - name: Session Config Bridge
     application: session-config-bridge
