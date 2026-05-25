@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 from pymongo.database import Database
 from testcontainers.mongodb import MongoDbContainer
 
-import api.analysis_runner as runner_mod
-from api.analysis_runner import cleanup_orphans, run_analysis
+import shared.post_race_ai.runner as runner_mod
+from shared.post_race_ai.runner import cleanup_orphans, run_analysis
 from tests.conftest import TestFactory
 
 

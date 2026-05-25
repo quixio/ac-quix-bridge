@@ -56,6 +56,7 @@ services:
       Quix__BlobStorage__Connection__Json: '{"provider":"local","local_storage":{"DirectoryPath":"/app/storage"}}'
     volumes:
       - ./test-manager-backend:/app
+      - ./shared:/app/shared
       - backend_storage:/app/storage
     depends_on:
       mongodb:

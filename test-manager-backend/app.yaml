@@ -33,3 +33,5 @@ variables:
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py
+includedFolders:
+  - shared

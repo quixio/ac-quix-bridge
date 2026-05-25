@@ -10,7 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pymongo.database import Database
 
-from ..analysis_runner import run_analysis
+from shared.post_race_ai.runner import run_analysis
 from ..auth import read_permission, update_permission
 from ..models import Analysis, AnalysisCreate
 from ..mongo import get_mongo

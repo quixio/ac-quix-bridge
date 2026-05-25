@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import mongo
-from .analysis_runner import cleanup_orphans
+from shared.post_race_ai.runner import cleanup_orphans
 from .routes import mcp as mcp_router
 from .routes.analyses import router as analyses_router
 from .routes.devices import router as devices_router

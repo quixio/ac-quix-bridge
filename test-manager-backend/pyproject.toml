@@ -33,7 +33,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = "."
+pythonpath = [".", ".."]
 asyncio_mode = "auto"
 filterwarnings = [
 	# api.models.Test is a Pydantic BaseModel; pytest's class collector flags
@@ -41,6 +41,9 @@ filterwarnings = [
 	# that accidentally isn't collectable still emits a warning.
 	"ignore:cannot collect test class 'Test':pytest.PytestCollectionWarning",
 ]
+
+[tool.ty.environment]
+extra-paths = [".."]
 
 [tool.uv.sources]
 quixportal = { index = "quix-public" }
