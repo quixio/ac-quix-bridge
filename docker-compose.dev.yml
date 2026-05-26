@@ -37,8 +37,10 @@ services:
   # Test Manager Backend (FastAPI)
   backend:
     build:
-      context: ./test-manager-backend
-      dockerfile: dockerfile
+      context: .
+      dockerfile: test-manager-backend/dockerfile
+      args:
+        MAINAPPPATH: test-manager-backend
     container_name: ac-quix-backend
     ports:
       - "8080:8080"

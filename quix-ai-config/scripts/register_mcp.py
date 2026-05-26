@@ -71,8 +71,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Creating new MCP server ({args.display_name})")
             resp = client.post("/ai/api/org/mcp-servers", json=body)
 
-        resp.raise_for_status()
-        server_id = resp.json()["id"]
+        if resp.is_error:
+            print(f"  HTTP {resp.status_code}: {resp.text[:500]}")
+            resp.raise_for_status()
+
+        data = resp.json()
+        # POST returns {server: {...}, testPassed, testError}, PUT returns server directly.
+        server_id = (data.get("server") or data).get("id", server_id)
         print(f"  server_id={server_id}")
 
         if args.agent_id:
