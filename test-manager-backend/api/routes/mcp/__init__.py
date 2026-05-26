@@ -124,9 +124,16 @@ class _ApiKeyMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-def install(app: FastAPI, mongo: Database[dict[str, Any]]) -> None:
-    """Mount the MCP server at /mcp with API-key auth middleware."""
-    mcp = FastMCP(name="test-manager")
+def install(app: FastAPI, mongo: Database[dict[str, Any]]) -> Any:
+    """Mount the MCP server at /mcp with API-key auth middleware.
+
+    Returns the FastMCP instance so callers can enter
+    `mcp.session_manager.run()` as part of the parent app's lifespan —
+    required by mcp>=1.27 streamable_http transport.
+    """
+    # streamable_http_path="/" puts the JSON-RPC endpoint at the sub-app root,
+    # so mounted at /mcp the external URL is /mcp/ (matches Quixlab pattern).
+    mcp = FastMCP(name="test-manager", streamable_http_path="/")
 
     tools = _build_tools(mongo)
     missing_titles = set(tools) - set(TOOL_TITLES)
@@ -141,3 +148,4 @@ def install(app: FastAPI, mongo: Database[dict[str, Any]]) -> None:
 
     app.mount("/mcp", sub_app)
     logger.info("[mcp] mounted at /mcp (tools=%d)", len(tools))
+    return mcp

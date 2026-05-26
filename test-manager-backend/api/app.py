@@ -65,12 +65,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _probe_config_api(settings.config_api_url, settings.sdk_token)
 
     mongo.connect(settings.mongo)
-    mcp_router.install(app, mongo=mongo.get_mongo())
+    mcp = mcp_router.install(app, mongo=mongo.get_mongo())
 
     # Mark stuck non-terminal analyses as orphaned on every restart.
     BatchAnalysisAI(mongo.get_mongo()).cleanup_orphans()
 
-    yield
+    # FastMCP's streamable_http transport needs its session manager active
+    # for the lifetime of the app. Without this, requests hit
+    # "Task group is not initialized. Make sure to use run()." (mcp>=1.27).
+    async with mcp.session_manager.run():
+        yield
+
     mongo.disconnect()
 
 
