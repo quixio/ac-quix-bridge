@@ -182,7 +182,7 @@ class BatchAnalysisAI:
                 continue
             raw = line[len("data:") :].strip()
             if raw == "[DONE]":
-                continue
+                return  # server signals end; stop iterating
             try:
                 yield json.loads(raw)
             except json.JSONDecodeError:
@@ -265,6 +265,31 @@ class BatchAnalysisAI:
                             tokens_cache_create=evt.get("cacheCreationInputTokens"),
                             tokens_cache_read=evt.get("cacheReadInputTokens"),
                         )
+                    elif etype == "error":
+                        # Quix.AI ChatStreamEvent: agent / framework failure.
+                        msg = evt.get("message") or "agent stream error"
+                        self._set_status(
+                            analysis_id,
+                            status="failed",
+                            error_kind="agent",
+                            error=f"{evt.get('code') or 'error'}: {msg}",
+                        )
+                        logger.warning(
+                            "[runner] analysis %s — SSE error: %s", analysis_id, msg
+                        )
+                        return  # bail; outer wait_for context will tidy up
+                    elif etype == "agent_disabled":
+                        # Admin toggled the agent off mid-run. Treat as terminal.
+                        self._set_status(
+                            analysis_id,
+                            status="failed",
+                            error_kind="agent",
+                            error="agent_disabled mid-run",
+                        )
+                        logger.warning(
+                            "[runner] analysis %s — agent_disabled", analysis_id
+                        )
+                        return
 
         # 3. Stream ended. If MCP save_analysis hasn't flipped status to
         #    complete, agent didn't follow protocol — mark failed.
