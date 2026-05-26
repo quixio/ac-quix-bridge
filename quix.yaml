@@ -55,6 +55,7 @@ deployments:
         inputType: ProjectVariable
         description: The root password to initialize MongoDB with
         required: true
+        secret: true
         variableKey: MONGO_PASSWORD
   - name: Session Config Bridge
     application: session-config-bridge
@@ -236,7 +237,6 @@ deployments:
         value: ''
       - name: QUIX_TOKEN
         inputType: ProjectVariable
-        required: false
         variableKey: pat_token
   - name: Test Manager - Frontend
     application: test-manager-frontend
