@@ -240,7 +240,7 @@ deployments:
       - name: QUIX_AI_POST_RACE_AGENT_ID
         inputType: FreeText
         description: ID of the Post-Race Analyzer Quix.AI agent. Output of quix-ai-config/scripts/update_agent.py. Empty value disables the AI runner spawn.
-        value: ''
+        value: 350c788d-d25f-4aea-a78c-61ebab32b059
       - name: QUIX_TOKEN
         inputType: ProjectVariable
         description: Personal access token used as Bearer on Quix.AI session API calls. Same PAT as Telemetry Explorer.
