@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["httpx", "python-dotenv"]
+# ///
 """List all org agents."""
 
 from __future__ import annotations

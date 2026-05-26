@@ -1,7 +1,11 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["httpx", "python-dotenv"]
+# ///
 """Register an MCP server in the Quix.AI org config.
 
 Usage:
-    python register_mcp.py \
+    uv run register_mcp.py \
         --name test-manager \
         --display-name "Test Manager" \
         --url https://test-manager-backend-...quix.io/mcp \

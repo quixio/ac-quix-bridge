@@ -1,7 +1,11 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["httpx", "python-dotenv"]
+# ///
 """Idempotently bind a KB to an agent.
 
 Usage:
-    python bind_kb_to_agent.py <agent_id> <kb_id>
+    uv run bind_kb_to_agent.py <agent_id> <kb_id>
 """
 
 from __future__ import annotations

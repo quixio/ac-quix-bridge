@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["httpx", "python-dotenv"]
+# ///
 """Create or update the Post-Race Analyzer agent in Quix.AI.
 
 Reads .env for:

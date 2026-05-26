@@ -18,23 +18,12 @@ import pathlib
 import re
 
 import httpx
+from dotenv import load_dotenv
 
 ENV_FILE = pathlib.Path(__file__).resolve().parent.parent / ".env"
 
-
-def _load_env_file() -> None:
-    """Populate os.environ from .env without overriding existing shell values."""
-    if not ENV_FILE.exists():
-        return
-    for line in ENV_FILE.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip())
-
-
-_load_env_file()
+# Load .env without overriding existing shell values.
+load_dotenv(ENV_FILE, override=False)
 
 
 def portal() -> str:

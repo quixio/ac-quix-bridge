@@ -1,7 +1,11 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["httpx", "python-dotenv"]
+# ///
 """Push a single Knowledge Base markdown file to Quix.AI.
 
 Usage:
-    python update_kb_resource.py path/to/file.md
+    uv run update_kb_resource.py path/to/file.md
 
 KB CRUD lives at /api/org/knowledge-bases (verified via
 quix-ai-exploration/probes/update_kb_resource.py). Resources are managed by
