@@ -5,8 +5,10 @@ Reads env vars:
   QUIX_TOKEN        - personal access token
   QUIX_WORKSPACE_ID - workspace id (optional for some endpoints)
 
-Persists IDs to a local `.env` file in the script's working directory so
-subsequent scripts can chain.
+Values can be set either in the shell environment OR in a `.env` file at
+`quix-ai-config/.env`. The .env file is loaded at module import; shell env
+wins on conflict. The same file is also used to persist generated IDs
+(agent_id, kb_id, ...) so subsequent scripts chain automatically.
 """
 
 from __future__ import annotations
@@ -18,6 +20,21 @@ import re
 import httpx
 
 ENV_FILE = pathlib.Path(__file__).resolve().parent.parent / ".env"
+
+
+def _load_env_file() -> None:
+    """Populate os.environ from .env without overriding existing shell values."""
+    if not ENV_FILE.exists():
+        return
+    for line in ENV_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env_file()
 
 
 def portal() -> str:
