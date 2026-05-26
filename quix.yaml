@@ -11,8 +11,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 500
+      limits:
+        cpu: 200
+        memory: 500
       replicas: 1
     publicAccess:
       enabled: true
@@ -32,8 +33,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 800
+      limits:
+        cpu: 200
+        memory: 800
       replicas: 1
     state:
       enabled: true
@@ -59,8 +61,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 300
+      limits:
+        cpu: 200
+        memory: 300
       replicas: 1
     variables:
       - name: input
@@ -87,8 +90,9 @@ deployments:
     version: latest
     deploymentType: Managed
     resources:
-      cpu: 500
-      memory: 1000
+      limits:
+        cpu: 500
+        memory: 1000
       replicas: 1
     network:
       serviceName: dynamic-configuration-manager
@@ -105,8 +109,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 1000
-      memory: 4000
+      limits:
+        cpu: 1000
+        memory: 4000
       replicas: 1
     variables:
       - name: input
@@ -186,8 +191,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 500
+      limits:
+        cpu: 500
+        memory: 500
       replicas: 1
     publicAccess:
       enabled: true
@@ -233,8 +239,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 500
+      limits:
+        cpu: 500
+        memory: 500
       replicas: 1
     publicAccess:
       enabled: true
@@ -283,8 +290,9 @@ deployments:
     version: f98d84a
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 1000
+      limits:
+        cpu: 500
+        memory: 1000
       replicas: 1
     variables:
       - name: output
@@ -337,8 +345,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 500
+      limits:
+        cpu: 200
+        memory: 500
       replicas: 1
     publicAccess:
       enabled: true
@@ -359,8 +368,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 2000
+      limits:
+        cpu: 500
+        memory: 2000
       replicas: 1
     publicAccess:
       enabled: true
@@ -381,8 +391,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 1000
-      memory: 2000
+      limits:
+        cpu: 1000
+        memory: 2000
       replicas: 1
     publicAccess:
       enabled: true
@@ -436,8 +447,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 1000
+      limits:
+        cpu: 500
+        memory: 1000
       replicas: 1
     publicAccess:
       enabled: true
