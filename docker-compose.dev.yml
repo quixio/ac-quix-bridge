@@ -51,9 +51,15 @@ services:
       MONGO_PORT: "27017"
       MONGO_DATABASE: test_manager
       CONFIG_API_URL: http://config-api:8001
-      Quix__Workspace__Id: local-dev-workspace
-      Quix__Sdk__Token: local-dev-token
+      Quix__Workspace__Id: ${QUIX_WORKSPACE_ID:-local-dev-workspace}
+      Quix__Sdk__Token: ${QUIX_TOKEN:-local-dev-token}
       Quix__BlobStorage__Connection__Json: '{"provider":"local","local_storage":{"DirectoryPath":"/app/storage"}}'
+      # Post-race AI summary runner — leave empty to disable end-to-end AI flow.
+      # Fill via repo-root .env (gitignored). See quix-ai-config/README.md.
+      Quix__Portal__Api: ${QUIX_PORTAL_API:-https://portal-api.dev.quix.io}
+      QUIX_TOKEN: ${QUIX_TOKEN:-}
+      QUIX_AI_POST_RACE_AGENT_ID: ${QUIX_AI_POST_RACE_AGENT_ID:-}
+      TESTMANAGER_MCP_API_KEY: ${TESTMANAGER_MCP_API_KEY:-}
     volumes:
       - ./test-manager-backend:/app
       - ./shared:/app/shared

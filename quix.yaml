@@ -234,6 +234,10 @@ deployments:
       - name: QUIX_AI_POST_RACE_AGENT_ID
         inputType: FreeText
         value: ''
+      - name: QUIX_TOKEN
+        inputType: ProjectVariable
+        required: false
+        variableKey: pat_token
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest

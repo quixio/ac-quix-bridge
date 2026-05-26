@@ -70,6 +70,14 @@ class Settings(BaseSettings):
         description="Shared secret for the /mcp X-API-Key auth",
     )
 
+    # PAT for Quix.AI REST API (session create + SSE messages).
+    # Empty disables the post-race runner spawn (matches the route's gate).
+    quix_token: str = Field(
+        "",
+        alias="QUIX_TOKEN",
+        description="Personal access token used as Bearer on Quix.AI API calls",
+    )
+
     # Nested settings
     mongo: MongoSettings = Field(default_factory=MongoSettings)
 

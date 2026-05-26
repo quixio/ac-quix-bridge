@@ -41,6 +41,12 @@ variables:
     multiline: false
     description: "ID of the Post-Race Analyzer Quix.AI agent. Output of quix-ai-config/scripts/update_agent.py. Empty value disables the AI runner spawn."
     required: false
+  - name: QUIX_TOKEN
+    inputType: Secret
+    multiline: false
+    description: "Personal access token used as Bearer on Quix.AI session API calls. Same PAT as Telemetry Explorer."
+    defaultValue: QUIX_TOKEN
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

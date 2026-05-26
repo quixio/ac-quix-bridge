@@ -37,10 +37,10 @@ class BatchAnalysisAI:
     """Run + lifecycle-manage one Quix.AI post-race analysis.
 
     Construction takes the mongo handle and (optionally) the Quix.AI config.
-    When portal_url / agent_id / workspace_id are None, they are read from
-    `Quix__Portal__Api` / `QUIX_AI_POST_RACE_AGENT_ID` / `Quix__Workspace__Id`
-    env vars at `run()` time — convenient for in-cluster callers where Quix
-    auto-injects those.
+    When portal_url / agent_id / workspace_id / quix_token are None, they are
+    read from `Quix__Portal__Api` / `QUIX_AI_POST_RACE_AGENT_ID` /
+    `Quix__Workspace__Id` / `QUIX_TOKEN` env vars at `run()` time — convenient
+    for in-cluster callers where Quix auto-injects those.
     """
 
     def __init__(
@@ -50,11 +50,13 @@ class BatchAnalysisAI:
         portal_url: str | None = None,
         agent_id: str | None = None,
         workspace_id: str | None = None,
+        quix_token: str | None = None,
     ) -> None:
         self._mongo = mongo
         self._portal_url = portal_url
         self._agent_id = agent_id
         self._workspace_id = workspace_id
+        self._quix_token = quix_token
 
     # --- public ----------------------------------------------------------- #
 
@@ -130,6 +132,15 @@ class BatchAnalysisAI:
 
     def _resolved_workspace_id(self) -> str:
         return self._workspace_id or os.environ["Quix__Workspace__Id"]
+
+    def _resolved_quix_token(self) -> str:
+        return self._quix_token or os.environ["QUIX_TOKEN"]
+
+    def _auth_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._resolved_quix_token()}",
+            "Content-Type": "application/json",
+        }
 
     # --- helpers ----------------------------------------------------------- #
 
@@ -211,7 +222,10 @@ class BatchAnalysisAI:
 
         started_wall = time.perf_counter()
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, read=None)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, read=None),
+            headers=self._auth_headers(),
+        ) as client:
             # 1. Open session
             resp = await client.post(
                 f"{portal}/ai/api/sessions",

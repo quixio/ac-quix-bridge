@@ -40,6 +40,7 @@ def mock_quix_ai(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
     monkeypatch.setenv("Quix__Portal__Api", PORTAL)
     monkeypatch.setenv("Quix__Workspace__Id", "ws-test")
     monkeypatch.setenv("QUIX_AI_POST_RACE_AGENT_ID", "agent-test")
+    monkeypatch.setenv("QUIX_TOKEN", "test-pat-12345")
     yield
 
 
@@ -112,7 +113,7 @@ async def test_runner_happy_path_marks_complete(
     aid = _insert_pending(mongo_db, test_id, session_id)
 
     # Mock session-create endpoint
-    respx.post(f"{PORTAL}/ai/api/sessions").mock(
+    session_route = respx.post(f"{PORTAL}/ai/api/sessions").mock(
         return_value=httpx.Response(200, json={"id": "qsess-1"}),
     )
     # Mock message-stream endpoint with happy-path SSE sequence
@@ -170,6 +171,10 @@ async def test_runner_happy_path_marks_complete(
     assert doc["tokens_cache_create"] == 100
     assert doc["tokens_cache_read"] == 2000
     assert doc["duration_ms"] is not None
+    # Runner must send Bearer auth on Quix.AI calls.
+    assert session_route.calls.last.request.headers["Authorization"] == (
+        "Bearer test-pat-12345"
+    )
 
 
 @respx.mock
