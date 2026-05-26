@@ -11,7 +11,8 @@ quix-ai-config/
 ├── README.md
 ├── scripts/                              # shared across all agents
 │   ├── update_agent.py                   # push agent config (system prompt + tool filter + KB refs)
-│   ├── update_kb_resource.py             # push a single KB markdown file
+│   ├── create_kb.py                      # create a new KB from a markdown file
+│   ├── update_kb.py                      # refresh existing KB's resource (--kb-id required)
 │   ├── bind_kb_to_agent.py               # bind one or more KBs to one agent
 │   ├── register_mcp.py                   # register an MCP server in the org config
 │   ├── list_agents.py                    # debug: list all org agents
@@ -49,10 +50,17 @@ uv run register_mcp.py \
 # Writes server_id to .env and prints the API key — copy the key into
 # the test-manager-backend deployment env as TESTMANAGER_MCP_API_KEY.
 
-# 2. Push the two new KBs
-uv run update_kb_resource.py ../post-race/kb/analysis_contract.md
-uv run update_kb_resource.py ../post-race/kb/tm_schema.md
-# Each writes the KB ID to .env (ANALYSIS_CONTRACT_KB_ID, TM_SCHEMA_KB_ID).
+# 2. Create one topical KB and upload reference files as its resources
+uv run create_kb.py --title "Post Race Summary" \
+    --description "Reference docs for the Post-Race Analyzer agent"
+# Writes POST_RACE_SUMMARY_KB_ID=<id> to .env.
+
+uv run update_kb.py ../post-race/kb/analysis_contract.md
+uv run update_kb.py ../post-race/kb/tm_schema.md
+# --kb-id defaults to $POST_RACE_SUMMARY_KB_ID (from .env). Override with
+# --kb-id <other-uuid> for any other KB.
+# Each call adds (or replaces by filename) a resource inside the same KB.
+# Re-run with the same files to refresh content without creating a duplicate.
 
 # 3. Push the agent config (idempotent — creates if not exists, updates if exists)
 uv run update_agent.py
@@ -64,10 +72,10 @@ uv run update_agent.py
 # Then redeploy the backend.
 ```
 
-Any subsequent change to system prompt or KBs:
+Any subsequent change to system prompt or KB content:
 
 ```bash
-uv run update_kb_resource.py ../post-race/kb/<changed-file>.md
+uv run update_kb.py ../post-race/kb/<changed-file>.md
 uv run update_agent.py
 ```
 
