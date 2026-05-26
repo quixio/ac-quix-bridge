@@ -198,6 +198,33 @@ def test_post_analysis_rejects_unknown_test(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_post_analysis_spawns_runner_when_quix_ai_configured(
+    client: TestClient,
+    create_test: TestFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When Quix.AI env is set, endpoint must schedule BatchAnalysisAI.run on the
+    event loop and return 202 — not crash with RuntimeError: no running event loop."""
+    monkeypatch.setenv("Quix__Portal__Api", "https://portal.example")
+    monkeypatch.setenv("QUIX_AI_POST_RACE_AGENT_ID", "agent-xyz")
+
+    called = {"ran": False}
+
+    async def _fake_run(self, **kwargs):
+        called["ran"] = True
+
+    monkeypatch.setattr(
+        "shared.post_race_ai.runner.BatchAnalysisAI.run", _fake_run, raising=True
+    )
+
+    test_id, session_id = _create_test_with_session(client, create_test)
+    response = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": session_id},
+    )
+    assert response.status_code == 202, response.text
+
+
 # --- Routes: GET /api/v1/analyses/{id} ------------------------------------ #
 
 

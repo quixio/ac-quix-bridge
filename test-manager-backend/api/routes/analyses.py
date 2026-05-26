@@ -33,7 +33,7 @@ _RUNNING_TASKS: set[asyncio.Task[None]] = set()
         202: {"content": {"application/json": {"example": {"analysis_id": "..."}}}}
     },
 )
-def create_analysis(
+async def create_analysis(
     payload: AnalysisCreate = Body(...),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     _: None = Depends(update_permission),
