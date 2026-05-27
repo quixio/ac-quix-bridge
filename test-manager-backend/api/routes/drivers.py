@@ -47,7 +47,9 @@ def create_driver(
     return driver
 
 
-@router.get("/drivers", response_model=PaginatedResponse[Driver], response_model_by_alias=False)
+@router.get(
+    "/drivers", response_model=PaginatedResponse[Driver], response_model_by_alias=False
+)
 def list_drivers(
     query_params: DriverQuery = Depends(),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -68,12 +70,14 @@ def list_drivers(
             word_conditions = []
             for word in words:
                 word_pattern = {"$regex": re.escape(word), "$options": "i"}
-                word_conditions.append({
-                    "$or": [
-                        {"_id": word_pattern},
-                        {"name": word_pattern},
-                    ]
-                })
+                word_conditions.append(
+                    {
+                        "$or": [
+                            {"_id": word_pattern},
+                            {"name": word_pattern},
+                        ]
+                    }
+                )
             query["$and"] = word_conditions
 
     total = mongo.drivers.count_documents(query)
@@ -82,10 +86,14 @@ def list_drivers(
         Driver(**d)
         for d in mongo.drivers.find(query).sort("_id", 1).skip(skip).limit(page_size)
     ]
-    return PaginatedResponse.create(items=drivers, total=total, page=page, page_size=page_size)
+    return PaginatedResponse.create(
+        items=drivers, total=total, page=page, page_size=page_size
+    )
 
 
-@router.get("/drivers/{driver_id}", response_model=Driver, response_model_by_alias=False)
+@router.get(
+    "/drivers/{driver_id}", response_model=Driver, response_model_by_alias=False
+)
 def get_driver(
     driver_id: str,
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -98,7 +106,9 @@ def get_driver(
     return Driver(**doc)
 
 
-@router.put("/drivers/{driver_id}", response_model=Driver, response_model_by_alias=False)
+@router.put(
+    "/drivers/{driver_id}", response_model=Driver, response_model_by_alias=False
+)
 def update_driver(
     driver_id: str,
     driver_data: DriverUpdate = Body(...),

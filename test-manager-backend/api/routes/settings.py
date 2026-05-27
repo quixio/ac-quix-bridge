@@ -10,7 +10,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from ..auth import read_permission, update_permission
-from ..models import IntegrationSettings, IntegrationSettingsUpdate, Topic, Workspace, DeploymentReference, TopicReference
+from ..models import (
+    IntegrationSettings,
+    IntegrationSettingsUpdate,
+    Topic,
+    Workspace,
+    DeploymentReference,
+    TopicReference,
+)
 from ..mongo import get_mongo
 from ..settings import get_settings
 
@@ -50,7 +57,8 @@ def get_effective_integration_settings() -> IntegrationSettings:
     if env_settings.measurements_topic_name:
         effective.measurements_topic = TopicReference(
             topic_name=env_settings.measurements_topic_name,
-            workspace_id=env_settings.measurements_workspace_id or env_settings.workspace_id,
+            workspace_id=env_settings.measurements_workspace_id
+            or env_settings.workspace_id,
             workspace_name=None,
         )
 
@@ -108,7 +116,9 @@ async def apply_fallback_deployments(
                     deployment_name=fallback.name,
                     public_url=fallback.public_url,
                     embedded_view_url=fallback.embedded_view_url,
-                    internal_url=f"http://{fallback.service_name}" if fallback.service_name else fallback.public_url,
+                    internal_url=f"http://{fallback.service_name}"
+                    if fallback.service_name
+                    else fallback.public_url,
                 )
                 settings.config_api_is_fallback = True
 
@@ -131,7 +141,9 @@ async def apply_fallback_deployments(
                     deployment_name=fallback.name,
                     public_url=fallback.public_url,
                     embedded_view_url=fallback.embedded_view_url,
-                    internal_url=f"http://{fallback.service_name}" if fallback.service_name else fallback.public_url,
+                    internal_url=f"http://{fallback.service_name}"
+                    if fallback.service_name
+                    else fallback.public_url,
                 )
                 settings.measurements_is_fallback = True
 
@@ -142,7 +154,8 @@ async def apply_fallback_deployments(
     if not settings.measurements_topic and app_settings.measurements_topic_name:
         settings.measurements_topic = TopicReference(
             topic_name=app_settings.measurements_topic_name,
-            workspace_id=app_settings.measurements_workspace_id or app_settings.workspace_id,
+            workspace_id=app_settings.measurements_workspace_id
+            or app_settings.workspace_id,
             workspace_name=None,
         )
 
@@ -171,7 +184,9 @@ async def apply_fallback_deployments(
                     deployment_name=fallback.name,
                     public_url=fallback.public_url,
                     embedded_view_url=fallback.embedded_view_url,
-                    internal_url=f"http://{fallback.service_name}" if fallback.service_name else fallback.public_url,
+                    internal_url=f"http://{fallback.service_name}"
+                    if fallback.service_name
+                    else fallback.public_url,
                 )
                 settings.analytics_is_fallback = True
 
@@ -310,7 +325,9 @@ async def get_topics(
             )
 
             if not response.is_success:
-                logger.warning(f"Portal API error fetching topics: {response.status_code}")
+                logger.warning(
+                    f"Portal API error fetching topics: {response.status_code}"
+                )
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Portal API error: {response.status_code}",
@@ -323,8 +340,12 @@ async def get_topics(
             if isinstance(data, list):
                 for item in data:
                     if isinstance(item, dict):
-                        topic_id = item.get("id") or item.get("name") or item.get("topicId")
-                        topic_name = item.get("name") or item.get("id") or item.get("topicName")
+                        topic_id = (
+                            item.get("id") or item.get("name") or item.get("topicId")
+                        )
+                        topic_name = (
+                            item.get("name") or item.get("id") or item.get("topicName")
+                        )
                         if topic_id and topic_name:
                             topics.append(Topic(id=topic_id, name=topic_name))
                     elif isinstance(item, str):
@@ -379,7 +400,9 @@ async def get_workspaces(
             )
 
             if not response.is_success:
-                logger.warning(f"Portal API error fetching workspaces: {response.status_code}")
+                logger.warning(
+                    f"Portal API error fetching workspaces: {response.status_code}"
+                )
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Portal API error: {response.status_code}",

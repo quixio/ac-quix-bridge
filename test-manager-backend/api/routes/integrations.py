@@ -26,7 +26,9 @@ class ConfigManagerUrl(BaseModel):
 
 @router.get("/config-manager-url", response_model=ConfigManagerUrl)
 async def get_config_manager_url(
-    stream_id: str | None = Query(None, description="Optional stream_id for context-aware filtering"),
+    stream_id: str | None = Query(
+        None, description="Optional stream_id for context-aware filtering"
+    ),
     authorization: str = Header(...),
     _auth: None = Depends(read_permission),
 ) -> ConfigManagerUrl:
@@ -86,7 +88,11 @@ async def get_config_manager_url(
 
             # Find Dynamic Configuration Manager deployment
             config_manager = next(
-                (d for d in deployments if d.get("name") == "Dynamic Configuration Manager"),
+                (
+                    d
+                    for d in deployments
+                    if d.get("name") == "Dynamic Configuration Manager"
+                ),
                 None,
             )
 
@@ -120,7 +126,9 @@ async def get_config_manager_url(
 
 @router.get("/config-manager-frontend-url", response_model=ConfigManagerUrl)
 async def get_config_manager_frontend_url(
-    config_id: str | None = Query(None, description="Optional config ID for context-aware filtering"),
+    config_id: str | None = Query(
+        None, description="Optional config ID for context-aware filtering"
+    ),
     config_version: int | None = Query(None, description="Optional config version"),
     authorization: str = Header(...),
     _auth: None = Depends(read_permission),
@@ -147,7 +155,9 @@ async def get_config_manager_frontend_url(
         frontend_url = dep.embedded_view_url or dep.public_url
         if frontend_url:
             if config_id and config_version is not None:
-                frontend_url += f"/details/{config_id}?version={config_version}&isIframe=true"
+                frontend_url += (
+                    f"/details/{config_id}?version={config_version}&isIframe=true"
+                )
             else:
                 frontend_url += "?isIframe=true"
             return ConfigManagerUrl(url=frontend_url)
@@ -193,7 +203,11 @@ async def get_config_manager_frontend_url(
 
             # Find Dynamic Configuration Manager deployment
             config_manager = next(
-                (d for d in deployments if d.get("name") == "Dynamic Configuration Manager"),
+                (
+                    d
+                    for d in deployments
+                    if d.get("name") == "Dynamic Configuration Manager"
+                ),
                 None,
             )
 
@@ -213,7 +227,9 @@ async def get_config_manager_frontend_url(
 
             # Append context path if config_id provided
             if config_id and config_version is not None:
-                frontend_url += f"/details/{config_id}?version={config_version}&isIframe=true"
+                frontend_url += (
+                    f"/details/{config_id}?version={config_version}&isIframe=true"
+                )
             else:
                 frontend_url += "?isIframe=true"
 
@@ -238,7 +254,9 @@ def get_measurements_url_base(integration_settings) -> str | None:
 async def get_measurements_url(
     test_id: str | None = Query(None, description="Test ID for SQL filter"),
     campaign_id: str | None = Query(None, description="Campaign ID for SQL filter"),
-    environment_id: str | None = Query(None, description="Environment ID for SQL filter"),
+    environment_id: str | None = Query(
+        None, description="Environment ID for SQL filter"
+    ),
     _auth: None = Depends(read_permission),
 ) -> ConfigManagerUrl:
     """
@@ -255,14 +273,14 @@ async def get_measurements_url(
     if not measurements_url:
         raise HTTPException(
             status_code=501,
-            detail="Measurements service not configured. Configure it in Settings."
+            detail="Measurements service not configured. Configure it in Settings.",
         )
 
     # Check if topic is configured
     if not integration_settings.measurements_topic:
         raise HTTPException(
             status_code=501,
-            detail="Measurements topic not configured. Configure it in Settings."
+            detail="Measurements topic not configured. Configure it in Settings.",
         )
 
     topic_name = integration_settings.measurements_topic.topic_name
@@ -319,7 +337,7 @@ async def get_analytics_url(
     if not analytics_url:
         raise HTTPException(
             status_code=501,
-            detail="Analytics service not configured. Configure it in Settings."
+            detail="Analytics service not configured. Configure it in Settings.",
         )
 
     # Build URL with token and context parameters

@@ -30,14 +30,13 @@ def get_portal_api_url() -> str | None:
     return os.getenv("Quix__Portal__Api")
 
 
-async def portal_get(endpoint: str, token: str, params: dict | None = None, version: str = "2.0") -> Any:
+async def portal_get(
+    endpoint: str, token: str, params: dict | None = None, version: str = "2.0"
+) -> Any:
     """Make GET request to Portal API."""
     portal_api_url = get_portal_api_url()
     if not portal_api_url:
-        raise HTTPException(
-            status_code=503,
-            detail="Portal API not configured"
-        )
+        raise HTTPException(status_code=503, detail="Portal API not configured")
 
     try:
         headers = {
@@ -56,7 +55,9 @@ async def portal_get(endpoint: str, token: str, params: dict | None = None, vers
             )
 
             if not response.is_success:
-                logger.warning(f"Portal API error: {response.status_code} for {endpoint}")
+                logger.warning(
+                    f"Portal API error: {response.status_code} for {endpoint}"
+                )
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Portal API error: {response.status_code}",
@@ -109,7 +110,9 @@ async def get_repositories(
 
 @router.get("/workspaces", response_model=list[WorkspaceDetails])
 async def get_workspaces_details(
-    repository_id: str | None = Query(None, description="Filter by repository/project ID"),
+    repository_id: str | None = Query(
+        None, description="Filter by repository/project ID"
+    ),
     authorization: str = Header(...),
     _auth: None = Depends(read_permission),
 ) -> list[WorkspaceDetails]:
@@ -160,7 +163,9 @@ async def get_workspaces_details(
         for item in data:
             if isinstance(item, dict):
                 ws_id = item.get("workspaceId") or item.get("id")
-                repo_id = item.get("repositoryId") or item.get("repository", {}).get("repositoryId")
+                repo_id = item.get("repositoryId") or item.get("repository", {}).get(
+                    "repositoryId"
+                )
                 env_name = item.get("environmentName") or item.get("name") or "default"
                 name = item.get("name") or ws_id
                 status = item.get("status") or "Unknown"
@@ -170,18 +175,22 @@ async def get_workspaces_details(
                     continue
 
                 if ws_id:
-                    workspaces.append(WorkspaceDetails(
-                        workspaceId=ws_id,
-                        name=name,
-                        repositoryId=repo_id or "",
-                        environmentName=env_name,
-                        status=status,
-                    ))
+                    workspaces.append(
+                        WorkspaceDetails(
+                            workspaceId=ws_id,
+                            name=name,
+                            repositoryId=repo_id or "",
+                            environmentName=env_name,
+                            status=status,
+                        )
+                    )
 
     return workspaces
 
 
-@router.get("/workspaces/{workspace_id}/deployments", response_model=list[DeploymentInfo])
+@router.get(
+    "/workspaces/{workspace_id}/deployments", response_model=list[DeploymentInfo]
+)
 async def get_deployments(
     workspace_id: str,
     authorization: str = Header(...),
@@ -260,15 +269,17 @@ async def get_deployments(
                     public_url = f"http://{service_name}"
 
                 if deploy_id:
-                    deployments.append(DeploymentInfo(
-                        deploymentId=deploy_id,
-                        name=name,
-                        status=status,
-                        publicUrl=public_url,
-                        embedded_view_url=embedded_view_url,
-                        service_name=service_name,
-                        publicAccess=public_access,
-                    ))
+                    deployments.append(
+                        DeploymentInfo(
+                            deploymentId=deploy_id,
+                            name=name,
+                            status=status,
+                            publicUrl=public_url,
+                            embedded_view_url=embedded_view_url,
+                            service_name=service_name,
+                            publicAccess=public_access,
+                        )
+                    )
 
     return deployments
 
@@ -380,19 +391,23 @@ async def get_workspace_topics(
                 status = item.get("status")
 
                 if topic_id and name:
-                    topics.append(TopicInfo(
-                        topicId=topic_id,
-                        name=name,
-                        workspaceId=workspace_id,
-                        status=status,
-                    ))
+                    topics.append(
+                        TopicInfo(
+                            topicId=topic_id,
+                            name=name,
+                            workspaceId=workspace_id,
+                            status=status,
+                        )
+                    )
             elif isinstance(item, str):
                 # Simple string topic names
-                topics.append(TopicInfo(
-                    topicId=item,
-                    name=item,
-                    workspaceId=workspace_id,
-                    status=None,
-                ))
+                topics.append(
+                    TopicInfo(
+                        topicId=item,
+                        name=item,
+                        workspaceId=workspace_id,
+                        status=None,
+                    )
+                )
 
     return topics

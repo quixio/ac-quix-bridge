@@ -24,7 +24,9 @@ class LocalAuth:
 
     def __init__(self):
         """Initialize local auth mock"""
-        logger.info("🔓 Local Auth: Using mock authentication (all permissions granted)")
+        logger.info(
+            "🔓 Local Auth: Using mock authentication (all permissions granted)"
+        )
 
     def validate_permissions(
         self,

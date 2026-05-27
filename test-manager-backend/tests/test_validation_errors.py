@@ -22,13 +22,16 @@ def test_missing_required_fields(client: TestClient) -> None:
 
 def test_empty_string_experiment_id(client: TestClient) -> None:
     """Test that empty string for experiment_id is rejected (min_length=1)."""
-    response = client.post("/api/v1/tests", json={
-        "experiment_id": "",
-        "pc_device_id": "DEV-0001",
-        "test_rig_device_id": "DEV-0002",
-        "environment_id": "ENV-0001",
-        "driver": "Tomas",
-    })
+    response = client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": "",
+            "pc_device_id": "DEV-0001",
+            "test_rig_device_id": "DEV-0002",
+            "environment_id": "ENV-0001",
+            "driver": "Tomas",
+        },
+    )
     assert response.status_code == 422
     data = response.json()
     assert "detail" in data
@@ -37,36 +40,45 @@ def test_empty_string_experiment_id(client: TestClient) -> None:
 
 def test_empty_string_driver(client: TestClient) -> None:
     """Test that empty string for driver is rejected (min_length=1)."""
-    response = client.post("/api/v1/tests", json={
-        "experiment_id": "exp1",
-        "pc_device_id": "DEV-0001",
-        "test_rig_device_id": "DEV-0002",
-        "environment_id": "ENV-0001",
-        "driver": "",
-    })
+    response = client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": "exp1",
+            "pc_device_id": "DEV-0001",
+            "test_rig_device_id": "DEV-0002",
+            "environment_id": "ENV-0001",
+            "driver": "",
+        },
+    )
     assert response.status_code == 422
     assert "driver" in response.json()["detail"].lower()
 
 
 def test_wrong_type_for_string_field(client: TestClient) -> None:
     """Test that wrong types return user-friendly error."""
-    response = client.post("/api/v1/tests", json={
-        "experiment_id": 12345,  # should be string
-        "pc_device_id": "DEV-0001",
-        "test_rig_device_id": "DEV-0002",
-        "environment_id": "ENV-0001",
-        "driver": "Tomas",
-    })
+    response = client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": 12345,  # should be string
+            "pc_device_id": "DEV-0001",
+            "test_rig_device_id": "DEV-0002",
+            "environment_id": "ENV-0001",
+            "driver": "Tomas",
+        },
+    )
     # Pydantic may coerce int to str, or reject it — either is acceptable
     assert response.status_code in (200, 422)
 
 
 def test_invalid_device_category(client: TestClient) -> None:
     """Test that invalid device category returns user-friendly error."""
-    response = client.post("/api/v1/devices", json={
-        "category": "invalid_category",
-        "name": "Test Device",
-    })
+    response = client.post(
+        "/api/v1/devices",
+        json={
+            "category": "invalid_category",
+            "name": "Test Device",
+        },
+    )
     assert response.status_code == 422
     data = response.json()
     assert "detail" in data
@@ -75,11 +87,14 @@ def test_invalid_device_category(client: TestClient) -> None:
 
 def test_invalid_device_status(client: TestClient) -> None:
     """Test that invalid device status returns user-friendly error."""
-    response = client.post("/api/v1/devices", json={
-        "category": "pc",
-        "name": "Test Device",
-        "status": "broken",  # not a valid DeviceStatus
-    })
+    response = client.post(
+        "/api/v1/devices",
+        json={
+            "category": "pc",
+            "name": "Test Device",
+            "status": "broken",  # not a valid DeviceStatus
+        },
+    )
     assert response.status_code == 422
     assert "status" in response.json()["detail"].lower()
 
@@ -99,10 +114,13 @@ def test_invalid_page_size(client: TestClient) -> None:
 
 def test_validation_errors_include_original_errors(client: TestClient) -> None:
     """Test that validation response includes original errors for debugging."""
-    response = client.post("/api/v1/tests", json={
-        "experiment_id": "",
-        "driver": "",
-    })
+    response = client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": "",
+            "driver": "",
+        },
+    )
     assert response.status_code == 422
     data = response.json()
     assert "detail" in data
@@ -113,10 +131,13 @@ def test_validation_errors_include_original_errors(client: TestClient) -> None:
 
 def test_multiple_validation_errors_combined(client: TestClient) -> None:
     """Test that multiple validation errors are combined in one message."""
-    response = client.post("/api/v1/tests", json={
-        "experiment_id": "",
-        "driver": "",
-    })
+    response = client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": "",
+            "driver": "",
+        },
+    )
     assert response.status_code == 422
     data = response.json()
     # Multiple errors should be separated by " | "

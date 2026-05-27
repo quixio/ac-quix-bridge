@@ -43,7 +43,9 @@ def test_list_drivers_empty(client: TestClient) -> None:
     assert data["total"] == 0
 
 
-def test_list_drivers_with_data(create_driver: DriverFactory, client: TestClient) -> None:
+def test_list_drivers_with_data(
+    create_driver: DriverFactory, client: TestClient
+) -> None:
     """Test listing and filtering drivers."""
     create_driver(name="Alice")
     create_driver(name="Bob")
@@ -57,7 +59,9 @@ def test_list_drivers_with_data(create_driver: DriverFactory, client: TestClient
     assert response.json()["items"][0]["name"] == "Alice"
 
 
-def test_list_drivers_text_search(create_driver: DriverFactory, client: TestClient) -> None:
+def test_list_drivers_text_search(
+    create_driver: DriverFactory, client: TestClient
+) -> None:
     """Test text search."""
     create_driver(name="Daniel Lastic")
     create_driver(name="Tomas Nekvinda")
@@ -103,7 +107,9 @@ def test_update_driver_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_update_driver_no_fields(create_driver: DriverFactory, client: TestClient) -> None:
+def test_update_driver_no_fields(
+    create_driver: DriverFactory, client: TestClient
+) -> None:
     _, created = create_driver()
     response = client.put(f"/api/v1/drivers/{created['driver_id']}", json={})
     assert response.status_code == 400

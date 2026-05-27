@@ -14,10 +14,13 @@ UTC_ISO_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
 def test_create_environment(client: TestClient) -> None:
     """Test creating an environment with auto-generated ID."""
-    response = client.post("/api/v1/environments", json={
-        "name": "Prague Office",
-        "location": "Prague, CZ",
-    })
+    response = client.post(
+        "/api/v1/environments",
+        json={
+            "name": "Prague Office",
+            "location": "Prague, CZ",
+        },
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["environment_id"] == "ENV-0001"
@@ -80,7 +83,9 @@ def test_list_environments_text_search(
 # ============================================================================
 
 
-def test_get_environment(create_environment: EnvironmentFactory, client: TestClient) -> None:
+def test_get_environment(
+    create_environment: EnvironmentFactory, client: TestClient
+) -> None:
     _, created = create_environment(name="Test Env")
     response = client.get(f"/api/v1/environments/{created['environment_id']}")
     assert response.status_code == 200
@@ -98,10 +103,13 @@ def test_update_environment(
     _, created = create_environment(name="Old Name")
     env_id = created["environment_id"]
 
-    response = client.put(f"/api/v1/environments/{env_id}", json={
-        "name": "New Name",
-        "status": "inactive",
-    })
+    response = client.put(
+        f"/api/v1/environments/{env_id}",
+        json={
+            "name": "New Name",
+            "status": "inactive",
+        },
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "New Name"
