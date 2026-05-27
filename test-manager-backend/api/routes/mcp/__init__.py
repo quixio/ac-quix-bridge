@@ -133,7 +133,10 @@ def install(app: FastAPI, mongo: Database[dict[str, Any]]) -> Any:
     """
     # streamable_http_path="/" puts the JSON-RPC endpoint at the sub-app root,
     # so mounted at /mcp the external URL is /mcp/ (matches Quixlab pattern).
-    mcp = FastMCP(name="test-manager", streamable_http_path="/")
+    # host="0.0.0.0" disables FastMCP's auto-enabled DNS-rebinding protection
+    # (only triggers for localhost hosts). Without this, external requests are
+    # rejected with 421 Misdirected Request.
+    mcp = FastMCP(name="test-manager", host="0.0.0.0", streamable_http_path="/")
 
     tools = _build_tools(mongo)
     missing_titles = set(tools) - set(TOOL_TITLES)
