@@ -11,8 +11,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 500
+      limits:
+        cpu: 200
+        memory: 500
       replicas: 1
     publicAccess:
       enabled: true
@@ -32,8 +33,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 800
+      limits:
+        cpu: 200
+        memory: 800
       replicas: 1
     state:
       enabled: true
@@ -59,8 +61,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 300
+      limits:
+        cpu: 200
+        memory: 300
       replicas: 1
     variables:
       - name: input
@@ -87,8 +90,9 @@ deployments:
     version: latest
     deploymentType: Managed
     resources:
-      cpu: 500
-      memory: 1000
+      limits:
+        cpu: 500
+        memory: 1000
       replicas: 1
     network:
       serviceName: dynamic-configuration-manager
@@ -105,8 +109,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 1000
-      memory: 4000
+      limits:
+        cpu: 1000
+        memory: 4000
       replicas: 1
     variables:
       - name: input
@@ -186,8 +191,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 500
+      limits:
+        cpu: 500
+        memory: 500
       replicas: 1
     publicAccess:
       enabled: true
@@ -224,13 +230,11 @@ deployments:
         variableKey: quix_lake_pat
       - name: LOCAL_DEV_MODE
         inputType: FreeText
-        required: false
-        value: "false"
+        value: false
       - name: LIVE_TELEMETRY_ENABLED
         inputType: FreeText
         description: Set true to start the Kafka consumer that powers the live-positions endpoint.
-        required: false
-        value: "true"
+        value: true
       - name: Quix__Sdk__Token
         inputType: ProjectVariable
         description: Workspace SDK token used by QuixStreams to consume ac-telemetry-raw.
@@ -239,15 +243,15 @@ deployments:
       - name: Quix__Portal__Api
         inputType: FreeText
         description: Quix Portal API URL (dev workspace = portal-api.dev.quix.io; never platform.quix.io).
-        required: false
         value: https://portal-api.dev.quix.io
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 500
+      limits:
+        cpu: 500
+        memory: 500
       replicas: 1
     publicAccess:
       enabled: true
@@ -296,8 +300,9 @@ deployments:
     version: f98d84a
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 1000
+      limits:
+        cpu: 500
+        memory: 1000
       replicas: 1
     variables:
       - name: output
@@ -350,8 +355,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 500
+      limits:
+        cpu: 200
+        memory: 500
       replicas: 1
     publicAccess:
       enabled: true
@@ -372,8 +378,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 2000
+      limits:
+        cpu: 500
+        memory: 2000
       replicas: 1
     publicAccess:
       enabled: true
@@ -394,8 +401,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 1000
-      memory: 2000
+      limits:
+        cpu: 1000
+        memory: 2000
       replicas: 1
     publicAccess:
       enabled: true
@@ -449,8 +457,9 @@ deployments:
     version: latest
     deploymentType: Service
     resources:
-      cpu: 500
-      memory: 1000
+      limits:
+        cpu: 500
+        memory: 1000
       replicas: 1
     publicAccess:
       enabled: true
