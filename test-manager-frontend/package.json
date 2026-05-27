@@ -16,6 +16,7 @@
     "test:e2e:install": "playwright install chromium --with-deps"
   },
   "dependencies": {
+    "@formkit/auto-animate": "^0.9.0",
     "@hookform/resolvers": "^3.3.4",
     "@monaco-editor/react": "^4.6.0",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -65,7 +66,6 @@
     "prettier": "3.1.1",
     "prettier-plugin-tailwindcss": "^0.5.9",
     "tailwindcss": "3.4.0",
-    "typescript": "5.3.3" 
+    "typescript": "5.3.3"
   }
 }
-

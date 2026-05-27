@@ -59,10 +59,12 @@ ORDER BY track, carModel, experiment, driver, lap_time_ms ASC
 """.strip()
 
 
-# Historicals per (track, car, experiment) group. Capping at 4 keeps the
-# final table at most 5 rows (4 historicals + 1 active), matching the
-# LOCAL_DEV_MODE shape the UI already renders.
-_HISTORICAL_CAP_PER_GROUP = 4
+# Historicals per (track, car, experiment) group. The UI collapses to 8
+# rows by default (rank 1 + 7 around the active driver) and expands to
+# the full field on demand, so we ship up to 99 historicals per group
+# (+ 1 active = max 100 rows) — enough headroom for any real-world
+# driver field without paying for an unbounded payload.
+_HISTORICAL_CAP_PER_GROUP = 99
 
 
 class LeaderboardError(RuntimeError):

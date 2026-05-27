@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Loader2 } from "lucide-react"
+import { ChevronsDown, ChevronsUp, Loader2 } from "lucide-react"
 
 import { EmptyState } from "@/components/shared/empty-state"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -14,6 +15,7 @@ import {
 import { LivePositionsTable } from "@/components/analysis/live-positions-table"
 import { BestLapsTable } from "@/components/analysis/best-laps-table"
 import { useLivePositions } from "@/lib/hooks/use-live-positions"
+import { COLLAPSED_ROW_COUNT } from "@/lib/utils/leaderboard-window"
 
 /**
  * Multi-driver live-positions leaderboard.
@@ -36,6 +38,9 @@ export function LeaderboardTab() {
   const [track, setTrack] = useState<string | null>(null)
   const [car, setCar] = useState<string | null>(null)
   const [experiment, setExperiment] = useState<string | null>(null)
+  // Default to collapsed — at 100+ historicals the unfiltered table is
+  // unreadable. Button below the filter bar lifts the cap.
+  const [collapsed, setCollapsed] = useState<boolean>(true)
 
   // Initial / fallback selection. We use the alphabetically-first option
   // — same pattern as the previous (pre-reset) leaderboard. The fallback
@@ -93,34 +98,58 @@ export function LeaderboardTab() {
     )
   }
 
+  const canCollapse = filteredRows.length > COLLAPSED_ROW_COUNT
+
   return (
     <div className="flex w-full flex-col gap-6 py-6">
-      <FilterBar
-        track={track}
-        car={car}
-        experiment={experiment}
-        tracks={tracks}
-        cars={cars}
-        experiments={experiments}
-        onTrack={setTrack}
-        onCar={setCar}
-        onExperiment={setExperiment}
-      />
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <FilterBar
+          track={track}
+          car={car}
+          experiment={experiment}
+          tracks={tracks}
+          cars={cars}
+          experiments={experiments}
+          onTrack={setTrack}
+          onCar={setCar}
+          onExperiment={setExperiment}
+        />
+        {canCollapse && (
+          <Button
+            data-testid="leaderboard-collapse-toggle"
+            variant="outline"
+            size="sm"
+            onClick={() => setCollapsed((v) => !v)}
+          >
+            {collapsed ? (
+              <>
+                <ChevronsDown className="mr-2 h-4 w-4" />
+                Show all {filteredRows.length}
+              </>
+            ) : (
+              <>
+                <ChevronsUp className="mr-2 h-4 w-4" />
+                Collapse to {COLLAPSED_ROW_COUNT}
+              </>
+            )}
+          </Button>
+        )}
+      </div>
       {filteredRows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No rows for this combination yet.
         </p>
       ) : hasActive ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr] lg:gap-8">
-          <LivePositionsTable rows={filteredRows} />
-          <BestLapsTable rows={filteredRows} />
+          <LivePositionsTable rows={filteredRows} collapsed={collapsed} />
+          <BestLapsTable rows={filteredRows} collapsed={collapsed} />
         </div>
       ) : (
         <div className="mx-auto w-full max-w-3xl">
           <p className="mb-3 text-sm text-muted-foreground">
             No live session right now — showing historical best laps
           </p>
-          <BestLapsTable rows={filteredRows} />
+          <BestLapsTable rows={filteredRows} collapsed={collapsed} />
         </div>
       )}
     </div>

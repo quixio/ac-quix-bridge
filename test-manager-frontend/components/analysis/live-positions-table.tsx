@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useAutoAnimate } from "@formkit/auto-animate/react"
 
 import {
   Table,
@@ -13,27 +14,36 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { formatLapTime } from "@/lib/utils/format"
 import { cn } from "@/lib/utils"
+import {
+  COLLAPSED_ROW_COUNT,
+  collapseAroundIndex,
+  useAnchoredActiveIdx,
+} from "@/lib/utils/leaderboard-window"
 import type { LivePositionEntry } from "@/types/leaderboard"
 
 /**
- * "Live Sector Comparison" table — 5 rows per (track, car, experiment) group.
+ * "Live Sector Comparison" table.
  *
  * Columns: Rank · Driver · Best Lap · At Position.
  *
- * Rank changes at sector boundaries. The Best Lap cell renders
- * `m:ss.SSS (L{N})` with the lap suffix dimmed via `text-muted-foreground`.
+ * Rank comes from the server's sector-based ordering. Rank changes at
+ * sector boundaries. The Best Lap cell renders `m:ss.SSS (L{N})` with the
+ * lap suffix dimmed via `text-muted-foreground`.
  *
- * "At Position" coloring is now driven by **rank vs. the active driver**:
+ * "At Position" coloring is driven by **rank vs. the active driver**:
  *   row.rank < active.rank → ranked better → emerald
  *   row.rank > active.rank → ranked worse  → rose
  *   active row             → neutral
  *
- * The active row's At Position cell ticks at 200 ms intervals between
+ * The active row's At Position cell ticks at jittered intervals between
  * polls so the running clock advances visually instead of jumping every
- * 3500 ms. Server payload provides the anchor `current_lap_time_ms` at
- * each poll; locally we add `performance.now() - localT0` to that anchor.
- * Historical rows do *not* tick — they are pure server numbers (ghost
- * estimates re-anchored to the active driver's poll-time position).
+ * poll. Server payload provides the anchor `current_lap_time_ms`;
+ * locally we add `performance.now() - localT0` to that anchor.
+ * Historical rows show their ghost-interpolated `current_lap_time_ms`
+ * at the active driver's current map position — a true live comparison.
+ *
+ * `useAutoAnimate` on the `<TableBody>` animates row reorders when the
+ * server reshuffles ranks at sector boundaries.
  */
 
 // The clock re-renders at jittered intervals in [TICK_MIN_MS, TICK_MAX_MS]
@@ -46,10 +56,26 @@ const FREEZE_AFTER_POLL_MS = 3000
 
 export interface LivePositionsTableProps {
   rows: LivePositionEntry[]
+  collapsed?: boolean
 }
 
-export function LivePositionsTable({ rows }: LivePositionsTableProps) {
+export function LivePositionsTable({
+  rows,
+  collapsed = false,
+}: LivePositionsTableProps) {
   const sorted = [...rows].sort((a, b) => a.rank - b.rank)
+  const currentActiveIdx = sorted.findIndex((r) => r.is_active)
+  // Anchor the collapsed window so the active driver's rank change is
+  // visible *inside* the existing window before it re-centres — the
+  // user reads the move, then the table scrolls to follow.
+  const anchorIdx = useAnchoredActiveIdx(currentActiveIdx)
+  const visible = collapsed
+    ? collapseAroundIndex(sorted, COLLAPSED_ROW_COUNT, anchorIdx)
+    : sorted
+  const [bodyRef] = useAutoAnimate<HTMLTableSectionElement>({
+    duration: 700,
+    easing: "ease-in-out",
+  })
   const active = sorted.find((r) => r.is_active) ?? null
   const activeRank = active?.rank ?? null
   const activeServerMs = active?.current_lap_time_ms ?? 0
@@ -138,16 +164,18 @@ export function LivePositionsTable({ rows }: LivePositionsTableProps) {
             <TableHead className="text-right tabular-nums">At Position</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
-          {sorted.map((row, idx) => {
+        <TableBody ref={bodyRef}>
+          {visible.map((row, idx) => {
             // Gap math uses pure server values (not the extrapolated
             // active clock) so the +/- deltas freeze between polls and
-            // only refresh when the server publishes a new rank/snapshot.
+            // only refresh when the server publishes a new snapshot.
+            // Neighbours come from the *visible* slice so the +/- delta
+            // matches the row physically above/below on screen.
             const aboveAtPos =
-              idx > 0 ? sorted[idx - 1].current_lap_time_ms : null
+              idx > 0 ? visible[idx - 1].current_lap_time_ms : null
             const belowAtPos =
-              idx < sorted.length - 1
-                ? sorted[idx + 1].current_lap_time_ms
+              idx < visible.length - 1
+                ? visible[idx + 1].current_lap_time_ms
                 : null
             return (
               <LeaderRow
@@ -196,8 +224,8 @@ function LeaderRow({
   aboveAtPosMs: number | null
   belowAtPosMs: number | null
 }) {
-  // Display value: extrapolated for the active row's running clock,
-  // raw server number for everyone else.
+  // Display value: extrapolated for the active row's running clock, raw
+  // server number (ghost-interpolated server-side) for everyone else.
   const atPosMs = atPosForRow(row, activeDisplayMs)
   const atPosLabel = formatLapTime(atPosMs)
 
@@ -215,7 +243,7 @@ function LeaderRow({
 
   // Gap math uses the row's server-side `current_lap_time_ms` (not the
   // extrapolated display value) so the +/- deltas remain stable between
-  // polls and only change when the server re-ranks at a sector boundary.
+  // polls and only change when the server publishes a new snapshot.
   const serverAtPosMs = row.current_lap_time_ms
   const gapAbove =
     aboveAtPosMs != null ? Math.max(0, serverAtPosMs - aboveAtPosMs) : null

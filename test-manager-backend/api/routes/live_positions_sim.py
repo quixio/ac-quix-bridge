@@ -17,8 +17,11 @@ Why this shape:
   small set of constants so the table is stable across requests; only
   the active driver's running clock advances over time.
 
-* Active driver = "Ludvík" in every group. Other 4 drivers are static.
-  Server-computed rank avoids any client-side sorting drift.
+* Active driver = "Ludvík" in every group. The historical field is
+  `HISTORICAL_DRIVER_COUNT` drivers wide (currently 100) — the first
+  four keep their original hand-picked names (Alice/Bob/Carla/Diego)
+  and the rest are synthetic "Driver-NNN" entries. Server-computed
+  rank avoids any client-side sorting drift.
 
 Public API: `make_local_dev_live_positions()`.
 """
@@ -35,20 +38,55 @@ TRACKS: list[str] = ["ks_nurburgring", "spa", "silverstone"]
 CARS: list[str] = ["bmw_1m", "ferrari_488"]
 EXPERIMENTS: list[str] = ["baseline", "tuned"]
 
-# Driver order matters: index 0 is the active driver, indices 1..4 are
-# the static historical drivers. The base formula uses this index.
-DRIVERS: list[str] = ["Ludvík", "Alice", "Bob", "Carla", "Diego"]
-ACTIVE_DRIVER: str = DRIVERS[0]
+ACTIVE_DRIVER: str = "Ludvík"
+
+# Size of the historical field per (track, car, experiment) group. Bumped
+# from the original 4 to 100 to exercise the frontend with a large
+# best-laps table. The active driver is in addition to this count, so each
+# group ships HISTORICAL_DRIVER_COUNT + 1 rows.
+HISTORICAL_DRIVER_COUNT: int = 100
+
+_NAMED_HISTORICALS: list[str] = ["Alice", "Bob", "Carla", "Diego"]
+
+
+def _make_historicals() -> list[str]:
+    extra = [
+        f"Driver-{i:03d}"
+        for i in range(len(_NAMED_HISTORICALS) + 1, HISTORICAL_DRIVER_COUNT + 1)
+    ]
+    return (_NAMED_HISTORICALS + extra)[:HISTORICAL_DRIVER_COUNT]
+
+
+# Driver order matters: index 0 is the active driver, indices 1..N are the
+# static historical drivers. The base formula uses this index.
+DRIVERS: list[str] = [ACTIVE_DRIVER] + _make_historicals()
+
 
 # Per-driver sector splits — fractions of that driver's own best_lap_ms.
 # Each row sums to 1.0 (within float epsilon). The active driver's splits
-# also define the sector boundaries used for rank evaluation.
-SPLITS: dict[str, tuple[float, float, float]] = {
+# also define the sector boundaries used for rank evaluation. The five
+# originally-named drivers keep their hand-picked splits; synthetic
+# drivers get a deterministic spread around (1/3, 1/3, 1/3).
+_KNOWN_SPLITS: dict[str, tuple[float, float, float]] = {
     "Ludvík": (0.33, 0.33, 0.34),
     "Alice": (0.31, 0.34, 0.35),
     "Bob": (0.36, 0.32, 0.32),
     "Carla": (0.34, 0.33, 0.33),
     "Diego": (0.33, 0.31, 0.36),
+}
+
+
+def _splits_for(idx: int, driver: str) -> tuple[float, float, float]:
+    if driver in _KNOWN_SPLITS:
+        return _KNOWN_SPLITS[driver]
+    s0 = 0.33 + (((idx * 7) % 11) - 5) * 0.002
+    s1 = 0.33 + (((idx * 13) % 9) - 4) * 0.002
+    s2 = 1.0 - s0 - s1
+    return s0, s1, s2
+
+
+SPLITS: dict[str, tuple[float, float, float]] = {
+    d: _splits_for(i, d) for i, d in enumerate(DRIVERS)
 }
 
 SECTOR_COUNT: int = 3
@@ -75,15 +113,23 @@ def _base_lap_ms(track: str, car: str, experiment: str, driver: str) -> int:
     """Deterministic historical best-lap formula shared by every driver.
 
     Layout: base shaped by (track, car); experiment offset is the same for
-    everyone; driver offset gives a stable per-driver delta. The quadratic
-    `driver_idx^2 * 37` term spreads the four historical drivers out enough
-    that rank changes between (track, car, experiment) groups stay visible.
+    everyone; driver offset is linear (100 ms per driver index) so a
+    100-driver historical field spreads across ~10 s without the laps
+    ballooning into absurd territory.
     """
     base_ms = 90_000 + _track_index(track) * 4_000 + _car_index(car) * 2_500
     exp_offset = -1_500 if experiment == "tuned" else 0
     d = _driver_index(driver)
-    driver_offset = d * 420 + (d * d * 37)
+    driver_offset = d * 100
     return base_ms + exp_offset + driver_offset
+
+
+# Tuning knobs for Ludvík's warm-up curve. Combined they give him roughly
+# one rank improvement every ~3 laps from a starting position of rank ~81,
+# and he settles ahead of the fastest historical (`Alice`, offset 100 ms)
+# once his offset hits the floor.
+LUDVIK_DECAY_PER_LAP_MS: int = 30
+LUDVIK_OFFSET_FLOOR_MS: int = -500
 
 
 def _ludvik_lap_target_ms(
@@ -91,14 +137,18 @@ def _ludvik_lap_target_ms(
 ) -> int:
     """Per-lap pace target for the active driver.
 
-    Same shape as `_base_lap_ms(... 'Ludvík')` (driver_offset = 0 for idx 0)
-    plus a deterministic jitter per `current_lap` in the range [-400, +400)
-    ms. The jitter gives him a realistic chance to set a new personal best
-    every few laps without ever being wildly off.
+    Ludvík starts deep in the historical field (rank ~80) and improves
+    deterministically by `LUDVIK_DECAY_PER_LAP_MS` every lap, with a
+    floor that eventually lands him at rank 1. Small jitter keeps PBs
+    from feeling robotic. The whole point: keep the leaderboard *alive*
+    so the collapse-and-scroll UI has motion to render.
     """
     base = _base_lap_ms(track, car, experiment, ACTIVE_DRIVER)
-    jitter = ((current_lap * 137) % 800) - 400
-    return base + jitter
+    starting_offset = 8_000
+    decay = min(current_lap * LUDVIK_DECAY_PER_LAP_MS, starting_offset + 800)
+    offset = max(LUDVIK_OFFSET_FLOOR_MS, starting_offset - decay)
+    jitter = ((current_lap * 137) % 200) - 100
+    return base + offset + jitter
 
 
 # ---------------------------------------------------------------------------
@@ -116,13 +166,11 @@ def _ludvik_lap_target_ms(
 _LUDVIK_STATE: dict[tuple[str, str, str], dict[str, int | float | None]] = {}
 
 # Deterministic "lap on which each historical's best was set" — purely cosmetic
-# annotation shown next to the best-lap time in the UI. Indices 1..4 because
-# index 0 (Ludvík) is the active driver and gets a live-tracked value.
+# annotation shown next to the best-lap time in the UI. Generated for every
+# historical driver; the active driver (index 0) gets a live-tracked value
+# instead and is therefore excluded.
 _HISTORICAL_BEST_LAP_NUMBERS: dict[str, int] = {
-    "Alice": 3,
-    "Bob": 7,
-    "Carla": 4,
-    "Diego": 9,
+    d: ((i * 3) % 17) + 1 for i, d in enumerate(DRIVERS) if d != ACTIVE_DRIVER
 }
 
 
