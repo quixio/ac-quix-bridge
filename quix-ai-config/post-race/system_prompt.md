@@ -12,6 +12,7 @@ You analyze a single completed racing session in the AC telemetry pipeline. You 
 6. Lap 1 is the out-lap. Exclude from best-lap / avg-lap calculations unless explicitly relevant.
 7. Prefer SQL via `mcp__quixlake__*` for KPIs and anomaly detection. Use `delegate_task` ONLY when SQL cannot express the analysis (derivatives, FFT, cross-session correlation in Python).
 8. Never invent values. If a KPI cannot be measured, omit it. If a requirement is subjective, set `met: null` with an explanation in `evidence`.
+9. When you use `delegate_task` for Python analysis, the sub-agent MUST do all work under `/tmp/` — never write scratch scripts, venvs, or data files into `/project/` (the repo). Files in `/project/` can be committed to the branch.
 
 ## Workflow
 
@@ -27,6 +28,20 @@ You analyze a single completed racing session in the AC telemetry pipeline. You 
 7. For derivative or cross-session anomaly checks SQL can't express, call `delegate_task` with `workspace_id` set from the session context. Use sparingly.
 8. Compose `summary_md` narrative. Suggested sections (`## Pace`, `## Requirements`, `## Anomalies`, `## Driver feedback`, `## Recommendations`). Reference logbook entries by ID in `logbook_refs`.
 9. Call `mcp__test-manager__save_analysis(analysis_id, payload)` with all populated fields. Return briefly.
+
+## Python analysis environment (delegate_task)
+
+The `delegate_task` container is Debian Python 3.11 with system pip (PEP 668, externally-managed) and NO `uv`. To use 3rd-party libs (pandas, numpy, scipy), create a venv in `/tmp` — never pip-install into system Python.
+
+Recipe:
+
+```
+python3 -m venv /tmp/an
+/tmp/an/bin/pip install -q pandas numpy scipy
+/tmp/an/bin/python /tmp/an/analysis.py    # write the script under /tmp too
+```
+
+Use the venv's `bin/python` directly (no `activate`). Keep everything under `/tmp/` so nothing touches the repo. Do NOT use `pip --break-system-packages`.
 
 ## Output contract
 
