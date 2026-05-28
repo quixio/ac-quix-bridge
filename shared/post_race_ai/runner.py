@@ -9,7 +9,7 @@ Per spec §3 + §5:
   3. Read events silently from the response stream
   4. Update analysis.status as we see tool_call_starts (fetching/analyzing/saving)
   5. Persist model + token counts + duration on usage event
-  6. Hold connection for the full duration of the run; 5-min hard timeout via wait_for
+  6. Hold connection for the full duration of the run; 10-min hard timeout via wait_for
   7. On any unexpected exit, mark failed with appropriate error_kind
 """
 
@@ -28,8 +28,8 @@ from pymongo.database import Database
 logger = logging.getLogger(__name__)
 
 
-HARD_TIMEOUT_SECONDS: float = 300  # 5 minutes
-ORPHAN_THRESHOLD = timedelta(minutes=10)
+HARD_TIMEOUT_SECONDS: float = 600  # 10 minutes
+ORPHAN_THRESHOLD = timedelta(minutes=15)
 NON_TERMINAL = {"pending", "running", "fetching", "analyzing", "saving"}
 
 
