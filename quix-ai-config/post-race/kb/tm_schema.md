@@ -26,7 +26,7 @@ Split on sentence boundaries. Each clause = one `RequirementCheck`. Set `met` ba
 - `track` (string): AC track code, e.g. `"barcelona"`
 - `car_model` (string): AC car code, e.g. `"ferrari_488_gt3"`
 
-**Treat `session_id` as opaque.** Don't reparse it as a date — use the lake's `ts_ms` column for time.
+**Treat `session_id` as opaque.** Don't reparse it as a date — use the lake's `timestamp_ms` column for time.
 
 ## LogbookEntry (from `list_logbook`)
 
@@ -47,3 +47,38 @@ Optional lookups via `get_driver`, `get_device`, `get_environment` when you need
 ## Historical sessions (from `list_sessions_for_test`, `list_recent_sessions_for_driver`)
 
 For baseline-vs-current comparisons. The recent-for-driver tool returns a flat list across all tests for one driver — useful for finding a comparable past session.
+
+## Partition mapping — Test Manager → QuixLake `ac_telemetry`
+
+The lake is Hive-partitioned by, in order:
+
+```
+environment / test_rig / experiment / driver / track / carModel / session_id / lap
+```
+
+Always pin every column you know in the WHERE clause. Values come from Test Manager:
+
+| Lake column | Test Manager source field | Transform applied by TM → DCM |
+|---|---|---|
+| `environment` | `Test.environment_name` | lowercased, spaces → `_`, apostrophes dropped |
+| `test_rig` | `Test.test_rig_device_name` | lowercased, spaces → `_` |
+| `experiment` | `Test.experiment_id` | as-is (e.g. `TST-0007`) |
+| `driver` | `Test.driver` | lowercased |
+| `track` | `SessionInfo.track` | as-is (AC code, e.g. `barcelona`) |
+| `carModel` | `SessionInfo.car_model` | as-is (AC code, e.g. `ferrari_488_gt3`) |
+| `session_id` | `SessionInfo.session_id` | as-is (ISO ms + `Z`) |
+| `lap` | per-row from telemetry stream | integer; filter when scoping a single lap |
+
+Example WHERE clause for a session-scoped KPI query:
+
+```sql
+WHERE environment = 'thermal_lab'
+  AND test_rig    = 'rig_a'
+  AND experiment  = 'TST-0007'
+  AND driver      = 'ludvik'
+  AND track       = 'barcelona'
+  AND carModel    = 'ferrari_488_gt3'
+  AND session_id  = '2026-05-21T14:32:15.123Z'
+```
+
+Skipping columns forces the lake to scan more partitions — slower and more expensive.
