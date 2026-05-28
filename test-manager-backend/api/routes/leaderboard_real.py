@@ -64,12 +64,14 @@ ORDER BY track, carModel, experiment, driver, lap_time_ms ASC
 """.strip()
 
 
-# Max distance (in normalized position units) between a gate's target
-# position and the nearest sample we'll accept. Half a gate spacing
-# (1/20 = 0.05 → half = 0.025). If a historical's best lap is missing
-# samples around a gate, we drop that historical from the cache rather
-# than ship a fabricated time (spec §5.2 reducer step 4).
-_GATE_PICK_TOLERANCE = 1.0 / GATE_COUNT / 2.0
+# Minimum lap-completeness threshold: a best lap whose maximum
+# `normalizedCarPosition` is below this value is treated as a partial
+# lap (quit / crash / timeout truncated the telemetry before the
+# car reached the lap line) and dropped from the cache. Sparse-sample
+# gaps in an otherwise complete lap are now handled by linear
+# interpolation between the two samples that bracket each gate position
+# (spec §5.2 reducer step 4) — there is no per-gate tolerance any more.
+_PARTIAL_LAP_MAX_POS = 0.95
 
 
 # Historicals per (track, car, experiment) group. The UI collapses to 8
@@ -291,13 +293,18 @@ def _reduce_to_gate_vectors(
     best_per_group: dict[tuple[str, str, str, str], tuple[int, int]],
     sample_rows: list[dict[str, Any]],
 ) -> dict[tuple[str, str, str], dict[str, _HistoricalEntry]]:
-    """Bucket samples by (track, car, exp, driver, lap), then pick the
-    nearest sample per gate to build each historical's 20-element
-    cumulative-time vector.
+    """Bucket samples by (track, car, exp, driver, lap), then linearly
+    interpolate each gate's cumulative time from the two samples that
+    bracket the gate position.
 
-    Drops a historical entirely if any of its 20 gates has no sample
-    within `_GATE_PICK_TOLERANCE` of the target position (spec §5.2
-    reducer step 4). Logs the drop at INFO.
+    Drops a historical only when its best lap is **clearly partial** —
+    defined as max(`normalizedCarPosition`) < `_PARTIAL_LAP_MAX_POS`
+    (driver never reached the last 5% of the track, so the lap was
+    truncated by a quit / crash / timeout). Sparse-sample gaps inside an
+    otherwise complete lap no longer cause a drop: every gate's
+    cumulative time is interpolated between the two surrounding samples,
+    with the nearest sample used as a fallback for gates beyond the last
+    forward-crossing pair (spec §5.2 reducer step 4).
 
     Output is keyed by (track, car, experiment) at the outer level and
     by **folded driver name** at the inner level — matches the lookup
@@ -363,24 +370,71 @@ def _reduce_to_gate_vectors(
                 lap_num,
             )
             continue
+        # Sort by timestamp (ascending). NOT by normalizedCarPosition —
+        # AC's `normalizedCarPosition` can briefly reverse (off-track,
+        # spin, reverse gear), and the timestamp ordering is what makes
+        # the forward-crossing search below correct for those laps.
         samples = sorted(buckets[candidate_keys[0]], key=lambda x: x[1])
         if not samples:
             continue
 
+        # Drop the historical if the lap is *clearly partial* — the car
+        # never reached the last 5% of the track. That signals a quit /
+        # crash / timeout, not a sparse-sample gap, and the lap-line gate
+        # cannot be honestly interpolated from samples that all live in
+        # the first 95% of the track.
+        max_pos = max(s[0] for s in samples)
+        if max_pos < _PARTIAL_LAP_MAX_POS:
+            logger.info(
+                "gate-vectors: dropping driver (partial lap) "
+                "track=%s car=%s exp=%s driver=%s max_pos=%.3f < %.2f",
+                track,
+                car,
+                experiment,
+                driver,
+                max_pos,
+                _PARTIAL_LAP_MAX_POS,
+            )
+            continue
+
         lap_start_ms = samples[0][1]
         gate_vector: list[int] = [0] * GATE_COUNT
-        ok = True
+        # Forward-crossing scan: for each target gate position `t`, walk
+        # adjacent timestamp-ordered samples looking for the FIRST pair
+        # `(s_lo, s_hi)` where `s_lo.pos <= t <= s_hi.pos`. This handles
+        # brief reverses correctly because a real lap progresses through
+        # any given `t` exactly once (the noisy equal-pos case lands in
+        # the same neutral branch the colour-state rule already absorbs).
+        # We resume the scan from the previous gate's hit index so the
+        # total work is O(N) over the lap, not O(N * GATE_COUNT).
+        scan_from = 0
         for i in range(GATE_COUNT):
             target = (i + 1) / GATE_COUNT
-            # Tie-break: prefer earliest timestamp when two samples are
-            # equidistant from the target. `samples` is already sorted
-            # by timestamp, so a stable sort by distance preserves that
-            # tie-break.
-            nearest = min(samples, key=lambda s, t=target: abs(s[0] - t))
-            if abs(nearest[0] - target) > _GATE_PICK_TOLERANCE:
-                logger.info(
-                    "gate-vectors: gate %d (pos %.2f) missing within tol for "
-                    "track=%s car=%s exp=%s driver=%s — dropping driver",
+            interp_ts: float | None = None
+            j = scan_from
+            n = len(samples)
+            while j < n - 1:
+                lo_pos, lo_ts = samples[j]
+                hi_pos, hi_ts = samples[j + 1]
+                if lo_pos <= target <= hi_pos:
+                    if hi_pos == lo_pos:
+                        interp_ts = float(lo_ts)
+                    else:
+                        frac = (target - lo_pos) / (hi_pos - lo_pos)
+                        interp_ts = lo_ts + frac * (hi_ts - lo_ts)
+                    scan_from = j  # next gate keeps looking forward from here
+                    break
+                j += 1
+            if interp_ts is None:
+                # No forward-crossing pair found (e.g. lap samples end
+                # just before t=1.0). Fall back to the nearest sample's
+                # timestamp so we don't drop the whole driver over a
+                # sparse-sample tail.
+                nearest = min(samples, key=lambda s, t=target: abs(s[0] - t))
+                interp_ts = float(nearest[1])
+                logger.debug(
+                    "gate-vectors: gate %d (pos %.2f) no bracket pair for "
+                    "track=%s car=%s exp=%s driver=%s — using nearest sample",
                     i,
                     target,
                     track,
@@ -388,15 +442,11 @@ def _reduce_to_gate_vectors(
                     experiment,
                     driver,
                 )
-                ok = False
-                break
-            gate_vector[i] = max(0, nearest[1] - lap_start_ms)
+            gate_vector[i] = max(0, int(interp_ts - lap_start_ms))
 
-        if not ok:
-            continue
         # Force monotonic non-decreasing as a safety net (off-track
         # back-tracking on the source lap could yield a non-monotonic
-        # pick).
+        # interpolation).
         for i in range(1, GATE_COUNT):
             if gate_vector[i] < gate_vector[i - 1]:
                 gate_vector[i] = gate_vector[i - 1]
