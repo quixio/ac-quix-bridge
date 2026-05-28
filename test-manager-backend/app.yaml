@@ -33,23 +33,15 @@ variables:
   - name: LOCAL_DEV_MODE
     inputType: FreeText
     multiline: false
-    defaultValue: "false"
-    required: false
+    defaultValue: false
   - name: LIVE_TELEMETRY_ENABLED
     inputType: FreeText
     multiline: false
-    defaultValue: "true"
-    required: false
-  - name: Quix__Sdk__Token
-    inputType: Secret
-    multiline: false
-    defaultValue: sdk_token
-    required: true
+    defaultValue: true
   - name: Quix__Portal__Api
     inputType: FreeText
     multiline: false
     defaultValue: https://portal-api.dev.quix.io
-    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py
