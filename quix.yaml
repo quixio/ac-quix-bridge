@@ -50,10 +50,10 @@ deployments:
         required: true
         value: admin
       - name: MONGO_INITDB_ROOT_PASSWORD
-        inputType: ProjectVariable
+        inputType: Secret
         description: The root password to initialize MongoDB with
         required: true
-        variableKey: MONGO_PASSWORD
+        secretKey: MONGO_PASSWORD
   - name: Session Config Bridge
     application: session-config-bridge
     version: latest
@@ -136,9 +136,9 @@ deployments:
         description: REST Catalog URL for optional table registration (leave empty to skip)
         value: https://iceberg-catalog-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: CATALOG_AUTH_TOKEN
-        inputType: ProjectVariable
+        inputType: Secret
         description: If using a catalog, the respective auth token to access it
-        variableKey: quix_lake_pat
+        secretKey: quix_lake_pat
       - name: AUTO_DISCOVER
         inputType: Options
         description: Automatically register table in REST Catalog on first write
@@ -199,13 +199,13 @@ deployments:
           targetPort: 8080
     variables:
       - name: MONGO_USER
-        inputType: ProjectVariable
+        inputType: Secret
         required: true
-        variableKey: MONGO_USER
+        secretKey: MONGO_USER
       - name: MONGO_PASSWORD
-        inputType: ProjectVariable
+        inputType: Secret
         required: true
-        variableKey: MONGO_ROOT_PASSWORD
+        secretKey: MONGO_ROOT_PASSWORD
       - name: MONGO_HOST
         inputType: FreeText
         required: true
@@ -219,9 +219,9 @@ deployments:
         required: true
         value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: QUIX_LAKE_TOKEN
-        inputType: ProjectVariable
+        inputType: Secret
         required: true
-        variableKey: quix_lake_pat
+        secretKey: quix_lake_pat
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
@@ -387,10 +387,10 @@ deployments:
           targetPort: 80
     variables:
       - name: QUIX_LAKE_TOKEN
-        inputType: ProjectVariable
+        inputType: Secret
         description: Token to authenticate against QuixLake
         required: true
-        variableKey: pat_token
+        secretKey: pat_token
       - name: QUIXLAKE_URL
         inputType: FreeText
         description: Base URL of the QuixLake instance
@@ -405,10 +405,10 @@ deployments:
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
       - name: QUIX_TOKEN
-        inputType: ProjectVariable
+        inputType: Secret
         description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
         required: true
-        variableKey: pat_token
+        secretKey: pat_token
       - name: QUIX_AI_AGENT_ID
         inputType: FreeText
         description: Quix AI agent ID for the QuixLake Querier (system prompt + KBs + MCP tools). Leave empty to use the built-in default.
@@ -463,14 +463,14 @@ deployments:
         description: Metadata MongoDB username (only when METADATA_BACKEND=mongo)
         value: ''
       - name: METADATA_MONGO_PASSWORD
-        inputType: ProjectVariable
+        inputType: Secret
         description: Metadata MongoDB password (only when METADATA_BACKEND=mongo)
-        variableKey: MONGO_PASSWORD
+        secretKey: MONGO_PASSWORD
       - name: SECRET_KEY
-        inputType: ProjectVariable
+        inputType: Secret
         description: Encryption key for stored server passwords (Fernet)
         required: true
-        variableKey: MONGO_BACKUP_SECRET_KEY
+        secretKey: MONGO_BACKUP_SECRET_KEY
       - name: BLOB_BASE_PATH
         inputType: FreeText
         description: Base path in Quix blob storage for backup archives
