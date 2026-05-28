@@ -47,8 +47,17 @@ logger = logging.getLogger(__name__)
 # keyed by hostname). The consumer subscribes to both and enriches raw
 # messages from a per-hostname cache before recording state. This mirrors
 # the lake sink's `ac-telemetry-raw ⨝ ac-telemetry-config` enrichment.
+#
+# The consumer also subscribes to `ac-telemetry-config` — DCM's event
+# stream — so changes made via Test Manager (driver swap, experiment
+# rename, test delete) propagate in real-time without waiting for the
+# next AC session message. The DCM events topic is additive: AC's
+# `ac-telemetry-session` remains the source of truth for track / carModel
+# / playerName (DCM only mirrors those after `session-config-bridge` has
+# run, which may not have happened yet for an unlinked sim PC).
 TOPIC = "ac-telemetry-raw"
 SESSION_TOPIC = "ac-telemetry-session"
+CONFIG_EVENTS_TOPIC = "ac-telemetry-config"
 
 # Stale-entry threshold: a driver that hasn't sent a tick in this many seconds
 # is no longer "active". 10 s comfortably absorbs a brief pause / network
@@ -120,9 +129,14 @@ _state: dict[tuple[str, str, str], dict[str, Any]] = {}
 # `_session_cache[hostname]` = {"track": ..., "carModel": ..., "playerName": ...}
 # populated on every session message (one per AC session).
 #
-# `_experiment_cache[hostname]` = {"experiment": str, "fetched_epoch": float}
+# `_experiment_cache[hostname]` = {"experiment": str, "driver": str,
+#                                  "fetched_epoch": float}
 # populated synchronously when a session message arrives (one DCM HTTP call
-# per session change); refreshed if older than EXPERIMENT_CACHE_TTL_S.
+# per session change); refreshed if older than EXPERIMENT_CACHE_TTL_S. Both
+# `experiment` (content.experiment_id) and `driver` (content.driver, the
+# canonical "who is driving this test" set by Test Manager) come from the
+# same DCM experiment-config fetch — no extra HTTP calls vs the prior
+# single-field cache.
 _session_cache: dict[str, dict[str, str]] = {}
 _experiment_cache: dict[str, dict[str, Any]] = {}
 
@@ -417,6 +431,39 @@ def _dcm_auth_headers(sdk_token: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {sdk_token}"} if sdk_token else {}
 
 
+def _dcm_get_content(
+    content_url: str, headers: dict[str, str]
+) -> dict[str, Any] | None:
+    """GET a DCM content URL and return the parsed JSON dict.
+
+    Used by `_handle_config_event` — the DCM events topic already provides
+    a fully-qualified `contentUrl` for the changed version, so the caller
+    can skip the list-configurations / pick-latest-version dance that
+    `_fetch_latest_version_content` does. Returns `None` on any error
+    (non-200, malformed JSON, non-dict body); errors are logged at
+    WARNING and swallowed so a single bad event can't kill the consumer.
+    """
+    import httpx
+
+    try:
+        with httpx.Client(timeout=DCM_TIMEOUT_S) as client:
+            resp = client.get(content_url, headers=headers)
+        if resp.status_code != 200:
+            logger.warning(
+                "DCM content fetch returned %d for url=%s",
+                resp.status_code,
+                content_url,
+            )
+            return None
+        body = resp.json()
+        if not isinstance(body, dict):
+            return None
+        return body
+    except Exception:
+        logger.exception("DCM content fetch failed for url=%s", content_url)
+        return None
+
+
 def _fetch_latest_version_content(
     client: Any,
     base: str,
@@ -471,17 +518,23 @@ def _fetch_latest_version_content(
     return content
 
 
-def _fetch_experiment_from_dcm(hostname: str) -> str:
-    """Resolve the active experiment for a hostname via the DCM HTTP API.
+def _fetch_experiment_from_dcm(hostname: str) -> dict[str, str]:
+    """Resolve the active experiment + driver for a hostname via the DCM HTTP API.
 
-    Returns the experiment string (matches the Hive `experiment` partition
-    in the lake; DCM content stores it as `experiment_id`) or `""` if no
-    experiment config exists for this hostname or any DCM call fails.
+    Returns a dict `{"experiment_id": str, "driver": str}`. Both default to
+    `""` when no experiment config exists for this hostname or any DCM call
+    fails. `experiment_id` matches the Hive `experiment` partition in the
+    lake (DCM content stores it under the legacy key `experiment_id`);
+    `driver` is the canonical "who is driving this test" set by Test Manager
+    (`api/routes/tests.py:sync_to_dcm` writes `content.driver = test.driver
+    .lower()` alongside `experiment_id`). Sourcing both from the same single
+    DCM call keeps the network cost identical to the prior experiment-only
+    fetch.
 
     Network-blocking but called only on session-message arrival (rare event,
     not per-tick). All exceptions are caught here — the consumer loop must
-    never crash because DCM is briefly unavailable. A miss caches an empty
-    string so we don't hammer DCM for hosts that genuinely have no config.
+    never crash because DCM is briefly unavailable. A miss caches empty
+    strings so we don't hammer DCM for hosts that genuinely have no config.
 
     Adapted from `session-config-bridge/main.py:107-161`; we don't import
     from that service per the spec.
@@ -491,6 +544,8 @@ def _fetch_experiment_from_dcm(hostname: str) -> str:
     import httpx
 
     from .settings import get_settings
+
+    empty = {"experiment_id": "", "driver": ""}
 
     settings = get_settings()
     base = f"{settings.config_api_url.rstrip('/')}/api/v1"
@@ -506,7 +561,7 @@ def _fetch_experiment_from_dcm(hostname: str) -> str:
                     resp.status_code,
                     hostname,
                 )
-                return ""
+                return dict(empty)
             data = resp.json()
             configs = (
                 data
@@ -524,29 +579,32 @@ def _fetch_experiment_from_dcm(hostname: str) -> str:
                     break
             if not config_id:
                 logger.info("No experiment config in DCM for hostname=%s", hostname)
-                return ""
+                return dict(empty)
 
             # 2. Pick the latest version and fetch its content.
             content = _fetch_latest_version_content(client, base, config_id, headers)
             if content is None:
-                return ""
+                return dict(empty)
 
-            # Content key is `experiment_id` (see test-manager-backend
-            # `tests.py:91`). That string is the same value the lake uses as
-            # the `experiment` Hive partition.
+            # Content keys: `experiment_id` (legacy name; same value the lake
+            # uses as the `experiment` Hive partition) and `driver` (set by
+            # `api/routes/tests.py:sync_to_dcm`, also the lake's `driver`
+            # partition). See `tests.py` lines 91-92.
             experiment = str(content.get("experiment_id") or "")
+            driver = str(content.get("driver") or "")
             logger.info(
-                "DCM lookup OK: hostname=%s config=%s experiment=%r",
+                "DCM lookup OK: hostname=%s config=%s experiment=%r driver=%r",
                 hostname,
                 config_id,
                 experiment,
+                driver,
             )
-            return experiment
+            return {"experiment_id": experiment, "driver": driver}
     except Exception:
         # Catch broad on purpose — httpx errors, JSON decode errors, etc.
-        # Caller treats "" as "unknown experiment".
+        # Caller treats empty strings as "unknown experiment/driver".
         logger.exception("DCM experiment lookup failed for hostname=%s", hostname)
-        return ""
+        return dict(empty)
 
 
 def _prewarm_session_cache_from_dcm() -> None:
@@ -565,6 +623,8 @@ def _prewarm_session_cache_from_dcm() -> None:
          `_session_cache[hostname]` with track/carModel/playerName.
       4. Force-refresh `_get_cached_experiment(hostname)` so the experiment
          cache is hot too — same hook the session-message handler uses.
+         That single call populates BOTH the experiment_id and the DCM
+         driver fields of the cache entry; no additional HTTP traffic.
 
     Why DCM and not Kafka with `auto_offset_reset="earliest"`: session-topic
     retention may include long-dead hostnames; DCM stores exactly one
@@ -670,8 +730,12 @@ def _prewarm_session_cache_from_dcm() -> None:
 
 
 def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
-    """Return the cached experiment for a hostname, refreshing on TTL expiry
-    or `force_refresh=True` (used when a new session message arrives).
+    """Return the cached experiment_id for a hostname, refreshing on TTL
+    expiry or `force_refresh=True` (used when a new session message arrives).
+
+    A single DCM call populates BOTH the `experiment` and `driver` fields of
+    the cache entry; callers that need the driver should read it via
+    `_get_cached_driver(hostname)` (no extra HTTP call).
 
     The DCM HTTP call is performed under the same `_state_lock` as the
     session cache. That's coarse — but only the session-message handler
@@ -690,13 +754,34 @@ def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
 
     # Fetch outside the lock — `httpx` can take seconds on a slow DCM and we
     # don't want raw-tick recording to block on it.
-    experiment = _fetch_experiment_from_dcm(hostname)
+    config = _fetch_experiment_from_dcm(hostname)
+    experiment = str(config.get("experiment_id") or "")
+    driver = str(config.get("driver") or "")
     with _state_lock:
         _experiment_cache[hostname] = {
             "experiment": experiment,
+            "driver": driver,
             "fetched_epoch": time.time(),
         }
     return experiment
+
+
+def _get_cached_driver(hostname: str) -> str:
+    """Return the cached DCM driver for a hostname (or `""` on miss).
+
+    Read-only sibling of `_get_cached_experiment` — never triggers a DCM
+    fetch on its own. The expectation is that `_get_cached_experiment(...)`
+    has already populated the entry (it's called force_refresh on every
+    session-message arrival and at consumer startup via the DCM prewarm),
+    so the hot per-tick path can read `driver` here without ever blocking
+    on the network. A genuine miss (no session config yet for this host)
+    returns `""`, signalling the caller to fall back to `playerName`.
+    """
+    with _state_lock:
+        entry = _experiment_cache.get(hostname)
+        if entry is None:
+            return ""
+        return str(entry.get("driver") or "")
 
 
 def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
@@ -735,6 +820,151 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     # is fine: this handler runs on the consumer thread, off the HTTP
     # request path, so the seconds-long lake call doesn't hurt API users.
     _refresh_historicals_from_settings()
+
+
+def _handle_config_event(payload: dict[str, Any]) -> None:
+    """Apply one `ac-telemetry-config` event to the per-hostname caches.
+
+    DCM publishes to this topic whenever a session or experiment config is
+    created, updated, or deleted. Reacting here closes the latency gap
+    between "user edits a test in Test Manager" and "live leaderboard
+    starts crediting laps to the new driver" — previously the cache only
+    refreshed on the next AC session message.
+
+    Validation: the event must carry `metadata.category == "ac-telemetry"`,
+    `metadata.type in {"session", "experiment"}`, and a non-empty
+    `metadata.target_key` (hostname). Anything else is debug-logged and
+    ignored. Errors throughout are caught — a single malformed event must
+    not kill the consumer loop.
+
+    Behaviour by event type:
+      * `"deleted"` → drop the matching cache entry; no HTTP call.
+      * `"created"` / `"updated"` (or any non-delete value) → GET
+        `contentUrl` (already absolute) and update the cache. For
+        `type == "session"` we also force-refresh the experiment cache so
+        experiment + driver stay paired (mirrors `_handle_session_message`).
+
+    Historicals are refreshed only on session-type events — experiment
+    metadata changes don't add laps, so the historicals cache stays
+    valid. Track / carModel / playerName come straight from DCM here, so
+    the source-of-truth fallback (AC's `ac-telemetry-session`) is
+    unaffected — both paths converge on the same `_session_cache` shape.
+    """
+    try:
+        metadata = payload.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            logger.debug("config event has non-dict metadata: %r", payload)
+            return
+        category = metadata.get("category")
+        event_type = metadata.get("type")
+        target_key = str(metadata.get("target_key") or "").strip()
+        event = str(payload.get("event") or "").strip().lower()
+
+        if (
+            category != "ac-telemetry"
+            or event_type not in ("session", "experiment")
+            or not target_key
+        ):
+            logger.debug(
+                "ignoring config event: category=%r type=%r target_key=%r",
+                category,
+                event_type,
+                target_key,
+            )
+            return
+
+        # Deletion path: drop the cache entry and return. No HTTP needed —
+        # the content URL would 404 anyway.
+        if event == "deleted":
+            with _state_lock:
+                if event_type == "session":
+                    _session_cache.pop(target_key, None)
+                else:
+                    _experiment_cache.pop(target_key, None)
+            logger.info(
+                "config event applied: type=%s hostname=%s (deleted)",
+                event_type,
+                target_key,
+            )
+            return
+
+        # Created / updated / any other non-delete event: fetch content
+        # from the URL supplied by DCM. The contentUrl is absolute (e.g.
+        # `http://dynamic-configuration-manager/api/v1/...`) so we can
+        # use it directly without rebuilding from `Settings.config_api_url`.
+        content_url = str(payload.get("contentUrl") or "").strip()
+        if not content_url:
+            logger.debug(
+                "config event has no contentUrl: type=%s hostname=%s event=%s",
+                event_type,
+                target_key,
+                event,
+            )
+            return
+
+        from .settings import get_settings
+
+        settings = get_settings()
+        headers = _dcm_auth_headers(settings.sdk_token)
+        content = _dcm_get_content(content_url, headers)
+        if not content:
+            logger.warning(
+                "config event content unavailable: type=%s hostname=%s url=%s",
+                event_type,
+                target_key,
+                content_url,
+            )
+            return
+
+        if event_type == "session":
+            track = str(content.get("track") or "").strip()
+            car = str(content.get("carModel") or "").strip()
+            player = str(content.get("playerName") or "").strip()
+            if not (track and car):
+                logger.debug(
+                    "config event session content missing track/carModel for %s",
+                    target_key,
+                )
+                return
+            with _state_lock:
+                _session_cache[target_key] = {
+                    "track": track,
+                    "carModel": car,
+                    "playerName": player,
+                }
+            logger.info(
+                "config event applied: type=session hostname=%s track=%s car=%s",
+                target_key,
+                track,
+                car,
+            )
+            # Keep experiment+driver paired with the new session (same hook
+            # `_handle_session_message` runs after a Kafka session message).
+            _get_cached_experiment(target_key, force_refresh=True)
+            # And refresh historicals — a session-config change can mean a
+            # different driver is about to log laps under this hostname.
+            _refresh_historicals_from_settings()
+        else:
+            # experiment-type event: update experiment_cache only. No
+            # historicals refresh — laps haven't changed.
+            experiment = str(content.get("experiment_id") or "")
+            driver = str(content.get("driver") or "")
+            with _state_lock:
+                _experiment_cache[target_key] = {
+                    "experiment": experiment,
+                    "driver": driver,
+                    "fetched_epoch": time.time(),
+                }
+            logger.info(
+                "config event applied: type=experiment hostname=%s "
+                "experiment=%r driver=%r",
+                target_key,
+                experiment,
+                driver,
+            )
+    except Exception:
+        # Broad catch on purpose — handler errors must never break the loop.
+        logger.exception("config event handler failed: %r", payload)
 
 
 def get_historicals_cache() -> dict[tuple[str, str, str, str], tuple[int, int]] | None:
@@ -829,11 +1059,21 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     enriched = dict(payload)
     enriched["track"] = session["track"]
     enriched["carModel"] = session["carModel"]
-    # AC's static struct calls the driver `playerName`; downstream code uses
-    # `driver`. Prefer an explicit `driver` if the raw payload ever grows
-    # one (defensive — current source doesn't set it).
+    # Driver precedence:
+    #   1. an explicit `driver` already on the raw payload (defensive — the
+    #      current source doesn't set one, but leave a hook for it),
+    #   2. the DCM experiment-config `driver` (canonical "who is driving this
+    #      test", same value that drives the lake's `driver` Hive partition),
+    #   3. the AC `playerName` from the session topic — fallback for
+    #      hostnames that don't yet have a Test Manager experiment config
+    #      assigned (e.g. a sim PC running standalone). Keeping this fallback
+    #      means a solo lap still produces a leaderboard row instead of being
+    #      dropped by `_record_message`'s `(track, car, driver)` guard.
     if not enriched.get("driver"):
-        enriched["driver"] = session["playerName"]
+        dcm_driver = (
+            str(experiment_entry.get("driver") or "") if experiment_entry else ""
+        )
+        enriched["driver"] = dcm_driver or session["playerName"]
     if not enriched.get("experiment"):
         enriched["experiment"] = (
             str(experiment_entry["experiment"]) if experiment_entry else ""
@@ -869,6 +1109,7 @@ def _consumer_loop() -> None:
         )
         raw_topic = app.topic(TOPIC, value_deserializer="json")
         session_topic = app.topic(SESSION_TOPIC, value_deserializer="json")
+        config_events_topic = app.topic(CONFIG_EVENTS_TOPIC, value_deserializer="json")
     except Exception:
         logger.exception("Application/topic init failed; live consumer disabled")
         return
@@ -878,6 +1119,7 @@ def _consumer_loop() -> None:
     deserializers = {
         raw_topic.name: raw_topic,
         session_topic.name: session_topic,
+        config_events_topic.name: config_events_topic,
     }
     # Warm-up: pull historicals once at consumer startup so a backend restart
     # while AC is mid-session still has lap data available on the very first
@@ -892,10 +1134,17 @@ def _consumer_loop() -> None:
     # and the loop starts anyway — fresh session messages still work.
     _prewarm_session_cache_from_dcm()
 
-    logger.info("ghost-lap consumer starting (topics=%s, %s)", TOPIC, SESSION_TOPIC)
+    logger.info(
+        "ghost-lap consumer starting (topics=%s, %s, %s)",
+        TOPIC,
+        SESSION_TOPIC,
+        CONFIG_EVENTS_TOPIC,
+    )
     try:
         with app.get_consumer() as consumer:
-            consumer.subscribe([raw_topic.name, session_topic.name])
+            consumer.subscribe(
+                [raw_topic.name, session_topic.name, config_events_topic.name]
+            )
             while not _stop_event.is_set():
                 msg = consumer.poll(timeout=0.5)
                 if msg is None:
@@ -916,9 +1165,23 @@ def _consumer_loop() -> None:
                     continue
                 if not isinstance(payload, dict):
                     continue
-                # Kafka key on both topics is the source's hostname (see
-                # ac-telemetry-source/ac_source.py:139-141 for raw and the
-                # session producer call directly above for sessions).
+                # Config events carry their target hostname inside
+                # `metadata.target_key`, not as the Kafka key, so they
+                # short-circuit the hostname extraction below.
+                if topic_name == config_events_topic.name:
+                    try:
+                        _handle_config_event(payload)
+                    except Exception:
+                        logger.exception(
+                            "handler error for topic=%s payload=%r",
+                            topic_name,
+                            payload,
+                        )
+                    continue
+                # Kafka key on raw and session topics is the source's
+                # hostname (see ac-telemetry-source/ac_source.py:139-141
+                # for raw and the session producer call directly above
+                # for sessions).
                 raw_key = msg.key()
                 hostname = (
                     (raw_key.decode() if isinstance(raw_key, bytes) else str(raw_key))
