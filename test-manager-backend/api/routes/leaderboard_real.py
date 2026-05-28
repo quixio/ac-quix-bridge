@@ -467,15 +467,30 @@ def build_live_positions(
     if not settings.quixlake_url or not settings.quix_lake_token:
         raise LeaderboardError("QuixLake credentials missing")
 
-    try:
-        raw_rows = _query_lake(settings.quixlake_url, settings.quix_lake_token)
-    except Exception as e:
-        # Re-raise as `LeaderboardError` so the route knows it's an
-        # upstream failure. The full traceback is logged here.
-        logger.exception("QuixLake query failed")
-        raise LeaderboardError(str(e)) from e
-
-    best_per_group = _reduce_to_per_driver_best(raw_rows)
+    # Read from the in-process historicals cache instead of hitting the lake
+    # on every poll. The cache is refreshed by `live_telemetry`'s session
+    # handler (once per AC session start) and at consumer warm-up; the per-
+    # request path here is now lake-free in the common case.
+    best_per_group = live_telemetry.get_historicals_cache()
+    if best_per_group is None:
+        # Cold start: no refresh has run yet (consumer thread might be
+        # disabled or hasn't reached its warm-up). Do one synchronous
+        # refresh so the first poll after backend boot still serves data.
+        # `refresh_historicals_cache` swallows its own exceptions, so we
+        # need to re-check afterwards and surface upstream failures as
+        # `LeaderboardError` only when the cache is still empty.
+        try:
+            live_telemetry.refresh_historicals_cache(
+                settings.quixlake_url, settings.quix_lake_token
+            )
+        except Exception as e:  # defensive — refresh should already swallow
+            logger.exception("QuixLake query failed")
+            raise LeaderboardError(str(e)) from e
+        best_per_group = live_telemetry.get_historicals_cache()
+        if best_per_group is None:
+            # Refresh failed (logged inside refresh_historicals_cache) and
+            # we have nothing to serve. Treat as upstream failure.
+            raise LeaderboardError("QuixLake query failed; see backend logs")
     driver_name_lookup = _build_driver_name_lookup(mongo)
 
     try:

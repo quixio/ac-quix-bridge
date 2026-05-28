@@ -129,6 +129,32 @@ _experiment_cache: dict[str, dict[str, Any]] = {}
 _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
 
+# ---------------------------------------------------------------------------
+# Historicals cache (per-driver-best from QuixLake)
+# ---------------------------------------------------------------------------
+#
+# Why this cache exists: `/api/v1/leaderboard/live-positions` is polled ~every
+# 8 s while a user has the leaderboard tab open, but the underlying per-driver
+# best laps in `ac_telemetry` only change when a new fast lap completes. We
+# refresh on the natural "something changed" signal — a new
+# `ac-telemetry-session` message — so the lake hit drops from "every poll"
+# to "once per AC session start".
+#
+# Cache shape is identical to `leaderboard_real._reduce_to_per_driver_best`'s
+# return so the existing assembly code doesn't change shape:
+#   {(track, carModel, experiment, driver): (best_ms, best_lap_number)}
+#
+# A `None` sentinel means "never refreshed yet" — distinct from "refreshed,
+# but the lake had no rows" which is an empty dict. `build_live_positions`
+# triggers a synchronous fallback refresh on `None`.
+#
+# Guarded by a dedicated `_historicals_lock` rather than `_state_lock`
+# because the lake query takes seconds and we must NOT block the raw-tick
+# path. The refresh function builds the new dict outside the lock and only
+# holds the lock long enough to swap the reference.
+_historicals_lock = threading.RLock()
+_historicals_cache: dict[tuple[str, str, str, str], tuple[int, int]] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Simulator (LOCAL_DEV_MODE)
@@ -380,6 +406,71 @@ def get_active_driver() -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
+def _dcm_auth_headers(sdk_token: str | None) -> dict[str, str]:
+    """Build the `Authorization` header used for all DCM HTTP calls.
+
+    Matches the pattern in `api/app.py:_probe_config_api` (and used by every
+    DCM call in this module): `Authorization: Bearer <token>` when a token
+    is configured, empty dict otherwise. Centralised so the prewarm and the
+    experiment lookup stay in lockstep.
+    """
+    return {"Authorization": f"Bearer {sdk_token}"} if sdk_token else {}
+
+
+def _fetch_latest_version_content(
+    client: Any,
+    base: str,
+    config_id: str,
+    headers: dict[str, str],
+) -> dict[str, Any] | None:
+    """Fetch the content of the highest-numbered version of a DCM config.
+
+    Returns the content dict on success, or `None` if either DCM call fails
+    or there are no versions. Errors are logged at WARNING and swallowed —
+    callers are expected to treat `None` as "no data" rather than propagate.
+
+    Used by both the experiment lookup (single hostname on session change)
+    and the session prewarm (all session configs at consumer startup), so
+    the version-pick logic stays in one place. Mirrors
+    `session-config-bridge/main.py:_get_current_test_id` lines 130-158.
+    """
+    v_resp = client.get(f"{base}/configurations/{config_id}/versions", headers=headers)
+    if v_resp.status_code != 200:
+        logger.warning(
+            "DCM versions returned %d for config=%s",
+            v_resp.status_code,
+            config_id,
+        )
+        return None
+    versions = v_resp.json()
+    if isinstance(versions, dict):
+        versions = versions.get("data", versions.get("items", []))
+    if not versions:
+        return None
+    latest = max(
+        versions,
+        key=lambda v: v.get("metadata", v).get("version") or 0,
+    )
+    version = latest.get("metadata", latest).get("version")
+
+    c_resp = client.get(
+        f"{base}/configurations/{config_id}/versions/{version}/content",
+        headers=headers,
+    )
+    if c_resp.status_code != 200:
+        logger.warning(
+            "DCM content fetch returned %d for config=%s v%s",
+            c_resp.status_code,
+            config_id,
+            version,
+        )
+        return None
+    content = c_resp.json() or {}
+    if not isinstance(content, dict):
+        return None
+    return content
+
+
 def _fetch_experiment_from_dcm(hostname: str) -> str:
     """Resolve the active experiment for a hostname via the DCM HTTP API.
 
@@ -403,9 +494,7 @@ def _fetch_experiment_from_dcm(hostname: str) -> str:
 
     settings = get_settings()
     base = f"{settings.config_api_url.rstrip('/')}/api/v1"
-    headers = (
-        {"Authorization": f"Bearer {settings.sdk_token}"} if settings.sdk_token else {}
-    )
+    headers = _dcm_auth_headers(settings.sdk_token)
 
     try:
         with httpx.Client(timeout=DCM_TIMEOUT_S) as client:
@@ -438,47 +527,18 @@ def _fetch_experiment_from_dcm(hostname: str) -> str:
                 return ""
 
             # 2. Pick the latest version and fetch its content.
-            v_resp = client.get(
-                f"{base}/configurations/{config_id}/versions", headers=headers
-            )
-            if v_resp.status_code != 200:
-                logger.warning(
-                    "DCM versions returned %d for config=%s",
-                    v_resp.status_code,
-                    config_id,
-                )
+            content = _fetch_latest_version_content(client, base, config_id, headers)
+            if content is None:
                 return ""
-            versions = v_resp.json()
-            if isinstance(versions, dict):
-                versions = versions.get("data", versions.get("items", []))
-            if not versions:
-                return ""
-            latest = max(
-                versions,
-                key=lambda v: v.get("metadata", v).get("version") or 0,
-            )
-            version = latest.get("metadata", latest).get("version")
-
-            c_resp = client.get(
-                f"{base}/configurations/{config_id}/versions/{version}/content",
-                headers=headers,
-            )
-            if c_resp.status_code != 200:
-                logger.warning(
-                    "DCM content fetch returned %d for v%s", c_resp.status_code, version
-                )
-                return ""
-            content = c_resp.json() or {}
 
             # Content key is `experiment_id` (see test-manager-backend
             # `tests.py:91`). That string is the same value the lake uses as
             # the `experiment` Hive partition.
             experiment = str(content.get("experiment_id") or "")
             logger.info(
-                "DCM lookup OK: hostname=%s config=%s v%s experiment=%r",
+                "DCM lookup OK: hostname=%s config=%s experiment=%r",
                 hostname,
                 config_id,
-                version,
                 experiment,
             )
             return experiment
@@ -487,6 +547,126 @@ def _fetch_experiment_from_dcm(hostname: str) -> str:
         # Caller treats "" as "unknown experiment".
         logger.exception("DCM experiment lookup failed for hostname=%s", hostname)
         return ""
+
+
+def _prewarm_session_cache_from_dcm() -> None:
+    """Pre-populate `_session_cache` (and `_experiment_cache`) from DCM at
+    consumer startup so a backend restart mid-AC-session immediately has the
+    enrichment data it would otherwise only learn on the next session
+    message.
+
+    Steps (best-effort — any failure logs once and returns without
+    blocking the consumer loop):
+
+      1. List configurations from DCM.
+      2. Filter to `metadata.type == "session"` AND
+         `metadata.category == "ac-telemetry"`.
+      3. For each match, pull the latest version's content and seed
+         `_session_cache[hostname]` with track/carModel/playerName.
+      4. Force-refresh `_get_cached_experiment(hostname)` so the experiment
+         cache is hot too — same hook the session-message handler uses.
+
+    Why DCM and not Kafka with `auto_offset_reset="earliest"`: session-topic
+    retention may include long-dead hostnames; DCM stores exactly one
+    "current session" per hostname, which is what we want.
+
+    Final step: a one-shot `_refresh_historicals_from_settings()` so the
+    cached per-driver-bests reflect the drivers we just learned about. The
+    extra lake hit (on top of the consumer's existing startup warm-up) is
+    bounded — one extra call per backend boot, cache swap is atomic.
+    """
+    try:
+        import httpx
+
+        from .settings import get_settings
+
+        settings = get_settings()
+        config_api_url = settings.config_api_url
+        if not config_api_url:
+            logger.debug("skipping DCM session pre-warm: config_api_url not configured")
+            return
+
+        base = f"{config_api_url.rstrip('/')}/api/v1"
+        headers = _dcm_auth_headers(settings.sdk_token)
+
+        with httpx.Client(timeout=DCM_TIMEOUT_S) as client:
+            resp = client.get(f"{base}/configurations", headers=headers)
+            if resp.status_code != 200:
+                logger.warning(
+                    "DCM list returned %d during session pre-warm", resp.status_code
+                )
+                return
+            data = resp.json()
+            configs = (
+                data
+                if isinstance(data, list)
+                else data.get("data", data.get("items", []))
+            )
+
+            session_configs = [
+                cfg
+                for cfg in configs
+                if (
+                    (cfg.get("metadata") or {}).get("type") == "session"
+                    and (cfg.get("metadata") or {}).get("category") == "ac-telemetry"
+                )
+            ]
+            if not session_configs:
+                logger.debug("no DCM session configs to prewarm")
+                return
+
+            prewarmed_hostnames: list[str] = []
+            for cfg in session_configs:
+                meta = cfg.get("metadata") or {}
+                hostname = str(meta.get("target_key") or "").strip()
+                config_id = cfg.get("id") or cfg.get("_id")
+                if not hostname or not config_id:
+                    continue
+
+                content = _fetch_latest_version_content(
+                    client, base, config_id, headers
+                )
+                if not content:
+                    continue
+
+                track = str(content.get("track") or "").strip()
+                car = str(content.get("carModel") or "").strip()
+                player = str(content.get("playerName") or "").strip()
+                if not (track and car):
+                    logger.debug(
+                        "skipping DCM session prewarm for hostname=%s: "
+                        "missing track/carModel in content",
+                        hostname,
+                    )
+                    continue
+
+                with _state_lock:
+                    _session_cache[hostname] = {
+                        "track": track,
+                        "carModel": car,
+                        "playerName": player,
+                    }
+                logger.info(
+                    "session cache prewarmed from DCM: hostname=%s track=%s car=%s",
+                    hostname,
+                    track,
+                    car,
+                )
+                prewarmed_hostnames.append(hostname)
+
+        # Warm the experiment cache for each hostname we seeded. Outside the
+        # httpx context so each lookup opens its own short-lived client —
+        # consistent with `_get_cached_experiment`'s existing behaviour.
+        for hostname in prewarmed_hostnames:
+            _get_cached_experiment(hostname, force_refresh=True)
+
+        # Refresh historicals once more so per-driver-bests reflect the
+        # drivers we just discovered. Spec §5: cheap, atomic, one extra
+        # lake hit at boot.
+        if prewarmed_hostnames:
+            _refresh_historicals_from_settings()
+    except Exception:
+        logger.exception("DCM session pre-warm failed; continuing without it")
 
 
 def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
@@ -549,6 +729,85 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     # boundaries are the natural invalidation point — between sessions the
     # operator may have switched the active experiment via Test Manager.
     _get_cached_experiment(hostname, force_refresh=True)
+    # Same trigger for the historicals cache — a new AC session means a
+    # driver is about to set new lap times, so we want fresh per-driver
+    # bests in cache before the next `/live-positions` poll. Synchronous
+    # is fine: this handler runs on the consumer thread, off the HTTP
+    # request path, so the seconds-long lake call doesn't hurt API users.
+    _refresh_historicals_from_settings()
+
+
+def get_historicals_cache() -> dict[tuple[str, str, str, str], tuple[int, int]] | None:
+    """Return the current cached per-driver-best dict, or `None` if no
+    refresh has run yet.
+
+    Callers must treat the returned dict as read-only — we hand back the
+    live reference (cheap) rather than a deep copy. The cache is only
+    swapped atomically via `refresh_historicals_cache`, so a caller iterating
+    the dict will see a consistent snapshot for the duration of that
+    iteration even if a refresh races (the swap replaces the binding, not
+    the dict contents in place).
+    """
+    with _historicals_lock:
+        return _historicals_cache
+
+
+def refresh_historicals_cache(
+    quixlake_url: str,
+    quix_lake_token: str,
+) -> None:
+    """Pull the per-driver-best reduction from QuixLake and atomically
+    swap it into `_historicals_cache`.
+
+    The lake query and Python reduction run OUTSIDE the lock — the query
+    takes seconds and blocking other readers would defeat the purpose of
+    the cache. Only the final reference swap is guarded.
+
+    Lazy-imports `_query_lake` / `_reduce_to_per_driver_best` from
+    `routes.leaderboard_real` to keep import order one-way:
+    `leaderboard_real` already imports `live_telemetry`, so importing it
+    at module load here would cycle. The lazy import is paid once per
+    refresh (rare event).
+
+    All exceptions are caught and logged. If the refresh fails the
+    previous cache value (possibly `None` on first run) stays valid, so
+    the endpoint degrades to "missing data" rather than crashing.
+    """
+    try:
+        from .routes.leaderboard_real import _query_lake, _reduce_to_per_driver_best
+
+        raw_rows = _query_lake(quixlake_url, quix_lake_token)
+        reduced = _reduce_to_per_driver_best(raw_rows)
+    except Exception:
+        logger.exception("historicals cache refresh failed; keeping previous cache")
+        return
+
+    with _historicals_lock:
+        global _historicals_cache
+        _historicals_cache = reduced
+    logger.info(
+        "historicals cache refreshed: %d (track,car,exp,driver) groups",
+        len(reduced),
+    )
+
+
+def _refresh_historicals_from_settings() -> None:
+    """Internal: pull lake creds from `Settings` and refresh the cache.
+
+    Used by the session-message handler and the consumer-startup warm-up
+    so callers don't have to plumb settings through. Silently no-ops when
+    credentials are missing — in that mode the route layer raises
+    `LeaderboardError` anyway, so populating the cache is moot.
+    """
+    from .settings import get_settings
+
+    settings = get_settings()
+    if not settings.quixlake_url or not settings.quix_lake_token:
+        logger.debug(
+            "skipping historicals cache refresh: QuixLake credentials not configured"
+        )
+        return
+    refresh_historicals_cache(settings.quixlake_url, settings.quix_lake_token)
 
 
 def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
@@ -614,13 +873,26 @@ def _consumer_loop() -> None:
         logger.exception("Application/topic init failed; live consumer disabled")
         return
 
-    logger.info("ghost-lap consumer starting (topics=%s, %s)", TOPIC, SESSION_TOPIC)
     # Map topic name → deserializer so the dispatcher below can pick the
     # right one without an isinstance check on the message object.
     deserializers = {
         raw_topic.name: raw_topic,
         session_topic.name: session_topic,
     }
+    # Warm-up: pull historicals once at consumer startup so a backend restart
+    # while AC is mid-session still has lap data available on the very first
+    # `/live-positions` poll, without waiting for the next session message.
+    # Failures are swallowed inside `refresh_historicals_cache`; if the lake
+    # is unreachable the route layer's cache-miss fallback will retry on the
+    # next request.
+    _refresh_historicals_from_settings()
+    # Pre-warm the session + experiment caches from DCM so a backend restart
+    # mid-AC-session can enrich raw ticks immediately, without waiting for
+    # the user to start a new session. Best-effort: any failure is logged
+    # and the loop starts anyway — fresh session messages still work.
+    _prewarm_session_cache_from_dcm()
+
+    logger.info("ghost-lap consumer starting (topics=%s, %s)", TOPIC, SESSION_TOPIC)
     try:
         with app.get_consumer() as consumer:
             consumer.subscribe([raw_topic.name, session_topic.name])
