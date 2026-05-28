@@ -238,11 +238,6 @@ deployments:
       - name: LIVE_TELEMETRY_ENABLED
         inputType: FreeText
         value: true
-      - name: Quix__Sdk__Token
-        inputType: ProjectVariable
-        required: true
-        secret: true
-        variableKey: quix_lake_pat
       - name: Quix__Portal__Api
         inputType: FreeText
         value: https://portal-api.dev.quix.io
