@@ -1,14 +1,35 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import { Card } from "@/components/ui/card";
 import type { Analysis } from "@/types/analysis";
 
 function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "—";
-  if (ms < 1000) return `${ms}ms`;
-  return `${Math.round(ms / 1000)}s`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
+function formatSessionDate(sessionId: string): string {
+  const d = new Date(sessionId);
+  if (Number.isNaN(d.getTime())) return sessionId.slice(0, 16);
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function subtitleExtras(extra: Record<string, unknown>): string {
+  const parts = [extra.driver, extra.track, extra.car_model].filter(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+  return parts.join(" · ");
 }
 
 function MetVerdict({ met }: { met: boolean | null | undefined }) {
@@ -40,8 +61,17 @@ const SEVERITY_STYLES: Record<string, string> = {
 export function AnalysisCard({ analysis }: { analysis: Analysis }) {
   return (
     <Card className="p-6 space-y-6">
-      <header className="text-sm text-muted-foreground">
-        {analysis.id} · {analysis.session_id.slice(0, 16)}
+      <header className="space-y-0.5">
+        <h2 className="text-lg font-semibold">Post-Race Summary</h2>
+        <p className="text-sm text-muted-foreground">
+          {[
+            analysis.test_id,
+            formatSessionDate(analysis.session_id),
+            subtitleExtras(analysis.extra),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
       </header>
 
       {/* KPI grid */}
@@ -111,8 +141,11 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
 
       {/* Markdown narrative */}
       {analysis.summary_md && (
-        <section className="prose prose-sm max-w-none">
-          <ReactMarkdown rehypePlugins={[rehypeSanitize]}>
+        <section className="prose prose-sm max-w-none dark:prose-invert">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeSanitize]}
+          >
             {analysis.summary_md}
           </ReactMarkdown>
         </section>
@@ -121,17 +154,8 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       {/* Footer */}
       <footer className="text-xs text-muted-foreground border-t pt-3 flex flex-wrap gap-3">
         {analysis.model && <span>{analysis.model}</span>}
-        {analysis.tokens_in !== null &&
-          analysis.tokens_in !== undefined &&
-          analysis.tokens_out !== null &&
-          analysis.tokens_out !== undefined && (
-            <span>
-              {analysis.tokens_in}→{analysis.tokens_out} tok
-            </span>
-          )}
-        <span>{formatDuration(analysis.duration_ms)}</span>
-        {analysis.quix_session_id && (
-          <span>session {analysis.quix_session_id}</span>
+        {analysis.duration_ms != null && (
+          <span>Generated in {formatDuration(analysis.duration_ms)}</span>
         )}
       </footer>
     </Card>

@@ -37,7 +37,7 @@ export function TestSessionPicker({
   onChange,
 }: Props) {
   const sessions = useMemo(
-    () => (selectedTestId ? (sessionsByTest[selectedTestId] ?? []) : []),
+    () => (selectedTestId ? sessionsByTest[selectedTestId] ?? [] : []),
     [selectedTestId, sessionsByTest],
   );
 

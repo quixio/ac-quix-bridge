@@ -4,12 +4,38 @@ import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useTestsApi, useAnalysesApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TestSessionPicker } from "./components/test-session-picker";
 import { AnalysisCard } from "./components/analysis-card";
 import { AnalyzeButton } from "./components/analyze-button";
 import { useAnalysisPolling } from "./hooks/use-analysis-polling";
 import type { Analysis } from "@/types/analysis";
 import type { SessionInfo } from "@/types/test";
+
+function formatHistoryLabel(a: Analysis, isLatest: boolean): string {
+  const d = new Date(a.created_at);
+  const ts = Number.isNaN(d.getTime())
+    ? a.created_at
+    : d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+  const statusTag =
+    a.status === "complete"
+      ? ""
+      : a.status === "failed"
+        ? " · failed"
+        : ` · ${a.status}`;
+  return `${ts}${statusTag}${isLatest ? " · latest" : ""}`;
+}
 
 interface TestRow {
   test_id: string;
@@ -29,6 +55,9 @@ export function AiSummaryTab() {
   >({});
   const [history, setHistory] = useState<Analysis[]>([]);
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
+  const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(
+    null,
+  );
 
   const selectedTestId = params.get("test_id");
   const selectedSessionId = params.get("session_id");
@@ -102,6 +131,7 @@ export function AiSummaryTab() {
   useEffect(() => {
     if (!selectedTestId || !selectedSessionId) {
       setHistory([]);
+      setSelectedAnalysisId(null);
       return;
     }
     analysesApi
@@ -116,9 +146,19 @@ export function AiSummaryTab() {
       );
   }, [selectedTestId, selectedSessionId, analysesApi, polledTerminal, toast]);
 
-  // Display: latest from history OR the actively-polling one
+  // Reset history selection when the (test, session) pair changes so we default
+  // back to "latest" rather than carrying a stale id over.
+  useEffect(() => {
+    setSelectedAnalysisId(null);
+  }, [selectedTestId, selectedSessionId]);
+
+  // Display priority: actively-polling run > user-picked from history > newest
+  const pickedFromHistory =
+    selectedAnalysisId != null
+      ? history.find((h) => h.id === selectedAnalysisId)
+      : undefined;
   const displayed: Analysis | null =
-    polled ?? (history.length > 0 ? history[0] : null);
+    polled ?? pickedFromHistory ?? (history.length > 0 ? history[0] : null);
   // True from POST submission until polling reports a terminal status — covers
   // the brief window after create() resolves but before the first poll returns.
   const isAnalyzing =
@@ -160,6 +200,29 @@ export function AiSummaryTab() {
           onClick={onAnalyze}
         />
       </div>
+
+      {history.length > 1 && !polled && (
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground">History</label>
+          <Select
+            value={selectedAnalysisId ?? history[0].id}
+            onValueChange={(v) =>
+              setSelectedAnalysisId(v === history[0].id ? null : v)
+            }
+          >
+            <SelectTrigger className="w-[280px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {history.map((a, idx) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {formatHistoryLabel(a, idx === 0)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {displayed ? (
         <AnalysisCard analysis={displayed} />
