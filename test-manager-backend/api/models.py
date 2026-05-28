@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 from enum import Enum
 from math import ceil
 
@@ -466,11 +466,13 @@ class LiveDriverState(BaseModel):
     lookup. `best_lap_ms_session` is AC's `iBestTime` (best completed lap
     so far this session); may be `None` before the first lap completes.
 
-    `segment_times_ms` records the live driver's `current_lap_time_ms` at
-    the moment they crossed each of the 10 evenly-spaced segment boundaries
-    on the current lap. Index `i` holds the time at pos `(i+1)/10`. Entries
-    are `None` until that boundary has been crossed in this lap; the whole
-    list resets to `[None]*10` when `completedLaps` advances.
+    `gate_times_ms` records the live driver's `current_lap_time_ms` at the
+    moment they crossed each of the 20 evenly-spaced checkpoint gates on
+    the current lap. Index `i` holds the time at `normalizedCarPosition =
+    (i+1)/20` (i.e. `[0]` = 5% gate, `[19]` = 100% / lap-line gate; the 0%
+    gate is implicit and always 0 ms). Entries are `None` until that gate
+    has been crossed in this lap; the whole list resets to `[None]*20`
+    when `completedLaps` advances or `iCurrentTime` resets.
     """
 
     driver: str
@@ -481,7 +483,7 @@ class LiveDriverState(BaseModel):
     current_lap_time_ms: int
     normalized_position: float
     best_lap_ms_session: int | None = None
-    segment_times_ms: list[int | None] = Field(default_factory=lambda: [None] * 10)
+    gate_times_ms: list[int | None] = Field(default_factory=lambda: [None] * 20)
     last_normalized_position: float = 0.0
 
 
@@ -544,6 +546,8 @@ class LivePositionEntry(BaseModel):
     * `current_lap` — only populated for the active row.
     * `rank` — 1..5 within the group, computed server-side from
       cumulative-at-sector-boundary times.
+    * `last_gate_index` / `last_gate_state` / `last_gate_delta_ms` — only
+      populated on the active row. See per-field comments below.
     """
 
     track: str
@@ -556,3 +560,17 @@ class LivePositionEntry(BaseModel):
     current_lap: int | None = None
     current_lap_time_ms: int
     rank: int
+    # Gate-state fields (active row only — historicals leave them `None`).
+    # `last_gate_index` ∈ 0..19, set when the active driver crosses the
+    # corresponding 5% / 10% / ... / 100% checkpoint. `last_gate_state`
+    # compares the active driver's cumulative-at-gate-i time against every
+    # cached historical's gate_vector[i]: "ahead" iff strictly faster than
+    # every historical at that gate, "behind" iff strictly slower than every
+    # one, "neutral" otherwise (mixed, ties, or empty cache).
+    # `last_gate_delta_ms` = active.gate_times_ms[i*] - min(historicals'
+    # gate_vector[i*]) — positive means the active is behind the leader at
+    # the gate; negative means ahead. All three reset to None on lap rollover
+    # and stay sticky between polls until the next gate crossing.
+    last_gate_index: int | None = None
+    last_gate_state: Literal["ahead", "behind", "neutral"] | None = None
+    last_gate_delta_ms: int | None = None

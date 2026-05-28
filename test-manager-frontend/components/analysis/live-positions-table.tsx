@@ -30,15 +30,22 @@ import type { LivePositionEntry } from "@/types/leaderboard"
  * sector boundaries. The Best Lap cell renders `m:ss.SSS (L{N})` with the
  * lap suffix dimmed via `text-muted-foreground`.
  *
- * "At Position" coloring is driven by **rank vs. the active driver**:
- *   row.rank < active.rank → ranked better → emerald
- *   row.rank > active.rank → ranked worse  → rose
- *   active row             → neutral
+ * "At Position" coloring:
+ *   * Non-active rows: rank-vs-active, same as before
+ *     (row.rank < active.rank → emerald; > → rose).
+ *   * Active row: driven by the server-computed `last_gate_state` —
+ *     "ahead" → emerald, "behind" → rose, "neutral" / null → default
+ *     text. The state is set by the backend when the active driver
+ *     crosses each of the 20 checkpoint gates and stays sticky until
+ *     the next crossing.
  *
  * The active row's At Position cell ticks at jittered intervals between
  * polls so the running clock advances visually instead of jumping every
  * poll. Server payload provides the anchor `current_lap_time_ms`;
- * locally we add `performance.now() - localT0` to that anchor.
+ * locally we add `performance.now() - localT0` to that anchor. There is
+ * no longer a "freeze for 3 s after a poll" window — the running clock
+ * advances continuously.
+ *
  * Historical rows show their ghost-interpolated `current_lap_time_ms`
  * at the active driver's current map position — a true live comparison.
  *
@@ -50,9 +57,6 @@ import type { LivePositionEntry } from "@/types/leaderboard"
 // to read as organic rather than a metronome. Picked roughly around 150 ms.
 const TICK_MIN_MS = 100
 const TICK_MAX_MS = 180
-// On every fresh poll, freeze the running clock for this many ms so the
-// user can eyeball-compare the synchronized white At-Position values.
-const FREEZE_AFTER_POLL_MS = 3000
 
 export interface LivePositionsTableProps {
   rows: LivePositionEntry[]
@@ -133,15 +137,13 @@ export function LivePositionsTable({
   const nowMs =
     typeof performance !== "undefined" ? performance.now() : Date.now()
   const timeSinceAnchor = nowMs - anchorRef.current.localT0
-  // Hold the synchronized server value for FREEZE_AFTER_POLL_MS so the
-  // user can read across all rows at the moment of a sector re-rank.
-  // After the freeze window, resume extrapolation.
-  const isFrozen = timeSinceAnchor < FREEZE_AFTER_POLL_MS
-  const extrapolateBy = isFrozen ? 0 : timeSinceAnchor
+  // Continuous client-side extrapolation: the running clock always
+  // advances. The 3 s post-poll freeze was removed — the "ahead/behind"
+  // colour cue now comes from the server's gate-state on every poll.
   const activeDisplayMs = active
     ? Math.max(
         0,
-        Math.round(anchorRef.current.serverElapsedMs + extrapolateBy),
+        Math.round(anchorRef.current.serverElapsedMs + timeSinceAnchor),
       )
     : null
 
@@ -150,7 +152,7 @@ export function LivePositionsTable({
       <div className="mb-2">
         <h3 className="text-base font-semibold">Live Sector Comparison</h3>
         <p className="text-xs text-muted-foreground">
-          Re-ranks at sector boundaries
+          Re-ranks at checkpoint gates
         </p>
       </div>
       <Table className="table-fixed">
@@ -183,7 +185,6 @@ export function LivePositionsTable({
                 row={row}
                 activeRank={activeRank}
                 activeDisplayMs={activeDisplayMs}
-                isFrozen={isFrozen}
                 aboveAtPosMs={aboveAtPos}
                 belowAtPosMs={belowAtPos}
               />
@@ -213,14 +214,12 @@ function LeaderRow({
   row,
   activeRank,
   activeDisplayMs,
-  isFrozen,
   aboveAtPosMs,
   belowAtPosMs,
 }: {
   row: LivePositionEntry
   activeRank: number | null
   activeDisplayMs: number | null
-  isFrozen: boolean
   aboveAtPosMs: number | null
   belowAtPosMs: number | null
 }) {
@@ -229,16 +228,20 @@ function LeaderRow({
   const atPosMs = atPosForRow(row, activeDisplayMs)
   const atPosLabel = formatLapTime(atPosMs)
 
-  // Color cue by rank-vs-active for historicals. Active row stays neutral —
-  // except during the post-poll freeze window, when its number turns blue
-  // to flag "synced snapshot, compare now". Returns to white when ticking
-  // resumes.
+  // Colour cue:
+  //   * Non-active rows → rank-vs-active (unchanged).
+  //   * Active row → server-computed `last_gate_state`: "ahead" → emerald,
+  //     "behind" → rose, anything else → default. The state is sticky on
+  //     the server between gate crossings.
   let atPosClass = ""
   if (!row.is_active && activeRank != null) {
     if (row.rank < activeRank) atPosClass = "font-semibold text-emerald-400"
     else if (row.rank > activeRank) atPosClass = "font-semibold text-rose-400"
-  } else if (row.is_active && isFrozen) {
-    atPosClass = "text-blue-400"
+  } else if (row.is_active) {
+    if (row.last_gate_state === "ahead")
+      atPosClass = "font-semibold text-emerald-400"
+    else if (row.last_gate_state === "behind")
+      atPosClass = "font-semibold text-rose-400"
   }
 
   // Gap math uses the row's server-side `current_lap_time_ms` (not the

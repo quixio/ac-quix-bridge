@@ -8,8 +8,8 @@ for `pydantic`-validation by the route.
 Why this shape:
 
 * The product question is "where do I sit in a group of historical
-  drivers as I progress through the lap?". The display is a 5-row table
-  per (track, car, experiment) group, and the active driver's rank
+  drivers as I progress through the lap?". The display is a paginated
+  table per (track, car, experiment) group; the active driver's rank
   *shifts at sector boundaries* based on his cumulative-at-sector time
   versus the historical drivers' cumulative-at-sector times.
 
@@ -23,12 +23,22 @@ Why this shape:
   and the rest are synthetic "Driver-NNN" entries. Server-computed
   rank avoids any client-side sorting drift.
 
+Dual model (spec §8.5): the sim keeps the 3-sector rank function for
+ranking purposes (cheap, stable, no behaviour change for the rank
+column) but additionally tracks the active driver's 20-checkpoint-gate
+crossings to drive the new `last_gate_state` colour. The two models
+serve different purposes — sector rank determines vertical order;
+gate state drives the "At Position" colour cue.
+
 Public API: `make_local_dev_live_positions()`.
 """
 
 from __future__ import annotations
 
 import time
+from typing import Any
+
+from ..live_telemetry import GATE_COUNT, _HistoricalEntry, _update_gate_times
 
 # ---------------------------------------------------------------------------
 # Static matrix
@@ -90,6 +100,208 @@ SPLITS: dict[str, tuple[float, float, float]] = {
 }
 
 SECTOR_COUNT: int = 3
+
+
+# ---------------------------------------------------------------------------
+# Deterministic per-historical gate-vector generator (spec §5.7)
+# ---------------------------------------------------------------------------
+#
+# Real mode caches `_HistoricalEntry` objects queried from the lake. The sim
+# can't call the lake, so it synthesises equivalent entries from a small
+# set of perturbation profiles. Each profile distorts the equal-split
+# baseline `gate_vector[i] = best_ms * (i+1)/20` so the active driver's
+# colour visibly cycles through "ahead" → "neutral" → "behind" → "neutral"
+# as he crosses successive gates.
+#
+# The cache shape matches the real-mode `_gate_vectors_cache`:
+#   {(track, car, experiment): {driver_folded: _HistoricalEntry}}
+# Driver names are folded the same way (`_fold_driver_name`) for parity.
+
+# Four perturbation profiles, each a list of per-gate offsets as a
+# fraction of `best_ms`. Sum across the 20 entries is zero so the lap
+# total isn't perturbed. The profiles are intentionally diverse: profile
+# 0 is fast early then slow late, profile 1 the inverse, etc. Indexing
+# is `_GATE_PERTURBATIONS[profile][gate_idx]`. The values are scaled so a
+# 90-second lap shifts a gate by ~±400-800 ms — visibly different from
+# the active driver's elapsed but not so extreme that the rank order
+# becomes pathological.
+_GATE_PERTURBATIONS: list[list[float]] = [
+    # Profile 0: fast first half, slow second half.
+    [
+        -0.006,
+        -0.005,
+        -0.004,
+        -0.003,
+        -0.002,
+        -0.001,
+        0.0,
+        0.001,
+        0.002,
+        0.003,
+        0.004,
+        0.005,
+        0.004,
+        0.003,
+        0.002,
+        0.001,
+        0.0,
+        -0.001,
+        -0.002,
+        0.0,
+    ],
+    # Profile 1: slow first half, fast second half.
+    [
+        0.006,
+        0.005,
+        0.004,
+        0.003,
+        0.002,
+        0.001,
+        0.0,
+        -0.001,
+        -0.002,
+        -0.003,
+        -0.004,
+        -0.005,
+        -0.004,
+        -0.003,
+        -0.002,
+        -0.001,
+        0.0,
+        0.001,
+        0.002,
+        0.0,
+    ],
+    # Profile 2: mid-lap dip (fast in sectors 1–3, slow at the edges).
+    [
+        0.004,
+        0.003,
+        0.001,
+        -0.001,
+        -0.003,
+        -0.005,
+        -0.004,
+        -0.002,
+        0.0,
+        0.002,
+        0.003,
+        0.001,
+        -0.001,
+        -0.003,
+        -0.002,
+        0.0,
+        0.002,
+        0.004,
+        0.003,
+        0.0,
+    ],
+    # Profile 3: opposite of profile 2.
+    [
+        -0.004,
+        -0.003,
+        -0.001,
+        0.001,
+        0.003,
+        0.005,
+        0.004,
+        0.002,
+        0.0,
+        -0.002,
+        -0.003,
+        -0.001,
+        0.001,
+        0.003,
+        0.002,
+        0.0,
+        -0.002,
+        -0.004,
+        -0.003,
+        0.0,
+    ],
+]
+
+
+def _sim_gate_vector(driver_idx: int, best_lap_ms: int) -> list[int]:
+    """Build a deterministic monotone gate vector for one historical.
+
+    `driver_idx` picks a profile (mod 4) and a per-driver phase shift so
+    consecutive drivers don't all show the same colour pattern. The
+    result is monotonically non-decreasing because the perturbations
+    only add a small fraction of `best_lap_ms` to each cumulative slot
+    and we enforce monotonicity at the end.
+    """
+    profile = _GATE_PERTURBATIONS[driver_idx % len(_GATE_PERTURBATIONS)]
+    phase = driver_idx % GATE_COUNT
+    vector: list[int] = []
+    for i in range(GATE_COUNT):
+        baseline = best_lap_ms * (i + 1) / GATE_COUNT
+        # Rotate the perturbation by phase so two drivers on the same
+        # profile aren't identical.
+        offset = profile[(i + phase) % GATE_COUNT] * best_lap_ms
+        vector.append(int(baseline + offset))
+    # Force monotonic non-decreasing.
+    for i in range(1, GATE_COUNT):
+        if vector[i] < vector[i - 1]:
+            vector[i] = vector[i - 1]
+    # Force gate_vector[-1] == best_lap_ms so the lap total stays exact.
+    vector[GATE_COUNT - 1] = int(best_lap_ms)
+    return vector
+
+
+def _fold_driver_name_sim(name: str) -> str:
+    """NFKD + ASCII-lowercase fold, mirroring `leaderboard_real._fold_driver_name`.
+
+    Re-implemented locally so the sim module doesn't depend on
+    `leaderboard_real` (which would cycle via `live_telemetry`).
+    """
+    import unicodedata
+
+    if not name:
+        return ""
+    folded = (
+        unicodedata.normalize("NFKD", name)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    return folded or name.lower()
+
+
+def _build_sim_gate_vectors_cache() -> dict[
+    tuple[str, str, str], dict[str, _HistoricalEntry]
+]:
+    """Synthesise the full simulator gate-vectors cache up front.
+
+    Generated once at module import time. The active driver "Ludvík" is
+    *not* included — his entry is recomputed on every lap from his live
+    elapsed (he's the running clock, not a historical).
+    """
+    cache: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
+    for track in TRACKS:
+        for car in CARS:
+            for experiment in EXPERIMENTS:
+                key = (track, car, experiment)
+                group: dict[str, _HistoricalEntry] = {}
+                for idx, driver in enumerate(DRIVERS):
+                    if driver == ACTIVE_DRIVER:
+                        continue
+                    best = _base_lap_ms(track, car, experiment, driver)
+                    group[_fold_driver_name_sim(driver)] = _HistoricalEntry(
+                        best_lap_ms=best,
+                        best_lap_number=_HISTORICAL_BEST_LAP_NUMBERS_PLACEHOLDER.get(
+                            driver, 1
+                        ),
+                        gate_vector=_sim_gate_vector(idx, best),
+                    )
+                cache[key] = group
+    return cache
+
+
+# `_HISTORICAL_BEST_LAP_NUMBERS` is defined further down (after
+# `_LUDVIK_STATE`). To avoid a forward-reference we keep a placeholder
+# the cache builder reads at runtime — it's wired up after that constant
+# is defined below.
+_HISTORICAL_BEST_LAP_NUMBERS_PLACEHOLDER: dict[str, int] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +374,13 @@ def _ludvik_lap_target_ms(
 #   "best_lap_ms": int | None,
 #   "best_lap_number": int | None,
 #   "current_lap_ms": int,
+#   "gate_times_ms": list[int|None] (length GATE_COUNT),
+#   "last_norm_pos": float,
+#   "last_gate_index": int | None,
+#   "last_gate_state": str | None,
+#   "last_gate_delta_ms": int | None,
 # }
-_LUDVIK_STATE: dict[tuple[str, str, str], dict[str, int | float | None]] = {}
+_LUDVIK_STATE: dict[tuple[str, str, str], dict[str, Any]] = {}
 
 # Deterministic "lap on which each historical's best was set" — purely cosmetic
 # annotation shown next to the best-lap time in the UI. Generated for every
@@ -172,11 +389,30 @@ _LUDVIK_STATE: dict[tuple[str, str, str], dict[str, int | float | None]] = {}
 _HISTORICAL_BEST_LAP_NUMBERS: dict[str, int] = {
     d: ((i * 3) % 17) + 1 for i, d in enumerate(DRIVERS) if d != ACTIVE_DRIVER
 }
+# Wire the constant into the forward-declared placeholder used by
+# `_build_sim_gate_vectors_cache` (defined further up; the cache itself
+# is materialised on first call to `_sim_gate_vectors_cache()`).
+_HISTORICAL_BEST_LAP_NUMBERS_PLACEHOLDER.update(_HISTORICAL_BEST_LAP_NUMBERS)
 
 
-def _get_or_init_state(
-    key: tuple[str, str, str], now: float
-) -> dict[str, int | float | None]:
+# Lazy-built so module import doesn't pay the construction cost when the
+# server runs in real mode. Cleared/never used outside LOCAL_DEV_MODE.
+_SIM_GATE_VECTORS_CACHE: (
+    dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None
+) = None
+
+
+def _sim_gate_vectors_cache() -> dict[
+    tuple[str, str, str], dict[str, _HistoricalEntry]
+]:
+    """Return the (lazy-built) simulator gate-vectors cache."""
+    global _SIM_GATE_VECTORS_CACHE
+    if _SIM_GATE_VECTORS_CACHE is None:
+        _SIM_GATE_VECTORS_CACHE = _build_sim_gate_vectors_cache()
+    return _SIM_GATE_VECTORS_CACHE
+
+
+def _get_or_init_state(key: tuple[str, str, str], now: float) -> dict[str, Any]:
     """Seed a brand-new (track, car, experiment) group on first request.
 
     `current_lap = 1`, no best yet, lap target computed from the formula.
@@ -194,20 +430,27 @@ def _get_or_init_state(
             "best_lap_ms": None,
             "best_lap_number": None,
             "current_lap_ms": first_target,
+            "gate_times_ms": [None] * GATE_COUNT,
+            "last_norm_pos": 0.0,
+            "last_gate_index": None,
+            "last_gate_state": None,
+            "last_gate_delta_ms": None,
         }
         _LUDVIK_STATE[key] = state
     return state
 
 
-def _advance_state(
-    key: tuple[str, str, str], now: float
-) -> tuple[dict[str, int | float | None], int]:
+def _advance_state(key: tuple[str, str, str], now: float) -> tuple[dict[str, Any], int]:
     """Roll laps forward until `elapsed < current_lap_ms`. Returns the
     state and the integer elapsed-in-current-lap in milliseconds.
 
     Drift correction: we advance `lap_start_epoch` by the lap's target
     duration (not to `now`), so the leftover from one lap carries into
     the next — matches real-world timing.
+
+    On lap rollover this resets `gate_times_ms` to `[None]*GATE_COUNT`
+    AND clears the sticky `last_gate_*` fields, mirroring the real-mode
+    rollover branch in `live_telemetry._record_message` (spec §8.7).
     """
     track, car, experiment = key
     state = _get_or_init_state(key, now)
@@ -229,8 +472,17 @@ def _advance_state(
         state["lap_start_epoch"] = lap_start + current_lap_ms / 1000.0
         state["current_lap"] = completed_lap_number + 1
         state["current_lap_ms"] = _ludvik_lap_target_ms(
-            track, car, experiment, int(state["current_lap"])
+            track,
+            car,
+            experiment,
+            int(state["current_lap"]),
         )
+        # Lap rollover: clear gate bookkeeping per spec §8.7.
+        state["gate_times_ms"] = [None] * GATE_COUNT
+        state["last_norm_pos"] = 0.0
+        state["last_gate_index"] = None
+        state["last_gate_state"] = None
+        state["last_gate_delta_ms"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +529,7 @@ def _cumulative_at_boundary_splits(
     return int(total)
 
 
-def _cumulative_at_boundary(
-    driver: str, lap_ms: int, completed_sectors: int
-) -> int:
+def _cumulative_at_boundary(driver: str, lap_ms: int, completed_sectors: int) -> int:
     """Sim-only convenience over `_cumulative_at_boundary_splits` that looks
     `splits` up by driver name in the static `SPLITS` table.
     """
@@ -373,7 +623,6 @@ def _build_group(
     current_lap_ms = int(state["current_lap_ms"] or 0)
     current_lap = int(state["current_lap"] or 1)
     ludvik_best = state["best_lap_ms"]
-
     ludvik_best_lap_number = state["best_lap_number"]
 
     completed = _completed_sector_count(elapsed_ms, current_lap_ms)
@@ -389,11 +638,54 @@ def _build_group(
     else:
         sector_start_ms, sector_end_ms = t1, t2
 
+    # Gate bookkeeping for the active driver. `_update_gate_times`
+    # stamps any 5%/10%/.../100% gates crossed since the previous tick
+    # (spec §5.1 + §5.7). Note: this runs in parallel to the existing
+    # 3-sector ranking (§8.5: keep both models; sectors drive rank,
+    # gates drive colour state).
+    norm_pos = (
+        min(0.9999, max(0.0, elapsed_ms / current_lap_ms)) if current_lap_ms else 0.0
+    )
+    gate_times = list(state["gate_times_ms"] or [None] * GATE_COUNT)
+    if len(gate_times) != GATE_COUNT:
+        gate_times = [None] * GATE_COUNT
+    prev_norm = float(state["last_norm_pos"] or 0.0)
+    _update_gate_times(gate_times, prev_norm, norm_pos, elapsed_ms)
+    state["gate_times_ms"] = gate_times
+    state["last_norm_pos"] = norm_pos
+
+    # Compute or re-emit `last_gate_*` based on whether a new gate has
+    # been crossed since last poll. Stickiness is required (spec §5.4)
+    # so the colour holds between crossings. Cache lookup is done once
+    # per group using the simulator's pre-built gate vectors.
+    cache = _sim_gate_vectors_cache()
+    group_historicals = cache.get(key, {})
+    new_i_star = _latest_crossed_gate_sim(gate_times)
+    prev_i_star = state.get("last_gate_index")
+    if new_i_star is not None and new_i_star != prev_i_star:
+        last_index, last_state, last_delta = _compute_last_gate_state_sim(
+            gate_times, group_historicals
+        )
+        state["last_gate_index"] = last_index
+        state["last_gate_state"] = last_state
+        state["last_gate_delta_ms"] = last_delta
+    else:
+        last_index = int(prev_i_star) if isinstance(prev_i_star, int) else None
+        prev_state = state.get("last_gate_state")
+        last_state = (
+            prev_state if prev_state in ("ahead", "behind", "neutral") else None
+        )
+        prev_delta = state.get("last_gate_delta_ms")
+        last_delta = int(prev_delta) if isinstance(prev_delta, int) else None
+
     # Build rows (unranked).
     rows: list[dict[str, object]] = []
     for driver in DRIVERS:
         is_active = driver == ACTIVE_DRIVER
         best_lap_number_field: int | None
+        row_last_index: int | None
+        row_last_state: str | None
+        row_last_delta: int | None
         if is_active:
             current_lap_time_ms = max(0, int(elapsed_ms))
             best_lap_ms_field = int(ludvik_best) if ludvik_best is not None else None
@@ -403,11 +695,17 @@ def _build_group(
                 else None
             )
             current_lap_field: int | None = current_lap
+            row_last_index = last_index
+            row_last_state = last_state
+            row_last_delta = last_delta
         else:
             hist_best = _base_lap_ms(track, car, experiment, driver)
             best_lap_ms_field = hist_best
             best_lap_number_field = _HISTORICAL_BEST_LAP_NUMBERS[driver]
             current_lap_field = None
+            row_last_index = None
+            row_last_state = None
+            row_last_delta = None
             # Edge case: brand-new lap, elapsed effectively zero -> show 0
             # for everyone rather than tiny rounding artifacts.
             if elapsed_ms <= 0:
@@ -434,11 +732,64 @@ def _build_group(
                 "current_lap_time_ms": current_lap_time_ms,
                 # rank filled in below
                 "rank": 0,
+                "last_gate_index": row_last_index,
+                "last_gate_state": row_last_state,
+                "last_gate_delta_ms": row_last_delta,
             }
         )
 
     _rank_group(rows, current_lap_ms, completed)
     return rows
+
+
+def _latest_crossed_gate_sim(gate_times: list[int | None]) -> int | None:
+    """Local mirror of `leaderboard_real._latest_crossed_gate`.
+
+    Re-implemented here so the sim doesn't import from `leaderboard_real`
+    (avoids `leaderboard_real → live_positions_sim → leaderboard_real`
+    cycle through `rank_group`).
+    """
+    for i in range(len(gate_times) - 1, -1, -1):
+        if gate_times[i] is not None:
+            return i
+    return None
+
+
+def _compute_last_gate_state_sim(
+    active_gate_times: list[int | None],
+    historicals: dict[str, _HistoricalEntry],
+) -> tuple[int | None, str | None, int | None]:
+    """Sim mirror of `leaderboard_real.compute_last_gate_state`.
+
+    Returns `(last_gate_index, last_gate_state, last_gate_delta_ms)`.
+    Same three-state logic — kept duplicated locally to keep the import
+    graph one-way (sim → live_telemetry only).
+    """
+    i_star = _latest_crossed_gate_sim(active_gate_times)
+    if i_star is None:
+        return None, None, None
+    active_t = active_gate_times[i_star]
+    if active_t is None:
+        return None, None, None
+    if not historicals:
+        return i_star, "neutral", None
+
+    hist_ts: list[int] = []
+    for h in historicals.values():
+        if len(h.gate_vector) == GATE_COUNT:
+            hist_ts.append(int(h.gate_vector[i_star]))
+    if not hist_ts:
+        return i_star, "neutral", None
+
+    if all(active_t < h for h in hist_ts):
+        state = "ahead"
+    elif all(active_t > h for h in hist_ts):
+        state = "behind"
+    else:
+        # Mixed or ties (§8.8): neither all-< nor all-> holds.
+        state = "neutral"
+    delta_ms = int(active_t - min(hist_ts))
+    return i_star, state, delta_ms
 
 
 def _rank_group(
@@ -461,12 +812,6 @@ def _rank_group(
 # Public helpers for real-mode (`leaderboard_real.py`)
 # ---------------------------------------------------------------------------
 
-# Equal sector splits used by the real-mode path. The lake doesn't expose
-# per-driver sector breakdowns, so we treat every driver as a uniform-pace
-# car. Combined with `normalizedCarPosition` from the live telemetry, this
-# is enough to ghost-interpolate each historical's "at position" time.
-EQUAL_SPLITS: tuple[float, float, float] = (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)
-
 
 def rank_group(rows: list[dict[str, object]]) -> None:
     """Public alias for `_rank_group`. Real-mode rows always carry a
@@ -476,36 +821,3 @@ def rank_group(rows: list[dict[str, object]]) -> None:
     rows.sort(key=lambda r: int(r["current_lap_time_ms"] or 0))
     for i, r in enumerate(rows):
         r["rank"] = i + 1
-
-
-def sector_window_from_norm_pos(
-    norm_pos: float, lap_ms: int
-) -> tuple[int, int, int, int, int]:
-    """Map a `normalizedCarPosition` ∈ [0, 1] onto an equal-sector window.
-
-    Returns `(active_sector, elapsed_ms, sector_start_ms, sector_end_ms,
-    completed)`:
-      * `active_sector` ∈ {0, 1, 2}
-      * `elapsed_ms` = `norm_pos * lap_ms` — the active driver's projected
-        position-time along an equal-pace lap of length `lap_ms`.
-      * `sector_start_ms`, `sector_end_ms` — bounds of the active sector
-        in the equal-split layout.
-      * `completed` — how many sectors the active driver has fully cleared.
-
-    Used by `leaderboard_real.py` to feed `ghost_time_for_splits()`.
-    """
-    if norm_pos < 0.0:
-        norm_pos = 0.0
-    elif norm_pos >= 1.0:
-        # Strictly < 1.0 keeps us in sector 2 on the lap line. A norm_pos
-        # of exactly 1.0 arrives at lap rollover and is better treated as
-        # "end of sector 2" than "start of a phantom sector 3".
-        norm_pos = 0.9999
-    active_sector = int(norm_pos * 3)
-    if active_sector > 2:
-        active_sector = 2
-    sector_start_ms = int(lap_ms * active_sector / 3)
-    sector_end_ms = int(lap_ms * (active_sector + 1) / 3)
-    elapsed_ms = int(lap_ms * norm_pos)
-    completed = active_sector
-    return active_sector, elapsed_ms, sector_start_ms, sector_end_ms, completed

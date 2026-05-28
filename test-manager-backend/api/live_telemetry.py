@@ -29,10 +29,10 @@ this module.
 from __future__ import annotations
 
 import logging
-import math
 import os
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -79,9 +79,12 @@ STALE_AFTER_S = 10.0
 # to `earliest` independently (different consumer or seek-on-assign).
 CONSUMER_GROUP = "test-manager-backend-ghost-lap"
 
-# Number of equally-sized segments the lap is split into for the live ghost
-# table. 10 → each segment covers 10% of normalizedCarPosition.
-SEGMENT_COUNT = 10
+# Number of equally-sized checkpoint gates the lap is split into for the
+# Live Sector Comparison table. 20 → gates at normalizedCarPosition 0.05,
+# 0.10, ..., 0.95, 1.00. The 0% gate is implicit (always 0 ms) and is not
+# stored, so `gate_times_ms[0]` corresponds to the 5% gate and `[19]` to
+# the lap line.
+GATE_COUNT = 20
 
 # DCM experiment lookups: timeouts and a cache TTL fence. The TTL only
 # matters as a safety net — the primary invalidation event is a new session
@@ -92,27 +95,32 @@ DCM_TIMEOUT_S = 5.0
 EXPERIMENT_CACHE_TTL_S = 300.0
 
 
-def _update_segment_times(
-    segment_times: list[int | None],
+def _update_gate_times(
+    gate_times: list[int | None],
     prev_pos: float,
     new_pos: float,
     current_lap_time_ms: int,
-) -> None:
-    """Stamp `current_lap_time_ms` into every segment whose end boundary
-    `(i+1)/SEGMENT_COUNT` was crossed between `prev_pos` (exclusive) and
-    `new_pos` (inclusive). Mutates `segment_times` in place.
+) -> list[int]:
+    """Stamp `current_lap_time_ms` into every gate whose position
+    `(i+1)/GATE_COUNT` was crossed between `prev_pos` (exclusive) and
+    `new_pos` (inclusive). Mutates `gate_times` in place and returns the
+    list of newly-stamped gate indices (in ascending order) so the caller
+    can compute the latest crossed gate without re-scanning the array.
 
-    If a single tick straddles multiple boundaries (sim coarse / network
+    If a single tick straddles multiple gates (sim coarse / network
     hiccup), all of them get the same timestamp — acceptable for V1.
-    A boundary that already has a value is left untouched (first crossing
+    A gate that already has a value is left untouched (first crossing
     wins, even if `normalized_position` wobbles backwards later).
     """
-    for i in range(SEGMENT_COUNT):
-        if segment_times[i] is not None:
+    crossed: list[int] = []
+    for i in range(GATE_COUNT):
+        if gate_times[i] is not None:
             continue
-        boundary = (i + 1) / SEGMENT_COUNT
+        boundary = (i + 1) / GATE_COUNT
         if new_pos >= boundary > prev_pos:
-            segment_times[i] = current_lap_time_ms
+            gate_times[i] = current_lap_time_ms
+            crossed.append(i)
+    return crossed
 
 
 # ---------------------------------------------------------------------------
@@ -144,30 +152,64 @@ _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
 
 # ---------------------------------------------------------------------------
-# Historicals cache (per-driver-best from QuixLake)
+# Gate-vectors cache (per-driver best-lap per-gate cumulative times)
 # ---------------------------------------------------------------------------
 #
 # Why this cache exists: `/api/v1/leaderboard/live-positions` is polled ~every
-# 8 s while a user has the leaderboard tab open, but the underlying per-driver
-# best laps in `ac_telemetry` only change when a new fast lap completes. We
-# refresh on the natural "something changed" signal — a new
+# 3.5 s while a user has the leaderboard tab open, but the underlying
+# per-driver best laps in `ac_telemetry` only change when a new fast lap
+# completes. We refresh on the natural "something changed" signal — a new
 # `ac-telemetry-session` message — so the lake hit drops from "every poll"
 # to "once per AC session start".
 #
-# Cache shape is identical to `leaderboard_real._reduce_to_per_driver_best`'s
-# return so the existing assembly code doesn't change shape:
-#   {(track, carModel, experiment, driver): (best_ms, best_lap_number)}
+# Each `_HistoricalEntry` carries both the best-lap time
+# (= `gate_vector[19]`, the lap-line gate) and the full 20-element per-gate
+# cumulative-ms vector so the server can stamp a colour state onto the
+# active row at every crossing without re-querying the lake.
+#
+# Cache shape:
+#   {(track, carModel, experiment): {driver_folded: _HistoricalEntry}}
+# Driver names are folded via `_fold_driver_name` (NFKD + ASCII lowercase)
+# so a lake `"ludvik"` and a Mongo `"Ludvík"` collide on the same key.
 #
 # A `None` sentinel means "never refreshed yet" — distinct from "refreshed,
 # but the lake had no rows" which is an empty dict. `build_live_positions`
 # triggers a synchronous fallback refresh on `None`.
 #
-# Guarded by a dedicated `_historicals_lock` rather than `_state_lock`
+# Guarded by a dedicated `_gate_vectors_lock` rather than `_state_lock`
 # because the lake query takes seconds and we must NOT block the raw-tick
 # path. The refresh function builds the new dict outside the lock and only
 # holds the lock long enough to swap the reference.
-_historicals_lock = threading.RLock()
-_historicals_cache: dict[tuple[str, str, str, str], tuple[int, int]] | None = None
+#
+# This cache fully subsumes the retired `_historicals_cache`: any caller
+# that previously needed `(best_lap_ms, best_lap_number)` reads them off
+# `_HistoricalEntry`. See `docs/architecture-leaderboard-checkpoint-gates.md`.
+
+
+@dataclass(frozen=True)
+class _HistoricalEntry:
+    """Cached per-gate breakdown of one historical driver's best lap.
+
+    * `best_lap_ms` — by definition equal to `gate_vector[19]` (the 100% /
+      lap-line gate). Stored explicitly so the assembly code reads more
+      naturally than `entry.gate_vector[19]`.
+    * `best_lap_number` — 1-indexed lap number on which the best was set,
+      shown in the UI's Best Lap column.
+    * `gate_vector` — length-20 list of cumulative ms at the 5%, 10%, ...,
+      100% gates of that historical's best lap, sorted by position. The
+      implicit 0% gate is always 0 ms and not stored. Monotonically
+      non-decreasing by construction (it's a cumulative-time vector).
+    """
+
+    best_lap_ms: int
+    best_lap_number: int
+    gate_vector: list[int] = field(default_factory=list)
+
+
+_gate_vectors_lock = threading.RLock()
+_gate_vectors_cache: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None = (
+    None
+)
 
 
 # ---------------------------------------------------------------------------
@@ -184,8 +226,8 @@ _SIM_EXPERIMENT = "baseline"
 _sim_lock = threading.RLock()
 _sim_start_epoch: float | None = None
 _sim_completed_lap_times_ms: list[int] = []
-# Sim's segment-crossing state. Mirrors the real-mode per-key state.
-_sim_segment_times_ms: list[int | None] = [None] * SEGMENT_COUNT
+# Sim's gate-crossing state. Mirrors the real-mode per-key state.
+_sim_gate_times_ms: list[int | None] = [None] * GATE_COUNT
 _sim_last_norm_pos: float = 0.0
 _sim_last_lap_index: int = 0
 
@@ -204,14 +246,14 @@ def simulated_active_driver() -> dict[str, Any]:
     `_sim_start_epoch` at the current wall-clock so the running time starts
     at zero from the perspective of the first request.
 
-    Also maintains `_sim_segment_times_ms` so the segment-breakdown table
-    has populated "completed" rows. The crossings are evaluated on every
-    call — provided clients poll at 500 ms, every 10% boundary is observed
-    inside the same lap (the sim's lap is ~91 s long, so each 9.1 s segment
-    contains ~18 polls).
+    Also maintains `_sim_gate_times_ms` so the gate-breakdown table has
+    populated "completed" rows. The crossings are evaluated on every call —
+    provided clients poll at 500 ms, every 5% gate is observed inside the
+    same lap (the sim's lap is ~91 s long, so each 4.55 s gate spacing
+    contains ~9 polls).
     """
     global _sim_start_epoch, _sim_last_norm_pos, _sim_last_lap_index
-    global _sim_segment_times_ms
+    global _sim_gate_times_ms
 
     with _sim_lock:
         now = time.time()
@@ -238,16 +280,14 @@ def simulated_active_driver() -> dict[str, Any]:
             min(_sim_completed_lap_times_ms) if _sim_completed_lap_times_ms else None
         )
 
-        # Segment-time bookkeeping. Reset on lap rollover, then stamp any
-        # boundaries crossed since the previous call.
+        # Gate-time bookkeeping. Reset on lap rollover, then stamp any
+        # gates crossed since the previous call.
         completed = len(_sim_completed_lap_times_ms)
         if completed != _sim_last_lap_index:
-            _sim_segment_times_ms = [None] * SEGMENT_COUNT
+            _sim_gate_times_ms = [None] * GATE_COUNT
             _sim_last_norm_pos = 0.0
             _sim_last_lap_index = completed
-        _update_segment_times(
-            _sim_segment_times_ms, _sim_last_norm_pos, norm_pos, elapsed_ms
-        )
+        _update_gate_times(_sim_gate_times_ms, _sim_last_norm_pos, norm_pos, elapsed_ms)
         _sim_last_norm_pos = norm_pos
 
         return {
@@ -259,73 +299,9 @@ def simulated_active_driver() -> dict[str, Any]:
             "current_lap_time_ms": elapsed_ms,
             "normalized_position": norm_pos,
             "best_lap_ms_session": best_so_far,
-            "segment_times_ms": list(_sim_segment_times_ms),
+            "gate_times_ms": list(_sim_gate_times_ms),
             "last_normalized_position": _sim_last_norm_pos,
         }
-
-
-def simulated_ghost_reference(driver: str, car: str, track: str) -> dict[str, Any]:
-    """Synthesise a 101-sample ghost lap deterministically from the driver
-    name.
-
-    Total lap time is tuned ~200 ms slower than the live sim's lap target so
-    the global delta is small (≈ 0 at the end). A larger sinusoidal wiggle
-    (8% amplitude) on top makes the running delta cross zero several times
-    within a single lap, so the arrow flips between ahead and behind even
-    though both curves are deterministic. This is what gives the UI
-    something visible to show in LOCAL_DEV_MODE.
-    """
-    # Driver-seeded tiny ±300 ms offset so different driver names produce
-    # different reference best laps, but the bulk pacing always lands close
-    # to the live sim target.
-    seed = sum(ord(c) for c in driver) % 7
-    # Ghost is ~ live target so the delta hovers near 0 across the lap.
-    base_lap_ms = _SIM_LAP_TARGET_MS + (seed - 3) * 100  # 90.7..91.3 s
-    samples: list[dict[str, Any]] = []
-    for i in range(101):
-        frac = i / 100.0
-        # ±2.5 s additive wiggle, ~2 cycles per lap. Period in time ≈ 45 s
-        # so a 30-second observation window (3 shots, 15 s apart) clears
-        # one zero-crossing → the arrow flips ahead↔behind cleanly.
-        wiggle_ms = 2500 * math.sin(4.0 * math.pi * frac)
-        t = base_lap_ms * frac + wiggle_ms
-        if t < 0:
-            t = 0
-        samples.append({"pos": round(frac, 2), "time_ms": int(t)})
-    # Pick samples at indices 10, 20, ..., 100 — pos 0.10..1.00, the END of
-    # each of the 10 segments.
-    segment_cumulative = [
-        samples[(i + 1) * 10]["time_ms"] for i in range(SEGMENT_COUNT)
-    ]
-    return {
-        "driver": driver,
-        "car": car,
-        "track": track,
-        "best_lap_ms": base_lap_ms,
-        "samples": samples,
-        "source_session_id": "sim-session-2024-01-01T00-00-00Z",
-        "source_lap": 1,
-        "segment_cumulative_ms": segment_cumulative,
-    }
-
-
-def segment_cumulative_from_samples(samples: list[dict[str, Any]]) -> list[int]:
-    """Extract cumulative ms at positions 0.10..1.00 from a 101-sample curve.
-
-    Returns an empty list when the input doesn't have the expected shape; the
-    Pydantic model then defaults to `[]` and the frontend renders `—` for
-    the Reference column rather than crashing.
-    """
-    if len(samples) != 101:
-        return []
-    out: list[int] = []
-    for i in range(SEGMENT_COUNT):
-        idx = (i + 1) * 10
-        try:
-            out.append(int(samples[idx]["time_ms"]))
-        except (KeyError, TypeError, ValueError):
-            return []
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -337,11 +313,23 @@ def _record_message(payload: dict[str, Any]) -> None:
     """Merge one raw Kafka payload into the per-(track, car, driver) state
     dict. Log and skip on missing fields — never crash the consumer loop.
 
-    Maintains per-key `segment_times_ms` (length `SEGMENT_COUNT`) and
-    `last_normalized_position`. On lap rollover (`completedLaps` increment),
-    `segment_times_ms` resets to `[None] * SEGMENT_COUNT` and the previous
-    position is rebased to 0. Any segment boundary crossed since the last
-    tick is stamped with the current `iCurrentTime`.
+    Maintains per-key `gate_times_ms` (length `GATE_COUNT`),
+    `last_normalized_position`, and the sticky `last_gate_index` /
+    `last_gate_state` / `last_gate_delta_ms` fields that the leaderboard
+    assembly reads back unchanged between polls (server-side stickiness —
+    see spec §5.4).
+
+    On lap rollover (`completedLaps` increment OR `iCurrentTime` reset),
+    `gate_times_ms` resets to `[None] * GATE_COUNT`, the previous position
+    is rebased to 0, AND the sticky `last_gate_*` fields are cleared back
+    to `None` so the previous lap's colour doesn't bleed into the new lap
+    until the first gate crossing of the new lap (§8.7).
+
+    Any gate crossed since the last tick is stamped with the current
+    `iCurrentTime`. The colour-state computation itself lives in
+    `leaderboard_real._compute_last_gate_state` and is invoked by the
+    assembly layer per poll — this function only records the raw gate
+    crossings.
     """
     track = payload.get("track")
     car = payload.get("carModel") or payload.get("car")
@@ -352,7 +340,7 @@ def _record_message(payload: dict[str, Any]) -> None:
         i_current = int(payload.get("iCurrentTime") or 0)
         completed = int(payload.get("completedLaps") or 0)
         norm_pos = float(payload.get("normalizedCarPosition") or 0.0)
-        entry_partial = {
+        entry_partial: dict[str, Any] = {
             "last_seen_epoch": time.time(),
             "experiment": str(payload.get("experiment") or ""),
             "iCurrentTime": i_current,
@@ -368,23 +356,76 @@ def _record_message(payload: dict[str, Any]) -> None:
     key = (track, car, driver)
     with _state_lock:
         prev = _state.get(key)
-        if prev is None or prev.get("completedLaps", -1) != completed:
-            segment_times: list[int | None] = [None] * SEGMENT_COUNT
+        # Lap rollover detection: spec §8.7 mandates clearing `last_gate_*`
+        # when `completedLaps` increments OR `iCurrentTime` resets. The
+        # iCurrentTime check guards against AC's mid-session-restart case
+        # where the lap counter stays at 0 but the lap clock falls back to
+        # 0 ms.
+        prev_i_current = int(prev.get("iCurrentTime") or 0) if prev else 0
+        rollover = (
+            prev is None
+            or prev.get("completedLaps", -1) != completed
+            or i_current < prev_i_current
+        )
+        if rollover or prev is None:
+            gate_times: list[int | None] = [None] * GATE_COUNT
             prev_pos = 0.0
+            last_gate_index: int | None = None
+            last_gate_state: str | None = None
+            last_gate_delta_ms: int | None = None
         else:
-            segment_times = list(prev.get("segment_times_ms") or [None] * SEGMENT_COUNT)
-            if len(segment_times) != SEGMENT_COUNT:
-                segment_times = [None] * SEGMENT_COUNT
+            gate_times = list(prev.get("gate_times_ms") or [None] * GATE_COUNT)
+            if len(gate_times) != GATE_COUNT:
+                gate_times = [None] * GATE_COUNT
             prev_pos = float(prev.get("normalizedCarPosition") or 0.0)
+            last_gate_index = prev.get("last_gate_index")
+            last_gate_state = prev.get("last_gate_state")
+            last_gate_delta_ms = prev.get("last_gate_delta_ms")
 
-        _update_segment_times(segment_times, prev_pos, norm_pos, i_current)
-        entry_partial["segment_times_ms"] = segment_times
+        _update_gate_times(gate_times, prev_pos, norm_pos, i_current)
+        entry_partial["gate_times_ms"] = gate_times
+        # Sticky gate-state fields are written through unchanged here; the
+        # assembly layer recomputes and persists them when it detects a new
+        # crossing (see `leaderboard_real._compute_last_gate_state`).
+        entry_partial["last_gate_index"] = last_gate_index
+        entry_partial["last_gate_state"] = last_gate_state
+        entry_partial["last_gate_delta_ms"] = last_gate_delta_ms
         _state[key] = entry_partial
+
+
+def set_last_gate_state(
+    track: str,
+    car: str,
+    driver: str,
+    index: int | None,
+    state: str | None,
+    delta_ms: int | None,
+) -> None:
+    """Persist a recomputed gate-state triple onto the active driver's
+    state entry so subsequent `get_active_driver()` calls re-emit the same
+    sticky values until the next crossing.
+
+    Called by `leaderboard_real._compute_last_gate_state` after it detects
+    a new gate crossing and computes the colour. No-op when the key has
+    no state entry yet (e.g. the active driver hasn't sent a tick).
+    """
+    key = (track, car, driver)
+    with _state_lock:
+        entry = _state.get(key)
+        if entry is None:
+            return
+        entry["last_gate_index"] = index
+        entry["last_gate_state"] = state
+        entry["last_gate_delta_ms"] = delta_ms
 
 
 def get_active_driver() -> dict[str, Any] | None:
     """Return the freshest non-stale entry as a `LiveDriverState`-shaped
     dict, or None if nothing has been seen in the last `STALE_AFTER_S`.
+
+    Includes the sticky `last_gate_index` / `last_gate_state` /
+    `last_gate_delta_ms` triple so the assembly layer can stamp them onto
+    the active row even between crossings (server-side stickiness).
     """
     now = time.time()
     with _state_lock:
@@ -400,7 +441,7 @@ def get_active_driver() -> dict[str, Any] | None:
     key, entry = max(candidates, key=lambda kv: kv[1]["last_seen_epoch"])
     track, car, driver = key
     best = entry["iBestTime"] or None
-    segment_times = entry.get("segment_times_ms") or [None] * SEGMENT_COUNT
+    gate_times = entry.get("gate_times_ms") or [None] * GATE_COUNT
     return {
         "driver": driver,
         "car": car,
@@ -410,8 +451,11 @@ def get_active_driver() -> dict[str, Any] | None:
         "current_lap_time_ms": entry["iCurrentTime"],
         "normalized_position": entry["normalizedCarPosition"],
         "best_lap_ms_session": best,
-        "segment_times_ms": list(segment_times),
+        "gate_times_ms": list(gate_times),
         "last_normalized_position": float(entry["normalizedCarPosition"]),
+        "last_gate_index": entry.get("last_gate_index"),
+        "last_gate_state": entry.get("last_gate_state"),
+        "last_gate_delta_ms": entry.get("last_gate_delta_ms"),
     }
 
 
@@ -630,10 +674,11 @@ def _prewarm_session_cache_from_dcm() -> None:
     retention may include long-dead hostnames; DCM stores exactly one
     "current session" per hostname, which is what we want.
 
-    Final step: a one-shot `_refresh_historicals_from_settings()` so the
-    cached per-driver-bests reflect the drivers we just learned about. The
-    extra lake hit (on top of the consumer's existing startup warm-up) is
-    bounded — one extra call per backend boot, cache swap is atomic.
+    Final step: a one-shot `_refresh_gate_vectors_from_settings()` so the
+    cached per-driver gate vectors reflect the drivers we just learned
+    about. The extra lake hit (on top of the consumer's existing startup
+    warm-up) is bounded — one extra call per backend boot, cache swap is
+    atomic.
     """
     try:
         import httpx
@@ -720,11 +765,11 @@ def _prewarm_session_cache_from_dcm() -> None:
         for hostname in prewarmed_hostnames:
             _get_cached_experiment(hostname, force_refresh=True)
 
-        # Refresh historicals once more so per-driver-bests reflect the
-        # drivers we just discovered. Spec §5: cheap, atomic, one extra
-        # lake hit at boot.
+        # Refresh gate-vectors once more so per-driver per-gate cumulative
+        # times reflect the drivers we just discovered. Spec §5.3: cheap,
+        # atomic, one extra lake hit at boot.
         if prewarmed_hostnames:
-            _refresh_historicals_from_settings()
+            _refresh_gate_vectors_from_settings()
     except Exception:
         logger.exception("DCM session pre-warm failed; continuing without it")
 
@@ -814,12 +859,13 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     # boundaries are the natural invalidation point — between sessions the
     # operator may have switched the active experiment via Test Manager.
     _get_cached_experiment(hostname, force_refresh=True)
-    # Same trigger for the historicals cache — a new AC session means a
-    # driver is about to set new lap times, so we want fresh per-driver
-    # bests in cache before the next `/live-positions` poll. Synchronous
+    # Same trigger for the gate-vectors cache — a new AC session means a
+    # driver is about to set new lap times, so we want fresh per-gate
+    # vectors in cache before the next `/live-positions` poll. Synchronous
     # is fine: this handler runs on the consumer thread, off the HTTP
     # request path, so the seconds-long lake call doesn't hurt API users.
-    _refresh_historicals_from_settings()
+    # Spec §5.3 trigger 1: canonical "once per AC session" refresh.
+    _refresh_gate_vectors_from_settings()
 
 
 def _handle_config_event(payload: dict[str, Any]) -> None:
@@ -941,12 +987,12 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             # Keep experiment+driver paired with the new session (same hook
             # `_handle_session_message` runs after a Kafka session message).
             _get_cached_experiment(target_key, force_refresh=True)
-            # And refresh historicals — a session-config change can mean a
+            # And refresh gate vectors — a session-config change can mean a
             # different driver is about to log laps under this hostname.
-            _refresh_historicals_from_settings()
+            _refresh_gate_vectors_from_settings()
         else:
             # experiment-type event: update experiment_cache only. No
-            # historicals refresh — laps haven't changed.
+            # gate-vectors refresh — laps haven't changed.
             experiment = str(content.get("experiment_id") or "")
             driver = str(content.get("driver") or "")
             with _state_lock:
@@ -967,33 +1013,45 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
         logger.exception("config event handler failed: %r", payload)
 
 
-def get_historicals_cache() -> dict[tuple[str, str, str, str], tuple[int, int]] | None:
-    """Return the current cached per-driver-best dict, or `None` if no
+def get_gate_vectors_cache() -> (
+    dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None
+):
+    """Return the current cached gate-vectors dict, or `None` if no
     refresh has run yet.
+
+    Shape: `{(track, car, experiment): {driver_folded: _HistoricalEntry}}`.
 
     Callers must treat the returned dict as read-only — we hand back the
     live reference (cheap) rather than a deep copy. The cache is only
-    swapped atomically via `refresh_historicals_cache`, so a caller iterating
-    the dict will see a consistent snapshot for the duration of that
-    iteration even if a refresh races (the swap replaces the binding, not
-    the dict contents in place).
+    swapped atomically via `refresh_gate_vectors_cache`, so a caller
+    iterating the dict will see a consistent snapshot for the duration of
+    that iteration even if a refresh races (the swap replaces the binding,
+    not the dict contents in place).
     """
-    with _historicals_lock:
-        return _historicals_cache
+    with _gate_vectors_lock:
+        return _gate_vectors_cache
 
 
-def refresh_historicals_cache(
+def refresh_gate_vectors_cache(
     quixlake_url: str,
     quix_lake_token: str,
 ) -> None:
-    """Pull the per-driver-best reduction from QuixLake and atomically
-    swap it into `_historicals_cache`.
+    """Query QuixLake for every historical's best-lap per-gate cumulative
+    times and atomically swap the result into `_gate_vectors_cache`.
 
-    The lake query and Python reduction run OUTSIDE the lock — the query
-    takes seconds and blocking other readers would defeat the purpose of
+    Two lake queries (see spec §5.2): Query A finds each driver's best lap
+    via the same per-lap aggregation today's `/best-laps` route uses;
+    Query B fetches the raw position samples for those specific best laps
+    so the Python reducer can pick the nearest sample per gate. QuixLake
+    rejects `WITH` / CTE (`feedback_quixlake_no_cte`), so reduction
+    happens in Python.
+
+    Both queries and the Python reduction run OUTSIDE the lock — they
+    take seconds and blocking other readers would defeat the purpose of
     the cache. Only the final reference swap is guarded.
 
-    Lazy-imports `_query_lake` / `_reduce_to_per_driver_best` from
+    Lazy-imports `_query_lake` / `_reduce_to_per_driver_best` /
+    `_query_gate_samples` / `_reduce_to_gate_vectors` from
     `routes.leaderboard_real` to keep import order one-way:
     `leaderboard_real` already imports `live_telemetry`, so importing it
     at module load here would cycle. The lazy import is paid once per
@@ -1004,24 +1062,38 @@ def refresh_historicals_cache(
     the endpoint degrades to "missing data" rather than crashing.
     """
     try:
-        from .routes.leaderboard_real import _query_lake, _reduce_to_per_driver_best
+        from .routes.leaderboard_real import (
+            _query_gate_samples,
+            _query_lake,
+            _reduce_to_gate_vectors,
+            _reduce_to_per_driver_best,
+        )
 
         raw_rows = _query_lake(quixlake_url, quix_lake_token)
-        reduced = _reduce_to_per_driver_best(raw_rows)
+        best_per_group = _reduce_to_per_driver_best(raw_rows)
+        if not best_per_group:
+            reduced: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
+        else:
+            sample_rows = _query_gate_samples(
+                quixlake_url, quix_lake_token, best_per_group
+            )
+            reduced = _reduce_to_gate_vectors(best_per_group, sample_rows)
     except Exception:
-        logger.exception("historicals cache refresh failed; keeping previous cache")
+        logger.exception("gate-vectors cache refresh failed; keeping previous cache")
         return
 
-    with _historicals_lock:
-        global _historicals_cache
-        _historicals_cache = reduced
+    with _gate_vectors_lock:
+        global _gate_vectors_cache
+        _gate_vectors_cache = reduced
+    total_historicals = sum(len(g) for g in reduced.values())
     logger.info(
-        "historicals cache refreshed: %d (track,car,exp,driver) groups",
+        "gate-vectors cache refreshed: %d (track,car,exp) groups, %d historicals",
         len(reduced),
+        total_historicals,
     )
 
 
-def _refresh_historicals_from_settings() -> None:
+def _refresh_gate_vectors_from_settings() -> None:
     """Internal: pull lake creds from `Settings` and refresh the cache.
 
     Used by the session-message handler and the consumer-startup warm-up
@@ -1034,10 +1106,10 @@ def _refresh_historicals_from_settings() -> None:
     settings = get_settings()
     if not settings.quixlake_url or not settings.quix_lake_token:
         logger.debug(
-            "skipping historicals cache refresh: QuixLake credentials not configured"
+            "skipping gate-vectors cache refresh: QuixLake credentials not configured"
         )
         return
-    refresh_historicals_cache(settings.quixlake_url, settings.quix_lake_token)
+    refresh_gate_vectors_cache(settings.quixlake_url, settings.quix_lake_token)
 
 
 def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
@@ -1121,13 +1193,13 @@ def _consumer_loop() -> None:
         session_topic.name: session_topic,
         config_events_topic.name: config_events_topic,
     }
-    # Warm-up: pull historicals once at consumer startup so a backend restart
-    # while AC is mid-session still has lap data available on the very first
-    # `/live-positions` poll, without waiting for the next session message.
-    # Failures are swallowed inside `refresh_historicals_cache`; if the lake
-    # is unreachable the route layer's cache-miss fallback will retry on the
-    # next request.
-    _refresh_historicals_from_settings()
+    # Warm-up: pull gate vectors once at consumer startup so a backend
+    # restart while AC is mid-session still has lap data available on the
+    # very first `/live-positions` poll, without waiting for the next
+    # session message. Failures are swallowed inside
+    # `refresh_gate_vectors_cache`; if the lake is unreachable the route
+    # layer's cache-miss fallback will retry on the next request.
+    _refresh_gate_vectors_from_settings()
     # Pre-warm the session + experiment caches from DCM so a backend restart
     # mid-AC-session can enrich raw ticks immediately, without waiting for
     # the user to start a new session. Best-effort: any failure is logged

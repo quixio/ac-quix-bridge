@@ -25,4 +25,17 @@ export interface LivePositionEntry {
   /** 1..5 within the (track, car, experiment) group. Server-computed
    * from cumulative-at-sector-boundary times. */
   rank: number
+  /** 0..19; the latest checkpoint gate the active driver has crossed on
+   * the current lap. `null` before gate 1 of every lap and on every
+   * non-active row. */
+  last_gate_index?: number | null
+  /** Colour state for the active row's "At Position" column, computed
+   * server-side from the active driver's gate-crossing time vs. every
+   * cached historical's same-gate time. `null` on non-active rows and
+   * before the active driver crosses gate 1 of his current lap. */
+  last_gate_state?: "ahead" | "behind" | "neutral" | null
+  /** Active driver - leader at the latest crossed gate, in ms. Positive
+   * means the active is behind the leader; negative means ahead. `null`
+   * when no historicals are available or before gate 1 of the lap. */
+  last_gate_delta_ms?: number | null
 }
