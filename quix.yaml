@@ -4,7 +4,6 @@
 metadata:
   version: 1.0
 
-
 # This section describes the Deployments of the data pipeline
 deployments:
   - name: Telemetry Dashboard
@@ -144,7 +143,8 @@ deployments:
       - name: CATALOG_AUTH_TOKEN
         inputType: ProjectVariable
         description: If using a catalog, the respective auth token to access it
-        variableKey: quix_lake_pat
+        secret: true
+        variableKey: pat
       - name: AUTO_DISCOVER
         inputType: Options
         description: Automatically register table in REST Catalog on first write
@@ -238,6 +238,9 @@ deployments:
       - name: LIVE_TELEMETRY_ENABLED
         inputType: FreeText
         value: true
+      - name: Quix__Portal__Api
+        inputType: FreeText
+        value: https://portal-api.dev.quix.io
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
