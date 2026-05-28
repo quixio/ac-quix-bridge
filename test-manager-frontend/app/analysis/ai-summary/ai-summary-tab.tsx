@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { TestSessionPicker } from "./components/test-session-picker";
 import { AnalysisCard } from "./components/analysis-card";
+import { AnalysisProgress } from "./components/analysis-progress";
 import { AnalyzeButton } from "./components/analyze-button";
 import { useAnalysisPolling } from "./hooks/use-analysis-polling";
 import type { Analysis } from "@/types/analysis";
@@ -58,6 +59,7 @@ export function AiSummaryTab() {
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(
     null,
   );
+  const [analyzeStartedAt, setAnalyzeStartedAt] = useState<number | null>(null);
 
   const selectedTestId = params.get("test_id");
   const selectedSessionId = params.get("session_id");
@@ -167,6 +169,7 @@ export function AiSummaryTab() {
 
   const onAnalyze = useCallback(async () => {
     if (!selectedTestId || !selectedSessionId) return;
+    setAnalyzeStartedAt(Date.now());
     try {
       const { analysis_id } = await analysesApi.create({
         test_id: selectedTestId,
@@ -174,6 +177,7 @@ export function AiSummaryTab() {
       });
       setActiveAnalysisId(analysis_id);
     } catch (e) {
+      setAnalyzeStartedAt(null);
       toast({
         title: "Failed to start analysis",
         description: String(e),
@@ -224,7 +228,12 @@ export function AiSummaryTab() {
         </div>
       )}
 
-      {displayed ? (
+      {isAnalyzing ? (
+        <AnalysisProgress
+          analysis={polled}
+          fallbackStartedAt={analyzeStartedAt ?? Date.now()}
+        />
+      ) : displayed ? (
         <AnalysisCard analysis={displayed} />
       ) : selectedSessionId ? (
         <p className="text-sm text-muted-foreground">

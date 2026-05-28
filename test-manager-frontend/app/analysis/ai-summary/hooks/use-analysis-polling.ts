@@ -6,7 +6,7 @@ import type { Analysis } from "@/types/analysis";
 const POLL_INTERVAL_MS = 3000;
 const BACKOFF_AFTER_MS = 60_000;
 const BACKOFF_INTERVAL_MS = 5000;
-const MAX_POLLS = 100;
+const MAX_POLLS = 140;
 
 const TERMINAL_STATUSES = new Set(["complete", "failed"]);
 
