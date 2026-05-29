@@ -161,7 +161,7 @@ _stop_event = threading.Event()
 #
 # Why this cache exists: `/api/v1/leaderboard/live-positions` is polled ~every
 # 3.5 s while a user has the leaderboard tab open, but the underlying
-# per-driver best laps in `ac_telemetry` only change when a new fast lap
+# per-driver best laps in the configured lake table only change when a new fast lap
 # completes. We refresh on the natural "something changed" signal — a new
 # `ac-telemetry-session` message or a DCM config event — so the lake hit
 # drops from "every poll" to "once per AC session start / DCM edit".

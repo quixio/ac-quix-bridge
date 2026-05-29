@@ -61,6 +61,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info(f"✓ Config API: {settings.config_api_url}")
         logger.info("=" * 60)
 
+    # Confirm which lake table the leaderboard SQL builders will hit.
+    # Default is `ac_telemetry`; operators can flip via `LAKE_TABLE`.
+    logger.info("✓ Lake table (LAKE_TABLE): %s", settings.lake_table)
+
     _probe_config_api(settings.config_api_url, settings.sdk_token)
 
     mongo.connect(settings.mongo)

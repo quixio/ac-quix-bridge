@@ -71,8 +71,14 @@ def _build_experiments_sql() -> str:
     family of bug as the CTE/`WITH` issue documented in
     `feedback_quixlake_no_cte`). Use a single-level `GROUP BY` instead
     and filter null/empty values in Python via `_query_distinct_strings`.
+
+    Table identifier is read from `settings.lake_table` (validated at
+    settings load time against `[A-Za-z_][A-Za-z0-9_]*`).
     """
-    return "SELECT experiment FROM ac_telemetry GROUP BY experiment ORDER BY experiment"
+    lake_table = get_settings().lake_table
+    return (
+        f"SELECT experiment FROM {lake_table} GROUP BY experiment ORDER BY experiment"
+    )
 
 
 def _build_tracks_for_experiment_sql(experiment: str) -> str:
@@ -81,8 +87,9 @@ def _build_tracks_for_experiment_sql(experiment: str) -> str:
     `GROUP BY` instead of `SELECT DISTINCT` — see `_build_experiments_sql`.
     Null/empty filtering happens in Python.
     """
+    lake_table = get_settings().lake_table
     return (
-        "SELECT track FROM ac_telemetry "
+        f"SELECT track FROM {lake_table} "
         f"WHERE experiment = '{_format_sql_string(experiment)}' "
         "GROUP BY track ORDER BY track"
     )
@@ -94,8 +101,9 @@ def _build_cars_for_experiment_sql(experiment: str) -> str:
     `GROUP BY` instead of `SELECT DISTINCT` — see `_build_experiments_sql`.
     Null/empty filtering happens in Python.
     """
+    lake_table = get_settings().lake_table
     return (
-        "SELECT carModel FROM ac_telemetry "
+        f"SELECT carModel FROM {lake_table} "
         f"WHERE experiment = '{_format_sql_string(experiment)}' "
         "GROUP BY carModel ORDER BY carModel"
     )
@@ -109,10 +117,11 @@ def _build_best_laps_for_combo_sql(experiment: str, track: str, car: str) -> str
     rows in multiple environments, MIN across them all is the desired
     behaviour for this step.
     """
+    lake_table = get_settings().lake_table
     return (
         "SELECT driver, "
         "MIN(iBestTime) FILTER (WHERE iBestTime > 0) AS best_lap_ms "
-        "FROM ac_telemetry "
+        f"FROM {lake_table} "
         f"WHERE experiment = '{_format_sql_string(experiment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
@@ -180,9 +189,7 @@ async def get_experiments(
     """
     try:
         raw = mongo.tests.distinct("experiment_id")
-        out = sorted(
-            {str(v).strip() for v in raw if isinstance(v, str) and v.strip()}
-        )
+        out = sorted({str(v).strip() for v in raw if isinstance(v, str) and v.strip()})
         logger.info("experiments response: %d experiment(s)", len(out))
         return out
     except Exception as e:

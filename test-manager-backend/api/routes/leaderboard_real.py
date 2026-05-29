@@ -135,11 +135,16 @@ def _build_best_laps_sql(
     The four-way WHERE filter exactly matches the lake's Hive partitions
     (`environment`, `track`, `carModel`, `experiment`). Forgetting the
     `environment` partition is the regression this query fixes.
+
+    Table identifier is read from `settings.lake_table` (validated at
+    settings load time against `[A-Za-z_][A-Za-z0-9_]*` so it is safe to
+    inline directly into the SQL).
     """
+    lake_table = get_settings().lake_table
     return (
         "SELECT driver, "
         "MIN(iBestTime) FILTER (WHERE iBestTime > 0) AS best_lap_ms "
-        "FROM ac_telemetry "
+        f"FROM {lake_table} "
         f"WHERE environment = '{_format_sql_string(environment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
@@ -215,11 +220,15 @@ def _build_best_laps_with_lap_sql(
     so it can't surface which lap the best was set on. The gate-samples
     query needs `(driver, lap)` triples, so we need the per-lap shape
     here.
+
+    Table identifier is read from `settings.lake_table` (see
+    `_build_best_laps_sql` for the validation contract).
     """
+    lake_table = get_settings().lake_table
     return (
         "SELECT driver, lap, "
         "MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms "
-        "FROM ac_telemetry "
+        f"FROM {lake_table} "
         f"WHERE environment = '{_format_sql_string(environment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
@@ -301,6 +310,7 @@ def _build_gate_samples_sql(
     per group × 1–2 active groups, which keeps the statement well within
     a single round-trip.
     """
+    lake_table = get_settings().lake_table
     clauses: list[str] = []
     for (track, car, experiment, driver), (_best_ms, lap_num) in best_per_group.items():
         if not (track and car and experiment and driver and lap_num):
@@ -319,7 +329,7 @@ def _build_gate_samples_sql(
     return (
         "SELECT track, carModel, experiment, driver, session_id, lap, "
         "normalizedCarPosition, timestamp_ms "
-        f"FROM ac_telemetry WHERE ({where}) "
+        f"FROM {lake_table} WHERE ({where}) "
         "AND normalizedCarPosition IS NOT NULL "
         "ORDER BY track, carModel, experiment, driver, session_id, lap, "
         "timestamp_ms"

@@ -1,7 +1,14 @@
+import re
 from functools import lru_cache
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Lake table names are inlined into SQL (QuixLake doesn't expose
+# parameterised queries), so anything other than a plain SQL identifier
+# is an injection vector. Reject at settings load time rather than per
+# query so a bad env var fails the deployment loudly.
+_LAKE_TABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class MongoSettings(BaseSettings):
@@ -62,6 +69,26 @@ class Settings(BaseSettings):
         alias="QUIX_LAKE_TOKEN",
         description="PAT authenticating against the shared QuixLake",
     )
+
+    # Lake table the leaderboard SQL builders read from. Defaults to
+    # `ac_telemetry` (current behaviour); set `LAKE_TABLE` to e.g.
+    # `ac_telemetry_leaderboard` to point a deployment at an alternate
+    # table without code changes. Value must match `[A-Za-z_][A-Za-z0-9_]*`
+    # because it is inlined into SQL statements.
+    lake_table: str = Field(
+        "ac_telemetry",
+        alias="LAKE_TABLE",
+        description="Lake table name used by leaderboard SQL builders",
+    )
+
+    @field_validator("lake_table")
+    @classmethod
+    def _validate_lake_table(cls, value: str) -> str:
+        if not _LAKE_TABLE_PATTERN.match(value):
+            raise ValueError(
+                f"LAKE_TABLE must match {_LAKE_TABLE_PATTERN.pattern!r}; got {value!r}"
+            )
+        return value
 
     # Nested settings
     mongo: MongoSettings = Field(default_factory=MongoSettings)
