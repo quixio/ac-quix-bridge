@@ -1462,6 +1462,8 @@ def refresh_best_laps_cache(
     `live_stream` so every connected WebSocket client re-renders.
     """
     try:
+        from concurrent.futures import ThreadPoolExecutor
+
         from .routes.leaderboard_real import _query_best_laps
 
         new_cache: dict[tuple[str, str, str, str], dict[str, int]] = {}
@@ -1471,7 +1473,11 @@ def refresh_best_laps_cache(
                 "best-laps cache refresh: no (track,car,exp,env) groups known yet "
                 "(session + experiment caches still warming) — leaving cache as-is"
             )
-        for track, car, experiment, environment in groups:
+
+        def _run_one(
+            grp: tuple[str, str, str, str],
+        ) -> tuple[tuple[str, str, str, str], dict[str, int]]:
+            track, car, experiment, environment = grp
             per_driver = _query_best_laps(
                 quixlake_url,
                 quix_lake_token,
@@ -1480,7 +1486,6 @@ def refresh_best_laps_cache(
                 experiment=experiment,
                 environment=environment,
             )
-            new_cache[(track, car, experiment, environment)] = per_driver
             logger.info(
                 "best-laps query: track=%s car=%s exp=%s env=%s -> %d drivers",
                 track,
@@ -1489,6 +1494,17 @@ def refresh_best_laps_cache(
                 environment,
                 len(per_driver),
             )
+            return grp, per_driver
+
+        if groups:
+            # Run one lake query per group in parallel. QuixLakeClient is
+            # `requests`-based (blocking), so a thread pool is the right
+            # primitive — we're already on the Kafka consumer thread, not
+            # an event loop. Cap concurrency at 8 to avoid hammering the
+            # lake on workspaces with many active drivers.
+            with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
+                for grp, per_driver in pool.map(_run_one, groups):
+                    new_cache[grp] = per_driver
     except Exception:
         logger.exception("best-laps cache refresh failed; keeping previous cache")
         return
@@ -1591,11 +1607,15 @@ def refresh_gate_vectors_cache(
         # per group asking "for each driver, which lap matches their
         # `MIN(iBestTime)`?". We piggy-back on `_query_best_laps_with_lap`
         # added below for this purpose.
+        from concurrent.futures import ThreadPoolExecutor
+
         from .routes.leaderboard_real import _query_best_laps_with_lap
 
-        best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
-        for track, car, experiment, environment in groups:
-            per_driver_with_lap = _query_best_laps_with_lap(
+        def _run_one_group(
+            grp: tuple[str, str, str, str],
+        ) -> tuple[tuple[str, str, str, str], dict[str, tuple[int, int]]]:
+            track, car, experiment, environment = grp
+            per = _query_best_laps_with_lap(
                 quixlake_url,
                 quix_lake_token,
                 track=track,
@@ -1603,15 +1623,22 @@ def refresh_gate_vectors_cache(
                 experiment=experiment,
                 environment=environment,
             )
-            for lake_driver, (best_ms, lap_num) in per_driver_with_lap.items():
-                # Key on the RAW lake driver field so the gate-samples
-                # SQL WHERE clause sees the same string the lake stores
-                # (`"tomás"`, not the NFKD-folded `"tomas"`). Folding to
-                # the wire/cache form happens at the tail of the pipeline.
-                best_per_group[(track, car, experiment, lake_driver)] = (
-                    int(best_ms),
-                    int(lap_num),
-                )
+            return grp, per
+
+        best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
+        with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
+            for (track, car, experiment, environment), per_driver_with_lap in pool.map(
+                _run_one_group, groups
+            ):
+                for lake_driver, (best_ms, lap_num) in per_driver_with_lap.items():
+                    # Key on the RAW lake driver field so the gate-samples
+                    # SQL WHERE clause sees the same string the lake
+                    # stores. Folding to the wire/cache form happens at
+                    # the tail of the pipeline.
+                    best_per_group[(track, car, experiment, lake_driver)] = (
+                        int(best_ms),
+                        int(lap_num),
+                    )
 
         if not best_per_group:
             reduced: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
