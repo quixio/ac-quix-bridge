@@ -119,7 +119,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
       };
 
       window.addEventListener("message", handleMessage);
-      window.parent.postMessage(
+      window.top!.postMessage(
         { type: "REQUEST_AUTH_TOKEN" },
         "*", // In production, specify exact Portal origin
       );
@@ -250,7 +250,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
       return;
     }
 
-    isEmbedded.current = window !== window.parent;
+    isEmbedded.current = window !== window.top;
 
     if (!isEmbedded.current) {
       // Standalone mode - check localStorage first
