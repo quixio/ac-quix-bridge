@@ -231,15 +231,18 @@ def _build_best_laps_with_lap_sql(
     Table identifier is read from `settings.lake_table` (see
     `_build_best_laps_sql` for the validation contract).
     """
-    lake_table = get_settings().lake_table
+    settings = get_settings()
+    lake_table = settings.lake_table
+    cur_col = settings.col_current_time
+    pos_col = settings.col_normalized_position
     return (
-        "SELECT driver, lap, timestamp_ms "
+        f"SELECT driver, lap, {cur_col}, {pos_col} "
         f"FROM {lake_table} "
         f"WHERE environment = '{_format_sql_string(environment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
         f"AND experiment = '{_format_sql_string(experiment)}' "
-        "AND lap > 0"
+        f"AND lap > 0 AND {cur_col} > 0"
     )
 
 
@@ -269,40 +272,47 @@ def _query_best_laps_with_lap(
     df = df.fillna("")
     rows: list[dict[str, Any]] = df.to_dict("records")
 
-    # Lake returns raw (driver, lap, timestamp_ms) rows. Compute the
-    # per-(driver, lap) duration in Python as MAX(timestamp_ms) -
-    # MIN(timestamp_ms), then keep the fastest lap per driver. Same
-    # output shape as before, server-side aggregation pushed to backend
-    # so the SQL stays a scan + filter (no GROUP BY against the slow
-    # lake table).
-    lap_bounds: dict[tuple[str, int], tuple[int, int]] = {}
+    # Lake returns raw (driver, lap, iCurrentTime, normalizedCarPosition)
+    # rows. iCurrentTime is AC's lap-relative clock (resets each lap), so
+    # MAX(iCurrentTime) per (driver, lap) is the real lap duration. The
+    # earlier MAX(timestamp_ms) - MIN(timestamp_ms) approach measured the
+    # lake ingestion window, picking partial laps as "fastest" whenever
+    # they happened to land in a small batch window.
+    #
+    # Also track max normalizedCarPosition per (driver, lap) — only laps
+    # whose samples cover ≥95% of the track are real laps; the rest are
+    # partial/in-progress and must not be picked as "fastest".
+    settings = get_settings()
+    cur_col = settings.col_current_time
+    pos_col = settings.col_normalized_position
+
+    lap_max_time: dict[tuple[str, int], int] = {}
+    lap_max_pos: dict[tuple[str, int], float] = {}
     for row in rows:
         raw_driver = str(row.get("driver") or "").strip()
         if not raw_driver:
             continue
         try:
             lap_num = int(row.get("lap") or 0)
-            ts = int(float(row.get("timestamp_ms") or 0))
+            cur_ms = int(float(row.get(cur_col) or 0))
+            pos = float(row.get(pos_col) or 0.0)
         except (TypeError, ValueError):
             continue
-        if lap_num <= 0 or ts <= 0:
+        if lap_num <= 0 or cur_ms <= 0:
             continue
         key = (raw_driver, lap_num)
-        bounds = lap_bounds.get(key)
-        if bounds is None:
-            lap_bounds[key] = (ts, ts)
-        else:
-            lo, hi = bounds
-            if ts < lo:
-                lo = ts
-            if ts > hi:
-                hi = ts
-            lap_bounds[key] = (lo, hi)
+        if cur_ms > lap_max_time.get(key, 0):
+            lap_max_time[key] = cur_ms
+        if pos > lap_max_pos.get(key, 0.0):
+            lap_max_pos[key] = pos
 
     per_driver: dict[str, tuple[int, int]] = {}
-    for (raw_driver, lap_num), (lo, hi) in lap_bounds.items():
-        lap_time_ms = hi - lo
+    for (raw_driver, lap_num), lap_time_ms in lap_max_time.items():
         if lap_time_ms <= 0:
+            continue
+        # Reject partial laps here so the gate-samples reducer doesn't
+        # waste a roundtrip on them. 0.95 matches _PARTIAL_LAP_MAX_POS.
+        if lap_max_pos.get((raw_driver, lap_num), 0.0) < _PARTIAL_LAP_MAX_POS:
             continue
         existing = per_driver.get(raw_driver)
         if existing is None or lap_time_ms < existing[0]:
