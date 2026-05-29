@@ -345,13 +345,16 @@ def _build_gate_samples_sql(
             )
         )
     where = " OR ".join(clauses)
+    # Use iCurrentTime (AC's lap clock — resets each lap, ms-since-lap-start)
+    # rather than timestamp_ms (lake ingest wall-clock). iCurrentTime IS the
+    # cumulative-time-at-position we need for the gate vectors; no MAX-MIN
+    # arithmetic required, and it's lap-isolated by construction.
     return (
         "SELECT track, carModel, experiment, driver, session_id, lap, "
-        "normalizedCarPosition, timestamp_ms "
+        "normalizedCarPosition, iCurrentTime "
         f"FROM {lake_table} WHERE ({where}) "
         "AND normalizedCarPosition IS NOT NULL "
-        "ORDER BY track, carModel, experiment, driver, session_id, lap, "
-        "timestamp_ms"
+        "AND iCurrentTime > 0"
     )
 
 
@@ -391,7 +394,10 @@ def _reduce_to_gate_vectors(
     for row in sample_rows:
         try:
             ncp = float(row.get("normalizedCarPosition") or 0.0)
-            ts_raw = row.get("timestamp_ms")
+            # iCurrentTime is AC's lap clock — ms since lap start. That's
+            # exactly the cumulative-time-at-position we cache for the
+            # gate vectors, no MAX-MIN arithmetic needed.
+            ts_raw = row.get("iCurrentTime")
             if ts_raw is None or ts_raw == "":
                 continue
             ts = int(float(ts_raw))
@@ -423,6 +429,8 @@ def _reduce_to_gate_vectors(
         )
         if not candidate_keys:
             continue
+        # Sort by iCurrentTime ascending; iCurrentTime IS the lap-relative
+        # ms-since-start, so no lap_start subtraction is needed downstream.
         samples = sorted(buckets[candidate_keys[0]], key=lambda x: x[1])
         if not samples:
             continue
@@ -430,7 +438,6 @@ def _reduce_to_gate_vectors(
         if max_pos < _PARTIAL_LAP_MAX_POS:
             continue
 
-        lap_start_ms = samples[0][1]
         gate_vector: list[int] = [0] * GATE_COUNT
         scan_from = 0
         for i in range(GATE_COUNT):
@@ -453,7 +460,7 @@ def _reduce_to_gate_vectors(
             if interp_ts is None:
                 nearest = min(samples, key=lambda s, t=target: abs(s[0] - t))
                 interp_ts = float(nearest[1])
-            gate_vector[i] = max(0, int(interp_ts - lap_start_ms))
+            gate_vector[i] = max(0, int(interp_ts))
 
         for i in range(1, GATE_COUNT):
             if gate_vector[i] < gate_vector[i - 1]:
