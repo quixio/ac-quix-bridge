@@ -277,7 +277,7 @@ deployments:
         inputType: FreeText
         description: Public URL of the Telemetry Explorer deployment
         required: true
-        value: https://telemetryexplorer-quixdev-acquixbridge-leadboard.deployments-dev.quix.io
+        value: https://telemetryexplorer-quixdev-acquixbridge-leaderboard.deployments-dev.quix.io
     plugin:
       embeddedView:
         enabled: true
