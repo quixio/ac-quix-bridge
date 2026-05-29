@@ -44,4 +44,5 @@ ENV NEXT_TELEMETRY_DISABLED=1
 EXPOSE 3000
 
 # Start Next.js in production mode
+
 CMD ["npm", "start"]
