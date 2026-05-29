@@ -232,6 +232,9 @@ deployments:
         required: true
         secret: true
         variableKey: pat_token
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false

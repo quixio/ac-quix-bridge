@@ -30,6 +30,11 @@ variables:
     multiline: false
     defaultValue: pat_token
     required: true
+  - name: LAKE_TABLE
+    inputType: FreeText
+    multiline: false
+    defaultValue: ac_telemetry
+    description: Lake table the leaderboard queries (e.g. ac_telemetry, ac_telemetry_leaderboard)
   - name: LOCAL_DEV_MODE
     inputType: FreeText
     multiline: false
