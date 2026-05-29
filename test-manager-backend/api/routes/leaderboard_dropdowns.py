@@ -167,44 +167,48 @@ async def get_experiment_tree(
 ) -> dict[str, dict[str, list[str]]]:
     """Return the full `{experiment: {track: [car, ...]}}` tree.
 
-    One round-trip: Mongo gives the candidate experiment list, a single
-    SQL with `experiment IN (...)` returns every `(experiment, track,
-    carModel)` triple in one scan, and the rows are folded into the
-    nested dict shape the frontend feeds straight into the dropdowns.
+    Built entirely from the Mongo `tests` collection — each Test has
+    `experiment_id` and `sessions: [{track, car_model}, ...]`. We
+    aggregate those into the nested dict without touching QuixLake.
 
-    Empty Mongo → return `{}` without hitting the lake. Lake errors
-    bubble up as HTTP 500 with the exception message in `detail` —
-    operators need to see the error, not a stale view.
+    Why Mongo, not the lake: the lake gives a fast `experiment IN (…)`
+    response for tiny IN-lists but stalls at the 30 s timeout once the
+    list grows past a few values. Mongo serves the same data instantly
+    because Test Manager already records the (experiment, track, car)
+    combinations on every session-link write.
+
+    Empty Mongo → return `{}`. Mongo errors bubble up as HTTP 500.
     """
     try:
-        candidates = _candidate_experiments(mongo)
-        if not candidates:
-            logger.info("experiment-tree: mongo=0 experiments → lake=0 tuples")
-            return {}
+        tree: dict[str, dict[str, set[str]]] = {}
+        total_sessions = 0
+        for doc in mongo.tests.find(
+            {}, {"experiment_id": 1, "sessions": 1, "_id": 0}
+        ):
+            experiment = str(doc.get("experiment_id") or "").strip()
+            if not experiment:
+                continue
+            for session in doc.get("sessions") or []:
+                if not isinstance(session, dict):
+                    continue
+                track = str(session.get("track") or "").strip()
+                car = str(session.get("car_model") or "").strip()
+                if not track or not car:
+                    continue
+                tree.setdefault(experiment, {}).setdefault(track, set()).add(car)
+                total_sessions += 1
 
-        if len(candidates) > _MAX_EXPERIMENTS_IN_TREE:
-            logger.warning(
-                "experiment-tree: %d candidates exceeds cap %d — truncating",
-                len(candidates),
-                _MAX_EXPERIMENTS_IN_TREE,
-            )
-            candidates = candidates[:_MAX_EXPERIMENTS_IN_TREE]
-
-        client = _get_lake_client()
-        sql = _build_experiment_tree_sql(candidates)
-        logger.info("experiment-tree SQL: %s", sql)
-        df = client.query(sql)
-        df = df.fillna("")
-        rows: list[dict[str, Any]] = df.to_dict("records")
-        tree = _reduce_tree_rows(rows)
+        result = {
+            exp: {trk: sorted(cars) for trk, cars in sorted(by_track.items())}
+            for exp, by_track in sorted(tree.items())
+        }
         logger.info(
-            "experiment-tree: mongo=%d experiments → lake=%d (experiment,track,car) tuples",
-            len(candidates),
-            len(rows),
+            "experiment-tree: %d experiments, %d sessions, %d (experiment,track,car) tuples",
+            len(result),
+            total_sessions,
+            sum(len(cars) for by_track in tree.values() for cars in by_track.values()),
         )
-        return tree
-    except LeaderboardError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        return result
     except Exception as e:
         logger.exception("GET /leaderboard/experiment-tree failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
