@@ -31,6 +31,7 @@ table only.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -165,23 +166,25 @@ async def get_experiment_tree(
     _auth: None = Depends(read_permission),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
 ) -> dict[str, dict[str, list[str]]]:
-    """Return the full `{experiment: {track: [car, ...]}}` tree.
+    """Return the `{experiment: {track: [car, ...]}}` tree filtered to
+    experiments that have data in the configured lake table.
 
-    Built entirely from the Mongo `tests` collection — each Test has
-    `experiment_id` and `sessions: [{track, car_model}, ...]`. We
-    aggregate those into the nested dict without touching QuixLake.
+    Two-phase build:
+      1. Mongo `tests` gives the candidate `(experiment, track, car)`
+         combinations — Test Manager writes these on every session-link.
+      2. One probe per experiment against the configured `LAKE_TABLE`
+         (default `ac_telemetry`). Parallel; per-probe timeout 5 s.
+         Experiments whose probe returns no rows are dropped from the
+         result.
 
-    Why Mongo, not the lake: the lake gives a fast `experiment IN (…)`
-    response for tiny IN-lists but stalls at the 30 s timeout once the
-    list grows past a few values. Mongo serves the same data instantly
-    because Test Manager already records the (experiment, track, car)
-    combinations on every session-link write.
-
-    Empty Mongo → return `{}`. Mongo errors bubble up as HTTP 500.
+    The probe is `SELECT experiment FROM <table> WHERE experiment = '…'
+    GROUP BY experiment` — same form that responds instantly today.
+    Mongo runs once and is fast; the parallel probes typically complete
+    in <2 s total even with a half-dozen experiments.
     """
     try:
+        # Phase 1: Mongo aggregate.
         tree: dict[str, dict[str, set[str]]] = {}
-        total_sessions = 0
         for doc in mongo.tests.find(
             {}, {"experiment_id": 1, "sessions": 1, "_id": 0}
         ):
@@ -196,19 +199,54 @@ async def get_experiment_tree(
                 if not track or not car:
                     continue
                 tree.setdefault(experiment, {}).setdefault(track, set()).add(car)
-                total_sessions += 1
+
+        candidates = sorted(tree.keys())
+        if not candidates:
+            logger.info("experiment-tree: mongo=0 experiments")
+            return {}
+
+        # Phase 2: parallel per-experiment lake probes against LAKE_TABLE.
+        settings = get_settings()
+        if not settings.quixlake_url or not settings.quix_lake_token:
+            raise LeaderboardError("QuixLake credentials missing")
+        client = QuixLakeClient(
+            base_url=settings.quixlake_url, token=settings.quix_lake_token
+        )
+        lake_table = settings.lake_table
+
+        def _probe(exp: str) -> bool:
+            sql = (
+                f"SELECT experiment FROM {lake_table} "
+                f"WHERE experiment = '{_format_sql_string(exp)}' "
+                "GROUP BY experiment"
+            )
+            try:
+                df = client.query(sql)
+                return not df.empty
+            except Exception:
+                logger.warning("experiment-tree probe failed for %r", exp, exc_info=False)
+                return False
+
+        probe_results = await asyncio.gather(
+            *(asyncio.to_thread(_probe, exp) for exp in candidates),
+            return_exceptions=False,
+        )
+        has_lake_data = {exp for exp, ok in zip(candidates, probe_results) if ok}
 
         result = {
             exp: {trk: sorted(cars) for trk, cars in sorted(by_track.items())}
             for exp, by_track in sorted(tree.items())
+            if exp in has_lake_data
         }
         logger.info(
-            "experiment-tree: %d experiments, %d sessions, %d (experiment,track,car) tuples",
+            "experiment-tree: mongo=%d → lake(%s)=%d",
+            len(candidates),
+            lake_table,
             len(result),
-            total_sessions,
-            sum(len(cars) for by_track in tree.values() for cars in by_track.values()),
         )
         return result
+    except LeaderboardError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except Exception as e:
         logger.exception("GET /leaderboard/experiment-tree failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
