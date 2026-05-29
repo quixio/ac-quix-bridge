@@ -65,31 +65,39 @@ class BestLapRow(dict[str, Any]):
 
 
 def _build_experiments_sql() -> str:
-    """Distinct non-empty experiments across the lake, sorted ascending."""
-    return (
-        "SELECT DISTINCT experiment FROM ac_telemetry "
-        "WHERE experiment IS NOT NULL AND experiment != '' "
-        "ORDER BY experiment"
-    )
+    """Distinct experiments across the lake, sorted ascending.
+
+    QuixLake silently returns 0 rows for `SELECT DISTINCT` queries (same
+    family of bug as the CTE/`WITH` issue documented in
+    `feedback_quixlake_no_cte`). Use a single-level `GROUP BY` instead
+    and filter null/empty values in Python via `_query_distinct_strings`.
+    """
+    return "SELECT experiment FROM ac_telemetry GROUP BY experiment ORDER BY experiment"
 
 
 def _build_tracks_for_experiment_sql(experiment: str) -> str:
-    """Distinct non-null tracks for one experiment."""
+    """Distinct tracks for one experiment.
+
+    `GROUP BY` instead of `SELECT DISTINCT` — see `_build_experiments_sql`.
+    Null/empty filtering happens in Python.
+    """
     return (
-        "SELECT DISTINCT track FROM ac_telemetry "
+        "SELECT track FROM ac_telemetry "
         f"WHERE experiment = '{_format_sql_string(experiment)}' "
-        "AND track IS NOT NULL "
-        "ORDER BY track"
+        "GROUP BY track ORDER BY track"
     )
 
 
 def _build_cars_for_experiment_sql(experiment: str) -> str:
-    """Distinct non-null car models for one experiment."""
+    """Distinct car models for one experiment.
+
+    `GROUP BY` instead of `SELECT DISTINCT` — see `_build_experiments_sql`.
+    Null/empty filtering happens in Python.
+    """
     return (
-        "SELECT DISTINCT carModel FROM ac_telemetry "
+        "SELECT carModel FROM ac_telemetry "
         f"WHERE experiment = '{_format_sql_string(experiment)}' "
-        "AND carModel IS NOT NULL "
-        "ORDER BY carModel"
+        "GROUP BY carModel ORDER BY carModel"
     )
 
 
@@ -213,10 +221,15 @@ async def get_best_laps(
     ascending by `best_lap_ms`. Driver names are mapped from the lake's
     folded-lowercase form back to the Mongo display case.
     """
+    logger.info(
+        "best-laps request: experiment=%r track=%r car=%r",
+        experiment,
+        track,
+        car,
+    )
     try:
         client = _get_lake_client()
         sql = _build_best_laps_for_combo_sql(experiment, track, car)
-        logger.info("best-laps SQL: %s", sql)
         df = client.query(sql)
         df = df.fillna("")
         rows: list[dict[str, Any]] = df.to_dict("records")
@@ -249,4 +262,10 @@ async def get_best_laps(
     # Defensive re-sort: the lake's ORDER BY does the heavy lifting, but
     # rows that fail the coerce above are skipped and don't disturb order.
     out.sort(key=lambda r: r["best_lap_ms"])
+    sample = ", ".join(f"{r['driver']}={r['best_lap_ms']}" for r in out[:3])
+    logger.info(
+        "best-laps response: %d driver(s)%s",
+        len(out),
+        f" — {sample}{'…' if len(out) > 3 else ''}" if sample else "",
+    )
     return out

@@ -64,6 +64,14 @@ logger = logging.getLogger(__name__)
 THROTTLE_MS = 50
 
 
+# Idle keepalive interval. Quix ingress (and most cloud LBs) drop idle WS
+# connections after ~30–60 s; AC isn't always sending fast enough to keep
+# the pipe warm. We broadcast a tiny `{"type": "ping"}` envelope every
+# 25 s so the socket always has recent traffic. The frontend ignores the
+# envelope. Cheap (one short JSON frame per client per 25 s).
+PING_INTERVAL_SECONDS = 25.0
+
+
 # ---------------------------------------------------------------------------
 # Module-level async state
 # ---------------------------------------------------------------------------
@@ -92,6 +100,10 @@ _clients_lock: asyncio.Lock | None = None
 # Background task handle so the lifespan can cancel it on shutdown.
 _broadcaster_task: asyncio.Task[None] | None = None
 
+# Background keepalive-ping task handle. Independent of the active-mutation
+# broadcaster so a stalled snapshot queue doesn't also stop the pings.
+_keepalive_task: asyncio.Task[None] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Lifespan hooks (called from api/app.py)
@@ -104,7 +116,7 @@ async def start_broadcaster() -> None:
     Idempotent: re-calling while a broadcaster is already running is a
     no-op, so a hot-reloaded FastAPI startup doesn't fork ghost tasks.
     """
-    global _loop, _queue, _clients_lock, _broadcaster_task
+    global _loop, _queue, _clients_lock, _broadcaster_task, _keepalive_task
 
     if _broadcaster_task is not None and not _broadcaster_task.done():
         return
@@ -115,7 +127,14 @@ async def start_broadcaster() -> None:
     _broadcaster_task = asyncio.create_task(
         _broadcaster_loop(), name="live-stream-broadcaster"
     )
-    logger.info("live-stream broadcaster started (throttle=%d ms)", THROTTLE_MS)
+    _keepalive_task = asyncio.create_task(
+        _keepalive_loop(), name="live-stream-keepalive"
+    )
+    logger.info(
+        "live-stream broadcaster started (throttle=%d ms, ping=%.1f s)",
+        THROTTLE_MS,
+        PING_INTERVAL_SECONDS,
+    )
 
 
 async def stop_broadcaster() -> None:
@@ -125,7 +144,7 @@ async def stop_broadcaster() -> None:
     has a small timeout/try-suppress so a misbehaving client can't stall
     process exit.
     """
-    global _broadcaster_task
+    global _broadcaster_task, _keepalive_task
 
     if _broadcaster_task is not None:
         _broadcaster_task.cancel()
@@ -134,6 +153,14 @@ async def stop_broadcaster() -> None:
         except (asyncio.CancelledError, Exception):
             pass
         _broadcaster_task = None
+
+    if _keepalive_task is not None:
+        _keepalive_task.cancel()
+        try:
+            await _keepalive_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _keepalive_task = None
 
     # Close every still-connected client. Use a snapshot of the set so a
     # client closing itself mid-iteration doesn't break the loop.
@@ -317,6 +344,34 @@ async def _broadcaster_loop() -> None:
             await asyncio.sleep(THROTTLE_MS / 1000.0)
         except asyncio.CancelledError:
             raise
+
+
+async def _keepalive_loop() -> None:
+    """Broadcast a tiny ``{"type": "ping"}`` envelope every ``PING_INTERVAL_SECONDS``.
+
+    Quix ingress (and most cloud LBs) close idle WS connections after
+    ~30–60 s of no traffic. Without this loop, a leaderboard tab open
+    on a quiet sim (no `active` mutations being published) would see
+    repeated disconnect/reconnect storms as the ingress timeouts fire.
+
+    The frontend treats `type=ping` as a no-op (no row mutation, no
+    state change). The send goes through ``_broadcast`` so dead clients
+    are pruned the same way they are on real broadcasts.
+    """
+    text = json.dumps({"type": "ping"})
+    while True:
+        try:
+            await asyncio.sleep(PING_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        try:
+            await _broadcast(text)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Never let a transient broadcast failure kill the keepalive
+            # loop — that would re-introduce the original storm.
+            logger.debug("keepalive broadcast failed", exc_info=True)
 
 
 def _build_wire_payload(snapshot: dict[str, Any]) -> dict[str, Any] | None:

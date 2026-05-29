@@ -76,7 +76,16 @@ interface ActiveMessage {
   row: ActiveMutation
 }
 
-type StreamMessage = SnapshotMessage | ActiveMessage
+/**
+ * Server-side idle keepalive — broadcast every ~25 s to keep the Quix
+ * ingress from closing an otherwise-quiet socket. No payload semantics;
+ * the hook just ignores it.
+ */
+interface PingMessage {
+  type: "ping"
+}
+
+type StreamMessage = SnapshotMessage | ActiveMessage | PingMessage
 
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 10000]
 
@@ -212,6 +221,10 @@ export function useLiveStream(): UseLiveStreamResult {
           // somehow we get here, treat the connection as established.
           setLoading(false)
           setError(null)
+        } else if (parsed.type === "ping") {
+          // Server-side idle keepalive — purely traffic, no state change.
+          // We deliberately don't even touch `error` / `loading` here so
+          // a ping can never paper over a real protocol issue.
         } else {
           console.warn(
             "[live-stream] unexpected envelope type:",

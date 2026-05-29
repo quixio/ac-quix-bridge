@@ -52,7 +52,7 @@ interface QuixAuthProviderProps {
 }
 
 export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
-  const [token, setToken] = useState<string | null>(null);
+  const [token, setTokenRaw] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
@@ -61,6 +61,18 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const isEmbedded = useRef(false);
   const refreshInProgress = useRef(false);
+
+  // Wrap the raw setter so downstream consumers (the leaderboard
+  // live-stream hook in particular) don't see a fresh string reference
+  // every time the Portal sends back the same JWT. Without this guard,
+  // the periodic 30-minute refresh and the visibilitychange handler
+  // both call `setToken(samePayload)` on every tick, which churns the
+  // `useEffect([token, …])` dep array and tears down + reopens any
+  // WebSocket bound to the token. We use the functional setState form
+  // so two near-simultaneous refresh calls can't race past the guard.
+  const setToken = useCallback((next: string | null) => {
+    setTokenRaw((prev) => (prev === next ? prev : next));
+  }, []);
 
   // Request fresh token from Portal
   const requestTokenFromPortal = useCallback((): Promise<string | null> => {
@@ -112,7 +124,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
         "*", // In production, specify exact Portal origin
       );
     });
-  }, [token]);
+  }, [token, setToken]);
 
   // Refresh token function exposed to API client
   const refreshToken = useCallback(async (): Promise<string | null> => {
@@ -150,7 +162,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
     }
 
     return freshToken;
-  }, [requestTokenFromPortal]);
+  }, [requestTokenFromPortal, setToken]);
 
   // Handle manual token submission in standalone mode
   const handleTokenSubmit = useCallback(async (submittedToken: string) => {
@@ -187,7 +199,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
       setAuthError(errorMsg);
       throw err;
     }
-  }, []);
+  }, [setToken]);
 
   // Clear token and re-prompt for standalone mode (called on 401/403)
   const clearTokenAndPrompt = useCallback(() => {
@@ -200,7 +212,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
     setAuthError(
       "Your token has expired or is invalid. Please enter a new token.",
     );
-  }, []);
+  }, [setToken]);
 
   // Load user profile from Portal API when token is set
   useEffect(() => {
@@ -284,7 +296,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
         }
       }
     });
-  }, [requestTokenFromPortal]);
+  }, [requestTokenFromPortal, setToken]);
 
   // Listen for proactive token updates from Portal
   useEffect(() => {
@@ -305,7 +317,7 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
 
     window.addEventListener("message", handleProactiveToken);
     return () => window.removeEventListener("message", handleProactiveToken);
-  }, []);
+  }, [setToken]);
 
   // Periodic token refresh (every 30 minutes)
   useEffect(() => {
