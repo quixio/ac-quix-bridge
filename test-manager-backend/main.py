@@ -4,7 +4,6 @@ import sys
 
 import uvicorn
 
-
 from api.app import create_app
 from api.settings import get_settings
 
