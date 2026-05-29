@@ -382,6 +382,13 @@ def _query_gate_samples(
     df = df.fillna("")
     rows: list[dict[str, Any]] = df.to_dict("records")
     logger.info("Gate-samples query returned %d position rows", len(rows))
+    if rows:
+        sample = rows[0]
+        logger.info(
+            "Gate-samples sample row keys=%s values=%s",
+            list(sample.keys()),
+            {k: sample.get(k) for k in list(sample.keys())[:8]},
+        )
     return rows
 
 
