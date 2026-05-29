@@ -140,15 +140,17 @@ def _build_best_laps_sql(
     settings load time against `[A-Za-z_][A-Za-z0-9_]*` so it is safe to
     inline directly into the SQL).
     """
-    lake_table = get_settings().lake_table
+    settings = get_settings()
+    lake_table = settings.lake_table
+    best_col = settings.col_best_time
     return (
-        "SELECT driver, iBestTime "
+        f"SELECT driver, {best_col} "
         f"FROM {lake_table} "
         f"WHERE environment = '{_format_sql_string(environment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
         f"AND experiment = '{_format_sql_string(experiment)}' "
-        "AND iBestTime > 0"
+        f"AND {best_col} > 0"
     )
 
 
@@ -185,14 +187,15 @@ def _query_best_laps(
     rows: list[dict[str, Any]] = df.to_dict("records")
 
     # Per-driver MIN(iBestTime) folded in Python — the lake just streams
-    # raw (driver, iBestTime) rows so the query stays a scan + filter
+    # raw (driver, best_time) rows so the query stays a scan + filter
     # rather than a costly server-side aggregation.
+    best_col = get_settings().col_best_time
     per_driver: dict[str, int] = {}
     for row in rows:
         raw_driver = str(row.get("driver") or "").strip()
         if not raw_driver:
             continue
-        raw_best = row.get("iBestTime")
+        raw_best = row.get(best_col)
         if raw_best is None or raw_best == "":
             continue
         try:
@@ -345,16 +348,20 @@ def _build_gate_samples_sql(
             )
         )
     where = " OR ".join(clauses)
-    # Use iCurrentTime (AC's lap clock — resets each lap, ms-since-lap-start)
-    # rather than timestamp_ms (lake ingest wall-clock). iCurrentTime IS the
-    # cumulative-time-at-position we need for the gate vectors; no MAX-MIN
-    # arithmetic required, and it's lap-isolated by construction.
+    settings = get_settings()
+    cur_col = settings.col_current_time
+    pos_col = settings.col_normalized_position
+    # Use the configured "current time" column (AC's lap clock — resets
+    # each lap, ms-since-lap-start) rather than timestamp_ms (lake ingest
+    # wall-clock). Column is `iCurrentTime` on the raw `ac_telemetry`
+    # table and `currentTime` on derived leaderboard tables; the
+    # LAKE_COL_CURRENT_TIME env var lets ops point at whichever exists.
     return (
-        "SELECT track, carModel, experiment, driver, session_id, lap, "
-        "normalizedCarPosition, iCurrentTime "
+        f"SELECT track, carModel, experiment, driver, session_id, lap, "
+        f"{pos_col}, {cur_col} "
         f"FROM {lake_table} WHERE ({where}) "
-        "AND normalizedCarPosition IS NOT NULL "
-        "AND iCurrentTime > 0"
+        f"AND {pos_col} IS NOT NULL "
+        f"AND {cur_col} > 0"
     )
 
 
@@ -390,14 +397,17 @@ def _reduce_to_gate_vectors(
     colour cue. Folding only happens here at the tail of the pipeline so
     the SQL WHERE clause sees the raw lake string.
     """
+    settings = get_settings()
+    cur_col = settings.col_current_time
+    pos_col = settings.col_normalized_position
     buckets: dict[tuple[str, str, str, str, str, int], list[tuple[float, int]]] = {}
     for row in sample_rows:
         try:
-            ncp = float(row.get("normalizedCarPosition") or 0.0)
-            # iCurrentTime is AC's lap clock — ms since lap start. That's
-            # exactly the cumulative-time-at-position we cache for the
-            # gate vectors, no MAX-MIN arithmetic needed.
-            ts_raw = row.get("iCurrentTime")
+            ncp = float(row.get(pos_col) or 0.0)
+            # `currentTime` (or `iCurrentTime` on the raw table) is AC's
+            # lap clock — ms since lap start. That's exactly the
+            # cumulative-time-at-position we cache for the gate vectors.
+            ts_raw = row.get(cur_col)
             if ts_raw is None or ts_raw == "":
                 continue
             ts = int(float(ts_raw))

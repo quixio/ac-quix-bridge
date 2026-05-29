@@ -99,14 +99,16 @@ def _build_best_laps_for_combo_sql(experiment: str, track: str, car: str) -> str
     Filter `iBestTime > 0` stays in the WHERE so we don't ship rows from
     drivers who haven't completed a flying lap.
     """
-    lake_table = get_settings().lake_table
+    settings = get_settings()
+    lake_table = settings.lake_table
+    best_col = settings.col_best_time
     return (
-        "SELECT driver, iBestTime "
+        f"SELECT driver, {best_col} "
         f"FROM {lake_table} "
         f"WHERE experiment = '{_format_sql_string(experiment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
-        "AND iBestTime > 0"
+        f"AND {best_col} > 0"
     )
 
 
@@ -287,14 +289,15 @@ async def get_best_laps(
 
     driver_name_lookup = _build_driver_name_lookup(mongo)
 
-    # Per-driver MIN(iBestTime) in Python — pushed off the lake so the
-    # query is a simple scan + filter, not an aggregation.
+    # Per-driver MIN(<best-time-column>) in Python — pushed off the lake
+    # so the query is a simple scan + filter, not an aggregation.
+    best_col = get_settings().col_best_time
     best_by_folded: dict[str, int] = {}
     for row in rows:
         raw_driver = str(row.get("driver") or "").strip()
         if not raw_driver:
             continue
-        raw_best = row.get("iBestTime")
+        raw_best = row.get(best_col)
         if raw_best is None or raw_best == "":
             continue
         try:

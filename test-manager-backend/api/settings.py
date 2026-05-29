@@ -81,12 +81,38 @@ class Settings(BaseSettings):
         description="Lake table name used by leaderboard SQL builders",
     )
 
-    @field_validator("lake_table")
+    # Column-name overrides — some derived tables (e.g. ac_telemetry_leadboard)
+    # drop the `i` prefix and use `currentTime` / `bestTime` /
+    # `normalizedPosition` instead of AC's raw `iCurrentTime` / `iBestTime` /
+    # `normalizedCarPosition`. Same identifier-validation rule as `lake_table`
+    # since these are inlined into SQL too.
+    col_current_time: str = Field(
+        "iCurrentTime",
+        alias="LAKE_COL_CURRENT_TIME",
+        description="Column name for AC's lap-relative current time (ms)",
+    )
+    col_best_time: str = Field(
+        "iBestTime",
+        alias="LAKE_COL_BEST_TIME",
+        description="Column name for AC's best-lap time so far (ms)",
+    )
+    col_normalized_position: str = Field(
+        "normalizedCarPosition",
+        alias="LAKE_COL_NORMALIZED_POSITION",
+        description="Column name for the 0..1 lap position",
+    )
+
+    @field_validator(
+        "lake_table",
+        "col_current_time",
+        "col_best_time",
+        "col_normalized_position",
+    )
     @classmethod
-    def _validate_lake_table(cls, value: str) -> str:
+    def _validate_lake_identifier(cls, value: str) -> str:
         if not _LAKE_TABLE_PATTERN.match(value):
             raise ValueError(
-                f"LAKE_TABLE must match {_LAKE_TABLE_PATTERN.pattern!r}; got {value!r}"
+                f"value must match {_LAKE_TABLE_PATTERN.pattern!r}; got {value!r}"
             )
         return value
 
