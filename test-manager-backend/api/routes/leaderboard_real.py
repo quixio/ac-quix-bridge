@@ -151,30 +151,18 @@ def _reduce_to_per_driver_best(
 ) -> dict[tuple[str, str, str, str], tuple[int, int]]:
     """Collapse per-lap rows to `{(track, car, exp, driver): (best_ms, lap)}`.
 
-    Drops each session's highest-lap-number partition — that's the lap
-    still in progress when telemetry capture stopped, so its
-    `MAX(timestamp_ms) - MIN(timestamp_ms)` is a partial duration and
-    not a real lap time. Same logic as the prior `/best-laps` route.
+    Every per-lap row is a candidate; partial-lap rejection happens
+    downstream in `_reduce_to_gate_vectors` via the position-coverage
+    check (`max_pos < _PARTIAL_LAP_MAX_POS`). Dropping the highest lap
+    per session here was overly aggressive for tiny datasets — a session
+    with a single completed lap had `max == lap`, which removed the only
+    candidate and left the cache empty.
     """
-    max_lap_per_session: dict[str, int] = {}
-    for row in rows:
-        session_id = row.get("session_id") or ""
-        try:
-            lap_num = int(row.get("lap") or 0)
-        except (TypeError, ValueError):
-            continue
-        if lap_num > max_lap_per_session.get(session_id, -1):
-            max_lap_per_session[session_id] = lap_num
-
     best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
     for row in rows:
-        session_id = row.get("session_id") or ""
         try:
             lap_num = int(row.get("lap") or 0)
         except (TypeError, ValueError):
-            continue
-        # Drop the in-progress lap (highest lap in this session).
-        if lap_num >= max_lap_per_session.get(session_id, -1):
             continue
 
         raw_lap_ms = row.get("lap_time_ms")

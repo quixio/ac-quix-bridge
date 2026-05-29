@@ -392,6 +392,29 @@ def _record_message(payload: dict[str, Any]) -> None:
         entry_partial["last_gate_delta_ms"] = last_gate_delta_ms
         _state[key] = entry_partial
 
+    # Notify the WebSocket broadcaster outside the state lock so a slow
+    # event-loop scheduler can't backpressure the Kafka consumer.
+    # `publish_snapshot` is a no-op when the broadcaster isn't running
+    # (e.g. pytest, startup race) and swallows every failure — the
+    # consumer loop must never crash on a missing event loop.
+    snapshot = {
+        "driver": driver,
+        "car": car,
+        "track": track,
+        "experiment": entry_partial["experiment"],
+        "current_lap": (entry_partial["completedLaps"] or 0) + 1,
+        "current_lap_time_ms": entry_partial["iCurrentTime"],
+        "normalized_position": entry_partial["normalizedCarPosition"],
+        "last_gate_index": entry_partial["last_gate_index"],
+        "last_gate_state": entry_partial["last_gate_state"],
+        "last_gate_delta_ms": entry_partial["last_gate_delta_ms"],
+    }
+    # Local import to break the import cycle (live_stream is a leaf
+    # module pulled in by api/app.py at startup, not at module load).
+    from . import live_stream
+
+    live_stream.publish_snapshot(snapshot)
+
 
 def set_last_gate_state(
     track: str,
@@ -417,6 +440,22 @@ def set_last_gate_state(
         entry["last_gate_index"] = index
         entry["last_gate_state"] = state
         entry["last_gate_delta_ms"] = delta_ms
+        snapshot = {
+            "driver": driver,
+            "car": car,
+            "track": track,
+            "experiment": entry["experiment"],
+            "current_lap": (entry["completedLaps"] or 0) + 1,
+            "current_lap_time_ms": entry["iCurrentTime"],
+            "normalized_position": entry["normalizedCarPosition"],
+            "last_gate_index": index,
+            "last_gate_state": state,
+            "last_gate_delta_ms": delta_ms,
+        }
+    # Publish outside the state lock — see `_record_message` rationale.
+    from . import live_stream
+
+    live_stream.publish_snapshot(snapshot)
 
 
 def get_active_driver() -> dict[str, Any] | None:
@@ -1060,6 +1099,11 @@ def refresh_gate_vectors_cache(
     All exceptions are caught and logged. If the refresh fails the
     previous cache value (possibly `None` on first run) stays valid, so
     the endpoint degrades to "missing data" rather than crashing.
+
+    After a successful swap, broadcasts a fresh full snapshot through
+    `live_stream` so every connected WebSocket client re-renders with
+    the updated historicals. The broadcast is wrapped in its own
+    try/except so a Mongo hiccup can't take down the consumer thread.
     """
     try:
         from .routes.leaderboard_real import (
@@ -1091,6 +1135,49 @@ def refresh_gate_vectors_cache(
         len(reduced),
         total_historicals,
     )
+
+    # Historicals changed → broadcast a fresh full snapshot to every WS
+    # client so the leaderboard tab updates without waiting for the next
+    # connect. Best-effort: any failure inside the broadcast helpers is
+    # logged and swallowed so the consumer thread stays alive.
+    _broadcast_full_snapshot_safely()
+
+
+def _broadcast_full_snapshot_safely() -> None:
+    """Build and publish a full leaderboard snapshot for all WS clients.
+
+    Called from the Kafka consumer thread after the gate-vectors cache
+    has been swapped. We must:
+
+    * Resolve the Mongo handle the assembly code needs without forcing
+      callers to thread it through. `api.mongo.get_mongo()` is a
+      module-level singleton populated in the FastAPI lifespan, so it's
+      safe to read from a background thread once the app has started.
+    * Run `build_live_positions(mongo)` synchronously here — we're
+      already on a worker thread (Kafka consumer), not the event loop,
+      so the seconds-long Mongo / lake calls don't block any HTTP
+      request. `publish_full_snapshot` does the cross-thread handoff
+      onto the FastAPI loop.
+    * Swallow every exception. A Mongo timeout or a missing-creds
+      `LeaderboardError` must not propagate; the next refresh will try
+      again.
+    """
+    try:
+        # Lazy imports for the same one-way ordering reason
+        # `refresh_gate_vectors_cache` itself uses: `leaderboard_real`
+        # already imports `live_telemetry`, and `live_stream` is a leaf
+        # pulled in by `api/app.py` at startup.
+        from . import live_stream, mongo
+        from .routes.leaderboard_real import build_live_positions
+
+        mongo_db = mongo.get_mongo()
+        rows = build_live_positions(mongo_db)
+        live_stream.publish_full_snapshot(rows)
+    except Exception:
+        logger.exception(
+            "broadcasting full snapshot after gate-vectors refresh failed; "
+            "WS clients will receive a fresh snapshot on next reconnect"
+        )
 
 
 def _refresh_gate_vectors_from_settings() -> None:

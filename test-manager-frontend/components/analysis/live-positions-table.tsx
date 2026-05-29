@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useMemo } from "react"
 import { useAutoAnimate } from "@formkit/auto-animate/react"
 
 import {
@@ -14,6 +14,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { formatLapTime } from "@/lib/utils/format"
 import { cn } from "@/lib/utils"
+import { useLiveStream } from "@/lib/hooks/use-live-stream"
+import type { LiveStreamMutation } from "@/lib/hooks/use-live-stream"
 import {
   COLLAPSED_ROW_COUNT,
   collapseAroundIndex,
@@ -39,12 +41,21 @@ import type { LivePositionEntry } from "@/types/leaderboard"
  *     crosses each of the 20 checkpoint gates and stays sticky until
  *     the next crossing.
  *
- * The active row's At Position cell ticks at jittered intervals between
- * polls so the running clock advances visually instead of jumping every
- * poll. Server payload provides the anchor `current_lap_time_ms`;
- * locally we add `performance.now() - localT0` to that anchor. There is
- * no longer a "freeze for 3 s after a poll" window — the running clock
- * advances continuously.
+ * Active-driver clock source: a WebSocket stream
+ * (`/api/v1/leaderboard/live-stream`) pushes AC's `iCurrentTime`
+ * verbatim at ≤20 Hz. There is no client-side extrapolation — the
+ * cell renders exactly what AC's shared memory reports. That fixes
+ * two bugs:
+ *   * Pre-start "wall-clock advances while car is stationary"
+ *     (`iCurrentTime == 0` until the start line is crossed).
+ *   * Parked car mid-lap (AC keeps advancing `iCurrentTime`, so the
+ *     clock keeps ticking; previously extrapolation produced the same
+ *     visual but for the wrong reason).
+ *
+ * When AC pauses, the source stops sending and the WS stops pushing —
+ * the clock naturally freezes at the last value. After 10 s of
+ * silence the backend's `STALE_AFTER_S` window expires and the next
+ * `/live-positions` poll drops the active row.
  *
  * Historical rows show their ghost-interpolated `current_lap_time_ms`
  * at the active driver's current map position — a true live comparison.
@@ -53,21 +64,65 @@ import type { LivePositionEntry } from "@/types/leaderboard"
  * server reshuffles ranks at sector boundaries.
  */
 
-// The clock re-renders at jittered intervals in [TICK_MIN_MS, TICK_MAX_MS]
-// to read as organic rather than a metronome. Picked roughly around 150 ms.
-const TICK_MIN_MS = 100
-const TICK_MAX_MS = 180
-
 export interface LivePositionsTableProps {
   rows: LivePositionEntry[]
   collapsed?: boolean
+}
+
+function mergeActiveWithStream(
+  rows: LivePositionEntry[],
+  mutation: LiveStreamMutation | null,
+): LivePositionEntry[] {
+  if (!mutation) return rows
+  // The WS message is keyed by (driver, track, car, experiment) — match
+  // it against the active row in the polled slice. We don't trust
+  // `is_active` alone because the polled row may transiently lag the
+  // stream (e.g. a fresh session whose first poll hasn't completed),
+  // and we don't want to overwrite the wrong driver's row.
+  let matched = false
+  const next = rows.map((row) => {
+    if (
+      !matched &&
+      row.is_active &&
+      row.driver === mutation.driver &&
+      row.track === mutation.track &&
+      row.car === mutation.car &&
+      row.experiment === mutation.experiment
+    ) {
+      matched = true
+      return {
+        ...row,
+        current_lap: mutation.current_lap ?? row.current_lap,
+        current_lap_time_ms: mutation.current_lap_time_ms,
+        last_gate_index: mutation.last_gate_index ?? row.last_gate_index,
+        last_gate_state: mutation.last_gate_state ?? row.last_gate_state,
+        last_gate_delta_ms:
+          mutation.last_gate_delta_ms ?? row.last_gate_delta_ms,
+      }
+    }
+    return row
+  })
+  return next
 }
 
 export function LivePositionsTable({
   rows,
   collapsed = false,
 }: LivePositionsTableProps) {
-  const sorted = [...rows].sort((a, b) => a.rank - b.rank)
+  const streamMutation = useLiveStream()
+
+  // Stream mutation overrides the active row's per-tick fields. We do
+  // the merge before sorting because sorting is by `rank`, which the
+  // stream doesn't touch — so ordering is stable across stream updates.
+  const merged = useMemo(
+    () => mergeActiveWithStream(rows, streamMutation),
+    [rows, streamMutation],
+  )
+  const sorted = useMemo(
+    () => [...merged].sort((a, b) => a.rank - b.rank),
+    [merged],
+  )
+
   const currentActiveIdx = sorted.findIndex((r) => r.is_active)
   // Anchor the collapsed window so the active driver's rank change is
   // visible *inside* the existing window before it re-centres — the
@@ -82,70 +137,6 @@ export function LivePositionsTable({
   })
   const active = sorted.find((r) => r.is_active) ?? null
   const activeRank = active?.rank ?? null
-  const activeServerMs = active?.current_lap_time_ms ?? 0
-
-  // Anchor for client-side extrapolation. We capture both the latest
-  // server-reported elapsed (`serverElapsedMs`) and the local clock at
-  // the moment we received it (`localT0`). Display = anchor + (now - t0).
-  const anchorRef = useRef<{ serverElapsedMs: number; localT0: number }>({
-    serverElapsedMs: activeServerMs,
-    localT0:
-      typeof performance !== "undefined" ? performance.now() : Date.now(),
-  })
-
-  // Re-anchor whenever the server payload changes. If the new server
-  // value is *less* than the extrapolated display (lap rollover during
-  // the gap between polls), the snap is intentional — we accept the new
-  // value immediately rather than smoothing.
-  useEffect(() => {
-    anchorRef.current = {
-      serverElapsedMs: activeServerMs,
-      localT0:
-        typeof performance !== "undefined" ? performance.now() : Date.now(),
-    }
-  }, [activeServerMs])
-
-  // Forces a re-render every TICK_INTERVAL_MS so the active cell reads
-  // the current `performance.now()` and produces a fresh extrapolated
-  // value. The state's value is not consumed directly — it's just a
-  // changing identity to trigger React.
-  const [, setTickNow] = useState<number>(() =>
-    typeof performance !== "undefined" ? performance.now() : Date.now(),
-  )
-  useEffect(() => {
-    if (!active) return
-    let cancelled = false
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-    const scheduleNext = () => {
-      if (cancelled) return
-      const jitter =
-        TICK_MIN_MS + Math.random() * (TICK_MAX_MS - TICK_MIN_MS)
-      timeoutId = setTimeout(() => {
-        setTickNow(
-          typeof performance !== "undefined" ? performance.now() : Date.now(),
-        )
-        scheduleNext()
-      }, jitter)
-    }
-    scheduleNext()
-    return () => {
-      cancelled = true
-      if (timeoutId != null) clearTimeout(timeoutId)
-    }
-  }, [active])
-
-  const nowMs =
-    typeof performance !== "undefined" ? performance.now() : Date.now()
-  const timeSinceAnchor = nowMs - anchorRef.current.localT0
-  // Continuous client-side extrapolation: the running clock always
-  // advances. The 3 s post-poll freeze was removed — the "ahead/behind"
-  // colour cue now comes from the server's gate-state on every poll.
-  const activeDisplayMs = active
-    ? Math.max(
-        0,
-        Math.round(anchorRef.current.serverElapsedMs + timeSinceAnchor),
-      )
-    : null
 
   return (
     <div className="w-full">
@@ -168,11 +159,11 @@ export function LivePositionsTable({
         </TableHeader>
         <TableBody ref={bodyRef}>
           {visible.map((row, idx) => {
-            // Gap math uses pure server values (not the extrapolated
-            // active clock) so the +/- deltas freeze between polls and
-            // only refresh when the server publishes a new snapshot.
-            // Neighbours come from the *visible* slice so the +/- delta
-            // matches the row physically above/below on screen.
+            // Gap math uses the row's own `current_lap_time_ms` so
+            // neighbour deltas stay stable between polls. For the
+            // active row that value now comes from the WebSocket
+            // stream; for historicals it comes from the polled
+            // payload (ghost-interpolated server-side).
             const aboveAtPos =
               idx > 0 ? visible[idx - 1].current_lap_time_ms : null
             const belowAtPos =
@@ -184,7 +175,6 @@ export function LivePositionsTable({
                 key={`${row.driver}|${row.track}|${row.car}|${row.experiment}`}
                 row={row}
                 activeRank={activeRank}
-                activeDisplayMs={activeDisplayMs}
                 aboveAtPosMs={aboveAtPos}
                 belowAtPosMs={belowAtPos}
               />
@@ -196,15 +186,6 @@ export function LivePositionsTable({
   )
 }
 
-function atPosForRow(
-  row: LivePositionEntry,
-  activeDisplayMs: number | null,
-): number {
-  return row.is_active && activeDisplayMs != null
-    ? activeDisplayMs
-    : row.current_lap_time_ms
-}
-
 function formatGapMs(deltaMs: number, sign: "+" | "-"): string {
   const abs = Math.abs(deltaMs) / 1000
   return `${sign}${abs.toFixed(3)}`
@@ -213,20 +194,19 @@ function formatGapMs(deltaMs: number, sign: "+" | "-"): string {
 function LeaderRow({
   row,
   activeRank,
-  activeDisplayMs,
   aboveAtPosMs,
   belowAtPosMs,
 }: {
   row: LivePositionEntry
   activeRank: number | null
-  activeDisplayMs: number | null
   aboveAtPosMs: number | null
   belowAtPosMs: number | null
 }) {
-  // Display value: extrapolated for the active row's running clock, raw
-  // server number (ghost-interpolated server-side) for everyone else.
-  const atPosMs = atPosForRow(row, activeDisplayMs)
-  const atPosLabel = formatLapTime(atPosMs)
+  // Display value: the row's `current_lap_time_ms` straight from the
+  // server. For the active row this has been patched by the WebSocket
+  // stream in `mergeActiveWithStream` so it reflects AC's current
+  // `iCurrentTime` (no extrapolation).
+  const atPosLabel = formatLapTime(row.current_lap_time_ms)
 
   // Colour cue:
   //   * Non-active rows → rank-vs-active (unchanged).
@@ -244,9 +224,6 @@ function LeaderRow({
       atPosClass = "font-semibold text-rose-400"
   }
 
-  // Gap math uses the row's server-side `current_lap_time_ms` (not the
-  // extrapolated display value) so the +/- deltas remain stable between
-  // polls and only change when the server publishes a new snapshot.
   const serverAtPosMs = row.current_lap_time_ms
   const gapAbove =
     aboveAtPosMs != null ? Math.max(0, serverAtPosMs - aboveAtPosMs) : null

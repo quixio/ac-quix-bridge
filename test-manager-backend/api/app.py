@@ -11,12 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from . import live_telemetry, mongo
+from . import live_stream, live_telemetry, mongo
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
 from .routes.integrations import router as integrations_router
 from .routes.leaderboard import router as leaderboard_router
+from .routes.leaderboard_stream import router as leaderboard_stream_router
 from .routes.logbook import router as logbook_router
 from .routes.portal import router as portal_router
 from .routes.tests import router as tests_router
@@ -63,6 +64,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     mongo.connect(settings.mongo)
 
+    # Start the WebSocket broadcaster BEFORE the Kafka consumer so the
+    # consumer thread sees a live event loop on its very first
+    # `publish_snapshot` call (no dropped first-tick).
+    await live_stream.start_broadcaster()
+
     # Ghost-lap live consumer. No-op in LOCAL_DEV_MODE or when
     # LIVE_TELEMETRY_ENABLED!=true. Failure inside `start()` is contained
     # (the consumer thread logs+exits) so the API stays up.
@@ -70,6 +76,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
     live_telemetry.stop()
+    await live_stream.stop_broadcaster()
     mongo.disconnect()
 
 
@@ -219,6 +226,9 @@ def create_app() -> FastAPI:
     application.include_router(settings_router, tags=["settings"], prefix="/api/v1")
     application.include_router(
         leaderboard_router, tags=["leaderboard"], prefix="/api/v1"
+    )
+    application.include_router(
+        leaderboard_stream_router, tags=["leaderboard"], prefix="/api/v1"
     )
     application.add_middleware(
         CORSMiddleware,
