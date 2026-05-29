@@ -89,23 +89,24 @@ def _build_experiment_tree_sql(experiments: list[str]) -> str:
 
 
 def _build_best_laps_for_combo_sql(experiment: str, track: str, car: str) -> str:
-    """Per-driver best lap for one (experiment, track, car), sorted ascending.
+    """Raw `(driver, iBestTime)` rows for one (experiment, track, car).
 
-    Note: no `environment` filter. The spec explicitly removed environment
-    from the dropdowns — if the same (experiment, track, car) tuple has
-    rows in multiple environments, MIN across them all is the desired
-    behaviour for this step.
+    NO server-side aggregation — `GROUP BY driver + MIN(iBestTime)` made
+    the lake stall at the 30 s timeout against `ac_telemetry_leadboard`.
+    Returning raw rows is dramatically faster: the lake just prunes
+    partitions and streams rows; Python folds them into per-driver MIN.
+
+    Filter `iBestTime > 0` stays in the WHERE so we don't ship rows from
+    drivers who haven't completed a flying lap.
     """
     lake_table = get_settings().lake_table
     return (
-        "SELECT driver, MIN(iBestTime) AS best_lap_ms "
+        "SELECT driver, iBestTime "
         f"FROM {lake_table} "
         f"WHERE experiment = '{_format_sql_string(experiment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
-        "AND iBestTime > 0 "
-        "GROUP BY driver "
-        "ORDER BY best_lap_ms ASC"
+        "AND iBestTime > 0"
     )
 
 
@@ -286,12 +287,14 @@ async def get_best_laps(
 
     driver_name_lookup = _build_driver_name_lookup(mongo)
 
-    out: list[dict[str, Any]] = []
+    # Per-driver MIN(iBestTime) in Python — pushed off the lake so the
+    # query is a simple scan + filter, not an aggregation.
+    best_by_folded: dict[str, int] = {}
     for row in rows:
         raw_driver = str(row.get("driver") or "").strip()
         if not raw_driver:
             continue
-        raw_best = row.get("best_lap_ms")
+        raw_best = row.get("iBestTime")
         if raw_best is None or raw_best == "":
             continue
         try:
@@ -301,11 +304,14 @@ async def get_best_laps(
         if best_ms <= 0:
             continue
         folded = _fold_driver_name(raw_driver)
-        display = driver_name_lookup.get(folded, raw_driver)
-        out.append({"driver": display, "best_lap_ms": best_ms})
+        prev = best_by_folded.get(folded)
+        if prev is None or best_ms < prev:
+            best_by_folded[folded] = best_ms
 
-    # Defensive re-sort: the lake's ORDER BY does the heavy lifting, but
-    # rows that fail the coerce above are skipped and don't disturb order.
+    out: list[dict[str, Any]] = []
+    for folded, best_ms in best_by_folded.items():
+        display = driver_name_lookup.get(folded, folded)
+        out.append({"driver": display, "best_lap_ms": best_ms})
     out.sort(key=lambda r: r["best_lap_ms"])
     sample = ", ".join(f"{r['driver']}={r['best_lap_ms']}" for r in out[:3])
     logger.info(
