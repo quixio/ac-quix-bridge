@@ -26,16 +26,27 @@ export interface LivePositionEntry {
    * from cumulative-at-sector-boundary times. */
   rank: number
   /** 0..19; the latest checkpoint gate the active driver has crossed on
-   * the current lap. `null` before gate 1 of every lap and on every
-   * non-active row. */
+   * the current lap. Echoed onto every row in the same group so the
+   * frontend can render per-historical deltas against a consistent
+   * label. `null` before gate 1 of every lap. */
   last_gate_index?: number | null
-  /** Colour state for the active row's "At Position" column, computed
-   * server-side from the active driver's gate-crossing time vs. every
-   * cached historical's same-gate time. `null` on non-active rows and
-   * before the active driver crosses gate 1 of his current lap. */
+  /** Colour state for the active row's "At Position" column. Computed
+   * server-side from the active driver's gate-crossing time vs. the
+   * **median** of every cached historical's same-gate time, with a
+   * 50 ms neutral band: "ahead" => active is >50 ms faster than the
+   * median; "behind" => >50 ms slower; "neutral" => inside the band or
+   * no historicals available. `null` on non-active rows and before
+   * the active driver crosses gate 1 of his current lap. */
   last_gate_state?: "ahead" | "behind" | "neutral" | null
-  /** Active driver - leader at the latest crossed gate, in ms. Positive
-   * means the active is behind the leader; negative means ahead. `null`
-   * when no historicals are available or before gate 1 of the lap. */
+  /** Active row only. `active.gate_times_ms[i*] -
+   * median(historicals.gate_vector[i*])`. Positive means the active is
+   * slower than the median historical; negative means faster. `null`
+   * before gate 1 or when no historicals are available. */
   last_gate_delta_ms?: number | null
+  /** Per-historical inline delta (spec §7.2). Set only on historical
+   * rows: `active.gate_times_ms[i*] - this_historical.gate_vector[i*]`.
+   * Positive => active is slower than the historical at that gate.
+   * `null` on the active row, on non-active rows when no active driver,
+   * or before gate 1 of the active driver's current lap. */
+  delta_at_last_gate_ms?: number | null
 }

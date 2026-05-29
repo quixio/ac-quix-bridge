@@ -36,7 +36,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 from pymongo.database import Database
 
-from .. import live_stream
+from .. import live_stream, live_telemetry
 from ..auth import auth
 from ..mongo import get_mongo
 from ..settings import get_settings
@@ -157,6 +157,12 @@ async def live_stream_endpoint(
     try:
         rows = await asyncio.to_thread(_build_initial_rows_sync, mongo)
         await websocket.send_json({"type": "snapshot", "rows": rows})
+        # Send the current active-stream state right after the snapshot
+        # so a reconnecting client doesn't have to wait for the next
+        # transition to learn whether AC is live (spec §5.1: "Snapshot
+        # on connect now also includes one `active_state` message
+        # reflecting current state.").
+        await websocket.send_json(live_telemetry.current_active_state_envelope())
     except WebSocketDisconnect:
         # Client dropped before we could send anything; nothing to do.
         return

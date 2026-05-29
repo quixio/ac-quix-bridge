@@ -60,15 +60,19 @@ import type { LivePositionEntry } from "@/types/leaderboard"
 export interface LivePositionsTableProps {
   rows: LivePositionEntry[]
   collapsed?: boolean
+  /** When `false`, render an empty-state instead of the table — spec §8
+   * "No live session — start an AC session to see live sector deltas." */
+  isLive?: boolean
 }
 
 export function LivePositionsTable({
   rows,
   collapsed = false,
+  isLive = true,
 }: LivePositionsTableProps) {
-  // `rows` is already patched by `useLiveStream` (active-row mutations
-  // applied to the latest snapshot), so this component owns no WS
-  // bookkeeping — it just sorts by rank and renders.
+  // Every hook MUST be called before any conditional return so React's
+  // hook order stays stable across renders. The `isLive=false` empty
+  // state branch lives below the hook setup.
   const sorted = useMemo(
     () => [...rows].sort((a, b) => a.rank - b.rank),
     [rows],
@@ -88,6 +92,24 @@ export function LivePositionsTable({
   })
   const active = sorted.find((r) => r.is_active) ?? null
   const activeRank = active?.rank ?? null
+
+  if (!isLive) {
+    return (
+      <div className="w-full">
+        <div className="mb-2">
+          <h3 className="text-base font-semibold">Live Sector Comparison</h3>
+          <p className="text-xs text-muted-foreground">
+            Re-ranks at checkpoint gates
+          </p>
+        </div>
+        <div className="flex items-center gap-2 rounded border border-dashed border-muted-foreground/30 p-4 text-sm text-muted-foreground">
+          <span>
+            No live session — start an AC session to see live sector deltas.
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full">
@@ -138,6 +160,15 @@ export function LivePositionsTable({
 }
 
 function formatGapMs(deltaMs: number, sign: "+" | "-"): string {
+  const abs = Math.abs(deltaMs) / 1000
+  return `${sign}${abs.toFixed(3)}`
+}
+
+/** Format a signed delta (ms) as `+0.123` / `-0.456` for the
+ * per-historical `delta_at_last_gate_ms` column. Positive => active is
+ * slower than this historical at the gate. */
+function formatSignedDeltaMs(deltaMs: number): string {
+  const sign = deltaMs > 0 ? "+" : deltaMs < 0 ? "-" : ""
   const abs = Math.abs(deltaMs) / 1000
   return `${sign}${abs.toFixed(3)}`
 }
@@ -226,6 +257,21 @@ function LeaderRow({
           {row.is_active && gapBelow != null && (
             <span className="text-xs font-semibold text-emerald-400">
               {formatGapMs(gapBelow, "-")}
+            </span>
+          )}
+          {!row.is_active && row.delta_at_last_gate_ms != null && (
+            <span
+              className={cn(
+                "text-xs font-semibold tabular-nums",
+                row.delta_at_last_gate_ms > 0
+                  ? "text-rose-400"
+                  : row.delta_at_last_gate_ms < 0
+                    ? "text-emerald-400"
+                    : "text-muted-foreground",
+              )}
+              data-testid={`delta-at-last-gate-${row.driver}`}
+            >
+              {formatSignedDeltaMs(row.delta_at_last_gate_ms)}
             </span>
           )}
         </div>

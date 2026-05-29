@@ -678,6 +678,15 @@ def _build_group(
         prev_delta = state.get("last_gate_delta_ms")
         last_delta = int(prev_delta) if isinstance(prev_delta, int) else None
 
+    # Per-historical inline deltas (spec §7.2). Computed once per group
+    # so every historical row in this group carries the same active-row
+    # `last_gate_index` reference.
+    from .. import gate_math
+
+    per_historical_deltas = gate_math.compute_per_historical_deltas(
+        gate_times, group_historicals or None, GATE_COUNT
+    )
+
     # Build rows (unranked).
     rows: list[dict[str, object]] = []
     for driver in DRIVERS:
@@ -703,7 +712,10 @@ def _build_group(
             best_lap_ms_field = hist_best
             best_lap_number_field = _HISTORICAL_BEST_LAP_NUMBERS[driver]
             current_lap_field = None
-            row_last_index = None
+            # Historical rows echo the active driver's last_gate_index
+            # so the frontend's delta column lines up; the per-row
+            # delta itself comes from `per_historical_deltas`.
+            row_last_index = last_index
             row_last_state = None
             row_last_delta = None
             # Edge case: brand-new lap, elapsed effectively zero -> show 0
@@ -719,6 +731,10 @@ def _build_group(
                     sector_start_ms,
                     sector_end_ms,
                 )
+        row_delta_at_last_gate_ms: int | None = None
+        if not is_active:
+            folded = _fold_driver_name_sim(driver)
+            row_delta_at_last_gate_ms = per_historical_deltas.get(folded)
         rows.append(
             {
                 "track": track,
@@ -735,6 +751,7 @@ def _build_group(
                 "last_gate_index": row_last_index,
                 "last_gate_state": row_last_state,
                 "last_gate_delta_ms": row_last_delta,
+                "delta_at_last_gate_ms": row_delta_at_last_gate_ms,
             }
         )
 
@@ -743,11 +760,8 @@ def _build_group(
 
 
 def _latest_crossed_gate_sim(gate_times: list[int | None]) -> int | None:
-    """Local mirror of `leaderboard_real._latest_crossed_gate`.
-
-    Re-implemented here so the sim doesn't import from `leaderboard_real`
-    (avoids `leaderboard_real → live_positions_sim → leaderboard_real`
-    cycle through `rank_group`).
+    """Local mirror of `gate_math.latest_crossed_gate` — kept here only so
+    the sim file remains self-contained for readers. Identical formula.
     """
     for i in range(len(gate_times) - 1, -1, -1):
         if gate_times[i] is not None:
@@ -759,37 +773,21 @@ def _compute_last_gate_state_sim(
     active_gate_times: list[int | None],
     historicals: dict[str, _HistoricalEntry],
 ) -> tuple[int | None, str | None, int | None]:
-    """Sim mirror of `leaderboard_real.compute_last_gate_state`.
+    """Median-vs-active gate-state computation with 50 ms neutral band.
 
-    Returns `(last_gate_index, last_gate_state, last_gate_delta_ms)`.
-    Same three-state logic — kept duplicated locally to keep the import
-    graph one-way (sim → live_telemetry only).
+    Delegates to the shared `api.gate_math.compute_last_gate_state` so
+    sim and real paths cannot drift out of step. The dual-mode spec
+    (§5.3) locks the median rule + 50 ms neutral band as the wire
+    contract.
     """
-    i_star = _latest_crossed_gate_sim(active_gate_times)
-    if i_star is None:
-        return None, None, None
-    active_t = active_gate_times[i_star]
-    if active_t is None:
-        return None, None, None
-    if not historicals:
-        return i_star, "neutral", None
+    # Lazy import to avoid the routes → live_telemetry → routes import
+    # cycle through `_HistoricalEntry`. `gate_math` is a leaf module so
+    # this stays one-way (sim → gate_math only).
+    from .. import gate_math
 
-    hist_ts: list[int] = []
-    for h in historicals.values():
-        if len(h.gate_vector) == GATE_COUNT:
-            hist_ts.append(int(h.gate_vector[i_star]))
-    if not hist_ts:
-        return i_star, "neutral", None
-
-    if all(active_t < h for h in hist_ts):
-        state = "ahead"
-    elif all(active_t > h for h in hist_ts):
-        state = "behind"
-    else:
-        # Mixed or ties (§8.8): neither all-< nor all-> holds.
-        state = "neutral"
-    delta_ms = int(active_t - min(hist_ts))
-    return i_star, state, delta_ms
+    return gate_math.compute_last_gate_state(
+        active_gate_times, historicals or None, GATE_COUNT
+    )
 
 
 def _rank_group(

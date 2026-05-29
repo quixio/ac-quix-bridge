@@ -55,28 +55,10 @@ logger = logging.getLogger(__name__)
 _HISTORICAL_CAP_PER_GROUP = 99
 
 
-# TODO Step 2: re-enable for sector comparison.
-# Lap-completeness threshold the legacy gate-vectors reducer used to
-# distinguish a sparse-sample real lap from a quit/crash. Unused on the
-# Step 1 path; kept for the Step 2 re-enable.
+# Lap-completeness threshold the gate-vectors reducer uses to distinguish
+# a sparse-sample real lap (interpolated through) from a quit/crash/timeout
+# (dropped entirely). See sc-71954-checkpoint-gates §5.2 step 4.
 _PARTIAL_LAP_MAX_POS = 0.95
-
-
-# TODO Step 2: re-enable for sector comparison.
-# The legacy per-lap aggregation SQL. Unused on the Step 1 path.
-_BEST_LAPS_SQL = """
-SELECT
-  track,
-  carModel,
-  experiment,
-  driver,
-  session_id,
-  lap,
-  MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms
-FROM ac_telemetry
-GROUP BY track, carModel, experiment, driver, session_id, lap
-ORDER BY track, carModel, experiment, driver, lap_time_ms ASC
-""".strip()
 
 
 class LeaderboardError(RuntimeError):
@@ -217,80 +199,108 @@ def _query_best_laps(
     return per_driver
 
 
-# ---------------------------------------------------------------------------
-# TODO Step 2: re-enable for sector comparison.
-#
-# The functions below — `_query_lake`, `_reduce_to_per_driver_best`,
-# `_build_gate_samples_sql`, `_query_gate_samples`, `_reduce_to_gate_vectors`,
-# `ghost_ms_at_position`, `_latest_crossed_gate`, `compute_last_gate_state` —
-# are dormant on the Step 1 path. They are kept in place (NOT deleted) so the
-# Step 2 patch can re-attach them without reconstructing the reducer.
-# Step 2 will:
-#   * call `_query_lake` again from `refresh_best_laps_cache`,
-#   * extend the cache value to carry `_HistoricalEntry` alongside the
-#     scalar best_lap_ms,
-#   * re-wire `_build_group_rows` to plumb `last_gate_*` triples back onto
-#     the active row,
-#   * restore frontend colour cues.
-# Until then every call site below has been removed from the hot path.
-# ---------------------------------------------------------------------------
+def _build_best_laps_with_lap_sql(
+    track: str, car: str, experiment: str, environment: str
+) -> str:
+    """Return per-(driver, lap) lap-time SQL for one (track, car, exp, env)
+    group.
 
+    Uses `MAX(timestamp_ms) - MIN(timestamp_ms)` as the lap duration —
+    same shape as the legacy `_BEST_LAPS_SQL` but scoped to a single
+    Hive partition so the scan stays tight. Python reduces the rows to
+    a per-driver best afterwards.
 
-def _query_lake(quixlake_url: str, quix_lake_token: str) -> list[dict[str, Any]]:
-    """[TODO Step 2] Legacy per-lap aggregation against QuixLake.
-
-    Returns raw per-lap rows for the historicals query. Unused on the
-    Step 1 hot path; kept so the Step 2 re-enable can import-resolve.
+    Why this needs a separate query from `_query_best_laps`: that
+    function aggregates to `MIN(iBestTime)` across the whole partition
+    so it can't surface which lap the best was set on. The gate-samples
+    query needs `(driver, lap)` triples, so we need the per-lap shape
+    here.
     """
+    return (
+        "SELECT driver, lap, "
+        "MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms "
+        "FROM ac_telemetry "
+        f"WHERE environment = '{_format_sql_string(environment)}' "
+        f"AND track = '{_format_sql_string(track)}' "
+        f"AND carModel = '{_format_sql_string(car)}' "
+        f"AND experiment = '{_format_sql_string(experiment)}' "
+        "AND lap > 0 "
+        "GROUP BY driver, lap "
+        "ORDER BY driver, lap_time_ms ASC"
+    )
+
+
+def _query_best_laps_with_lap(
+    quixlake_url: str,
+    quix_lake_token: str,
+    *,
+    track: str,
+    car: str,
+    experiment: str,
+    environment: str,
+) -> dict[str, tuple[int, int]]:
+    """Return `{folded_driver: (best_lap_ms, lap_number)}` for one group.
+
+    Built on top of `_build_best_laps_with_lap_sql` — the SQL emits one
+    row per `(driver, lap)`, ordered ascending by lap time per driver.
+    The Python reduction then keeps the FIRST row per driver, which is
+    the fastest lap by construction.
+
+    Lake-folded driver names are kept as-is — they match the same fold
+    rule the gate-samples reducer keys on.
+    """
+    sql = _build_best_laps_with_lap_sql(track, car, experiment, environment)
+    logger.info("best-laps-with-lap SQL: %s", sql)
     client = QuixLakeClient(base_url=quixlake_url, token=quix_lake_token)
-    logger.info("Querying QuixLake for live-positions best laps via QuixLakeClient.")
-    df = client.query(_BEST_LAPS_SQL)
+    df = client.query(sql)
     df = df.fillna("")
     rows: list[dict[str, Any]] = df.to_dict("records")
-    logger.info("Live-positions lake query returned %d per-lap rows", len(rows))
-    return rows
 
-
-def _reduce_to_per_driver_best(
-    rows: list[dict[str, Any]],
-) -> dict[tuple[str, str, str, str], tuple[int, int]]:
-    """[TODO Step 2] Collapse per-lap rows to `{(track, car, exp, driver):
-    (best_ms, lap)}`."""
-    best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
+    # Keys are the RAW lake `driver` field (lowercase but diacritics
+    # preserved — e.g. `"tomás"`) so they can be inlined into the
+    # `_query_gate_samples` WHERE clause without an extra mapping table.
+    # The folding to the cache-key form (`"tomas"`) happens once at the
+    # very end of the pipeline in `_reduce_to_gate_vectors`.
+    per_driver: dict[str, tuple[int, int]] = {}
     for row in rows:
+        raw_driver = str(row.get("driver") or "").strip()
+        if not raw_driver:
+            continue
         try:
             lap_num = int(row.get("lap") or 0)
+            lap_time_ms = int(float(row.get("lap_time_ms") or 0))
         except (TypeError, ValueError):
             continue
-
-        raw_lap_ms = row.get("lap_time_ms")
-        if raw_lap_ms is None or raw_lap_ms == "":
+        if lap_num <= 0 or lap_time_ms <= 0:
             continue
-        try:
-            lap_time_ms = int(float(raw_lap_ms))
-        except (TypeError, ValueError):
-            continue
-        if lap_time_ms <= 0:
-            continue
-
-        key = (
-            str(row.get("track") or ""),
-            str(row.get("carModel") or ""),
-            str(row.get("experiment") or ""),
-            str(row.get("driver") or ""),
-        )
-        if not key[0] or not key[1] or not key[2] or not key[3]:
-            continue
-        existing = best_per_group.get(key)
+        existing = per_driver.get(raw_driver)
         if existing is None or lap_time_ms < existing[0]:
-            best_per_group[key] = (lap_time_ms, lap_num)
-    return best_per_group
+            per_driver[raw_driver] = (lap_time_ms, lap_num)
+    return per_driver
+
+
+# ---------------------------------------------------------------------------
+# Gate-vectors pipeline (Left-table "Live Sector Comparison").
+#
+# Drives the per-gate colour cue on the active row. Refreshed on the same
+# triggers as the best-laps cache (consumer startup warm-up, AC session
+# message, DCM config event). See `live_telemetry.refresh_gate_vectors_cache`
+# for the orchestration.
+# ---------------------------------------------------------------------------
 
 
 def _build_gate_samples_sql(
     best_per_group: dict[tuple[str, str, str, str], tuple[int, int]],
 ) -> str:
-    """[TODO Step 2] WHERE-clause-laden SQL for the gate-samples query."""
+    """Per-lap position-sample SQL for every `(track, car, experiment,
+    driver, lap)` in `best_per_group`.
+
+    QuixLake doesn't support tuple-IN (see
+    `feedback_quixlake_no_cte` and the original Step-2 spec); we fall
+    back to a flat `OR` disjunction. Typical input size is ≤ 99 historicals
+    per group × 1–2 active groups, which keeps the statement well within
+    a single round-trip.
+    """
     clauses: list[str] = []
     for (track, car, experiment, driver), (_best_ms, lap_num) in best_per_group.items():
         if not (track and car and experiment and driver and lap_num):
@@ -321,7 +331,7 @@ def _query_gate_samples(
     quix_lake_token: str,
     best_per_group: dict[tuple[str, str, str, str], tuple[int, int]],
 ) -> list[dict[str, Any]]:
-    """[TODO Step 2] Fetch position samples for the best laps in `best_per_group`."""
+    """Fetch position samples for the best laps in `best_per_group`."""
     sql = _build_gate_samples_sql(best_per_group)
     if "OR" not in sql and "AND lap=" not in sql:
         return []
@@ -340,9 +350,14 @@ def _reduce_to_gate_vectors(
     best_per_group: dict[tuple[str, str, str, str], tuple[int, int]],
     sample_rows: list[dict[str, Any]],
 ) -> dict[tuple[str, str, str], dict[str, _HistoricalEntry]]:
-    """[TODO Step 2] Bucket samples by (track, car, exp, driver, lap), then
-    linearly interpolate each gate's cumulative time from the two samples
-    that bracket the gate position. Unused on the Step 1 path."""
+    """Bucket samples by `(track, car, exp, driver, lap)`, linear-interpolate
+    each gate's cumulative time, and return the per-(track, car, exp)
+    historicals dict keyed by **folded** driver name.
+
+    The output is the canonical historicals cache for the Left-table
+    colour cue. Folding only happens here at the tail of the pipeline so
+    the SQL WHERE clause sees the raw lake string.
+    """
     buckets: dict[tuple[str, str, str, str, str, int], list[tuple[float, int]]] = {}
     for row in sample_rows:
         try:
@@ -425,34 +440,17 @@ def _reduce_to_gate_vectors(
     return out
 
 
-def ghost_ms_at_position(gate_vector: list[int], p: float) -> int:
-    """[TODO Step 2] Linear-interpolate a historical's cumulative-ms at
-    position `p`. Unused on Step 1."""
-    if not gate_vector or len(gate_vector) != GATE_COUNT:
-        return 0
-    if p <= 0.0:
-        return 0
-    if p >= 1.0:
-        return int(gate_vector[GATE_COUNT - 1])
-    pos_idx = int(p * GATE_COUNT)
-    if pos_idx >= GATE_COUNT:
-        pos_idx = GATE_COUNT - 1
-    lo_pos = pos_idx / float(GATE_COUNT)
-    hi_pos = (pos_idx + 1) / float(GATE_COUNT)
-    lo_t = 0 if pos_idx == 0 else int(gate_vector[pos_idx - 1])
-    hi_t = int(gate_vector[pos_idx])
-    if hi_pos <= lo_pos:
-        return lo_t
-    frac = (p - lo_pos) / (hi_pos - lo_pos)
-    return int(lo_t + (hi_t - lo_t) * frac)
-
-
-def _latest_crossed_gate(gate_times_ms: list[int | None]) -> int | None:
-    """[TODO Step 2] Highest index with a populated gate time."""
-    for i in range(len(gate_times_ms) - 1, -1, -1):
-        if gate_times_ms[i] is not None:
-            return i
-    return None
+# Re-exports from `gate_math` so the legacy import path
+# `from .leaderboard_real import compute_last_gate_state` (and friends)
+# keeps working. Both the snapshot-rebuild path here and the per-tick
+# path in `live_telemetry._record_message` MUST go through the same
+# helper — see `api/gate_math.py` for the formula.
+from ..gate_math import (  # noqa: E402  re-export
+    compute_last_gate_state as _compute_last_gate_state_shared,
+)
+from ..gate_math import (  # noqa: E402  re-export
+    compute_per_historical_deltas as _compute_per_historical_deltas_shared,
+)
 
 
 def compute_last_gate_state(
@@ -463,33 +461,23 @@ def compute_last_gate_state(
     Literal["ahead", "behind", "neutral"] | None,
     int | None,
 ]:
-    """[TODO Step 2] Compute `(last_gate_index, last_gate_state,
-    last_gate_delta_ms)` for the active driver. Unused on Step 1; the
-    active row leaves all three fields as `None`."""
-    i_star = _latest_crossed_gate(active_gate_times)
-    if i_star is None:
-        return None, None, None
-    active_t = active_gate_times[i_star]
-    if active_t is None:
-        return None, None, None
-    if not historicals:
-        return i_star, "neutral", None
+    """Re-export wrapper that supplies the GATE_COUNT to `gate_math`.
 
-    hist_ts: list[int] = []
-    for h in historicals.values():
-        if len(h.gate_vector) == GATE_COUNT:
-            hist_ts.append(int(h.gate_vector[i_star]))
-    if not hist_ts:
-        return i_star, "neutral", None
+    Kept for backward compatibility with any caller importing from the
+    old location. New code should call `gate_math.compute_last_gate_state`
+    directly.
+    """
+    return _compute_last_gate_state_shared(active_gate_times, historicals, GATE_COUNT)
 
-    if all(active_t < h for h in hist_ts):
-        state: Literal["ahead", "behind", "neutral"] = "ahead"
-    elif all(active_t > h for h in hist_ts):
-        state = "behind"
-    else:
-        state = "neutral"
-    delta_ms = int(active_t - min(hist_ts))
-    return i_star, state, delta_ms
+
+def _compute_per_historical_deltas(
+    active_gate_times: list[int | None],
+    historicals: dict[str, _HistoricalEntry] | None,
+) -> dict[str, int]:
+    """Local-arity wrapper around `gate_math.compute_per_historical_deltas`."""
+    return _compute_per_historical_deltas_shared(
+        active_gate_times, historicals, GATE_COUNT
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -503,14 +491,19 @@ def _historical_row(
     experiment: str,
     display_driver: str,
     best_lap_ms: int,
+    *,
+    best_lap_number: int | None = None,
+    last_gate_index: int | None = None,
+    delta_at_last_gate_ms: int | None = None,
 ) -> dict[str, object]:
     """Build a `LivePositionEntry`-shaped dict for a historical driver.
 
-    Step 1: `best_lap_number` is `None` (the new SQL no longer tracks lap
-    number), `current_lap_time_ms` is 0 (no ghost interpolation without
-    the gate-vector cache), and every `last_gate_*` field stays `None`.
-    The frontend's Best Laps table sorts by `best_lap_ms` and ignores
-    every other column for historicals, so the zeros are harmless.
+    `last_gate_index` is echoed onto historical rows so the frontend
+    knows which gate index the per-row `delta_at_last_gate_ms` was
+    computed against (this is the active driver's `last_gate_index`,
+    not a per-historical one — historicals don't move during a poll).
+    `last_gate_state` and `last_gate_delta_ms` stay `None` on
+    historicals; those are active-row-only fields.
     """
     return {
         "track": track,
@@ -518,14 +511,15 @@ def _historical_row(
         "experiment": experiment,
         "driver": display_driver,
         "best_lap_ms": best_lap_ms,
-        "best_lap_number": None,
+        "best_lap_number": best_lap_number,
         "is_active": False,
         "current_lap": None,
         "current_lap_time_ms": 0,
         "rank": 0,
-        "last_gate_index": None,
+        "last_gate_index": last_gate_index,
         "last_gate_state": None,
         "last_gate_delta_ms": None,
+        "delta_at_last_gate_ms": delta_at_last_gate_ms,
     }
 
 
@@ -537,12 +531,17 @@ def _active_row(
     best_lap_ms: int | None,
     current_lap: int,
     current_lap_time_ms: int,
+    *,
+    best_lap_number: int | None = None,
+    last_gate_index: int | None = None,
+    last_gate_state: str | None = None,
+    last_gate_delta_ms: int | None = None,
 ) -> dict[str, object]:
     """Build a `LivePositionEntry`-shaped dict for the active driver.
 
-    Step 1: gate-state fields are emitted as `None` until Step 2 restores
-    the colour cues. `best_lap_number` is `None` too (the lake-side query
-    doesn't compute it any more).
+    Gate-state fields default to `None` (callers pass them in once the
+    Left-table colour cue has data). `delta_at_last_gate_ms` is always
+    `None` on the active row — that column is per-historical only.
     """
     return {
         "track": track,
@@ -550,14 +549,15 @@ def _active_row(
         "experiment": experiment,
         "driver": display_driver,
         "best_lap_ms": best_lap_ms,
-        "best_lap_number": None,
+        "best_lap_number": best_lap_number,
         "is_active": True,
         "current_lap": current_lap,
         "current_lap_time_ms": max(0, int(current_lap_time_ms)),
         "rank": 0,
-        "last_gate_index": None,
-        "last_gate_state": None,
-        "last_gate_delta_ms": None,
+        "last_gate_index": last_gate_index,
+        "last_gate_state": last_gate_state,
+        "last_gate_delta_ms": last_gate_delta_ms,
+        "delta_at_last_gate_ms": None,
     }
 
 
@@ -589,13 +589,24 @@ def _build_group_rows(
     best_laps_cache: dict[tuple[str, str, str, str], dict[str, int]],
     driver_name_lookup: dict[str, str],
     active: dict[str, Any] | None,
+    gate_vectors_cache: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None,
 ) -> list[dict[str, object]]:
     """Assemble the rows for one (track, car, experiment, environment)
     group: historicals from the lake cache + the active driver (if it
     matches this group). Returns a ranked list of `LivePositionEntry`-
     shaped dicts.
+
+    Populates `last_gate_*` on the active row from the gate-vectors
+    cache (Left-table colour cue) and `delta_at_last_gate_ms` per
+    historical inline (spec §7.2). Both share the same `last_gate_index`
+    so the frontend renders consistent labels.
     """
     group_historicals = best_laps_cache.get((track, car, experiment, environment), {})
+    group_gate_vectors = (
+        gate_vectors_cache.get((track, car, experiment), {})
+        if gate_vectors_cache
+        else {}
+    )
 
     candidates: list[tuple[int, str]] = [
         (best_ms, folded_driver) for folded_driver, best_ms in group_historicals.items()
@@ -603,9 +614,48 @@ def _build_group_rows(
     candidates.sort(key=lambda x: x[0])
     candidates = candidates[:_HISTORICAL_CAP_PER_GROUP]
 
+    # Pre-compute the per-historical inline deltas + active-row sticky
+    # triple. Both are gated on the active row matching this group; if
+    # there is no active row, both are empty/None and historicals get
+    # `delta_at_last_gate_ms = None`.
+    active_in_group = bool(
+        active
+        and active.get("track") == track
+        and active.get("car") == car
+        and (active.get("experiment") or "") == experiment
+    )
+    per_historical_deltas: dict[str, int] = {}
+    sticky_last_gate_index: int | None = None
+    sticky_last_gate_state: str | None = None
+    sticky_last_gate_delta_ms: int | None = None
+    if active_in_group and active is not None:
+        active_gate_times = list(active.get("gate_times_ms") or [])
+        if active_gate_times:
+            (
+                sticky_last_gate_index,
+                sticky_last_gate_state,
+                sticky_last_gate_delta_ms,
+            ) = compute_last_gate_state(active_gate_times, group_gate_vectors or None)
+            per_historical_deltas = _compute_per_historical_deltas(
+                active_gate_times, group_gate_vectors or None
+            )
+        # Fall back to whatever the consumer thread persisted on the
+        # state entry — keeps the sticky fields populated between gate
+        # crossings when the snapshot is rebuilt mid-sector.
+        if sticky_last_gate_index is None and active.get("last_gate_index") is not None:
+            sticky_last_gate_index = active.get("last_gate_index")
+            sticky_last_gate_state = active.get("last_gate_state")
+            sticky_last_gate_delta_ms = active.get("last_gate_delta_ms")
+
     rows: list[dict[str, object]] = []
     for best_ms, folded_driver in candidates:
         display_driver = driver_name_lookup.get(folded_driver, folded_driver)
+        entry = group_gate_vectors.get(folded_driver)
+        best_lap_number = entry.best_lap_number if entry else None
+        # The per-row delta uses the active driver's last_gate_index; if
+        # we have no active row OR the active driver hasn't crossed gate
+        # 1 yet, all historicals carry `None`.
+        row_delta = per_historical_deltas.get(folded_driver)
         rows.append(
             _historical_row(
                 track=track,
@@ -613,6 +663,9 @@ def _build_group_rows(
                 experiment=experiment,
                 display_driver=display_driver,
                 best_lap_ms=best_ms,
+                best_lap_number=best_lap_number,
+                last_gate_index=sticky_last_gate_index,
+                delta_at_last_gate_ms=row_delta,
             )
         )
 
@@ -621,17 +674,10 @@ def _build_group_rows(
     # driver lives in exactly one DCM experiment config (and therefore one
     # environment), so we can't end up rendering the same active driver in
     # two groups for different environments.
-    if (
-        active
-        and active.get("track") == track
-        and active.get("car") == car
-        and (active.get("experiment") or "") == experiment
-    ):
+    if active_in_group and active is not None:
         raw_driver = str(active.get("driver") or "")
-        display_driver = driver_name_lookup.get(
-            _fold_driver_name(raw_driver), raw_driver
-        )
         folded = _fold_driver_name(raw_driver)
+        display_driver = driver_name_lookup.get(folded, raw_driver)
         lake_best = group_historicals.get(folded)
         i_last_time = active.get("best_lap_ms_session")
         try:
@@ -658,6 +704,9 @@ def _build_group_rows(
                 best_lap_ms=active_best,
                 current_lap=current_lap,
                 current_lap_time_ms=current_lap_time_ms,
+                last_gate_index=sticky_last_gate_index,
+                last_gate_state=sticky_last_gate_state,
+                last_gate_delta_ms=sticky_last_gate_delta_ms,
             )
         )
 
@@ -670,8 +719,12 @@ def _solo_active_group(
     driver_name_lookup: dict[str, str],
 ) -> list[dict[str, object]]:
     """Emit a 1-row group for a live driver whose (track, car, exp, env)
-    has no historical entries in the lake yet. Rank 1, no historicals,
-    no gate-state colour (Step 1).
+    has no historical entries in the lake yet.
+
+    Cold-cache historicals -> `last_gate_state = "neutral"` (no colour
+    paint), but `last_gate_index` still tracks the active driver's
+    progress so the frontend can render the row index in the gate
+    breakdown column.
     """
     raw_driver = str(active.get("driver") or "")
     display_driver = driver_name_lookup.get(_fold_driver_name(raw_driver), raw_driver)
@@ -689,6 +742,17 @@ def _solo_active_group(
     except (TypeError, ValueError):
         current_lap = 1
 
+    # Empty historicals → cold cache; gate_math returns
+    # `(i*, "neutral", None)` once gate 1 is crossed.
+    active_gate_times = list(active.get("gate_times_ms") or [])
+    last_gate_index, last_gate_state, last_gate_delta_ms = compute_last_gate_state(
+        active_gate_times, None
+    )
+    if last_gate_index is None and active.get("last_gate_index") is not None:
+        last_gate_index = active.get("last_gate_index")
+        last_gate_state = active.get("last_gate_state")
+        last_gate_delta_ms = active.get("last_gate_delta_ms")
+
     row = _active_row(
         track=str(active.get("track") or ""),
         car=str(active.get("car") or ""),
@@ -697,6 +761,9 @@ def _solo_active_group(
         best_lap_ms=i_last_int,
         current_lap=current_lap,
         current_lap_time_ms=current_lap_time_ms,
+        last_gate_index=last_gate_index,
+        last_gate_state=last_gate_state,
+        last_gate_delta_ms=last_gate_delta_ms,
     )
     row["rank"] = 1
     return [row]
@@ -752,6 +819,13 @@ def build_live_positions(
         logger.exception("get_active_driver() raised; serving historical-only")
         active = None
 
+    # The gate-vectors cache may legitimately be `None` (cold start) or
+    # empty for a (track, car, experiment) — `_build_group_rows` and the
+    # gate-state helpers guard against that, so we pass it through and
+    # let the row-level code degrade to "no colour cue, no historical
+    # deltas".
+    gate_vectors_cache = live_telemetry.get_gate_vectors_cache()
+
     out: list[dict[str, object]] = []
     historical_keys = set(best_laps_cache.keys())
     for track, car, experiment, environment in sorted(historical_keys):
@@ -764,6 +838,7 @@ def build_live_positions(
                 best_laps_cache,
                 driver_name_lookup,
                 active,
+                gate_vectors_cache,
             )
         )
 

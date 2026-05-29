@@ -156,7 +156,7 @@ _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
 
 # ---------------------------------------------------------------------------
-# Best-laps cache (Step 1 of the leaderboard recovery)
+# Best-laps cache (Right-table source: Best Laps panel)
 # ---------------------------------------------------------------------------
 #
 # Why this cache exists: `/api/v1/leaderboard/live-positions` is polled ~every
@@ -184,27 +184,21 @@ _stop_event = threading.Event()
 # path. The refresh function builds the new dict outside the lock and only
 # holds the lock long enough to swap the reference.
 #
-# TODO Step 2: re-introduce the per-gate cumulative-time vector alongside
-# each best-lap value (the legacy `_HistoricalEntry` / `_gate_vectors_cache`
-# code below stays in place but unused for now). Until Step 2 ships,
-# `LivePositionEntry.last_gate_*` fields are emitted as None for every row.
-#
-# This cache subsumes the in-flight `_gate_vectors_cache`: any caller that
-# previously needed `(best_lap_ms,)` reads it directly here; lap-number
-# tracking is retired in Step 1 because the new SQL doesn't compute it.
+# Pairs with `_gate_vectors_cache` below: the best-laps cache powers the
+# Right-table "Best Laps" panel (scalar per-driver best in ms), while the
+# gate-vectors cache powers the Left-table "Live Sector Comparison" (full
+# per-gate cumulative-time vectors required for the colour cue). Both
+# refresh on the same triggers.
 
 
-# TODO Step 2: re-enable for sector comparison.
-# `_HistoricalEntry` and the gate-vectors cache below remain present so the
-# Step 2 implementation can re-attach them without reconstructing the data
-# class from scratch. They are NOT populated or read on the Step 1 hot path.
+# Per-driver per-gate cumulative-time vectors of the historical best lap.
+# Populated by `refresh_gate_vectors_cache` and consumed by the active-row
+# colour computation in `_record_message` plus the snapshot-rebuild path
+# in `routes/leaderboard_real.py`. The two consumers share the
+# `gate_math.compute_last_gate_state` helper to stay in lockstep.
 @dataclass(frozen=True)
 class _HistoricalEntry:
-    """[TODO Step 2] Cached per-gate breakdown of one historical driver's best lap.
-
-    Unused on the Step 1 path. Kept so the gate-vectors reducer in
-    `leaderboard_real` continues to import-resolve while the Step 2
-    code is dormant.
+    """Cached per-gate breakdown of one historical driver's best lap.
 
     * `best_lap_ms` — by definition equal to `gate_vector[19]` (the 100% /
       lap-line gate). Stored explicitly so the assembly code reads more
@@ -222,18 +216,49 @@ class _HistoricalEntry:
     gate_vector: list[int] = field(default_factory=list)
 
 
-# TODO Step 2: re-enable for sector comparison.
 _gate_vectors_lock = threading.RLock()
 _gate_vectors_cache: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None = (
     None
 )
 
-# Step 1 cache: per-driver best lap in milliseconds, keyed by the full
+# Best-laps cache: per-driver best lap in milliseconds, keyed by the full
 # (track, car, experiment, environment) tuple to match the new lake WHERE
 # clause exactly. `None` until the first refresh runs (distinct from
 # empty-but-refreshed). See spec acceptance for the trigger list.
 _best_laps_lock = threading.RLock()
 _best_laps_cache: dict[tuple[str, str, str, str], dict[str, int]] | None = None
+
+
+# Fold→display driver-name lookup. Cached at module level so the per-tick
+# WS publish path doesn't hit Mongo every time. Refreshed lazily on cache
+# miss inside `_get_driver_name_lookup` and force-refreshed by the
+# best-laps refresh (the natural "something material changed" signal —
+# also the moment the assembly layer rebuilds full snapshots).
+#
+# Missing-key warning suppression: the assembly layer logs once per
+# unknown folded key so a noisy AC session doesn't spam the log.
+_driver_lookup_lock = threading.RLock()
+_driver_name_lookup: dict[str, str] | None = None
+_logged_missing_driver_keys: set[str] = set()
+
+
+# Active-stream tracking. The WS broadcaster sends an `active_state`
+# envelope on connect AND on every transition. `_active_state` is the
+# last-known canonical state; comparisons happen on the consumer thread
+# after `_record_message` or a stale sweep updates it.
+#
+# Stale detection uses `2 * STALE_AFTER_S` per spec §8 ("Stream flicker")
+# to give the toggle a 20 s hysteresis vs. the active-row 10 s window.
+ACTIVE_STATE_STALE_AFTER_S = STALE_AFTER_S * 2
+_active_state_lock = threading.RLock()
+_active_state: dict[str, Any] = {
+    "is_active": False,
+    "driver": None,
+    "track": None,
+    "car": None,
+    "experiment": None,
+    "environment": None,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -329,31 +354,252 @@ def simulated_active_driver() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Driver-name display-case lookup helpers (Bug A fix — spec §5.6)
+# ---------------------------------------------------------------------------
+
+
+def _fold_for_lookup(name: str) -> str:
+    """Fold a driver name to the same NFKD + lowercase ASCII key the lake
+    uses. Local helper so `live_telemetry` doesn't import from
+    `routes.leaderboard_real` (which already imports us — circular).
+    """
+    import unicodedata
+
+    if not name:
+        return ""
+    folded = (
+        unicodedata.normalize("NFKD", name)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    return folded or name.lower()
+
+
+def _get_driver_name_lookup() -> dict[str, str]:
+    """Return the cached `{folded_key: display_name}` lookup.
+
+    Lazy-built on first call by querying Mongo via the singleton handle.
+    Re-queried after every successful `refresh_best_laps_cache` call (see
+    `_invalidate_driver_name_lookup`). Returns an empty dict on any
+    error — the caller falls back to title-cased folded keys.
+    """
+    with _driver_lookup_lock:
+        if _driver_name_lookup is not None:
+            return _driver_name_lookup
+    return _refresh_driver_name_lookup()
+
+
+def _refresh_driver_name_lookup() -> dict[str, str]:
+    """(Re)build the fold→display map from Mongo `drivers.name`.
+
+    Returns the new map and stores it in `_driver_name_lookup`. Errors
+    leave the previous map (or `None`) in place and return an empty dict
+    so callers can keep going.
+    """
+    try:
+        from . import mongo as mongo_mod
+
+        db = mongo_mod.get_mongo()
+        lookup: dict[str, str] = {}
+        for doc in db.drivers.find({}, {"name": 1}):
+            name = doc.get("name")
+            if isinstance(name, str) and name:
+                lookup[_fold_for_lookup(name)] = name
+        with _driver_lookup_lock:
+            global _driver_name_lookup
+            _driver_name_lookup = lookup
+            # Reset missing-key warnings so the next pass through an
+            # unknown driver re-logs (rare, helpful when QA is adding
+            # drivers to Mongo).
+            _logged_missing_driver_keys.clear()
+        return lookup
+    except Exception:
+        logger.exception("driver-name lookup refresh failed; using empty lookup")
+        return {}
+
+
+def _invalidate_driver_name_lookup() -> None:
+    """Drop the cached driver-name lookup so the next read repopulates.
+
+    Called after best-laps cache refresh so a freshly-added driver in
+    Mongo flows to the wire envelope without waiting for a process
+    restart.
+    """
+    with _driver_lookup_lock:
+        global _driver_name_lookup
+        _driver_name_lookup = None
+
+
+def _resolve_display_name(folded_key: str, lookup: dict[str, str]) -> str:
+    """Map a folded driver key to Mongo display case.
+
+    Falls back to a title-cased folded key when the lookup misses. Logs a
+    WARNING once per unknown key so repeated misses don't spam the log.
+    """
+    if not folded_key:
+        return ""
+    display = lookup.get(folded_key)
+    if display:
+        return display
+    with _driver_lookup_lock:
+        if folded_key not in _logged_missing_driver_keys:
+            _logged_missing_driver_keys.add(folded_key)
+            logger.warning(
+                "driver-name lookup miss for folded_key=%r; "
+                "wire will carry title-cased fallback",
+                folded_key,
+            )
+    return folded_key[:1].upper() + folded_key[1:]
+
+
+def _lookup_gate_vectors_group(
+    track: str, car: str, experiment: str
+) -> "dict[str, _HistoricalEntry] | None":
+    """Return the historicals for one (track, car, experiment) group, or
+    `None` when the gate-vectors cache is cold or the group is unknown.
+    """
+    with _gate_vectors_lock:
+        if _gate_vectors_cache is None:
+            return None
+        group = _gate_vectors_cache.get((track, car, experiment))
+        if group is None:
+            return None
+        # Defensive copy of the dict view so the caller can iterate
+        # without holding the lock; entries themselves are frozen.
+        return dict(group)
+
+
+# ---------------------------------------------------------------------------
+# Active-state envelope publisher (spec §5.1)
+# ---------------------------------------------------------------------------
+
+
+def _update_active_state(
+    is_active: bool,
+    driver: str | None,
+    track: str | None,
+    car: str | None,
+    experiment: str | None,
+    environment: str | None,
+) -> None:
+    """Update the module-level active-state record and broadcast a transition
+    envelope when something material changed.
+
+    Material changes:
+      * idle → active
+      * active → idle
+      * combo change while active (any of driver/track/car/experiment)
+
+    A no-op call (same values as before) skips the broadcast — the wire
+    only carries transitions, not every tick.
+    """
+    new_state = {
+        "is_active": bool(is_active),
+        "driver": driver if is_active else None,
+        "track": track if is_active else None,
+        "car": car if is_active else None,
+        "experiment": experiment if is_active else None,
+        "environment": environment if is_active else None,
+    }
+    with _active_state_lock:
+        prev = dict(_active_state)
+        _active_state.update(new_state)
+        if prev == new_state:
+            return
+        envelope = _build_active_state_envelope(new_state)
+    # Publish outside the lock — the broadcaster handoff is async.
+    from . import live_stream
+
+    live_stream.publish_active_state(envelope)
+
+
+def _build_active_state_envelope(state: dict[str, Any]) -> dict[str, Any]:
+    """Project the internal state dict to the wire envelope shape.
+
+    Wire shape (spec §7.1):
+        {"type": "active_state", "is_active": bool, "driver": str|null,
+         "track": str|null, "car": str|null, "experiment": str|null,
+         "environment": str|null}
+    """
+    return {
+        "type": "active_state",
+        "is_active": state["is_active"],
+        "driver": state["driver"],
+        "track": state["track"],
+        "car": state["car"],
+        "experiment": state["experiment"],
+        "environment": state["environment"],
+    }
+
+
+def current_active_state_envelope() -> dict[str, Any]:
+    """Return the wire envelope for the current active-stream state.
+
+    Used by the WS endpoint to send the very first `active_state` frame
+    immediately after the initial snapshot, so clients reconnecting mid-
+    session don't have to wait for a transition.
+    """
+    with _active_state_lock:
+        return _build_active_state_envelope(dict(_active_state))
+
+
+def sweep_stale_active_state() -> None:
+    """Demote the active state to idle when every state entry has gone
+    stale (> ACTIVE_STATE_STALE_AFTER_S since last tick).
+
+    Called from the FastAPI broadcaster's keepalive loop. We can't rely
+    on a Kafka tick to flip the state to idle because by definition the
+    consumer stops receiving ticks when AC goes idle.
+    """
+    now = time.time()
+    with _state_lock:
+        any_fresh = any(
+            now - e["last_seen_epoch"] < ACTIVE_STATE_STALE_AFTER_S
+            for e in _state.values()
+        )
+    if any_fresh:
+        return
+    _update_active_state(
+        is_active=False,
+        driver=None,
+        track=None,
+        car=None,
+        experiment=None,
+        environment=None,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Live-mode state access
 # ---------------------------------------------------------------------------
 
 
 def _record_message(payload: dict[str, Any]) -> None:
     """Merge one raw Kafka payload into the per-(track, car, driver) state
-    dict. Log and skip on missing fields — never crash the consumer loop.
+    dict and publish the resulting WS active-row mutation.
 
-    Maintains per-key `gate_times_ms` (length `GATE_COUNT`),
-    `last_normalized_position`, and the sticky `last_gate_index` /
-    `last_gate_state` / `last_gate_delta_ms` fields that the leaderboard
-    assembly reads back unchanged between polls (server-side stickiness —
-    see spec §5.4).
+    Bugs A + B (spec §5.6 + §5.3) are fixed here:
+
+    * **Bug A — display name on the wire.** The lake-folded `driver` key
+      (e.g. `"tomas"`) is the internal cache key; the WS envelope MUST
+      carry the Mongo display case (`"Tomás"`). We consult
+      `_get_driver_name_lookup()` (cached, refreshed on best-laps
+      refresh) before publishing.
+    * **Bug B — per-tick gate-state recompute.** When a new gate is
+      crossed during this call, look up the historical gate vectors in
+      `_gate_vectors_cache` for the active driver's
+      `(track, car, experiment)` and recompute the sticky
+      `last_gate_index` / `last_gate_state` / `last_gate_delta_ms` triple
+      via the shared `gate_math.compute_last_gate_state`. The
+      per-historical inline deltas (spec §7.2) are computed at the same
+      time and ride along on the WS envelope.
 
     On lap rollover (`completedLaps` increment OR `iCurrentTime` reset),
     `gate_times_ms` resets to `[None] * GATE_COUNT`, the previous position
     is rebased to 0, AND the sticky `last_gate_*` fields are cleared back
     to `None` so the previous lap's colour doesn't bleed into the new lap
     until the first gate crossing of the new lap (§8.7).
-
-    Any gate crossed since the last tick is stamped with the current
-    `iCurrentTime`. The colour-state computation itself lives in
-    `leaderboard_real._compute_last_gate_state` and is invoked by the
-    assembly layer per poll — this function only records the raw gate
-    crossings.
     """
     track = payload.get("track")
     car = payload.get("carModel") or payload.get("car")
@@ -367,6 +613,7 @@ def _record_message(payload: dict[str, Any]) -> None:
         entry_partial: dict[str, Any] = {
             "last_seen_epoch": time.time(),
             "experiment": str(payload.get("experiment") or ""),
+            "environment": str(payload.get("environment") or ""),
             "iCurrentTime": i_current,
             "completedLaps": completed,
             "normalizedCarPosition": norm_pos,
@@ -378,6 +625,14 @@ def _record_message(payload: dict[str, Any]) -> None:
         return
 
     key = (track, car, driver)
+    experiment = entry_partial["experiment"]
+    environment = entry_partial["environment"]
+
+    # Snapshot what we need OUTSIDE the state lock down below. Gate-vector
+    # lookup is a single dict.get; cheap enough to do inline once we know
+    # the (track, car, experiment) the new crossing was scored under.
+    historicals_for_group = _lookup_gate_vectors_group(track, car, experiment)
+
     with _state_lock:
         prev = _state.get(key)
         # Lap rollover detection: spec §8.7 mandates clearing `last_gate_*`
@@ -406,77 +661,88 @@ def _record_message(payload: dict[str, Any]) -> None:
             last_gate_state = prev.get("last_gate_state")
             last_gate_delta_ms = prev.get("last_gate_delta_ms")
 
-        _update_gate_times(gate_times, prev_pos, norm_pos, i_current)
+        newly_crossed = _update_gate_times(gate_times, prev_pos, norm_pos, i_current)
+
+        # Bug B: if any gate just flipped None → ms during this tick,
+        # recompute the sticky triple immediately (before publish) using
+        # the same `gate_math` helper the snapshot-rebuild path uses.
+        if newly_crossed:
+            # Lazy import to avoid the module-level cycle:
+            # live_telemetry → gate_math is one-way.
+            from . import gate_math
+
+            new_i, new_state, new_delta = gate_math.compute_last_gate_state(
+                gate_times, historicals_for_group, GATE_COUNT
+            )
+            last_gate_index = new_i if new_i is not None else last_gate_index
+            last_gate_state = new_state if new_state is not None else last_gate_state
+            if new_delta is not None:
+                last_gate_delta_ms = new_delta
+
         entry_partial["gate_times_ms"] = gate_times
-        # Sticky gate-state fields are written through unchanged here; the
-        # assembly layer recomputes and persists them when it detects a new
-        # crossing (see `leaderboard_real._compute_last_gate_state`).
         entry_partial["last_gate_index"] = last_gate_index
         entry_partial["last_gate_state"] = last_gate_state
         entry_partial["last_gate_delta_ms"] = last_gate_delta_ms
         _state[key] = entry_partial
 
-    # Notify the WebSocket broadcaster outside the state lock so a slow
-    # event-loop scheduler can't backpressure the Kafka consumer.
-    # `publish_snapshot` is a no-op when the broadcaster isn't running
-    # (e.g. pytest, startup race) and swallows every failure — the
-    # consumer loop must never crash on a missing event loop.
+    # Compute the per-historical inline deltas the active envelope carries
+    # on the wire (spec §7.2). Folded → display name mapping happens here
+    # so the frontend's exact-equality match (`row.driver === delta.driver`)
+    # works without any client-side folding.
+    #
+    # Bandwidth optimisation: only ship the deltas on ticks that produced
+    # a new gate crossing. Sticky values between crossings are already on
+    # the frontend's historical rows from the previous broadcast; an
+    # empty `historical_deltas` dict skips the per-row patch entirely
+    # (see `patchActiveRow` in `use-live-stream.ts`). ~80 B per gate
+    # crossing × ≤20 gates per lap = trivial.
+    name_lookup = _get_driver_name_lookup()
+    if newly_crossed:
+        from . import gate_math
+
+        folded_deltas = gate_math.compute_per_historical_deltas(
+            gate_times, historicals_for_group, GATE_COUNT
+        )
+        historical_deltas = {
+            _resolve_display_name(folded, name_lookup): delta_ms
+            for folded, delta_ms in folded_deltas.items()
+        }
+    else:
+        historical_deltas = {}
+
+    # Bug A: resolve the active-row driver name to display case BEFORE
+    # publish so snapshots and active mutations carry identical text.
+    display_driver = _resolve_display_name(_fold_for_lookup(driver), name_lookup)
+
     snapshot = {
-        "driver": driver,
+        "driver": display_driver,
         "car": car,
         "track": track,
-        "experiment": entry_partial["experiment"],
+        "experiment": experiment,
         "current_lap": (entry_partial["completedLaps"] or 0) + 1,
         "current_lap_time_ms": entry_partial["iCurrentTime"],
         "normalized_position": entry_partial["normalizedCarPosition"],
         "last_gate_index": entry_partial["last_gate_index"],
         "last_gate_state": entry_partial["last_gate_state"],
         "last_gate_delta_ms": entry_partial["last_gate_delta_ms"],
+        "historical_deltas": historical_deltas,
     }
-    # Local import to break the import cycle (live_stream is a leaf
-    # module pulled in by api/app.py at startup, not at module load).
-    from . import live_stream
+    # Update the canonical active-state record + publish a transition
+    # envelope if anything material changed.
+    _update_active_state(
+        is_active=True,
+        driver=display_driver,
+        track=track,
+        car=car,
+        experiment=experiment,
+        environment=environment,
+    )
 
-    live_stream.publish_snapshot(snapshot)
-
-
-def set_last_gate_state(
-    track: str,
-    car: str,
-    driver: str,
-    index: int | None,
-    state: str | None,
-    delta_ms: int | None,
-) -> None:
-    """Persist a recomputed gate-state triple onto the active driver's
-    state entry so subsequent `get_active_driver()` calls re-emit the same
-    sticky values until the next crossing.
-
-    Called by `leaderboard_real._compute_last_gate_state` after it detects
-    a new gate crossing and computes the colour. No-op when the key has
-    no state entry yet (e.g. the active driver hasn't sent a tick).
-    """
-    key = (track, car, driver)
-    with _state_lock:
-        entry = _state.get(key)
-        if entry is None:
-            return
-        entry["last_gate_index"] = index
-        entry["last_gate_state"] = state
-        entry["last_gate_delta_ms"] = delta_ms
-        snapshot = {
-            "driver": driver,
-            "car": car,
-            "track": track,
-            "experiment": entry["experiment"],
-            "current_lap": (entry["completedLaps"] or 0) + 1,
-            "current_lap_time_ms": entry["iCurrentTime"],
-            "normalized_position": entry["normalizedCarPosition"],
-            "last_gate_index": index,
-            "last_gate_state": state,
-            "last_gate_delta_ms": delta_ms,
-        }
-    # Publish outside the state lock — see `_record_message` rationale.
+    # Notify the WebSocket broadcaster outside the state lock so a slow
+    # event-loop scheduler can't backpressure the Kafka consumer.
+    # `publish_snapshot` is a no-op when the broadcaster isn't running
+    # (e.g. pytest, startup race) and swallows every failure — the
+    # consumer loop must never crash on a missing event loop.
     from . import live_stream
 
     live_stream.publish_snapshot(snapshot)
@@ -1176,16 +1442,14 @@ def refresh_best_laps_cache(
     """Query QuixLake once per known (track, car, experiment, environment)
     group and atomically swap the result into `_best_laps_cache`.
 
-    The new SQL uses AC's `iBestTime` directly (already a per-driver best
-    in ms) and includes the `environment` filter the lake partitions on —
-    fixing the previous bug where the missing `environment` filter scanned
+    The SQL uses AC's `iBestTime` directly (already a per-driver best in
+    ms) and includes the `environment` filter the lake partitions on —
+    fixing an earlier bug where missing the environment filter scanned
     too wide a slice while still returning sparse Python-reduced lap times.
 
     Group discovery: `_known_groups()` enumerates every (track, car,
     experiment, environment) tuple we have enrichment for. We run one
-    query per group (typically 1–2 groups in practice; one query per
-    hostname-with-test). For each group we build a folded-driver →
-    best-lap-ms dict.
+    query per group (typically 1–2 groups in practice).
 
     Lazy-imports `_query_best_laps` from `routes.leaderboard_real` to
     keep import order one-way (leaderboard_real already imports
@@ -1196,10 +1460,6 @@ def refresh_best_laps_cache(
 
     After a successful swap, broadcasts a fresh full snapshot through
     `live_stream` so every connected WebSocket client re-renders.
-
-    TODO Step 2: extend each per-group value to carry the full
-    `_HistoricalEntry` (gate_vector + best_lap_number) and restore the
-    Live Sector Comparison colour cues.
     """
     try:
         from .routes.leaderboard_real import _query_best_laps
@@ -1251,6 +1511,17 @@ def refresh_best_laps_cache(
         total_historicals,
     )
 
+    # Best-laps changed → drop the driver-name lookup so a newly added
+    # driver flows to the wire envelope on the next publish without
+    # waiting for a process restart.
+    _invalidate_driver_name_lookup()
+
+    # Pair with a gate-vectors refresh: the Left-table colour cue depends
+    # on per-gate cumulative-time vectors of every historical's best lap
+    # for the same `(track, car, experiment)` set. Same trigger cadence
+    # (session / config / startup), one place to keep them in sync.
+    refresh_gate_vectors_cache(quixlake_url, quix_lake_token)
+
     # Historicals changed → broadcast a fresh full snapshot to every WS
     # client so the leaderboard tab updates without waiting for the next
     # connect. Best-effort: any failure inside the broadcast helpers is
@@ -1258,16 +1529,18 @@ def refresh_best_laps_cache(
     _broadcast_full_snapshot_safely()
 
 
-# TODO Step 2: re-enable for sector comparison. The gate-vectors cache
-# and its refresh function are retained verbatim so the Step 2 patch
-# can re-route the session/config triggers back at them without
-# reconstructing the surrounding plumbing. Step 1 hot path never calls
-# either.
 def get_gate_vectors_cache() -> (
     dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None
 ):
-    """[TODO Step 2] Return the cached gate-vectors dict, or `None` if
-    no refresh has run yet."""
+    """Return the cached `_gate_vectors_cache`, or `None` if no refresh
+    has run yet.
+
+    Shape: `{(track, car, experiment): {driver_folded: _HistoricalEntry}}`.
+
+    Callers must treat the returned dict as read-only — we hand back the
+    live reference for cheapness. Refreshes swap the reference atomically
+    so an iterator never tears across two cache generations.
+    """
     with _gate_vectors_lock:
         return _gate_vectors_cache
 
@@ -1276,23 +1549,70 @@ def refresh_gate_vectors_cache(
     quixlake_url: str,
     quix_lake_token: str,
 ) -> None:
-    """[TODO Step 2] Lake query + gate-vector reduction.
+    """Pull per-gate cumulative-time vectors for every historical best lap
+    in scope and atomically swap into `_gate_vectors_cache`.
 
-    Disabled on the Step 1 hot path — kept intact for the Step 2 re-enable.
-    The function still works if called; it just isn't wired into any of
-    the live triggers (session handler, config event, consumer warm-up,
-    route cold-start fallback) any more.
+    Scope = the `(track, car, experiment, environment)` tuples enumerated
+    by `_known_groups()`. The reducer in `routes/leaderboard_real.py`
+    returns `{(track, car, experiment): {driver_folded: _HistoricalEntry}}`
+    keyed without environment because the active-row code path only knows
+    (track, car, experiment) — `environment` is a lake-side partition
+    that the assembly layer filters on but doesn't echo back to the live
+    state. The reducer naturally drops `environment` from its key on
+    output.
+
+    Triggered from:
+      * consumer startup (after `_prewarm_session_cache_from_dcm`),
+      * AC `ac-telemetry-session` Kafka message,
+      * DCM `ac-telemetry-config` event (session OR experiment type),
+      * (implicitly) every `refresh_best_laps_cache` call, since the two
+        caches always refresh together.
+
+    Failures are swallowed + logged; the previous cache stays valid.
     """
     try:
         from .routes.leaderboard_real import (
             _query_gate_samples,
-            _query_lake,
             _reduce_to_gate_vectors,
-            _reduce_to_per_driver_best,
         )
 
-        raw_rows = _query_lake(quixlake_url, quix_lake_token)
-        best_per_group = _reduce_to_per_driver_best(raw_rows)
+        groups = _known_groups()
+        if not groups:
+            logger.info(
+                "gate-vectors cache refresh: no groups known yet — leaving cache as-is"
+            )
+            return
+
+        # The reducer expects a `{(track, car, experiment, driver): (best_ms,
+        # lap_num)}` map. The best-laps cache only carries `best_ms` (no
+        # lap number). Since `_query_gate_samples` keys on `(track, car,
+        # experiment, driver, lap)`, we have to discover the lap number
+        # per driver. The cheapest discovery query is a single GROUP BY
+        # per group asking "for each driver, which lap matches their
+        # `MIN(iBestTime)`?". We piggy-back on `_query_best_laps_with_lap`
+        # added below for this purpose.
+        from .routes.leaderboard_real import _query_best_laps_with_lap
+
+        best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
+        for track, car, experiment, environment in groups:
+            per_driver_with_lap = _query_best_laps_with_lap(
+                quixlake_url,
+                quix_lake_token,
+                track=track,
+                car=car,
+                experiment=experiment,
+                environment=environment,
+            )
+            for lake_driver, (best_ms, lap_num) in per_driver_with_lap.items():
+                # Key on the RAW lake driver field so the gate-samples
+                # SQL WHERE clause sees the same string the lake stores
+                # (`"tomás"`, not the NFKD-folded `"tomas"`). Folding to
+                # the wire/cache form happens at the tail of the pipeline.
+                best_per_group[(track, car, experiment, lake_driver)] = (
+                    int(best_ms),
+                    int(lap_num),
+                )
+
         if not best_per_group:
             reduced: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
         else:

@@ -560,17 +560,31 @@ class LivePositionEntry(BaseModel):
     current_lap: int | None = None
     current_lap_time_ms: int
     rank: int
-    # Gate-state fields (active row only — historicals leave them `None`).
-    # `last_gate_index` ∈ 0..19, set when the active driver crosses the
-    # corresponding 5% / 10% / ... / 100% checkpoint. `last_gate_state`
-    # compares the active driver's cumulative-at-gate-i time against every
-    # cached historical's gate_vector[i]: "ahead" iff strictly faster than
-    # every historical at that gate, "behind" iff strictly slower than every
-    # one, "neutral" otherwise (mixed, ties, or empty cache).
-    # `last_gate_delta_ms` = active.gate_times_ms[i*] - min(historicals'
-    # gate_vector[i*]) — positive means the active is behind the leader at
-    # the gate; negative means ahead. All three reset to None on lap rollover
-    # and stay sticky between polls until the next gate crossing.
+    # Gate-state fields. `last_gate_index` is set on the active row when the
+    # active driver crosses the corresponding 5% / 10% / ... / 100% checkpoint
+    # and stays sticky between crossings; it is also echoed on every
+    # historical row in the same group so the frontend can render the
+    # per-historical `delta_at_last_gate_ms` against the right gate index.
+    #
+    # `last_gate_state` (active row only) compares the active driver's
+    # cumulative-at-gate-i time against the **median** of every cached
+    # historical's `gate_vector[i]`: `"ahead"` when the active driver is
+    # >50 ms faster than the median, `"behind"` when >50 ms slower,
+    # `"neutral"` inside the 50 ms band (or when historicals are
+    # unavailable).
+    #
+    # `last_gate_delta_ms` (active row only) = `active.gate_times_ms[i*] -
+    # median(historicals.gate_vector[i*])`. Positive => active is slower
+    # than the median historical at the gate; negative => faster.
+    #
+    # `delta_at_last_gate_ms` (per-historical row, and `None` on the active
+    # row) = `active.gate_times_ms[i*] - this_historical.gate_vector[i*]`.
+    # Same sign convention as `last_gate_delta_ms`: positive => active is
+    # slower than this historical at that gate.
+    #
+    # All four reset to None on lap rollover and stay sticky between polls
+    # until the next gate crossing.
     last_gate_index: int | None = None
     last_gate_state: Literal["ahead", "behind", "neutral"] | None = None
     last_gate_delta_ms: int | None = None
+    delta_at_last_gate_ms: int | None = None

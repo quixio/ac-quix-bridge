@@ -104,6 +104,16 @@ _broadcaster_task: asyncio.Task[None] | None = None
 # broadcaster so a stalled snapshot queue doesn't also stop the pings.
 _keepalive_task: asyncio.Task[None] | None = None
 
+# LOCAL_DEV_MODE-only sim driver task: periodically pumps an active
+# mutation + active_state envelope so the dev page shows live behaviour
+# without a Kafka consumer. `None` outside LOCAL_DEV_MODE.
+_sim_driver_task: asyncio.Task[None] | None = None
+
+# Tracks the last (driver, track, car, experiment) combo the sim
+# advertised in `active_state` so the loop only emits transitions, not
+# every tick.
+_sim_last_active_state: dict[str, Any] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Lifespan hooks (called from api/app.py)
@@ -115,8 +125,14 @@ async def start_broadcaster() -> None:
 
     Idempotent: re-calling while a broadcaster is already running is a
     no-op, so a hot-reloaded FastAPI startup doesn't fork ghost tasks.
+
+    In LOCAL_DEV_MODE we additionally start a sim-driver task that
+    publishes periodic active mutations + an initial active-state
+    envelope — the Kafka consumer is disabled there, so without this
+    the dev page would see a single snapshot then silence.
     """
     global _loop, _queue, _clients_lock, _broadcaster_task, _keepalive_task
+    global _sim_driver_task
 
     if _broadcaster_task is not None and not _broadcaster_task.done():
         return
@@ -130,6 +146,12 @@ async def start_broadcaster() -> None:
     _keepalive_task = asyncio.create_task(
         _keepalive_loop(), name="live-stream-keepalive"
     )
+    import os
+
+    if os.getenv("LOCAL_DEV_MODE", "false").lower() == "true":
+        _sim_driver_task = asyncio.create_task(
+            _sim_driver_loop(), name="live-stream-sim-driver"
+        )
     logger.info(
         "live-stream broadcaster started (throttle=%d ms, ping=%.1f s)",
         THROTTLE_MS,
@@ -161,6 +183,15 @@ async def stop_broadcaster() -> None:
         except (asyncio.CancelledError, Exception):
             pass
         _keepalive_task = None
+
+    global _sim_driver_task
+    if _sim_driver_task is not None:
+        _sim_driver_task.cancel()
+        try:
+            await _sim_driver_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _sim_driver_task = None
 
     # Close every still-connected client. Use a snapshot of the set so a
     # client closing itself mid-iteration doesn't break the loop.
@@ -267,6 +298,120 @@ def publish_full_snapshot(rows: list[dict[str, Any]]) -> None:
         logger.debug("publish_full_snapshot scheduling failed", exc_info=True)
 
 
+def publish_active_state(envelope: dict[str, Any]) -> None:
+    """Broadcast one ``{"type": "active_state", ...}`` envelope.
+
+    Bypasses the active-mutation throttled queue — active-state
+    transitions are rare (once per session start/end) and the frontend
+    has to react immediately (toggle visibility, dropdown disable).
+
+    Called from the Kafka consumer thread by
+    ``live_telemetry._update_active_state`` whenever the canonical
+    active state changes. Failures are swallowed.
+    """
+    if _loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(_broadcast_envelope(envelope), _loop)
+    except RuntimeError:
+        pass
+    except Exception:
+        logger.debug("publish_active_state scheduling failed", exc_info=True)
+
+
+async def _sim_driver_loop() -> None:
+    """LOCAL_DEV_MODE: emit periodic active mutations + active_state.
+
+    Without this the dev page would receive one snapshot at connect and
+    then silence — no rank movement, no colour cycling. We pump the
+    simulator at 4 Hz (250 ms) so the lap clock advances visibly and
+    the active row colour transitions are observable. The active-state
+    envelope fires once when the first driver appears and again on a
+    combo change.
+    """
+    # Lazy import to keep the module import graph one-way.
+    from .routes import live_positions_sim
+
+    interval_s = 0.25
+    try:
+        while True:
+            try:
+                await asyncio.sleep(interval_s)
+            except asyncio.CancelledError:
+                raise
+            try:
+                rows = live_positions_sim.make_local_dev_live_positions()
+            except Exception:
+                logger.debug("sim driver: snapshot build failed", exc_info=True)
+                continue
+            # Find the active row for the first (track, car, experiment)
+            # combo in the sim — there are several, but the dev page
+            # filters down to a single combo via dropdowns anyway. The
+            # WS contract carries every active mutation; the frontend
+            # picks the relevant one by `(driver, track, car, experiment)`.
+            active_rows = [r for r in rows if r.get("is_active")]
+            if not active_rows:
+                continue
+            # Pump one active mutation per active row.
+            for active in active_rows:
+                snapshot = {
+                    "driver": str(active.get("driver") or ""),
+                    "track": str(active.get("track") or ""),
+                    "car": str(active.get("car") or ""),
+                    "experiment": str(active.get("experiment") or ""),
+                    "current_lap": active.get("current_lap"),
+                    "current_lap_time_ms": active.get("current_lap_time_ms") or 0,
+                    "normalized_position": 0.0,
+                    "last_gate_index": active.get("last_gate_index"),
+                    "last_gate_state": active.get("last_gate_state"),
+                    "last_gate_delta_ms": active.get("last_gate_delta_ms"),
+                    # No per-historical deltas in sim mutations — the
+                    # initial snapshot already populates each historical's
+                    # `delta_at_last_gate_ms`, and the sim doesn't
+                    # recompute them mid-tick. The colour cue on the
+                    # active row is the visible cycling signal.
+                    "historical_deltas": {},
+                }
+                publish_snapshot(snapshot)
+            # Active-state envelope on first appearance or combo change.
+            first = active_rows[0]
+            new_state = {
+                "is_active": True,
+                "driver": str(first.get("driver") or ""),
+                "track": str(first.get("track") or ""),
+                "car": str(first.get("car") or ""),
+                "experiment": str(first.get("experiment") or ""),
+                "environment": None,
+            }
+            global _sim_last_active_state
+            if _sim_last_active_state != new_state:
+                _sim_last_active_state = dict(new_state)
+                publish_active_state({"type": "active_state", **new_state})
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("sim driver loop crashed")
+
+
+async def _broadcast_envelope(envelope: dict[str, Any]) -> None:
+    """Serialise a tagged envelope and fan out to every client.
+
+    Used for control messages (e.g. ``active_state``) that bypass the
+    throttled active-mutation broadcaster. Runs on the FastAPI event
+    loop. Drops misformed envelopes silently — same defensive shape as
+    ``_broadcast_full_snapshot``.
+    """
+    try:
+        text = json.dumps(envelope, default=str)
+    except (TypeError, ValueError):
+        logger.exception(
+            "envelope JSON serialisation failed; dropping (type=%r)",
+            envelope.get("type") if isinstance(envelope, dict) else None,
+        )
+        return
+    await _broadcast(text)
+
+
 async def _enqueue_snapshot(snapshot: dict[str, Any]) -> None:
     """Put the snapshot in the queue, dropping the oldest if full.
 
@@ -357,6 +502,13 @@ async def _keepalive_loop() -> None:
     The frontend treats `type=ping` as a no-op (no row mutation, no
     state change). The send goes through ``_broadcast`` so dead clients
     are pruned the same way they are on real broadcasts.
+
+    The same loop also calls ``sweep_stale_active_state`` so an
+    `active_state` transition to `is_active=false` reaches the wire
+    after AC stops — the consumer thread can't push that transition on
+    its own because by definition it stops receiving ticks. The sweep
+    is cheap (one dict scan + at most one envelope) so we just run it
+    every keepalive tick.
     """
     text = json.dumps({"type": "ping"})
     while True:
@@ -364,6 +516,15 @@ async def _keepalive_loop() -> None:
             await asyncio.sleep(PING_INTERVAL_SECONDS)
         except asyncio.CancelledError:
             raise
+        try:
+            # Lazy import — same one-way layering as the publishers.
+            from . import live_telemetry
+
+            live_telemetry.sweep_stale_active_state()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("active-state sweep failed", exc_info=True)
         try:
             await _broadcast(text)
         except asyncio.CancelledError:
@@ -381,6 +542,11 @@ def _build_wire_payload(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     only the per-tick mutable fields of the active driver. Historicals,
     rank, and best laps come through the ``"snapshot"`` envelope (sent
     on connect and on gate-vectors refresh).
+
+    `historical_deltas` rides inline on the same envelope (spec §7.2):
+    a `{driver_display_name: delta_at_last_gate_ms}` dict the frontend
+    applies to each historical row in the matching group. ~10
+    historicals × 8 bytes ≈ 80 B per gate crossing — trivial.
 
     Returns ``None`` for malformed snapshots so the broadcaster can
     skip them without crashing.
@@ -402,9 +568,16 @@ def _build_wire_payload(snapshot: dict[str, Any]) -> dict[str, Any] | None:
             "last_gate_state": snapshot.get("last_gate_state"),
             "last_gate_delta_ms": snapshot.get("last_gate_delta_ms"),
         }
+        raw_historical_deltas = snapshot.get("historical_deltas") or {}
+        if isinstance(raw_historical_deltas, dict):
+            historical_deltas = {
+                str(k): int(v) for k, v in raw_historical_deltas.items()
+            }
+        else:
+            historical_deltas = {}
     except (TypeError, ValueError):
         return None
-    return {"type": "active", "row": row}
+    return {"type": "active", "row": row, "historical_deltas": historical_deltas}
 
 
 async def _broadcast(text: str) -> None:

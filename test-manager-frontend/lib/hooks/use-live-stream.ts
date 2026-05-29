@@ -39,6 +39,12 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context"
 import type { LivePositionEntry } from "@/types/leaderboard"
 
+export interface LiveCombo {
+  experiment: string
+  track: string
+  car: string
+}
+
 export interface UseLiveStreamResult {
   rows: LivePositionEntry[]
   tracks: string[]
@@ -46,6 +52,15 @@ export interface UseLiveStreamResult {
   experiments: string[]
   loading: boolean
   error: Error | null
+  /** True iff the backend most recently saw a non-stale AC session.
+   * Flips false on `active_state.is_active=false`; the backend uses a
+   * 20 s hysteresis vs. the 10 s active-row stale window so a quick
+   * pause doesn't flicker the toggle. */
+  isLive: boolean
+  /** `(experiment, track, car)` the live driver is currently on, or
+   * `null` when `isLive === false`. Used by `LeaderboardTab` to drive
+   * the right-table fetch when Follow-Live is ON. */
+  liveCombo: LiveCombo | null
 }
 
 interface SnapshotMessage {
@@ -74,6 +89,11 @@ interface ActiveMutation {
 interface ActiveMessage {
   type: "active"
   row: ActiveMutation
+  /** Per-historical inline deltas keyed by display-case driver name
+   * (spec §7.2). Frontend applies each delta to the matching
+   * `(driver, track, car, experiment)` historical row by patching
+   * `delta_at_last_gate_ms`. */
+  historical_deltas?: Record<string, number>
 }
 
 /**
@@ -85,7 +105,26 @@ interface PingMessage {
   type: "ping"
 }
 
-type StreamMessage = SnapshotMessage | ActiveMessage | PingMessage
+/**
+ * Active-stream transition envelope (spec §5.1). Sent on connect (with
+ * the current state) and on every transition: idle→active, combo
+ * change while active, active→idle.
+ */
+interface ActiveStateMessage {
+  type: "active_state"
+  is_active: boolean
+  driver: string | null
+  track: string | null
+  car: string | null
+  experiment: string | null
+  environment: string | null
+}
+
+type StreamMessage =
+  | SnapshotMessage
+  | ActiveMessage
+  | PingMessage
+  | ActiveStateMessage
 
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 10000]
 
@@ -111,23 +150,30 @@ function distinctSorted(values: string[]): string[] {
 }
 
 /**
- * Patch the matching active row in `rows` with a mutation. Returns the
- * same array reference when no row matched (React skips the re-render
- * on identity equality) and a new array when one did.
+ * Patch the matching active row in `rows` with a mutation, AND apply
+ * the per-historical `historical_deltas` map to every historical row
+ * in the same group (spec §7.2).
  *
- * Match key is `(driver, track, car, experiment)`. We require
- * `is_active === true` on the polled row as a safety net — the WS
- * shouldn't deliver mutations for non-active rows, but if it does
- * we'd rather drop them than silently overwrite a historical.
+ * Match key for the active row: `(driver, track, car, experiment)`.
+ * Match key for the historical deltas: same group + display-case
+ * driver name (the backend has already resolved the fold→display
+ * mapping before publishing, so frontend-side matching is exact
+ * equality).
+ *
+ * Returns the same array reference when nothing matched (React skips
+ * the re-render on identity equality) and a new array when something
+ * did.
  */
 function patchActiveRow(
   rows: LivePositionEntry[],
   mutation: ActiveMutation,
+  historicalDeltas: Record<string, number> | undefined,
 ): LivePositionEntry[] {
   let changed = false
+  const deltas = historicalDeltas ?? {}
   const next = rows.map((row) => {
+    // Active-row patch path.
     if (
-      !changed &&
       row.is_active &&
       row.driver === mutation.driver &&
       row.track === mutation.track &&
@@ -145,6 +191,26 @@ function patchActiveRow(
           mutation.last_gate_delta_ms ?? row.last_gate_delta_ms,
       }
     }
+    // Historical-row patch path: same group, non-active, name in the
+    // deltas map. We also write through `last_gate_index` so the row's
+    // delta column always points at the active driver's currently-
+    // crossed gate even between full snapshots.
+    if (
+      !row.is_active &&
+      row.track === mutation.track &&
+      row.car === mutation.car &&
+      row.experiment === mutation.experiment
+    ) {
+      const newDelta = deltas[row.driver]
+      if (newDelta !== undefined) {
+        changed = true
+        return {
+          ...row,
+          last_gate_index: mutation.last_gate_index ?? row.last_gate_index,
+          delta_at_last_gate_ms: newDelta,
+        }
+      }
+    }
     return row
   })
   return changed ? next : rows
@@ -155,6 +221,12 @@ export function useLiveStream(): UseLiveStreamResult {
   const [rows, setRows] = useState<LivePositionEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
+  // `isLive` and `liveCombo` follow the latest `active_state` envelope.
+  // Defaulted to false / null until the server sends the first one (the
+  // backend sends one immediately after the snapshot on connect, so the
+  // gap is sub-second in practice).
+  const [isLive, setIsLive] = useState(false)
+  const [liveCombo, setLiveCombo] = useState<LiveCombo | null>(null)
   // Hold the latest token in a ref so the reconnect loop closure doesn't
   // capture a stale value. We DO want a full re-subscription when the
   // token actually changes, so the main effect's dep array still
@@ -211,16 +283,33 @@ export function useLiveStream(): UseLiveStreamResult {
           setLoading(false)
           setError(null)
         } else if (parsed.type === "active") {
-          // Bind `mutation` outside the setter so the callback closes
-          // over a narrowed reference (TS widens `parsed` back to the
-          // union once it crosses the function boundary).
+          // Bind locals outside the setter so the callback closes over
+          // narrowed references (TS widens `parsed` back to the union
+          // once it crosses the function boundary).
           const mutation = parsed.row
-          setRows((prev) => patchActiveRow(prev, mutation))
+          const deltas = parsed.historical_deltas
+          setRows((prev) => patchActiveRow(prev, mutation, deltas))
           // An `active` message before the first snapshot can't happen
           // (the server snapshot-first ordering guarantees it), but if
           // somehow we get here, treat the connection as established.
           setLoading(false)
           setError(null)
+        } else if (parsed.type === "active_state") {
+          // Drive the dual-mode toggle. We trust the server's
+          // hysteresis (20 s vs. 10 s) so we don't add any client-side
+          // debouncing — the envelope already represents a real
+          // transition.
+          const next = parsed
+          setIsLive(next.is_active)
+          if (next.is_active && next.experiment && next.track && next.car) {
+            setLiveCombo({
+              experiment: next.experiment,
+              track: next.track,
+              car: next.car,
+            })
+          } else {
+            setLiveCombo(null)
+          }
         } else if (parsed.type === "ping") {
           // Server-side idle keepalive — purely traffic, no state change.
           // We deliberately don't even touch `error` / `loading` here so
@@ -282,5 +371,5 @@ export function useLiveStream(): UseLiveStreamResult {
     [rows],
   )
 
-  return { rows, tracks, cars, experiments, loading, error }
+  return { rows, tracks, cars, experiments, loading, error, isLive, liveCombo }
 }

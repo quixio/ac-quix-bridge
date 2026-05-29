@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Loader2 } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -17,6 +18,9 @@ import {
 } from "@/components/analysis/best-laps-table"
 import { useLiveStream } from "@/lib/hooks/use-live-stream"
 import { useLeaderboardApi } from "@/lib/hooks/use-api"
+import { cn } from "@/lib/utils"
+
+const FOLLOW_LIVE_STORAGE_KEY = "leaderboard.followLive"
 
 /**
  * Multi-driver leaderboard — Step 1.5.
@@ -49,7 +53,7 @@ import { useLeaderboardApi } from "@/lib/hooks/use-api"
  */
 export function LeaderboardTab() {
   const leaderboardApi = useLeaderboardApi()
-  const { rows: liveRows } = useLiveStream()
+  const { rows: liveRows, isLive, liveCombo } = useLiveStream()
 
   // Dropdown options.
   const [experiments, setExperiments] = useState<string[]>([])
@@ -64,10 +68,52 @@ export function LeaderboardTab() {
   const [bestLapsLoading, setBestLapsLoading] = useState(false)
   const [bestLapsError, setBestLapsError] = useState<string | null>(null)
 
-  // Selections.
+  // User dropdown selections. Preserved across Follow-Live ON↔OFF flips
+  // so that flipping back OFF restores the user's last manual choice.
   const [experiment, setExperiment] = useState<string | null>(null)
   const [track, setTrack] = useState<string | null>(null)
   const [car, setCar] = useState<string | null>(null)
+
+  // Follow-Live toggle (spec §5.2). Defaults to "true" on first visit;
+  // persisted in localStorage. SSR-safe initialisation: defer the
+  // localStorage read to a useEffect so the server-rendered HTML is
+  // deterministic.
+  const [followLive, setFollowLive] = useState<boolean>(true)
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const stored = window.localStorage.getItem(FOLLOW_LIVE_STORAGE_KEY)
+    if (stored === null) {
+      // First visit: persist the default so subsequent reads are
+      // consistent across tabs (spec acceptance: "default `true` on
+      // first load — confirm via `useEffect` that this is set if
+      // missing.").
+      window.localStorage.setItem(FOLLOW_LIVE_STORAGE_KEY, "true")
+      setFollowLive(true)
+      return
+    }
+    setFollowLive(stored === "true")
+  }, [])
+  const handleFollowLiveChange = useCallback((next: boolean) => {
+    setFollowLive(next)
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        FOLLOW_LIVE_STORAGE_KEY,
+        next ? "true" : "false",
+      )
+    }
+  }, [])
+
+  // Effective source for the right-table fetch. Follow-Live ON + a live
+  // combo overrides the user's dropdowns; otherwise we use the user's
+  // selection. `effective*` are what we POST to the API.
+  const dropdownsDisabled = isLive && followLive
+  const effectiveExperiment = dropdownsDisabled
+    ? (liveCombo?.experiment ?? null)
+    : experiment
+  const effectiveTrack = dropdownsDisabled
+    ? (liveCombo?.track ?? null)
+    : track
+  const effectiveCar = dropdownsDisabled ? (liveCombo?.car ?? null) : car
 
   // Best Laps payload.
   const [bestLaps, setBestLaps] = useState<BestLapRow[]>([])
@@ -98,13 +144,15 @@ export function LeaderboardTab() {
     }
   }, [leaderboardApi])
 
-  // 2. When experiment changes, refetch (tracks, cars). Reset downstream
-  // selections + Best Laps. When experiment is cleared, blank everything.
+  // 2. When the USER-selected experiment changes, refetch (tracks, cars).
+  // Reset downstream USER selections + Best Laps. When experiment is
+  // cleared, blank everything. We deliberately key on the user's
+  // `experiment` (not `effectiveExperiment`) so the dropdown OPTIONS
+  // always reflect what the user can pick — even when Follow-Live ON
+  // is overriding the actual fetch source below.
   useEffect(() => {
     setTrack(null)
     setCar(null)
-    setBestLaps([])
-    setBestLapsError(null)
     if (!experiment) {
       setTracks([])
       setCars([])
@@ -138,9 +186,12 @@ export function LeaderboardTab() {
     }
   }, [experiment, leaderboardApi])
 
-  // 3. When Track AND Car are both selected, fetch best laps.
+  // 3. When the effective (experiment, track, car) triple is complete,
+  // fetch best laps. Re-fires on Follow-Live ON when the live combo
+  // changes (e.g. driver switches experiment mid-session) and on
+  // Follow-Live OFF when the user picks a new dropdown value.
   useEffect(() => {
-    if (!experiment || !track || !car) {
+    if (!effectiveExperiment || !effectiveTrack || !effectiveCar) {
       setBestLaps([])
       setBestLapsError(null)
       return
@@ -149,7 +200,7 @@ export function LeaderboardTab() {
     setBestLapsLoading(true)
     setBestLapsError(null)
     leaderboardApi
-      .getBestLaps(experiment, track, car)
+      .getBestLaps(effectiveExperiment, effectiveTrack, effectiveCar)
       .then((data) => {
         if (cancelled) return
         setBestLaps(data)
@@ -168,7 +219,7 @@ export function LeaderboardTab() {
     return () => {
       cancelled = true
     }
-  }, [experiment, track, car, leaderboardApi])
+  }, [effectiveExperiment, effectiveTrack, effectiveCar, leaderboardApi])
 
   // Stable callbacks for the Select components.
   const handleExperiment = useCallback((value: string) => {
@@ -181,11 +232,12 @@ export function LeaderboardTab() {
     setCar(value || null)
   }, [])
 
-  const bothSelected = Boolean(experiment && track && car)
+  const bothSelected = Boolean(
+    effectiveExperiment && effectiveTrack && effectiveCar,
+  )
 
-  // Live Sector Comparison still consumes the WS rows directly. In Step
-  // 2 we'll filter by the dropdown selection again, but for now we
-  // honour the spec: "leave unchanged".
+  // Live Sector Comparison ALWAYS consumes the WS rows directly. The
+  // toggle only governs the right-table fetch source.
   const liveTableRows = useMemo(() => liveRows, [liveRows])
 
   return (
@@ -204,17 +256,28 @@ export function LeaderboardTab() {
         onExperiment={handleExperiment}
         onTrack={handleTrack}
         onCar={handleCar}
+        disabledOverride={dropdownsDisabled}
+        isLive={isLive}
+        followLive={followLive}
+        onFollowLiveChange={handleFollowLiveChange}
+        liveCombo={liveCombo}
       />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr] lg:gap-8">
-        <LivePositionsTable rows={liveTableRows} collapsed={false} />
+        <LivePositionsTable
+          rows={liveTableRows}
+          collapsed={false}
+          isLive={isLive}
+        />
         <BestLapsPanel
-          experiment={experiment}
-          track={track}
-          car={car}
+          experiment={effectiveExperiment}
+          track={effectiveTrack}
+          car={effectiveCar}
           bothSelected={bothSelected}
           loading={bestLapsLoading}
           error={bestLapsError}
           rows={bestLaps}
+          isLive={isLive}
+          followLive={followLive}
         />
       </div>
     </div>
@@ -235,20 +298,69 @@ interface FilterBarProps {
   onExperiment: (v: string) => void
   onTrack: (v: string) => void
   onCar: (v: string) => void
+  /** When true, every dropdown is visually disabled — even if the
+   * dropdown has options. Used by Follow-Live ON to lock the selection
+   * to the live combo. */
+  disabledOverride: boolean
+  isLive: boolean
+  followLive: boolean
+  onFollowLiveChange: (next: boolean) => void
+  liveCombo: { experiment: string; track: string; car: string } | null
 }
 
 function FilterBar(props: FilterBarProps) {
-  const experimentDisabled = props.experimentsLoading || props.experiments.length === 0
+  const experimentDisabled =
+    props.disabledOverride ||
+    props.experimentsLoading ||
+    props.experiments.length === 0
   const downstreamDisabled =
-    !props.experiment || props.optionsLoading || Boolean(props.optionsError)
+    props.disabledOverride ||
+    !props.experiment ||
+    props.optionsLoading ||
+    Boolean(props.optionsError)
+
+  // When Follow-Live is ON, the dropdowns show the LIVE combo values
+  // (read-only) so the user can see what's being fetched. When OFF or
+  // idle, they show the user's actual selection.
+  const showExperiment = props.disabledOverride
+    ? (props.liveCombo?.experiment ?? null)
+    : props.experiment
+  const showTrack = props.disabledOverride
+    ? (props.liveCombo?.track ?? null)
+    : props.track
+  const showCar = props.disabledOverride
+    ? (props.liveCombo?.car ?? null)
+    : props.car
+  // Make sure the "displayed" value is in the options list — when
+  // Follow-Live shows a live combo whose experiment isn't in the user's
+  // most recently fetched options list, we still want the trigger to
+  // render the value.
+  const displayedExperiments = useMemo(() => {
+    if (showExperiment && !props.experiments.includes(showExperiment)) {
+      return [showExperiment, ...props.experiments]
+    }
+    return props.experiments
+  }, [showExperiment, props.experiments])
+  const displayedTracks = useMemo(() => {
+    if (showTrack && !props.tracks.includes(showTrack)) {
+      return [showTrack, ...props.tracks]
+    }
+    return props.tracks
+  }, [showTrack, props.tracks])
+  const displayedCars = useMemo(() => {
+    if (showCar && !props.cars.includes(showCar)) {
+      return [showCar, ...props.cars]
+    }
+    return props.cars
+  }, [showCar, props.cars])
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-end gap-4">
         <FilterSelect
           label="Experiment"
-          value={props.experiment}
-          options={props.experiments}
+          value={showExperiment}
+          options={displayedExperiments}
           onChange={props.onExperiment}
           testid="filter-experiment"
           disabled={experimentDisabled}
@@ -256,22 +368,28 @@ function FilterBar(props: FilterBarProps) {
         />
         <FilterSelect
           label="Track"
-          value={props.track}
-          options={props.tracks}
+          value={showTrack}
+          options={displayedTracks}
           onChange={props.onTrack}
           testid="filter-track"
-          disabled={downstreamDisabled || props.tracks.length === 0}
+          disabled={downstreamDisabled || displayedTracks.length === 0}
           loading={props.optionsLoading}
         />
         <FilterSelect
           label="Car"
-          value={props.car}
-          options={props.cars}
+          value={showCar}
+          options={displayedCars}
           onChange={props.onCar}
           testid="filter-car"
-          disabled={downstreamDisabled || props.cars.length === 0}
+          disabled={downstreamDisabled || displayedCars.length === 0}
           loading={props.optionsLoading}
         />
+        {props.isLive && (
+          <FollowLiveToggle
+            value={props.followLive}
+            onChange={props.onFollowLiveChange}
+          />
+        )}
       </div>
       {props.experimentsError && (
         <p className="text-sm text-rose-400">{props.experimentsError}</p>
@@ -279,6 +397,42 @@ function FilterBar(props: FilterBarProps) {
       {props.optionsError && (
         <p className="text-sm text-rose-400">{props.optionsError}</p>
       )}
+    </div>
+  )
+}
+
+function FollowLiveToggle({
+  value,
+  onChange,
+}: {
+  value: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <div className="flex min-w-[180px] flex-col gap-1">
+      <label className="text-xs uppercase tracking-wider text-muted-foreground">
+        Follow live driver
+      </label>
+      <Button
+        type="button"
+        variant={value ? "default" : "outline"}
+        size="sm"
+        onClick={() => onChange(!value)}
+        data-testid="follow-live-toggle"
+        aria-pressed={value}
+        className={cn(
+          "justify-start",
+          value && "bg-blue-500 text-white hover:bg-blue-500/90",
+        )}
+      >
+        <span
+          className={cn(
+            "mr-2 inline-block h-2 w-2 rounded-full",
+            value ? "bg-white" : "bg-muted-foreground",
+          )}
+        />
+        {value ? "ON" : "OFF"}
+      </Button>
     </div>
   )
 }
@@ -334,17 +488,17 @@ interface BestLapsPanelProps {
   loading: boolean
   error: string | null
   rows: BestLapRow[]
+  isLive: boolean
+  followLive: boolean
 }
 
 function BestLapsPanel(props: BestLapsPanelProps) {
-  if (!props.experiment) {
+  if (!props.experiment || !props.track || !props.car) {
+    // Spec §8: idle right-table empty state. With Follow-Live ON and
+    // no live combo we still show this message — it's accurate either
+    // way. Spec language: "Pick experiment / track / car".
     return (
-      <BestLapsPlaceholder message="Select an experiment to begin." />
-    )
-  }
-  if (!props.bothSelected) {
-    return (
-      <BestLapsPlaceholder message="Select a track and car to view best laps." />
+      <BestLapsPlaceholder message="Pick experiment / track / car to view best laps." />
     )
   }
   if (props.loading) {
@@ -361,9 +515,12 @@ function BestLapsPanel(props: BestLapsPanelProps) {
     )
   }
   if (props.rows.length === 0) {
-    return (
-      <BestLapsPlaceholder message="No best laps recorded for this combination yet." />
-    )
+    // Spec §5.5: distinct copy when the live combo has no historicals.
+    const message =
+      props.isLive && props.followLive
+        ? "No historical laps yet for this experiment / track / car."
+        : "No best laps recorded for this combination yet."
+    return <BestLapsPlaceholder message={message} />
   }
   return <BestLapsTable rows={props.rows} />
 }
