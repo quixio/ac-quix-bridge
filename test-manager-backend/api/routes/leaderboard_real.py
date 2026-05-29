@@ -142,15 +142,13 @@ def _build_best_laps_sql(
     """
     lake_table = get_settings().lake_table
     return (
-        "SELECT driver, MIN(iBestTime) AS best_lap_ms "
+        "SELECT driver, iBestTime "
         f"FROM {lake_table} "
         f"WHERE environment = '{_format_sql_string(environment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
         f"AND experiment = '{_format_sql_string(experiment)}' "
-        "AND iBestTime > 0 "
-        "GROUP BY driver "
-        "ORDER BY best_lap_ms ASC"
+        "AND iBestTime > 0"
     )
 
 
@@ -186,12 +184,15 @@ def _query_best_laps(
     df = df.fillna("")
     rows: list[dict[str, Any]] = df.to_dict("records")
 
+    # Per-driver MIN(iBestTime) folded in Python — the lake just streams
+    # raw (driver, iBestTime) rows so the query stays a scan + filter
+    # rather than a costly server-side aggregation.
     per_driver: dict[str, int] = {}
     for row in rows:
         raw_driver = str(row.get("driver") or "").strip()
         if not raw_driver:
             continue
-        raw_best = row.get("best_lap_ms")
+        raw_best = row.get("iBestTime")
         if raw_best is None or raw_best == "":
             continue
         try:
@@ -200,7 +201,10 @@ def _query_best_laps(
             continue
         if best_ms <= 0:
             continue
-        per_driver[_fold_driver_name(raw_driver)] = best_ms
+        folded = _fold_driver_name(raw_driver)
+        prev = per_driver.get(folded)
+        if prev is None or best_ms < prev:
+            per_driver[folded] = best_ms
     return per_driver
 
 
@@ -226,16 +230,13 @@ def _build_best_laps_with_lap_sql(
     """
     lake_table = get_settings().lake_table
     return (
-        "SELECT driver, lap, "
-        "MAX(timestamp_ms) - MIN(timestamp_ms) AS lap_time_ms "
+        "SELECT driver, lap, timestamp_ms "
         f"FROM {lake_table} "
         f"WHERE environment = '{_format_sql_string(environment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
         f"AND experiment = '{_format_sql_string(experiment)}' "
-        "AND lap > 0 "
-        "GROUP BY driver, lap "
-        "ORDER BY driver, lap_time_ms ASC"
+        "AND lap > 0"
     )
 
 
@@ -265,22 +266,40 @@ def _query_best_laps_with_lap(
     df = df.fillna("")
     rows: list[dict[str, Any]] = df.to_dict("records")
 
-    # Keys are the RAW lake `driver` field (lowercase but diacritics
-    # preserved — e.g. `"tomás"`) so they can be inlined into the
-    # `_query_gate_samples` WHERE clause without an extra mapping table.
-    # The folding to the cache-key form (`"tomas"`) happens once at the
-    # very end of the pipeline in `_reduce_to_gate_vectors`.
-    per_driver: dict[str, tuple[int, int]] = {}
+    # Lake returns raw (driver, lap, timestamp_ms) rows. Compute the
+    # per-(driver, lap) duration in Python as MAX(timestamp_ms) -
+    # MIN(timestamp_ms), then keep the fastest lap per driver. Same
+    # output shape as before, server-side aggregation pushed to backend
+    # so the SQL stays a scan + filter (no GROUP BY against the slow
+    # lake table).
+    lap_bounds: dict[tuple[str, int], tuple[int, int]] = {}
     for row in rows:
         raw_driver = str(row.get("driver") or "").strip()
         if not raw_driver:
             continue
         try:
             lap_num = int(row.get("lap") or 0)
-            lap_time_ms = int(float(row.get("lap_time_ms") or 0))
+            ts = int(float(row.get("timestamp_ms") or 0))
         except (TypeError, ValueError):
             continue
-        if lap_num <= 0 or lap_time_ms <= 0:
+        if lap_num <= 0 or ts <= 0:
+            continue
+        key = (raw_driver, lap_num)
+        bounds = lap_bounds.get(key)
+        if bounds is None:
+            lap_bounds[key] = (ts, ts)
+        else:
+            lo, hi = bounds
+            if ts < lo:
+                lo = ts
+            if ts > hi:
+                hi = ts
+            lap_bounds[key] = (lo, hi)
+
+    per_driver: dict[str, tuple[int, int]] = {}
+    for (raw_driver, lap_num), (lo, hi) in lap_bounds.items():
+        lap_time_ms = hi - lo
+        if lap_time_ms <= 0:
             continue
         existing = per_driver.get(raw_driver)
         if existing is None or lap_time_ms < existing[0]:
