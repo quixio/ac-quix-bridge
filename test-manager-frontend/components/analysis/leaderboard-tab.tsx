@@ -14,26 +14,30 @@ import {
 } from "@/components/ui/select"
 import { LivePositionsTable } from "@/components/analysis/live-positions-table"
 import { BestLapsTable } from "@/components/analysis/best-laps-table"
-import { useLivePositions } from "@/lib/hooks/use-live-positions"
+import { useLiveStream } from "@/lib/hooks/use-live-stream"
 import { COLLAPSED_ROW_COUNT } from "@/lib/utils/leaderboard-window"
 
 /**
  * Multi-driver live-positions leaderboard.
  *
- * The page polls the backend every 3.5 s for the full 60-row response,
- * then filters down to one (track, car, experiment) group selected via
- * three dropdowns. The active driver's rank inside the group shifts at
- * sector boundaries based on his cumulative-at-sector time vs. each
- * historical driver's cumulative-at-sector time.
+ * The page subscribes to `/api/v1/leaderboard/live-stream` and receives
+ * one initial snapshot followed by per-tick active-row mutations and
+ * occasional rebroadcast snapshots (triggered server-side when
+ * historicals change). There is no HTTP polling — the WebSocket is the
+ * sole data source.
+ *
+ * `useLiveStream` returns the same shape the old `useLivePositions`
+ * polling hook exposed: `{ rows, tracks, cars, experiments, loading,
+ * error }`, so the downstream filter / collapse logic is unchanged.
  *
  * On first load the dropdowns auto-select the alphabetically-first
- * value of each list. The selection sticks across polls; if the
- * currently-selected option disappears from the response (shouldn't
- * happen in sim mode but could in real mode) we re-snap to the first
- * available one.
+ * value of each list. The selection sticks across snapshots; if the
+ * currently-selected option disappears from the next snapshot
+ * (shouldn't happen in sim mode but could in real mode) we re-snap
+ * to the first available one.
  */
 export function LeaderboardTab() {
-  const { rows, tracks, cars, experiments, loading, error } = useLivePositions()
+  const { rows, tracks, cars, experiments, loading, error } = useLiveStream()
 
   const [track, setTrack] = useState<string | null>(null)
   const [car, setCar] = useState<string | null>(null)

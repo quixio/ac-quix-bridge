@@ -14,8 +14,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { formatLapTime } from "@/lib/utils/format"
 import { cn } from "@/lib/utils"
-import { useLiveStream } from "@/lib/hooks/use-live-stream"
-import type { LiveStreamMutation } from "@/lib/hooks/use-live-stream"
 import {
   COLLAPSED_ROW_COUNT,
   collapseAroundIndex,
@@ -41,21 +39,16 @@ import type { LivePositionEntry } from "@/types/leaderboard"
  *     crosses each of the 20 checkpoint gates and stays sticky until
  *     the next crossing.
  *
- * Active-driver clock source: a WebSocket stream
- * (`/api/v1/leaderboard/live-stream`) pushes AC's `iCurrentTime`
- * verbatim at ≤20 Hz. There is no client-side extrapolation — the
- * cell renders exactly what AC's shared memory reports. That fixes
- * two bugs:
- *   * Pre-start "wall-clock advances while car is stationary"
- *     (`iCurrentTime == 0` until the start line is crossed).
- *   * Parked car mid-lap (AC keeps advancing `iCurrentTime`, so the
- *     clock keeps ticking; previously extrapolation produced the same
- *     visual but for the wrong reason).
+ * Active-driver clock source: the `/api/v1/leaderboard/live-stream`
+ * WebSocket pushes AC's `iCurrentTime` verbatim at ≤20 Hz. The patched
+ * `current_lap_time_ms` arrives via `useLiveStream` (one hook above
+ * `LeaderboardTab`) and lands on `rows` here pre-merged — this
+ * component just renders. There is no client-side extrapolation.
  *
- * When AC pauses, the source stops sending and the WS stops pushing —
+ * When AC pauses the source stops sending and the WS stops pushing —
  * the clock naturally freezes at the last value. After 10 s of
  * silence the backend's `STALE_AFTER_S` window expires and the next
- * `/live-positions` poll drops the active row.
+ * snapshot rebroadcast (or reconnect) drops the active row.
  *
  * Historical rows show their ghost-interpolated `current_lap_time_ms`
  * at the active driver's current map position — a true live comparison.
@@ -69,58 +62,16 @@ export interface LivePositionsTableProps {
   collapsed?: boolean
 }
 
-function mergeActiveWithStream(
-  rows: LivePositionEntry[],
-  mutation: LiveStreamMutation | null,
-): LivePositionEntry[] {
-  if (!mutation) return rows
-  // The WS message is keyed by (driver, track, car, experiment) — match
-  // it against the active row in the polled slice. We don't trust
-  // `is_active` alone because the polled row may transiently lag the
-  // stream (e.g. a fresh session whose first poll hasn't completed),
-  // and we don't want to overwrite the wrong driver's row.
-  let matched = false
-  const next = rows.map((row) => {
-    if (
-      !matched &&
-      row.is_active &&
-      row.driver === mutation.driver &&
-      row.track === mutation.track &&
-      row.car === mutation.car &&
-      row.experiment === mutation.experiment
-    ) {
-      matched = true
-      return {
-        ...row,
-        current_lap: mutation.current_lap ?? row.current_lap,
-        current_lap_time_ms: mutation.current_lap_time_ms,
-        last_gate_index: mutation.last_gate_index ?? row.last_gate_index,
-        last_gate_state: mutation.last_gate_state ?? row.last_gate_state,
-        last_gate_delta_ms:
-          mutation.last_gate_delta_ms ?? row.last_gate_delta_ms,
-      }
-    }
-    return row
-  })
-  return next
-}
-
 export function LivePositionsTable({
   rows,
   collapsed = false,
 }: LivePositionsTableProps) {
-  const streamMutation = useLiveStream()
-
-  // Stream mutation overrides the active row's per-tick fields. We do
-  // the merge before sorting because sorting is by `rank`, which the
-  // stream doesn't touch — so ordering is stable across stream updates.
-  const merged = useMemo(
-    () => mergeActiveWithStream(rows, streamMutation),
-    [rows, streamMutation],
-  )
+  // `rows` is already patched by `useLiveStream` (active-row mutations
+  // applied to the latest snapshot), so this component owns no WS
+  // bookkeeping — it just sorts by rank and renders.
   const sorted = useMemo(
-    () => [...merged].sort((a, b) => a.rank - b.rank),
-    [merged],
+    () => [...rows].sort((a, b) => a.rank - b.rank),
+    [rows],
   )
 
   const currentActiveIdx = sorted.findIndex((r) => r.is_active)
