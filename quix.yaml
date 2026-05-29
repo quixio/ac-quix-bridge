@@ -234,7 +234,8 @@ deployments:
         variableKey: pat_token
       - name: LAKE_TABLE
         inputType: FreeText
-        value: ac_telemetry
+        description: Lake table the leaderboard queries (e.g. ac_telemetry, ac_telemetry_leaderboard)
+        value: ac_telemetry_leaderboard
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false
