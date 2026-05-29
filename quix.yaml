@@ -238,12 +238,12 @@ deployments:
         value: ac_telemetry_leadboard
       - name: LAKE_COL_CURRENT_TIME
         inputType: FreeText
-        description: Lap-relative current-time column on LAKE_TABLE
+        description: Lap-relative current-time column on LAKE_TABLE (e.g. iCurrentTime on ac_telemetry, currentTime on derived tables)
         value: currentTime
       - name: LAKE_COL_BEST_TIME
         inputType: FreeText
-        description: Best-lap-time column on LAKE_TABLE
-        value: bestTime
+        description: Best-lap-time column on LAKE_TABLE (e.g. iBestTime or bestTime)
+        value: ibestTime
       - name: LAKE_COL_NORMALIZED_POSITION
         inputType: FreeText
         description: 0..1 normalized position column on LAKE_TABLE
