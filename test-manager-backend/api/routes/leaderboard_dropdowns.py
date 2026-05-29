@@ -164,17 +164,27 @@ def _query_distinct_strings(client: QuixLakeClient, sql: str, column: str) -> li
 
 
 @router.get("/experiments", response_model=list[str])
-async def get_experiments(_auth: None = Depends(read_permission)) -> list[str]:
-    """Return all distinct experiments in the lake, sorted ascending.
+async def get_experiments(
+    _auth: None = Depends(read_permission),
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+) -> list[str]:
+    """Return all distinct experiment_ids known to Test Manager.
 
-    Empty list when the lake is empty. 500 with `detail` on lake failure
-    or missing credentials.
+    Sourced from Mongo `tests` (the system-of-record for experiments)
+    rather than the lake. QuixLake's partition pruning silently returns
+    0 rows for `SELECT ... GROUP BY experiment` without a WHERE on a
+    partition column, so we can't enumerate experiments from telemetry.
+    Mongo also has experiments that haven't produced telemetry yet, which
+    is the right behaviour — operators expect to see all experiments,
+    even ones that haven't been driven.
     """
     try:
-        client = _get_lake_client()
-        return _query_distinct_strings(client, _build_experiments_sql(), "experiment")
-    except LeaderboardError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raw = mongo.tests.distinct("experiment_id")
+        out = sorted(
+            {str(v).strip() for v in raw if isinstance(v, str) and v.strip()}
+        )
+        logger.info("experiments response: %d experiment(s)", len(out))
+        return out
     except Exception as e:
         logger.exception("GET /leaderboard/experiments failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
