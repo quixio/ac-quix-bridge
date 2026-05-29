@@ -1,7 +1,5 @@
 "use client"
 
-import { useAutoAnimate } from "@formkit/auto-animate/react"
-
 import {
   Table,
   TableBody,
@@ -10,68 +8,36 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
-import {
-  COLLAPSED_ROW_COUNT,
-  collapseAroundIndex,
-  useAnchoredActiveIdx,
-} from "@/lib/utils/leaderboard-window"
-import type { LivePositionEntry } from "@/types/leaderboard"
 import { BestLapCell } from "@/components/analysis/live-positions-table"
 
 /**
  * "Best Laps" table — Rank · Driver · Best Lap.
  *
- * Fed by the same `/live-positions` payload as Live Sector Comparison.
- * Sorted *client-side* by `best_lap_ms` ascending (treating `null` as
- * `+Infinity`) and ranked 1..N fresh, independent of the server-supplied
- * sector-based `rank`.
+ * Step 1.5 shape: fed directly by `/api/v1/leaderboard/best-laps`. The
+ * server returns rows already sorted ascending by `best_lap_ms`; this
+ * component just numbers them 1..N.
  *
- * The active driver keeps the `LIVE` badge so they're locatable, and
- * their row gets the accent tint, but there's no Lap-N label here (lap
- * progress lives in the live table) and no color cues — this table only
- * answers "who set the fastest lap?".
+ * No live / active highlighting in this step — Live Sector Comparison
+ * owns the live driver state. Re-wiring the LIVE badge / colour cues
+ * will land in Step 2 once the WebSocket gate is back on.
  */
+
+export interface BestLapRow {
+  driver: string
+  best_lap_ms: number
+}
+
 export interface BestLapsTableProps {
-  rows: LivePositionEntry[]
-  collapsed?: boolean
+  rows: BestLapRow[]
 }
 
-interface RankedRow {
-  row: LivePositionEntry
-  rank: number
-}
-
-export function BestLapsTable({ rows, collapsed = false }: BestLapsTableProps) {
-  const sortedRanked: RankedRow[] = [...rows]
-    .sort((a, b) => {
-      const av = a.best_lap_ms ?? Number.POSITIVE_INFINITY
-      const bv = b.best_lap_ms ?? Number.POSITIVE_INFINITY
-      return av - bv
-    })
-    .map((row, idx) => ({ row, rank: idx + 1 }))
-
-  const currentActiveIdx = sortedRanked.findIndex((r) => r.row.is_active)
-  // Lag the window so the active driver's rank change reads as a *move*
-  // first, then the table re-centres around his new position after a
-  // short delay (see `useAnchoredActiveIdx`).
-  const anchorIdx = useAnchoredActiveIdx(currentActiveIdx)
-  const visible = collapsed
-    ? collapseAroundIndex(sortedRanked, COLLAPSED_ROW_COUNT, anchorIdx)
-    : sortedRanked
-
-  const [bodyRef] = useAutoAnimate<HTMLTableSectionElement>({
-    duration: 700,
-    easing: "ease-in-out",
-  })
-
+export function BestLapsTable({ rows }: BestLapsTableProps) {
   return (
     <div className="w-full">
       <div className="mb-2">
         <h3 className="text-base font-semibold">Best Laps</h3>
         <p className="text-xs text-muted-foreground">
-          Updates only when a new personal best is set
+          Per-driver fastest lap for the selected experiment / track / car
         </p>
       </div>
       <Table>
@@ -82,37 +48,16 @@ export function BestLapsTable({ rows, collapsed = false }: BestLapsTableProps) {
             <TableHead className="text-right tabular-nums">Best Lap</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody ref={bodyRef}>
-          {visible.map(({ row, rank }) => (
+        <TableBody>
+          {rows.map((row, idx) => (
             <TableRow
-              key={`${row.driver}|${row.track}|${row.car}|${row.experiment}`}
+              key={`${row.driver}|${idx}`}
               data-testid={`best-lap-row-${row.driver}`}
-              data-active={row.is_active ? "true" : "false"}
-              className={cn(
-                row.is_active &&
-                  "border-l-4 border-l-blue-500 bg-blue-500/10 font-medium",
-              )}
             >
-              <TableCell className="tabular-nums">{rank}</TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <span>{row.driver}</span>
-                  {row.is_active && (
-                    <Badge
-                      data-testid="best-lap-live-badge"
-                      variant="default"
-                      className="bg-blue-500 text-white hover:bg-blue-500"
-                    >
-                      LIVE
-                    </Badge>
-                  )}
-                </div>
-              </TableCell>
+              <TableCell className="tabular-nums">{idx + 1}</TableCell>
+              <TableCell>{row.driver}</TableCell>
               <TableCell className="text-right tabular-nums">
-                <BestLapCell
-                  ms={row.best_lap_ms}
-                  lapNumber={row.best_lap_number}
-                />
+                <BestLapCell ms={row.best_lap_ms} lapNumber={null} />
               </TableCell>
             </TableRow>
           ))}

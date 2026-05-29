@@ -138,13 +138,17 @@ _state: dict[tuple[str, str, str], dict[str, Any]] = {}
 # populated on every session message (one per AC session).
 #
 # `_experiment_cache[hostname]` = {"experiment": str, "driver": str,
-#                                  "fetched_epoch": float}
+#                                  "environment": str, "fetched_epoch": float}
 # populated synchronously when a session message arrives (one DCM HTTP call
-# per session change); refreshed if older than EXPERIMENT_CACHE_TTL_S. Both
-# `experiment` (content.experiment_id) and `driver` (content.driver, the
-# canonical "who is driving this test" set by Test Manager) come from the
-# same DCM experiment-config fetch — no extra HTTP calls vs the prior
-# single-field cache.
+# per session change); refreshed if older than EXPERIMENT_CACHE_TTL_S. All
+# three of `experiment` (content.experiment_id), `driver` (content.driver,
+# the canonical "who is driving this test" set by Test Manager), and
+# `environment` (content.environment, the lake's `environment` Hive
+# partition) come from the same DCM experiment-config fetch — no extra HTTP
+# calls vs the prior two-field cache. The environment value is required by
+# the best-laps lake query (`environment` partitions the lake and missing
+# it from the WHERE clause caused the previous "scans-too-wide / only-2-rows"
+# bug).
 _session_cache: dict[str, dict[str, str]] = {}
 _experiment_cache: dict[str, dict[str, Any]] = {}
 
@@ -152,43 +156,55 @@ _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
 
 # ---------------------------------------------------------------------------
-# Gate-vectors cache (per-driver best-lap per-gate cumulative times)
+# Best-laps cache (Step 1 of the leaderboard recovery)
 # ---------------------------------------------------------------------------
 #
 # Why this cache exists: `/api/v1/leaderboard/live-positions` is polled ~every
 # 3.5 s while a user has the leaderboard tab open, but the underlying
 # per-driver best laps in `ac_telemetry` only change when a new fast lap
 # completes. We refresh on the natural "something changed" signal — a new
-# `ac-telemetry-session` message — so the lake hit drops from "every poll"
-# to "once per AC session start".
-#
-# Each `_HistoricalEntry` carries both the best-lap time
-# (= `gate_vector[19]`, the lap-line gate) and the full 20-element per-gate
-# cumulative-ms vector so the server can stamp a colour state onto the
-# active row at every crossing without re-querying the lake.
+# `ac-telemetry-session` message or a DCM config event — so the lake hit
+# drops from "every poll" to "once per AC session start / DCM edit".
 #
 # Cache shape:
-#   {(track, carModel, experiment): {driver_folded: _HistoricalEntry}}
+#   {(track, carModel, experiment, environment): {driver_folded: best_lap_ms}}
 # Driver names are folded via `_fold_driver_name` (NFKD + ASCII lowercase)
 # so a lake `"ludvik"` and a Mongo `"Ludvík"` collide on the same key.
+# `best_lap_ms` is the per-driver `MIN(iBestTime) FILTER (WHERE iBestTime > 0)`
+# straight from QuixLake — already in milliseconds, no Python reduction
+# required (this replaces the previous flaky
+# `MAX(timestamp_ms) - MIN(timestamp_ms)` aggregation).
 #
 # A `None` sentinel means "never refreshed yet" — distinct from "refreshed,
 # but the lake had no rows" which is an empty dict. `build_live_positions`
 # triggers a synchronous fallback refresh on `None`.
 #
-# Guarded by a dedicated `_gate_vectors_lock` rather than `_state_lock`
-# because the lake query takes seconds and we must NOT block the raw-tick
+# Guarded by a dedicated `_best_laps_lock` rather than `_state_lock`
+# because the lake queries take seconds and we must NOT block the raw-tick
 # path. The refresh function builds the new dict outside the lock and only
 # holds the lock long enough to swap the reference.
 #
-# This cache fully subsumes the retired `_historicals_cache`: any caller
-# that previously needed `(best_lap_ms, best_lap_number)` reads them off
-# `_HistoricalEntry`. See `docs/architecture-leaderboard-checkpoint-gates.md`.
+# TODO Step 2: re-introduce the per-gate cumulative-time vector alongside
+# each best-lap value (the legacy `_HistoricalEntry` / `_gate_vectors_cache`
+# code below stays in place but unused for now). Until Step 2 ships,
+# `LivePositionEntry.last_gate_*` fields are emitted as None for every row.
+#
+# This cache subsumes the in-flight `_gate_vectors_cache`: any caller that
+# previously needed `(best_lap_ms,)` reads it directly here; lap-number
+# tracking is retired in Step 1 because the new SQL doesn't compute it.
 
 
+# TODO Step 2: re-enable for sector comparison.
+# `_HistoricalEntry` and the gate-vectors cache below remain present so the
+# Step 2 implementation can re-attach them without reconstructing the data
+# class from scratch. They are NOT populated or read on the Step 1 hot path.
 @dataclass(frozen=True)
 class _HistoricalEntry:
-    """Cached per-gate breakdown of one historical driver's best lap.
+    """[TODO Step 2] Cached per-gate breakdown of one historical driver's best lap.
+
+    Unused on the Step 1 path. Kept so the gate-vectors reducer in
+    `leaderboard_real` continues to import-resolve while the Step 2
+    code is dormant.
 
     * `best_lap_ms` — by definition equal to `gate_vector[19]` (the 100% /
       lap-line gate). Stored explicitly so the assembly code reads more
@@ -206,10 +222,18 @@ class _HistoricalEntry:
     gate_vector: list[int] = field(default_factory=list)
 
 
+# TODO Step 2: re-enable for sector comparison.
 _gate_vectors_lock = threading.RLock()
 _gate_vectors_cache: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None = (
     None
 )
+
+# Step 1 cache: per-driver best lap in milliseconds, keyed by the full
+# (track, car, experiment, environment) tuple to match the new lake WHERE
+# clause exactly. `None` until the first refresh runs (distinct from
+# empty-but-refreshed). See spec acceptance for the trigger list.
+_best_laps_lock = threading.RLock()
+_best_laps_cache: dict[tuple[str, str, str, str], dict[str, int]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -602,17 +626,19 @@ def _fetch_latest_version_content(
 
 
 def _fetch_experiment_from_dcm(hostname: str) -> dict[str, str]:
-    """Resolve the active experiment + driver for a hostname via the DCM HTTP API.
+    """Resolve the active experiment + driver + environment for a hostname via the DCM HTTP API.
 
-    Returns a dict `{"experiment_id": str, "driver": str}`. Both default to
-    `""` when no experiment config exists for this hostname or any DCM call
-    fails. `experiment_id` matches the Hive `experiment` partition in the
-    lake (DCM content stores it under the legacy key `experiment_id`);
-    `driver` is the canonical "who is driving this test" set by Test Manager
-    (`api/routes/tests.py:sync_to_dcm` writes `content.driver = test.driver
-    .lower()` alongside `experiment_id`). Sourcing both from the same single
-    DCM call keeps the network cost identical to the prior experiment-only
-    fetch.
+    Returns a dict `{"experiment_id": str, "driver": str, "environment": str}`.
+    All three default to `""` when no experiment config exists for this
+    hostname or any DCM call fails. `experiment_id` matches the Hive
+    `experiment` partition in the lake (DCM content stores it under the
+    legacy key `experiment_id`); `driver` is the canonical "who is driving
+    this test" set by Test Manager (`api/routes/tests.py:sync_to_dcm` writes
+    `content.driver = test.driver.lower()` alongside `experiment_id`);
+    `environment` matches the Hive `environment` partition (`tests.py`
+    line 89: `content.environment = partition["environment"]`). Sourcing all
+    three from the same single DCM call keeps the network cost identical to
+    the prior experiment-only fetch.
 
     Network-blocking but called only on session-message arrival (rare event,
     not per-tick). All exceptions are caught here — the consumer loop must
@@ -628,7 +654,7 @@ def _fetch_experiment_from_dcm(hostname: str) -> dict[str, str]:
 
     from .settings import get_settings
 
-    empty = {"experiment_id": "", "driver": ""}
+    empty = {"experiment_id": "", "driver": "", "environment": ""}
 
     settings = get_settings()
     base = f"{settings.config_api_url.rstrip('/')}/api/v1"
@@ -670,19 +696,26 @@ def _fetch_experiment_from_dcm(hostname: str) -> dict[str, str]:
                 return dict(empty)
 
             # Content keys: `experiment_id` (legacy name; same value the lake
-            # uses as the `experiment` Hive partition) and `driver` (set by
+            # uses as the `experiment` Hive partition), `driver` (set by
             # `api/routes/tests.py:sync_to_dcm`, also the lake's `driver`
-            # partition). See `tests.py` lines 91-92.
+            # partition), and `environment` (the lake's `environment`
+            # Hive partition). See `tests.py` lines 89-92.
             experiment = str(content.get("experiment_id") or "")
             driver = str(content.get("driver") or "")
+            environment = str(content.get("environment") or "")
             logger.info(
-                "DCM lookup OK: hostname=%s config=%s experiment=%r driver=%r",
+                "DCM lookup OK: hostname=%s config=%s experiment=%r driver=%r env=%r",
                 hostname,
                 config_id,
                 experiment,
                 driver,
+                environment,
             )
-            return {"experiment_id": experiment, "driver": driver}
+            return {
+                "experiment_id": experiment,
+                "driver": driver,
+                "environment": environment,
+            }
     except Exception:
         # Catch broad on purpose — httpx errors, JSON decode errors, etc.
         # Caller treats empty strings as "unknown experiment/driver".
@@ -713,8 +746,8 @@ def _prewarm_session_cache_from_dcm() -> None:
     retention may include long-dead hostnames; DCM stores exactly one
     "current session" per hostname, which is what we want.
 
-    Final step: a one-shot `_refresh_gate_vectors_from_settings()` so the
-    cached per-driver gate vectors reflect the drivers we just learned
+    Final step: a one-shot `_refresh_best_laps_from_settings()` so the
+    cached per-driver best laps reflect the drivers we just learned
     about. The extra lake hit (on top of the consumer's existing startup
     warm-up) is bounded — one extra call per backend boot, cache swap is
     atomic.
@@ -804,11 +837,11 @@ def _prewarm_session_cache_from_dcm() -> None:
         for hostname in prewarmed_hostnames:
             _get_cached_experiment(hostname, force_refresh=True)
 
-        # Refresh gate-vectors once more so per-driver per-gate cumulative
-        # times reflect the drivers we just discovered. Spec §5.3: cheap,
-        # atomic, one extra lake hit at boot.
+        # Refresh best-laps once more so per-driver bests reflect the
+        # drivers we just discovered. Cheap, atomic, one extra lake hit at
+        # boot. (Step 2 will extend this to gate vectors.)
         if prewarmed_hostnames:
-            _refresh_gate_vectors_from_settings()
+            _refresh_best_laps_from_settings()
     except Exception:
         logger.exception("DCM session pre-warm failed; continuing without it")
 
@@ -841,10 +874,12 @@ def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
     config = _fetch_experiment_from_dcm(hostname)
     experiment = str(config.get("experiment_id") or "")
     driver = str(config.get("driver") or "")
+    environment = str(config.get("environment") or "")
     with _state_lock:
         _experiment_cache[hostname] = {
             "experiment": experiment,
             "driver": driver,
+            "environment": environment,
             "fetched_epoch": time.time(),
         }
     return experiment
@@ -866,6 +901,22 @@ def _get_cached_driver(hostname: str) -> str:
         if entry is None:
             return ""
         return str(entry.get("driver") or "")
+
+
+def _get_cached_environment(hostname: str) -> str:
+    """Return the cached DCM environment for a hostname (or `""` on miss).
+
+    Same read-only semantics as `_get_cached_driver`. Populated as a
+    side-effect of `_get_cached_experiment(...)` — there is no separate
+    DCM fetch path. The best-laps refresh enumerates hostnames it knows
+    about (via `_session_cache`) and reads their `environment` value here
+    to build the per-(track, car, exp, env) lake query set.
+    """
+    with _state_lock:
+        entry = _experiment_cache.get(hostname)
+        if entry is None:
+            return ""
+        return str(entry.get("environment") or "")
 
 
 def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
@@ -898,13 +949,13 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     # boundaries are the natural invalidation point — between sessions the
     # operator may have switched the active experiment via Test Manager.
     _get_cached_experiment(hostname, force_refresh=True)
-    # Same trigger for the gate-vectors cache — a new AC session means a
-    # driver is about to set new lap times, so we want fresh per-gate
-    # vectors in cache before the next `/live-positions` poll. Synchronous
-    # is fine: this handler runs on the consumer thread, off the HTTP
-    # request path, so the seconds-long lake call doesn't hurt API users.
-    # Spec §5.3 trigger 1: canonical "once per AC session" refresh.
-    _refresh_gate_vectors_from_settings()
+    # Same trigger for the best-laps cache — a new AC session means a
+    # driver is about to set new lap times, so we want fresh per-driver
+    # best laps in cache before the next `/live-positions` poll.
+    # Synchronous is fine: this handler runs on the consumer thread, off
+    # the HTTP request path, so the seconds-long lake call doesn't hurt
+    # API users. Canonical "once per AC session" refresh trigger.
+    _refresh_best_laps_from_settings()
 
 
 def _handle_config_event(payload: dict[str, Any]) -> None:
@@ -1026,47 +1077,197 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             # Keep experiment+driver paired with the new session (same hook
             # `_handle_session_message` runs after a Kafka session message).
             _get_cached_experiment(target_key, force_refresh=True)
-            # And refresh gate vectors — a session-config change can mean a
+            # And refresh best laps — a session-config change can mean a
             # different driver is about to log laps under this hostname.
-            _refresh_gate_vectors_from_settings()
+            _refresh_best_laps_from_settings()
         else:
-            # experiment-type event: update experiment_cache only. No
-            # gate-vectors refresh — laps haven't changed.
+            # experiment-type event: update experiment_cache only. We still
+            # refresh best-laps below because changing the experiment_id /
+            # environment for a hostname changes which lake partition the
+            # leaderboard should be summarising.
             experiment = str(content.get("experiment_id") or "")
             driver = str(content.get("driver") or "")
+            environment = str(content.get("environment") or "")
             with _state_lock:
                 _experiment_cache[target_key] = {
                     "experiment": experiment,
                     "driver": driver,
+                    "environment": environment,
                     "fetched_epoch": time.time(),
                 }
             logger.info(
                 "config event applied: type=experiment hostname=%s "
-                "experiment=%r driver=%r",
+                "experiment=%r driver=%r env=%r",
                 target_key,
                 experiment,
                 driver,
+                environment,
             )
+            # Refresh so the new (track, car, experiment, environment)
+            # tuple gets queried — see spec acceptance: trigger 3 covers
+            # DCM experiment-type events.
+            _refresh_best_laps_from_settings()
     except Exception:
         # Broad catch on purpose — handler errors must never break the loop.
         logger.exception("config event handler failed: %r", payload)
 
 
-def get_gate_vectors_cache() -> (
-    dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None
-):
-    """Return the current cached gate-vectors dict, or `None` if no
-    refresh has run yet.
+def get_best_laps_cache() -> dict[tuple[str, str, str, str], dict[str, int]] | None:
+    """Return the current cached best-laps dict, or `None` if no refresh
+    has run yet.
 
-    Shape: `{(track, car, experiment): {driver_folded: _HistoricalEntry}}`.
+    Shape: `{(track, car, experiment, environment): {driver_folded:
+    best_lap_ms}}`.
 
     Callers must treat the returned dict as read-only — we hand back the
     live reference (cheap) rather than a deep copy. The cache is only
-    swapped atomically via `refresh_gate_vectors_cache`, so a caller
+    swapped atomically via `refresh_best_laps_cache`, so a caller
     iterating the dict will see a consistent snapshot for the duration of
     that iteration even if a refresh races (the swap replaces the binding,
     not the dict contents in place).
     """
+    with _best_laps_lock:
+        return _best_laps_cache
+
+
+def _known_groups() -> list[tuple[str, str, str, str]]:
+    """Enumerate every (track, car, experiment, environment) tuple we have
+    enrichment data for.
+
+    Sources:
+      * `_session_cache[hostname]` → (track, carModel) — populated by AC
+        session messages and DCM session-prewarm.
+      * `_experiment_cache[hostname]` → (experiment, environment) — populated
+        by `_get_cached_experiment` from the matching DCM experiment config.
+
+    A hostname missing either side (e.g. session exists but experiment
+    config has no environment yet) is dropped — the lake query can't run
+    without all four filters. Each tuple appears at most once even if
+    multiple hostnames share the same combo.
+    """
+    with _state_lock:
+        # Snapshot under lock so we don't trip over an in-flight write.
+        sessions = dict(_session_cache)
+        experiments = dict(_experiment_cache)
+    seen: set[tuple[str, str, str, str]] = set()
+    groups: list[tuple[str, str, str, str]] = []
+    for hostname, session in sessions.items():
+        track = str(session.get("track") or "").strip()
+        car = str(session.get("carModel") or "").strip()
+        exp_entry = experiments.get(hostname)
+        if not exp_entry:
+            continue
+        experiment = str(exp_entry.get("experiment") or "").strip()
+        environment = str(exp_entry.get("environment") or "").strip()
+        if not (track and car and experiment and environment):
+            continue
+        key = (track, car, experiment, environment)
+        if key in seen:
+            continue
+        seen.add(key)
+        groups.append(key)
+    return groups
+
+
+def refresh_best_laps_cache(
+    quixlake_url: str,
+    quix_lake_token: str,
+) -> None:
+    """Query QuixLake once per known (track, car, experiment, environment)
+    group and atomically swap the result into `_best_laps_cache`.
+
+    The new SQL uses AC's `iBestTime` directly (already a per-driver best
+    in ms) and includes the `environment` filter the lake partitions on —
+    fixing the previous bug where the missing `environment` filter scanned
+    too wide a slice while still returning sparse Python-reduced lap times.
+
+    Group discovery: `_known_groups()` enumerates every (track, car,
+    experiment, environment) tuple we have enrichment for. We run one
+    query per group (typically 1–2 groups in practice; one query per
+    hostname-with-test). For each group we build a folded-driver →
+    best-lap-ms dict.
+
+    Lazy-imports `_query_best_laps` from `routes.leaderboard_real` to
+    keep import order one-way (leaderboard_real already imports
+    live_telemetry, so the module-level import would cycle).
+
+    All exceptions are caught and logged; on failure the previous cache
+    value (possibly None on first run) stays valid.
+
+    After a successful swap, broadcasts a fresh full snapshot through
+    `live_stream` so every connected WebSocket client re-renders.
+
+    TODO Step 2: extend each per-group value to carry the full
+    `_HistoricalEntry` (gate_vector + best_lap_number) and restore the
+    Live Sector Comparison colour cues.
+    """
+    try:
+        from .routes.leaderboard_real import _query_best_laps
+
+        new_cache: dict[tuple[str, str, str, str], dict[str, int]] = {}
+        groups = _known_groups()
+        if not groups:
+            logger.info(
+                "best-laps cache refresh: no (track,car,exp,env) groups known yet "
+                "(session + experiment caches still warming) — leaving cache as-is"
+            )
+        for track, car, experiment, environment in groups:
+            per_driver = _query_best_laps(
+                quixlake_url,
+                quix_lake_token,
+                track=track,
+                car=car,
+                experiment=experiment,
+                environment=environment,
+            )
+            new_cache[(track, car, experiment, environment)] = per_driver
+            logger.info(
+                "best-laps query: track=%s car=%s exp=%s env=%s -> %d drivers",
+                track,
+                car,
+                experiment,
+                environment,
+                len(per_driver),
+            )
+    except Exception:
+        logger.exception("best-laps cache refresh failed; keeping previous cache")
+        return
+
+    # Only swap when we actually queried something. An empty `new_cache`
+    # because no groups were known yet is NOT a "refreshed, lake had no
+    # rows" outcome — it's "we don't know what to ask for yet". Leaving
+    # the previous cache (or `None`) intact lets `build_live_positions`
+    # retry on the next request.
+    if not new_cache:
+        return
+
+    with _best_laps_lock:
+        global _best_laps_cache
+        _best_laps_cache = new_cache
+    total_historicals = sum(len(g) for g in new_cache.values())
+    logger.info(
+        "best-laps cache refreshed: %d groups, %d historicals",
+        len(new_cache),
+        total_historicals,
+    )
+
+    # Historicals changed → broadcast a fresh full snapshot to every WS
+    # client so the leaderboard tab updates without waiting for the next
+    # connect. Best-effort: any failure inside the broadcast helpers is
+    # logged and swallowed so the consumer thread stays alive.
+    _broadcast_full_snapshot_safely()
+
+
+# TODO Step 2: re-enable for sector comparison. The gate-vectors cache
+# and its refresh function are retained verbatim so the Step 2 patch
+# can re-route the session/config triggers back at them without
+# reconstructing the surrounding plumbing. Step 1 hot path never calls
+# either.
+def get_gate_vectors_cache() -> (
+    dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None
+):
+    """[TODO Step 2] Return the cached gate-vectors dict, or `None` if
+    no refresh has run yet."""
     with _gate_vectors_lock:
         return _gate_vectors_cache
 
@@ -1075,35 +1276,12 @@ def refresh_gate_vectors_cache(
     quixlake_url: str,
     quix_lake_token: str,
 ) -> None:
-    """Query QuixLake for every historical's best-lap per-gate cumulative
-    times and atomically swap the result into `_gate_vectors_cache`.
+    """[TODO Step 2] Lake query + gate-vector reduction.
 
-    Two lake queries (see spec §5.2): Query A finds each driver's best lap
-    via the same per-lap aggregation today's `/best-laps` route uses;
-    Query B fetches the raw position samples for those specific best laps
-    so the Python reducer can pick the nearest sample per gate. QuixLake
-    rejects `WITH` / CTE (`feedback_quixlake_no_cte`), so reduction
-    happens in Python.
-
-    Both queries and the Python reduction run OUTSIDE the lock — they
-    take seconds and blocking other readers would defeat the purpose of
-    the cache. Only the final reference swap is guarded.
-
-    Lazy-imports `_query_lake` / `_reduce_to_per_driver_best` /
-    `_query_gate_samples` / `_reduce_to_gate_vectors` from
-    `routes.leaderboard_real` to keep import order one-way:
-    `leaderboard_real` already imports `live_telemetry`, so importing it
-    at module load here would cycle. The lazy import is paid once per
-    refresh (rare event).
-
-    All exceptions are caught and logged. If the refresh fails the
-    previous cache value (possibly `None` on first run) stays valid, so
-    the endpoint degrades to "missing data" rather than crashing.
-
-    After a successful swap, broadcasts a fresh full snapshot through
-    `live_stream` so every connected WebSocket client re-renders with
-    the updated historicals. The broadcast is wrapped in its own
-    try/except so a Mongo hiccup can't take down the consumer thread.
+    Disabled on the Step 1 hot path — kept intact for the Step 2 re-enable.
+    The function still works if called; it just isn't wired into any of
+    the live triggers (session handler, config event, consumer warm-up,
+    route cold-start fallback) any more.
     """
     try:
         from .routes.leaderboard_real import (
@@ -1136,17 +1314,11 @@ def refresh_gate_vectors_cache(
         total_historicals,
     )
 
-    # Historicals changed → broadcast a fresh full snapshot to every WS
-    # client so the leaderboard tab updates without waiting for the next
-    # connect. Best-effort: any failure inside the broadcast helpers is
-    # logged and swallowed so the consumer thread stays alive.
-    _broadcast_full_snapshot_safely()
-
 
 def _broadcast_full_snapshot_safely() -> None:
     """Build and publish a full leaderboard snapshot for all WS clients.
 
-    Called from the Kafka consumer thread after the gate-vectors cache
+    Called from the Kafka consumer thread after the best-laps cache
     has been swapped. We must:
 
     * Resolve the Mongo handle the assembly code needs without forcing
@@ -1164,7 +1336,7 @@ def _broadcast_full_snapshot_safely() -> None:
     """
     try:
         # Lazy imports for the same one-way ordering reason
-        # `refresh_gate_vectors_cache` itself uses: `leaderboard_real`
+        # `refresh_best_laps_cache` itself uses: `leaderboard_real`
         # already imports `live_telemetry`, and `live_stream` is a leaf
         # pulled in by `api/app.py` at startup.
         from . import live_stream, mongo
@@ -1175,28 +1347,30 @@ def _broadcast_full_snapshot_safely() -> None:
         live_stream.publish_full_snapshot(rows)
     except Exception:
         logger.exception(
-            "broadcasting full snapshot after gate-vectors refresh failed; "
+            "broadcasting full snapshot after best-laps refresh failed; "
             "WS clients will receive a fresh snapshot on next reconnect"
         )
 
 
-def _refresh_gate_vectors_from_settings() -> None:
-    """Internal: pull lake creds from `Settings` and refresh the cache.
+def _refresh_best_laps_from_settings() -> None:
+    """Internal: pull lake creds from `Settings` and refresh the best-laps
+    cache.
 
-    Used by the session-message handler and the consumer-startup warm-up
-    so callers don't have to plumb settings through. Silently no-ops when
-    credentials are missing — in that mode the route layer raises
-    `LeaderboardError` anyway, so populating the cache is moot.
+    Used by the session-message handler, the DCM config-event handler,
+    and the consumer-startup warm-up so callers don't have to plumb
+    settings through. Silently no-ops when credentials are missing — in
+    that mode the route layer raises `LeaderboardError` anyway, so
+    populating the cache is moot.
     """
     from .settings import get_settings
 
     settings = get_settings()
     if not settings.quixlake_url or not settings.quix_lake_token:
         logger.debug(
-            "skipping gate-vectors cache refresh: QuixLake credentials not configured"
+            "skipping best-laps cache refresh: QuixLake credentials not configured"
         )
         return
-    refresh_gate_vectors_cache(settings.quixlake_url, settings.quix_lake_token)
+    refresh_best_laps_cache(settings.quixlake_url, settings.quix_lake_token)
 
 
 def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
@@ -1280,18 +1454,22 @@ def _consumer_loop() -> None:
         session_topic.name: session_topic,
         config_events_topic.name: config_events_topic,
     }
-    # Warm-up: pull gate vectors once at consumer startup so a backend
-    # restart while AC is mid-session still has lap data available on the
-    # very first `/live-positions` poll, without waiting for the next
-    # session message. Failures are swallowed inside
-    # `refresh_gate_vectors_cache`; if the lake is unreachable the route
-    # layer's cache-miss fallback will retry on the next request.
-    _refresh_gate_vectors_from_settings()
     # Pre-warm the session + experiment caches from DCM so a backend restart
     # mid-AC-session can enrich raw ticks immediately, without waiting for
     # the user to start a new session. Best-effort: any failure is logged
     # and the loop starts anyway — fresh session messages still work.
+    # The prewarm internally calls `_refresh_best_laps_from_settings()` once
+    # the session+experiment caches are populated, which is when the
+    # `(track, car, exp, env)` group set is finally known. Calling the
+    # best-laps refresh BEFORE the prewarm would always find 0 groups and
+    # waste a lake round-trip.
     _prewarm_session_cache_from_dcm()
+    # Belt-and-braces: explicit refresh after the prewarm so the path
+    # works even if the prewarm took a degenerate route (no DCM session
+    # configs found → no internal refresh call). Failures are swallowed
+    # inside `refresh_best_laps_cache`; if the lake is unreachable the
+    # route layer's cache-miss fallback will retry on the next request.
+    _refresh_best_laps_from_settings()
 
     logger.info(
         "ghost-lap consumer starting (topics=%s, %s, %s)",
