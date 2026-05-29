@@ -433,6 +433,20 @@ def _reduce_to_gate_vectors(
             continue
         buckets.setdefault(key, []).append((ncp, ts))
 
+    logger.info(
+        "reduce_to_gate_vectors: %d sample rows → %d buckets; best_per_group=%s",
+        len(sample_rows),
+        len(buckets),
+        {k: v for k, v in list(best_per_group.items())[:3]},
+    )
+    if buckets:
+        first_key = next(iter(buckets))
+        logger.info(
+            "first bucket key=%s sample_count=%d",
+            first_key,
+            len(buckets[first_key]),
+        )
+
     out: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
     for (track, car, experiment, driver), (best_ms, lap_num) in best_per_group.items():
         candidate_keys = sorted(
@@ -445,6 +459,14 @@ def _reduce_to_gate_vectors(
             and k[5] == lap_num
         )
         if not candidate_keys:
+            logger.info(
+                "no bucket for historical driver=%s lap_num=%d (track=%s car=%s exp=%s)",
+                driver,
+                lap_num,
+                track,
+                car,
+                experiment,
+            )
             continue
         # Sort by iCurrentTime ascending; iCurrentTime IS the lap-relative
         # ms-since-start, so no lap_start subtraction is needed downstream.
@@ -453,6 +475,13 @@ def _reduce_to_gate_vectors(
             continue
         max_pos = max(s[0] for s in samples)
         if max_pos < _PARTIAL_LAP_MAX_POS:
+            logger.info(
+                "drop partial lap driver=%s lap_num=%d max_pos=%.4f (< %.2f)",
+                driver,
+                lap_num,
+                max_pos,
+                _PARTIAL_LAP_MAX_POS,
+            )
             continue
 
         gate_vector: list[int] = [0] * GATE_COUNT
