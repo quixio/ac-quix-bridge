@@ -1,20 +1,24 @@
-"""Step 1.5 leaderboard dropdown + best-laps endpoints.
+"""Leaderboard dropdown + best-laps endpoints.
 
-Three thin endpoints that drive the cascading dropdown UX on the
-Leaderboard tab. None of these are hot-loop polled — they fire on user
-navigation only (open tab, pick experiment, pick track/car) — so each
-call queries QuixLake directly. No caches, no in-process state.
+Two endpoints drive the cascading dropdown UX on the Leaderboard tab.
+Both fire on user navigation only (open tab, pick experiment/track/car)
+— so each call queries QuixLake directly. No caches, no in-process
+state.
 
 Routes:
 
-* `GET /api/v1/leaderboard/experiments`
-    → `["LeaderBoard", "shakedown", …]`
-
-* `GET /api/v1/leaderboard/experiment-options?experiment={experiment}`
-    → `{"tracks": ["ks_nurburgring", …], "cars": ["bmw_1m", …]}`
+* `GET /api/v1/leaderboard/experiment-tree`
+    → `{"LeaderBoard": {"ks_nurburgring": ["bmw_1m", ...], ...}, ...}`
 
 * `GET /api/v1/leaderboard/best-laps?experiment={exp}&track={track}&car={car}`
     → `[{"driver": "Ludvík", "best_lap_ms": 119054}, …]`
+
+The tree endpoint replaces the older per-step probe pipeline
+(`/experiments` + `/experiment-options`) with a single lake query whose
+`experiment IN (...)` predicate prunes lake partitions across every
+candidate at once. Mongo `tests` remains the source-of-truth for
+*which* experiments to look up; the lake decides which of those
+actually have telemetry rows (and which tracks/cars).
 
 Driver-name display-case folding is reused from `leaderboard_real`
 (`_build_driver_name_lookup`, `_fold_driver_name`) so the UI shows the
@@ -49,13 +53,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
 
 
-# ---------------------------------------------------------------------------
-# Pydantic-free response shapes (FastAPI infers from return type annotation).
-# ---------------------------------------------------------------------------
-
-
-class BestLapRow(dict[str, Any]):
-    """Documentation shim — actual payload is `{"driver": str, "best_lap_ms": int}`."""
+# Cap the `IN (...)` list to keep statement size bounded. In practice
+# the Mongo `tests.experiment_id` set is single-digit, so this is purely
+# defensive — operators with very large fleets would hit a soft warning,
+# not a hard failure.
+_MAX_EXPERIMENTS_IN_TREE = 200
 
 
 # ---------------------------------------------------------------------------
@@ -64,48 +66,24 @@ class BestLapRow(dict[str, Any]):
 # ---------------------------------------------------------------------------
 
 
-def _build_experiments_sql() -> str:
-    """Distinct experiments across the lake, sorted ascending.
+def _build_experiment_tree_sql(experiments: list[str]) -> str:
+    """`(experiment, track, carModel)` triples for every experiment in `experiments`.
 
-    QuixLake silently returns 0 rows for `SELECT DISTINCT` queries (same
-    family of bug as the CTE/`WITH` issue documented in
-    `feedback_quixlake_no_cte`). Use a single-level `GROUP BY` instead
-    and filter null/empty values in Python via `_query_distinct_strings`.
+    Single SQL with `experiment IN (...)` so QuixLake prunes the lake's
+    `experiment` partitions across every candidate in one shot — same
+    partition-pruning behaviour that worked for the old single-experiment
+    `WHERE experiment = ...` queries, extended to multiple values.
 
-    Table identifier is read from `settings.lake_table` (validated at
-    settings load time against `[A-Za-z_][A-Za-z0-9_]*`).
+    Each value is single-quote-escaped via `_format_sql_string`.
     """
     lake_table = get_settings().lake_table
+    quoted = ", ".join(f"'{_format_sql_string(e)}'" for e in experiments)
     return (
-        f"SELECT experiment FROM {lake_table} GROUP BY experiment ORDER BY experiment"
-    )
-
-
-def _build_tracks_for_experiment_sql(experiment: str) -> str:
-    """Distinct tracks for one experiment.
-
-    `GROUP BY` instead of `SELECT DISTINCT` — see `_build_experiments_sql`.
-    Null/empty filtering happens in Python.
-    """
-    lake_table = get_settings().lake_table
-    return (
-        f"SELECT track FROM {lake_table} "
-        f"WHERE experiment = '{_format_sql_string(experiment)}' "
-        "GROUP BY track ORDER BY track"
-    )
-
-
-def _build_cars_for_experiment_sql(experiment: str) -> str:
-    """Distinct car models for one experiment.
-
-    `GROUP BY` instead of `SELECT DISTINCT` — see `_build_experiments_sql`.
-    Null/empty filtering happens in Python.
-    """
-    lake_table = get_settings().lake_table
-    return (
-        f"SELECT carModel FROM {lake_table} "
-        f"WHERE experiment = '{_format_sql_string(experiment)}' "
-        "GROUP BY carModel ORDER BY carModel"
+        "SELECT experiment, track, carModel "
+        f"FROM {lake_table} "
+        f"WHERE experiment IN ({quoted}) "
+        "GROUP BY experiment, track, carModel "
+        "ORDER BY experiment, track, carModel"
     )
 
 
@@ -149,22 +127,32 @@ def _get_lake_client() -> QuixLakeClient:
     )
 
 
-def _query_distinct_strings(client: QuixLakeClient, sql: str, column: str) -> list[str]:
-    """Run a SELECT-DISTINCT query and return the single column as a list."""
-    logger.info("dropdown SQL: %s", sql)
-    df = client.query(sql)
-    df = df.fillna("")
-    rows: list[dict[str, Any]] = df.to_dict("records")
-    out: list[str] = []
+def _candidate_experiments(mongo: Database[dict[str, Any]]) -> list[str]:
+    """Distinct, non-empty `experiment_id` values from Mongo `tests`, sorted."""
+    raw = mongo.tests.distinct("experiment_id")
+    return sorted({str(v).strip() for v in raw if isinstance(v, str) and v.strip()})
+
+
+def _reduce_tree_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, list[str]]]:
+    """Fold `(experiment, track, carModel)` rows into the nested dict shape.
+
+    Skips rows missing any of the three fields. Outer + inner dicts are
+    sorted lexicographically and each leaf `list[car]` is sorted +
+    deduplicated for defensiveness — the lake's `ORDER BY` already
+    delivers sorted rows, but the reduce stage is cheap.
+    """
+    tree: dict[str, dict[str, set[str]]] = {}
     for row in rows:
-        value = row.get(column)
-        if value is None:
+        experiment = str(row.get("experiment") or "").strip()
+        track = str(row.get("track") or "").strip()
+        car = str(row.get("carModel") or "").strip()
+        if not experiment or not track or not car:
             continue
-        text = str(value).strip()
-        if not text:
-            continue
-        out.append(text)
-    return out
+        tree.setdefault(experiment, {}).setdefault(track, set()).add(car)
+    return {
+        exp: {trk: sorted(cars) for trk, cars in sorted(by_track.items())}
+        for exp, by_track in sorted(tree.items())
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -172,55 +160,53 @@ def _query_distinct_strings(client: QuixLakeClient, sql: str, column: str) -> li
 # ---------------------------------------------------------------------------
 
 
-@router.get("/experiments", response_model=list[str])
-async def get_experiments(
+@router.get("/experiment-tree")
+async def get_experiment_tree(
     _auth: None = Depends(read_permission),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
-) -> list[str]:
-    """Return all distinct experiment_ids known to Test Manager.
+) -> dict[str, dict[str, list[str]]]:
+    """Return the full `{experiment: {track: [car, ...]}}` tree.
 
-    Sourced from Mongo `tests` (the system-of-record for experiments)
-    rather than the lake. QuixLake's partition pruning silently returns
-    0 rows for `SELECT ... GROUP BY experiment` without a WHERE on a
-    partition column, so we can't enumerate experiments from telemetry.
-    Mongo also has experiments that haven't produced telemetry yet, which
-    is the right behaviour — operators expect to see all experiments,
-    even ones that haven't been driven.
+    One round-trip: Mongo gives the candidate experiment list, a single
+    SQL with `experiment IN (...)` returns every `(experiment, track,
+    carModel)` triple in one scan, and the rows are folded into the
+    nested dict shape the frontend feeds straight into the dropdowns.
+
+    Empty Mongo → return `{}` without hitting the lake. Lake errors
+    bubble up as HTTP 500 with the exception message in `detail` —
+    operators need to see the error, not a stale view.
     """
     try:
-        raw = mongo.tests.distinct("experiment_id")
-        out = sorted({str(v).strip() for v in raw if isinstance(v, str) and v.strip()})
-        logger.info("experiments response: %d experiment(s)", len(out))
-        return out
-    except Exception as e:
-        logger.exception("GET /leaderboard/experiments failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        candidates = _candidate_experiments(mongo)
+        if not candidates:
+            logger.info("experiment-tree: mongo=0 experiments → lake=0 tuples")
+            return {}
 
+        if len(candidates) > _MAX_EXPERIMENTS_IN_TREE:
+            logger.warning(
+                "experiment-tree: %d candidates exceeds cap %d — truncating",
+                len(candidates),
+                _MAX_EXPERIMENTS_IN_TREE,
+            )
+            candidates = candidates[:_MAX_EXPERIMENTS_IN_TREE]
 
-@router.get("/experiment-options")
-async def get_experiment_options(
-    experiment: str = Query(..., min_length=1),
-    _auth: None = Depends(read_permission),
-) -> dict[str, list[str]]:
-    """Return `{"tracks": [...], "cars": [...]}` for a given experiment.
-
-    Two single-column distinct queries — cheaper for the QuixLake side
-    than one cross-product distinct, and the response shape stays flat
-    for the frontend.
-    """
-    try:
         client = _get_lake_client()
-        tracks = _query_distinct_strings(
-            client, _build_tracks_for_experiment_sql(experiment), "track"
+        sql = _build_experiment_tree_sql(candidates)
+        logger.info("experiment-tree SQL: %s", sql)
+        df = client.query(sql)
+        df = df.fillna("")
+        rows: list[dict[str, Any]] = df.to_dict("records")
+        tree = _reduce_tree_rows(rows)
+        logger.info(
+            "experiment-tree: mongo=%d experiments → lake=%d (experiment,track,car) tuples",
+            len(candidates),
+            len(rows),
         )
-        cars = _query_distinct_strings(
-            client, _build_cars_for_experiment_sql(experiment), "carModel"
-        )
-        return {"tracks": tracks, "cars": cars}
+        return tree
     except LeaderboardError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     except Exception as e:
-        logger.exception("GET /leaderboard/experiment-options failed")
+        logger.exception("GET /leaderboard/experiment-tree failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

@@ -16,6 +16,7 @@ import {
   BestLapsTable,
   type BestLapRow,
 } from "@/components/analysis/best-laps-table"
+import type { ExperimentTree } from "@/lib/api/leaderboard"
 import { useLiveStream } from "@/lib/hooks/use-live-stream"
 import { useLeaderboardApi } from "@/lib/hooks/use-api"
 import { cn } from "@/lib/utils"
@@ -23,30 +24,33 @@ import { cn } from "@/lib/utils"
 const FOLLOW_LIVE_STORAGE_KEY = "leaderboard.followLive"
 
 /**
- * Multi-driver leaderboard — Step 1.5.
+ * Multi-driver leaderboard.
  *
  * Two independent panels:
  *
- *   * Left: Live Sector Comparison. Still driven by the WebSocket via
- *     `useLiveStream`. We do not filter its rows by the dropdown values
- *     in this step — it renders whatever the WS provides (typically
- *     empty, or a single live driver). Step 2 will gate this on the
- *     dropdown selection again.
+ *   * Left: Live Sector Comparison. Driven by the WebSocket via
+ *     `useLiveStream`. Renders whatever the WS provides (typically
+ *     empty, or a single live driver).
  *
- *   * Right: Best Laps. Driven by three new REST endpoints under
+ *   * Right: Best Laps. Driven by two REST endpoints under
  *     `/api/v1/leaderboard/`:
- *       - `GET /experiments`
- *       - `GET /experiment-options?experiment=...`
- *       - `GET /best-laps?experiment=...&track=...&car=...`
+ *       - `GET /experiment-tree` — single round-trip nested dict
+ *         `{experiment: {track: [car, ...]}}` that powers all three
+ *         cascading dropdowns.
+ *       - `GET /best-laps?experiment=...&track=...&car=...` — fires
+ *         when all three dropdowns are picked.
  *
  * Dropdown UX:
- *   1. Mount → fetch experiments → Experiment dropdown populated, Track
- *      and Car dropdowns disabled.
- *   2. Pick Experiment → fetch (tracks, cars) → both dropdowns enabled
- *      and reset to "unselected". Best Laps cleared.
- *   3. Pick both Track AND Car → fetch best-laps → table populates.
- *   4. Change Experiment → Track + Car selections clear; Best Laps
- *      cleared; dropdowns re-populate.
+ *   1. Mount → fetch tree → Experiment dropdown populated from
+ *      `Object.keys(tree)`. Track and Car dropdowns disabled.
+ *   2. Pick Experiment → Track dropdown options come from
+ *      `Object.keys(tree[experiment])`. Track + Car selections reset.
+ *      Best Laps cleared.
+ *   3. Pick Track → Car dropdown options come from
+ *      `tree[experiment][track]`. Car selection reset, Best Laps cleared.
+ *   4. Pick Car → fetch best-laps → table populates.
+ *   5. Change Experiment → Track + Car selections clear; Best Laps
+ *      cleared; downstream options recompute from the same tree.
  *
  * No auto-select-first behaviour — the user must explicitly choose
  * every dropdown.
@@ -55,16 +59,13 @@ export function LeaderboardTab() {
   const leaderboardApi = useLeaderboardApi()
   const { rows: liveRows, isLive, liveCombo } = useLiveStream()
 
-  // Dropdown options.
-  const [experiments, setExperiments] = useState<string[]>([])
-  const [tracks, setTracks] = useState<string[]>([])
-  const [cars, setCars] = useState<string[]>([])
+  // Tree fetch state. The tree drives every dropdown — one loading flag
+  // is enough.
+  const [tree, setTree] = useState<ExperimentTree>({})
+  const [treeLoading, setTreeLoading] = useState(true)
+  const [treeError, setTreeError] = useState<string | null>(null)
 
-  // Loading / error state per fetch surface.
-  const [experimentsLoading, setExperimentsLoading] = useState(true)
-  const [experimentsError, setExperimentsError] = useState<string | null>(null)
-  const [optionsLoading, setOptionsLoading] = useState(false)
-  const [optionsError, setOptionsError] = useState<string | null>(null)
+  // Best-laps fetch state (separate from the tree — fires later).
   const [bestLapsLoading, setBestLapsLoading] = useState(false)
   const [bestLapsError, setBestLapsError] = useState<string | null>(null)
 
@@ -74,19 +75,14 @@ export function LeaderboardTab() {
   const [track, setTrack] = useState<string | null>(null)
   const [car, setCar] = useState<string | null>(null)
 
-  // Follow-Live toggle (spec §5.2). Defaults to "true" on first visit;
-  // persisted in localStorage. SSR-safe initialisation: defer the
-  // localStorage read to a useEffect so the server-rendered HTML is
-  // deterministic.
+  // Follow-Live toggle. Defaults to "true" on first visit; persisted in
+  // localStorage. SSR-safe initialisation: defer the localStorage read
+  // to a useEffect so the server-rendered HTML is deterministic.
   const [followLive, setFollowLive] = useState<boolean>(true)
   useEffect(() => {
     if (typeof window === "undefined") return
     const stored = window.localStorage.getItem(FOLLOW_LIVE_STORAGE_KEY)
     if (stored === null) {
-      // First visit: persist the default so subsequent reads are
-      // consistent across tabs (spec acceptance: "default `true` on
-      // first load — confirm via `useEffect` that this is set if
-      // missing.").
       window.localStorage.setItem(FOLLOW_LIVE_STORAGE_KEY, "true")
       setFollowLive(true)
       return
@@ -118,78 +114,76 @@ export function LeaderboardTab() {
   // Best Laps payload.
   const [bestLaps, setBestLaps] = useState<BestLapRow[]>([])
 
-  // 1. Fetch the experiment list on mount.
+  // 1. Fetch the full tree on mount. Single round-trip drives every
+  //    downstream dropdown derivation.
   useEffect(() => {
     let cancelled = false
-    setExperimentsLoading(true)
-    setExperimentsError(null)
+    setTreeLoading(true)
+    setTreeError(null)
     leaderboardApi
-      .getExperiments()
+      .getExperimentTree()
       .then((data) => {
         if (cancelled) return
-        setExperiments(data)
+        setTree(data)
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        setExperimentsError(
+        setTreeError(
           err instanceof Error ? err.message : "Failed to load experiments",
         )
+        setTree({})
       })
       .finally(() => {
         if (cancelled) return
-        setExperimentsLoading(false)
+        setTreeLoading(false)
       })
     return () => {
       cancelled = true
     }
   }, [leaderboardApi])
 
-  // 2. When the USER-selected experiment changes, refetch (tracks, cars).
-  // Reset downstream USER selections + Best Laps. When experiment is
-  // cleared, blank everything. We deliberately key on the user's
-  // `experiment` (not `effectiveExperiment`) so the dropdown OPTIONS
-  // always reflect what the user can pick — even when Follow-Live ON
-  // is overriding the actual fetch source below.
+  // 2. Dropdown option derivations from the tree. All three are pure
+  //    derivations — no fetches, no loading states beyond the initial
+  //    tree fetch.
+  //
+  //    We key on the USER's `experiment` / `track` (not `effective*`)
+  //    so the OPTIONS lists always reflect what the user can pick —
+  //    Follow-Live ON overrides the value being fetched but should not
+  //    rewrite the user's pick lists.
+  const experimentOptions = useMemo<string[]>(
+    () => Object.keys(tree).sort(),
+    [tree],
+  )
+  const trackOptions = useMemo<string[]>(() => {
+    if (!experiment) return []
+    const tracks = tree[experiment]
+    if (!tracks) return []
+    return Object.keys(tracks).sort()
+  }, [experiment, tree])
+  const carOptions = useMemo<string[]>(() => {
+    if (!experiment || !track) return []
+    const cars = tree[experiment]?.[track]
+    if (!cars) return []
+    // Server sorts already, but defend against malformed payloads.
+    return [...cars].sort()
+  }, [experiment, track, tree])
+
+  // 3. When the user picks a new Experiment, blow away downstream
+  //    selections. Same when they clear Experiment entirely.
   useEffect(() => {
     setTrack(null)
     setCar(null)
-    if (!experiment) {
-      setTracks([])
-      setCars([])
-      setOptionsError(null)
-      return
-    }
-    let cancelled = false
-    setOptionsLoading(true)
-    setOptionsError(null)
-    leaderboardApi
-      .getExperimentOptions(experiment)
-      .then((data) => {
-        if (cancelled) return
-        setTracks(data.tracks)
-        setCars(data.cars)
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        setOptionsError(
-          err instanceof Error ? err.message : "Failed to load options",
-        )
-        setTracks([])
-        setCars([])
-      })
-      .finally(() => {
-        if (cancelled) return
-        setOptionsLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [experiment, leaderboardApi])
+  }, [experiment])
 
-  // 3. When the effective (experiment, track, car) triple is complete,
-  // fetch best laps. Re-fires on Follow-Live ON when the live combo
-  // changes (e.g. driver switches experiment mid-session) and on
-  // Follow-Live OFF when the user picks a new dropdown value.
+  // 4. When the user picks a new Track, blow away the Car selection.
+  useEffect(() => {
+    setCar(null)
+  }, [track])
+
+  // 5. When the effective (experiment, track, car) triple is complete,
+  //    fetch best laps. Re-fires on Follow-Live ON when the live combo
+  //    changes (e.g. driver switches experiment mid-session) and on
+  //    Follow-Live OFF when the user picks a new dropdown value.
   useEffect(() => {
     if (!effectiveExperiment || !effectiveTrack || !effectiveCar) {
       setBestLaps([])
@@ -246,13 +240,11 @@ export function LeaderboardTab() {
         experiment={experiment}
         track={track}
         car={car}
-        experiments={experiments}
-        tracks={tracks}
-        cars={cars}
-        experimentsLoading={experimentsLoading}
-        optionsLoading={optionsLoading}
-        experimentsError={experimentsError}
-        optionsError={optionsError}
+        experiments={experimentOptions}
+        tracks={trackOptions}
+        cars={carOptions}
+        treeLoading={treeLoading}
+        treeError={treeError}
         onExperiment={handleExperiment}
         onTrack={handleTrack}
         onCar={handleCar}
@@ -291,10 +283,8 @@ interface FilterBarProps {
   experiments: string[]
   tracks: string[]
   cars: string[]
-  experimentsLoading: boolean
-  optionsLoading: boolean
-  experimentsError: string | null
-  optionsError: string | null
+  treeLoading: boolean
+  treeError: string | null
   onExperiment: (v: string) => void
   onTrack: (v: string) => void
   onCar: (v: string) => void
@@ -311,13 +301,19 @@ interface FilterBarProps {
 function FilterBar(props: FilterBarProps) {
   const experimentDisabled =
     props.disabledOverride ||
-    props.experimentsLoading ||
+    props.treeLoading ||
     props.experiments.length === 0
-  const downstreamDisabled =
+  const trackDisabled =
     props.disabledOverride ||
+    props.treeLoading ||
     !props.experiment ||
-    props.optionsLoading ||
-    Boolean(props.optionsError)
+    props.tracks.length === 0
+  const carDisabled =
+    props.disabledOverride ||
+    props.treeLoading ||
+    !props.experiment ||
+    !props.track ||
+    props.cars.length === 0
 
   // When Follow-Live is ON, the dropdowns show the LIVE combo values
   // (read-only) so the user can see what's being fetched. When OFF or
@@ -364,7 +360,7 @@ function FilterBar(props: FilterBarProps) {
           onChange={props.onExperiment}
           testid="filter-experiment"
           disabled={experimentDisabled}
-          loading={props.experimentsLoading}
+          loading={props.treeLoading}
         />
         <FilterSelect
           label="Track"
@@ -372,8 +368,8 @@ function FilterBar(props: FilterBarProps) {
           options={displayedTracks}
           onChange={props.onTrack}
           testid="filter-track"
-          disabled={downstreamDisabled || displayedTracks.length === 0}
-          loading={props.optionsLoading}
+          disabled={trackDisabled || displayedTracks.length === 0}
+          loading={props.treeLoading}
         />
         <FilterSelect
           label="Car"
@@ -381,8 +377,8 @@ function FilterBar(props: FilterBarProps) {
           options={displayedCars}
           onChange={props.onCar}
           testid="filter-car"
-          disabled={downstreamDisabled || displayedCars.length === 0}
-          loading={props.optionsLoading}
+          disabled={carDisabled || displayedCars.length === 0}
+          loading={props.treeLoading}
         />
         {props.isLive && (
           <FollowLiveToggle
@@ -391,11 +387,8 @@ function FilterBar(props: FilterBarProps) {
           />
         )}
       </div>
-      {props.experimentsError && (
-        <p className="text-sm text-rose-400">{props.experimentsError}</p>
-      )}
-      {props.optionsError && (
-        <p className="text-sm text-rose-400">{props.optionsError}</p>
+      {props.treeError && (
+        <p className="text-sm text-rose-400">{props.treeError}</p>
       )}
     </div>
   )
@@ -494,9 +487,8 @@ interface BestLapsPanelProps {
 
 function BestLapsPanel(props: BestLapsPanelProps) {
   if (!props.experiment || !props.track || !props.car) {
-    // Spec §8: idle right-table empty state. With Follow-Live ON and
-    // no live combo we still show this message — it's accurate either
-    // way. Spec language: "Pick experiment / track / car".
+    // Idle right-table empty state. With Follow-Live ON and no live
+    // combo we still show this message — it's accurate either way.
     return (
       <BestLapsPlaceholder message="Pick experiment / track / car to view best laps." />
     )
@@ -515,7 +507,7 @@ function BestLapsPanel(props: BestLapsPanelProps) {
     )
   }
   if (props.rows.length === 0) {
-    // Spec §5.5: distinct copy when the live combo has no historicals.
+    // Distinct copy when the live combo has no historicals.
     const message =
       props.isLive && props.followLive
         ? "No historical laps yet for this experiment / track / car."

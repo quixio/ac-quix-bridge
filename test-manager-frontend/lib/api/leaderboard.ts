@@ -6,24 +6,28 @@
  * Endpoints:
  *   - `/leaderboard/live-positions` — full leaderboard payload (sim + real),
  *     consumed by Live Sector Comparison via the WebSocket stream.
- *   - `/leaderboard/experiments` — distinct experiments in the lake.
- *   - `/leaderboard/experiment-options` — distinct (tracks, cars) for one
- *     experiment.
+ *   - `/leaderboard/experiment-tree` — single round-trip nested dict
+ *     `{experiment: {track: [car, ...]}}` driving the cascading
+ *     Experiment / Track / Car dropdowns.
  *   - `/leaderboard/best-laps` — per-driver best lap for one
  *     (experiment, track, car).
  *
- * The three dropdown endpoints are called on user navigation only (open
- * tab, pick experiment, pick track/car). They go through the same
+ * Both dropdown- and best-laps endpoints are called on user navigation
+ * only (open tab, pick experiment/track/car). They go through the same
  * `apiGet` retry/refresh path as the rest of the app.
  */
 
 import { apiGet } from "./client"
 import type { LivePositionEntry } from "@/types/leaderboard"
 
-export interface ExperimentOptions {
-  tracks: string[]
-  cars: string[]
-}
+/**
+ * Nested tree returned by `/leaderboard/experiment-tree`.
+ *
+ * Shape: `{experiment: {track: [car, ...]}}`. All keys + the leaf
+ * `string[]` are sorted lexicographically server-side, but consumers
+ * should sort defensively before render.
+ */
+export type ExperimentTree = Record<string, Record<string, string[]>>
 
 export interface BestLapRow {
   driver: string
@@ -50,33 +54,18 @@ export const leaderboardApi = {
   },
 
   /**
-   * Fetch all distinct experiments available in the lake. Sorted
-   * ascending. Empty array when the lake is empty.
+   * Fetch the full `{experiment: {track: [car, ...]}}` tree in one
+   * round-trip. Backend builds this from a single lake query with
+   * `experiment IN (...)` partition pruning; cheap enough to refetch
+   * on tab mount without a client cache.
    */
-  getExperiments: async (
+  getExperimentTree: async (
     token?: string | null,
     refreshToken?: () => Promise<string | null>,
-  ): Promise<string[]> => {
-    return apiGet<string[]>(
-      "/leaderboard/experiments",
+  ): Promise<ExperimentTree> => {
+    return apiGet<ExperimentTree>(
+      "/leaderboard/experiment-tree",
       undefined,
-      token,
-      refreshToken,
-    )
-  },
-
-  /**
-   * Fetch the (tracks, cars) options available for one experiment.
-   * Both lists are sorted ascending and contain only non-empty values.
-   */
-  getExperimentOptions: async (
-    experiment: string,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ): Promise<ExperimentOptions> => {
-    return apiGet<ExperimentOptions>(
-      "/leaderboard/experiment-options",
-      { experiment },
       token,
       refreshToken,
     )
