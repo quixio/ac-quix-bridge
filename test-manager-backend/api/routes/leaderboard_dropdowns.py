@@ -97,12 +97,12 @@ def _build_best_laps_for_combo_sql(experiment: str, track: str, car: str) -> str
     """
     lake_table = get_settings().lake_table
     return (
-        "SELECT driver, "
-        "MIN(iBestTime) FILTER (WHERE iBestTime > 0) AS best_lap_ms "
+        "SELECT driver, MIN(iBestTime) AS best_lap_ms "
         f"FROM {lake_table} "
         f"WHERE experiment = '{_format_sql_string(experiment)}' "
         f"AND track = '{_format_sql_string(track)}' "
         f"AND carModel = '{_format_sql_string(car)}' "
+        "AND iBestTime > 0 "
         "GROUP BY driver "
         "ORDER BY best_lap_ms ASC"
     )
