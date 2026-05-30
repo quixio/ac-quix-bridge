@@ -123,7 +123,7 @@ async def apply_fallback_deployments(
                 settings.config_api_is_fallback = True
 
         except Exception as e:
-            logger.warning(f"Failed to get Config API fallback deployment: {e}")
+            logger.warning("Failed to get Config API fallback deployment: %s", e)
 
     # Measurements (Query UI) fallback - search for "Query UI"
     if not settings.measurements_deployment:
@@ -148,7 +148,7 @@ async def apply_fallback_deployments(
                 settings.measurements_is_fallback = True
 
         except Exception as e:
-            logger.warning(f"Failed to get Measurements fallback deployment: {e}")
+            logger.warning("Failed to get Measurements fallback deployment: %s", e)
 
     # Measurements topic fallback - use env var if not set
     if not settings.measurements_topic and app_settings.measurements_topic_name:
@@ -191,7 +191,7 @@ async def apply_fallback_deployments(
                 settings.analytics_is_fallback = True
 
         except Exception as e:
-            logger.warning(f"Failed to get Analytics fallback deployment: {e}")
+            logger.warning("Failed to get Analytics fallback deployment: %s", e)
 
     return settings
 
@@ -257,7 +257,7 @@ async def update_integration_settings(
                     last_name = data.get("lastName") or ""
                     user_name = f"{first_name} {last_name}".strip() or "Unknown"
         except Exception as e:
-            logger.warning(f"Failed to get user profile: {e}")
+            logger.warning("Failed to get user profile: %s", e)
 
     # Build the update document - use exclude_unset to preserve explicit null values
     update_data = settings_update.model_dump(exclude_unset=True)
@@ -326,7 +326,8 @@ async def get_topics(
 
             if not response.is_success:
                 logger.warning(
-                    f"Portal API error fetching topics: {response.status_code}"
+                    "Portal API error fetching topics: %s",
+                    response.status_code,
                 )
                 raise HTTPException(
                     status_code=response.status_code,
@@ -356,7 +357,7 @@ async def get_topics(
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Portal API timeout")
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error fetching topics: {e}")
+        logger.error("HTTP error fetching topics: %s", e)
         raise HTTPException(status_code=500, detail=f"Portal API error: {str(e)}")
 
 
@@ -401,7 +402,8 @@ async def get_workspaces(
 
             if not response.is_success:
                 logger.warning(
-                    f"Portal API error fetching workspaces: {response.status_code}"
+                    "Portal API error fetching workspaces: %s",
+                    response.status_code,
                 )
                 raise HTTPException(
                     status_code=response.status_code,
@@ -425,5 +427,5 @@ async def get_workspaces(
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Portal API timeout")
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error fetching workspaces: {e}")
+        logger.error("HTTP error fetching workspaces: %s", e)
         raise HTTPException(status_code=500, detail=f"Portal API error: {str(e)}")

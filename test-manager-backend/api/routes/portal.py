@@ -56,7 +56,9 @@ async def portal_get(
 
             if not response.is_success:
                 logger.warning(
-                    f"Portal API error: {response.status_code} for {endpoint}"
+                    "Portal API error: %s for %s",
+                    response.status_code,
+                    endpoint,
                 )
                 raise HTTPException(
                     status_code=response.status_code,
@@ -68,7 +70,7 @@ async def portal_get(
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Portal API timeout")
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error calling Portal API: {e}")
+        logger.error("HTTP error calling Portal API: %s", e)
         raise HTTPException(status_code=500, detail=f"Portal API error: {str(e)}")
 
 
@@ -337,7 +339,7 @@ async def get_fallback_deployment(
     except HTTPException:
         return None
     except Exception as e:
-        logger.warning(f"Error searching for fallback deployment: {e}")
+        logger.warning("Error searching for fallback deployment: %s", e)
         return None
 
 
