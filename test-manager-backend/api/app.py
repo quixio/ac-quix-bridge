@@ -5,7 +5,10 @@ import socket
 from collections.abc import Sequence
 from typing import Any, AsyncGenerator
 
+import secrets
+
 import httpx
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -47,19 +50,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("✓ Using local MongoDB and Config API")
         logger.info("✓ Using mock authentication (all requests allowed)")
         logger.info(
-            f"✓ API authentication: {'DISABLED' if not settings.api_auth_active else 'ENABLED'}"
+            "✓ API authentication: %s",
+            "DISABLED" if not settings.api_auth_active else "ENABLED",
         )
-        logger.info(f"✓ Config API: {settings.config_api_url}")
+        logger.info("✓ Config API: %s", settings.config_api_url)
         logger.info("=" * 60)
     else:
         logger.info("=" * 60)
         logger.info("☁️  STARTING IN PRODUCTION MODE (Quix Cloud)")
         logger.info("=" * 60)
-        logger.info(f"✓ Workspace ID: {settings.workspace_id}")
+        logger.info("✓ Workspace ID: %s", settings.workspace_id)
         logger.info(
-            f"✓ API authentication: {'ENABLED' if settings.api_auth_active else 'DISABLED'}"
+            "✓ API authentication: %s",
+            "ENABLED" if settings.api_auth_active else "DISABLED",
         )
-        logger.info(f"✓ Config API: {settings.config_api_url}")
+        logger.info("✓ Config API: %s", settings.config_api_url)
         logger.info("=" * 60)
 
     _probe_config_api(settings.config_api_url, settings.sdk_token)
@@ -233,6 +238,12 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    # Added last so it wraps outermost: every other middleware + handler sees
+    # the correlation_id contextvar set, and our log filter picks it up.
+    application.add_middleware(
+        CorrelationIdMiddleware,
+        generator=lambda: secrets.token_hex(6),
     )
 
     @application.get("/health")
