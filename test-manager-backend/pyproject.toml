@@ -18,6 +18,7 @@ dependencies = [
 	"quixportal",
 	"quixlake-sdk",
 	"mcp>=1.0.0",
+	"asgi-correlation-id>=4.3.4",
 ]
 
 [dependency-groups]
