@@ -14,7 +14,6 @@ recordings/
 .claude/settings.local.json
 
 test-manager-backend/scripts/
-telemetry-comparison/scripts/
 
 # Playwright MCP artifacts (smoke tests, agent screenshots, MCP cache)
 .playwright-mcp/
