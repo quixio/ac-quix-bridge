@@ -13,7 +13,6 @@ recordings/
 .DS_Store
 .claude/settings.local.json
 
-test-manager-backend/scripts/
 
 # Playwright MCP artifacts (smoke tests, agent screenshots, MCP cache)
 .playwright-mcp/
