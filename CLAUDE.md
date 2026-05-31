@@ -30,9 +30,6 @@ Deployments are declared in `quix.yaml`. Each lives in its own top-level subdire
 - **Dynamic Configuration Manager** (Managed deployment, image-only) — Config store for experiment + session configs, backed by MongoDB `ac_telemetry.experiment_configs`. Emits to `ac-telemetry-config` for lake enrichment.
 - **`mongodb`** — Shared MongoDB. Two databases: `test_manager` (backend) and `ac_telemetry` (DCM).
 
-### Notebooks
-- **`racetelemetryanalysis`**, **`rawdatavisualization`** — Marimo notebooks with Anthropic API integration (BETA).
-
 ### Data flow
 
 ```

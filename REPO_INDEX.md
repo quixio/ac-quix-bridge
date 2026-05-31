@@ -29,8 +29,6 @@ symbols. The generator is stdlib-only and runs in seconds.
 | `ac_video_streaming/`      | QuixStreams source   | `main.py` | Per-lap MP4 capture via ffmpeg + sidecar JSON + S3 upload. Disabled by default.                      |
 | `ac-video-viewer/`         | FastAPI              | `main.py` | Kafka frame viewer. Disabled by default.                                                             |
 | `ac-video-browser/`        | FastAPI              | `main.py` | Blob-storage browser for recorded MP4s.                                                              |
-| `racetelemetryanalysis/`   | Marimo notebook      | —         | Analysis notebook with Anthropic API integration (BETA).                                             |
-| `rawdatavisualization/`    | Marimo notebook      | —         | Raw-data viz notebook (BETA).                                                                        |
 | `mongodb/`                 | Deployment stub      | —         | Shared MongoDB — two databases: `test_manager` and `ac_telemetry`.                                   |
 | `mongodb-backup-manager/`  | Utility              | —         | Mongo backup tooling.                                                                                |
 | `mock_config_api/`         | Test fixture         | —         | In-process DCM mock. Used by `test-manager-backend/tests/` and the local dev compose.                |
