@@ -96,17 +96,12 @@ def _probe_config_api(url: str, sdk_token: str) -> None:
 
     try:
         with httpx.Client() as client:
-            resp = client.get(
+            client.get(
                 f"{url}/api/v1/configurations",
                 headers={"Authorization": f"Bearer {sdk_token}"} if sdk_token else {},
                 timeout=5.0,
             )
-        logger.info(
-            "[probe] GET %s/api/v1/configurations → %d %s",
-            url,
-            resp.status_code,
-            resp.text[:200],
-        )
+        # httpx auto-logs the request + status; no bespoke success log needed.
     except Exception as e:
         logger.error("[probe] /api/v1/configurations FAILED — %s", e)
 
