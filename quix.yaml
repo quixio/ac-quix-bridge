@@ -208,10 +208,12 @@ deployments:
       - name: MONGO_USER
         inputType: ProjectVariable
         required: true
+        secret: true
         variableKey: MONGO_USER
       - name: MONGO_PASSWORD
         inputType: ProjectVariable
         required: true
+        secret: true
         variableKey: MONGO_ROOT_PASSWORD
       - name: MONGO_HOST
         inputType: FreeText
@@ -224,10 +226,11 @@ deployments:
       - name: QUIXLAKE_URL
         inputType: FreeText
         required: true
-        value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
+        value: https://quixlake-api-demo-quixlake-prod.edge.byox.demo
       - name: QUIX_LAKE_TOKEN
         inputType: ProjectVariable
         required: true
+        secret: true
         variableKey: quix_lake_pat
   - name: Test Manager - Frontend
     application: test-manager-frontend
