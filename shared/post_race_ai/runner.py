@@ -60,7 +60,9 @@ class BatchAnalysisAI:
 
     # --- public ----------------------------------------------------------- #
 
-    async def run(self, *, analysis_id: str, test_id: str, session_id: str) -> None:
+    async def run(
+        self, *, analysis_id: str, test_id: str, session_id: str | None
+    ) -> None:
         """Drive the analysis end-to-end. Wraps `_run_inner` with the hard
         timeout + failure handling — never raises; outcome lives in the
         analysis doc's status / error / error_kind fields."""
@@ -145,17 +147,33 @@ class BatchAnalysisAI:
     # --- helpers ----------------------------------------------------------- #
 
     def _seed_message(
-        self, analysis_id: str, test_id: str, session_id: str
+        self, analysis_id: str, test_id: str, session_id: str | None
     ) -> dict[str, Any]:
-        return {
-            "message": (
+        if session_id is None:
+            message = (
+                "Analyze the entire test across ALL its recorded sessions.\n\n"
+                f"analysis_id: {analysis_id}\n"
+                f"test_id:     {test_id}\n"
+                "scope:       test-wide\n\n"
+                "Workflow:\n"
+                "  1. Call list_sessions_for_test(test_id) to enumerate sessions.\n"
+                "  2. Read the test's requirements via get_test(test_id).\n"
+                "  3. Pull logbook with list_logbook(test_id, include_test_wide=True).\n"
+                "  4. Query the lake per session (partition-filter on full tuple).\n"
+                "  5. Compose cross-session insights; tag each KPI/anomaly with session_id.\n"
+                "  6. Call save_analysis(analysis_id, payload={...}) exactly once.\n"
+            )
+        else:
+            message = (
                 "Analyze the racing session below.\n\n"
                 f"analysis_id: {analysis_id}\n"
                 f"test_id:     {test_id}\n"
                 f"session_id:  {session_id}\n\n"
-                "Workspace context: AC telemetry, lake table = ac_telemetry.\n\n"
+                "Workspace context: AC telemetry. Default lake table = ac_telemetry_leadboard.\n\n"
                 f'Call save_analysis(analysis_id="{analysis_id}", payload={{...}}) exactly once when done.'
-            ),
+            )
+        return {
+            "message": message,
             "context": {"workspaceId": self._resolved_workspace_id()},
         }
 
@@ -215,7 +233,7 @@ class BatchAnalysisAI:
         *,
         analysis_id: str,
         test_id: str,
-        session_id: str,
+        session_id: str | None,
     ) -> None:
         portal = self._portal()
         agent_id = self._resolved_agent_id()

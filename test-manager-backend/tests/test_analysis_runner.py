@@ -3,7 +3,7 @@
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, Generator
+from typing import Any, Generator, cast
 from uuid import uuid4
 
 import httpx
@@ -312,3 +312,34 @@ def test_cleanup_orphans_marks_stuck_pending_failed(
     assert doc is not None
     assert doc["status"] == "failed"
     assert doc["error_kind"] == "orphan"
+
+
+def test_seed_message_session_mode_includes_session_id() -> None:
+    """Session-mode seed body mentions session_id and not 'scope: test-wide'."""
+    # _seed_message is pure formatting — it only calls _resolved_workspace_id().
+    # Pass workspace_id explicitly so no env/mongo state is required.
+    runner = BatchAnalysisAI(
+        mongo=cast(Database[dict[str, Any]], None), workspace_id="ws-test"
+    )
+    seed = runner._seed_message(
+        analysis_id="a1", test_id="TST-0001", session_id="2026-06-01T13:13:12.038Z"
+    )
+    msg = seed["message"]
+    assert "session_id:" in msg
+    assert "2026-06-01T13:13:12.038Z" in msg
+    assert "scope:" not in msg
+    assert "workspaceId" in seed["context"]
+
+
+def test_seed_message_test_wide_mode_lists_workflow() -> None:
+    """Test-wide-mode seed uses 'scope: test-wide' and lists the workflow steps."""
+    runner = BatchAnalysisAI(
+        mongo=cast(Database[dict[str, Any]], None), workspace_id="ws-test"
+    )
+    seed = runner._seed_message(analysis_id="a1", test_id="TST-0001", session_id=None)
+    msg = seed["message"]
+    assert "scope:       test-wide" in msg or "scope: test-wide" in msg
+    assert "list_sessions_for_test" in msg
+    assert "get_test" in msg
+    assert "save_analysis" in msg
+    assert "session_id:" not in msg

@@ -78,7 +78,7 @@ async def create_analysis(
             analyzer.run(
                 analysis_id=analysis_id,
                 test_id=payload.test_id,
-                session_id=payload.session_id,  # ty: ignore[invalid-argument-type]
+                session_id=payload.session_id,
             )
         )
         _RUNNING_TASKS.add(task)
