@@ -224,9 +224,9 @@ deployments:
         required: true
         value: http://dynamic-configuration-manager
       - name: QUIXLAKE_URL
-        inputType: FreeText
+        inputType: ProjectVariable
         required: true
-        value: https://quixlake-api-demo-quixlake-prod.edge.byox.demo
+        variableKey: LAKE_API_URL
       - name: QUIX_LAKE_TOKEN
         inputType: ProjectVariable
         required: true
@@ -408,10 +408,10 @@ deployments:
         secret: true
         variableKey: pat_token
       - name: QUIXLAKE_URL
-        inputType: FreeText
+        inputType: ProjectVariable
         description: Base URL of the QuixLake instance
         required: true
-        value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
+        variableKey: LAKE_API_URL
       - name: TABLE_NAME
         inputType: FreeText
         description: QuixLake table name for telemetry data
