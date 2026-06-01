@@ -50,6 +50,8 @@ const modeLsKey = (testId: string) => `analysis-mode:${testId}`;
 export function AiSummaryTab() {
   const params = useSearchParams();
   const router = useRouter();
+  // testsApi/analysesApi are useMemo'd in createAuthenticatedApi; toast is a
+  // module-level reference. Stable across renders, safe in effect deps.
   const { toast } = useToast();
   const testsApi = useTestsApi();
   const analysesApi = useAnalysesApi();
@@ -64,6 +66,7 @@ export function AiSummaryTab() {
     null,
   );
   const [analyzeStartedAt, setAnalyzeStartedAt] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedTestId = params.get("test_id");
   const selectedSessionId = params.get("session_id");
@@ -90,7 +93,13 @@ export function AiSummaryTab() {
 
   const handlePickerChange = useCallback(
     (sel: { testId: string | null; sessionId: string | null }) => {
-      const next = new URLSearchParams(params.toString());
+      // Read from live URL instead of capturing the params snapshot so this
+      // callback's identity is stable across renders. Otherwise useSearchParams
+      // hands back a new object each render and TestSessionPicker's auto-pick
+      // effect (deps include onChange) re-fires on every parent re-render.
+      const next = new URLSearchParams(
+        typeof window !== "undefined" ? window.location.search : "",
+      );
       next.set("tab", "ai-summary");
       if (sel.testId) next.set("test_id", sel.testId);
       else next.delete("test_id");
@@ -98,7 +107,7 @@ export function AiSummaryTab() {
       else next.delete("session_id");
       router.push(`/analysis?${next.toString()}`);
     },
-    [params, router],
+    [router],
   );
 
   // Load tests on mount
@@ -209,8 +218,13 @@ export function AiSummaryTab() {
     !(polled?.status === "complete" || polled?.status === "failed");
 
   const onAnalyze = useCallback(async () => {
+    // Re-entry guard: isAnalyzing only flips true after the POST resolves
+    // (it's keyed on activeAnalysisId), leaving a 1-2s window where users
+    // can double-click and fire two analyses.
+    if (isSubmitting) return;
     if (!selectedTestId) return;
     if (mode === "session" && !selectedSessionId) return;
+    setIsSubmitting(true);
     setAnalyzeStartedAt(Date.now());
     try {
       const { analysis_id } = await analysesApi.create({
@@ -225,8 +239,17 @@ export function AiSummaryTab() {
         description: String(e),
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [selectedTestId, selectedSessionId, mode, analysesApi, toast]);
+  }, [
+    isSubmitting,
+    selectedTestId,
+    selectedSessionId,
+    mode,
+    analysesApi,
+    toast,
+  ]);
 
   const analyzeDisabled =
     !selectedTestId || (mode === "session" && !selectedSessionId);
@@ -272,8 +295,8 @@ export function AiSummaryTab() {
 
       <div className="flex justify-end">
         <AnalyzeButton
-          disabled={analyzeDisabled}
-          isAnalyzing={isAnalyzing}
+          disabled={analyzeDisabled || isSubmitting}
+          isAnalyzing={isAnalyzing || isSubmitting}
           hasExistingAnalysis={history.length > 0}
           mode={mode}
           onClick={onAnalyze}
