@@ -493,6 +493,7 @@ class KpiValue(BaseModel):
     value: float | str
     unit: str | None = None
     notes: str | None = None
+    session_id: str | None = None  # v2: attribution in test-wide mode
 
 
 class RequirementCheck(BaseModel):
@@ -512,6 +513,7 @@ class Anomaly(BaseModel):
     time_ms: int | None = None
     description: str
     evidence: str | None = None
+    session_id: str | None = None  # v2: attribution in test-wide mode
 
 
 class Analysis(BaseModel):

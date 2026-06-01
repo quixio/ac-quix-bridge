@@ -69,6 +69,23 @@ def test_anomaly_severity_literal():
         Anomaly(severity="critical", kind="x", description="y")  # ty: ignore[invalid-argument-type]
 
 
+def test_kpi_and_anomaly_session_id_optional():
+    """v2 attribution: KpiValue and Anomaly carry optional session_id."""
+    sid = "2026-06-01T13:13:12.038Z"
+
+    k_with = KpiValue(name="best_lap_p32", value=108.2, session_id=sid)
+    assert k_with.session_id == sid
+    k_default = KpiValue(name="x", value=1.0)
+    assert k_default.session_id is None
+
+    a_with = Anomaly(
+        severity="warn", kind="tire_overheat", description="FL >100C", session_id=sid
+    )
+    assert a_with.session_id == sid
+    a_default = Anomaly(severity="info", kind="x", description="y")
+    assert a_default.session_id is None
+
+
 # --- Analysis main model -------------------------------------------------- #
 
 
