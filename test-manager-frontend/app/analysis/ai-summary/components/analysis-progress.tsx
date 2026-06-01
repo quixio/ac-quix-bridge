@@ -50,8 +50,9 @@ export function AnalysisProgress({ analysis, fallbackStartedAt }: Props) {
         </span>
       </div>
       <p className="text-sm text-muted-foreground">
-        The agent is querying the lake and composing the post-race report.
-        Typical runs take 1–3 minutes; the hard limit is 10.
+        {analysis?.session_id === null
+          ? "The agent is querying the lake across every session of the test and composing the cross-session report. Typical test-wide runs take 5–13 minutes; the hard limit is 15."
+          : "The agent is querying the lake and composing the post-race report. Typical session runs take 1–5 minutes; the hard limit is 15."}
       </p>
     </Card>
   );
