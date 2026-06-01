@@ -332,7 +332,7 @@ export function AiSummaryTab() {
           fallbackStartedAt={analyzeStartedAt ?? Date.now()}
         />
       ) : displayed ? (
-        <AnalysisCard analysis={displayed} />
+        <AnalysisCard key={displayed.id} analysis={displayed} />
       ) : mode === "test-wide" && selectedTestId ? (
         <p className="text-sm text-muted-foreground">
           No test-wide analyses yet for this test. Click Analyze test to start

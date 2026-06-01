@@ -92,7 +92,10 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
           <h3 className="text-sm font-semibold mb-2">KPIs</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {analysis.kpis.map((k) => (
-              <div key={k.name} className="p-3 rounded-md bg-muted">
+              <div
+                key={`${k.session_id ?? "_"}::${k.name}`}
+                className="p-3 rounded-md bg-muted"
+              >
                 <div className="text-xs text-muted-foreground">
                   {k.name}
                   <SessionBadge sessionId={k.session_id} />
@@ -112,8 +115,11 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
         <section>
           <h3 className="text-sm font-semibold mb-2">Requirements</h3>
           <div className="space-y-1.5">
-            {analysis.requirements_check.map((r, i) => (
-              <div key={i} className="flex items-center gap-3 text-sm">
+            {analysis.requirements_check.map((r) => (
+              <div
+                key={r.requirement}
+                className="flex items-center gap-3 text-sm"
+              >
                 <MetVerdict met={r.met} />
                 <span>{r.requirement}</span>
                 {r.evidence && (
@@ -132,8 +138,11 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
         <section>
           <h3 className="text-sm font-semibold mb-2">Anomalies</h3>
           <ul className="space-y-1.5">
-            {analysis.anomalies.map((a, i) => (
-              <li key={i} className="flex items-start gap-3 text-sm">
+            {analysis.anomalies.map((a) => (
+              <li
+                key={`${a.session_id ?? "_"}:${a.kind}:${a.lap ?? "_"}:${a.description.slice(0, 40)}`}
+                className="flex items-start gap-3 text-sm"
+              >
                 <span
                   className={`inline-flex shrink-0 px-2 py-0.5 rounded-full text-xs ${
                     SEVERITY_STYLES[a.severity] ?? ""
