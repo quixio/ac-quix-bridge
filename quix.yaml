@@ -409,7 +409,7 @@ deployments:
       - name: TABLE_NAME
         inputType: FreeText
         description: QuixLake table name for telemetry data
-        value: ac_telemetry
+        value: ac_telemetry_leadboard
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
