@@ -14,6 +14,7 @@ export interface KpiValue {
   value: number | string;
   unit?: string | null;
   notes?: string | null;
+  session_id?: string | null;
 }
 
 export interface RequirementCheck {
@@ -29,13 +30,14 @@ export interface Anomaly {
   time_ms?: number | null;
   description: string;
   evidence?: string | null;
+  session_id?: string | null;
 }
 
 export interface Analysis {
   id: string;
   schema_version: number;
   test_id: string;
-  session_id: string;
+  session_id: string | null;
   status: AnalysisStatus;
   created_at: string;
   updated_at: string;
@@ -58,7 +60,7 @@ export interface Analysis {
 
 export interface AnalysisCreateRequest {
   test_id: string;
-  session_id: string;
+  session_id: string | null;
 }
 
 export interface AnalysisListResponse {
