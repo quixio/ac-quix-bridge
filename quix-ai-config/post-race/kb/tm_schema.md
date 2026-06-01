@@ -48,6 +48,10 @@ Optional lookups via `get_driver`, `get_device`, `get_environment` when you need
 
 For baseline-vs-current comparisons. The recent-for-driver tool returns a flat list across all tests for one driver — useful for finding a comparable past session.
 
+## Test-wide flow
+
+When the user message specifies `scope: test-wide` (no `session_id`), call `mcp__test-manager__list_sessions_for_test(test_id)` first to enumerate sessions, then iterate per-session lake queries. Cap at 12 sessions per analysis; if the test has more, analyze the most recent 12 and note the truncation in `summary_md`.
+
 ## Partition mapping — Test Manager → QuixLake AC telemetry tables
 
 **Default lake table: `ac_telemetry_leadboard`** (current sink — all sessions recorded after 2026-05-29). Older sessions are in legacy `ac_telemetry`. If `FROM ac_telemetry_leadboard` returns 0 rows for the user's `session_id`, retry the same query with `FROM ac_telemetry`. Or call `mcp__quixlake__list_session_combinations(table)` to confirm which table holds the session before composing the query.

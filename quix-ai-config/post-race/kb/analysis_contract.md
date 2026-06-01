@@ -67,6 +67,27 @@ LogbookEntry `id` values you cited in your narrative. Refer to entries by their 
 
 Free-form bag for observations that don't fit a defined field. E.g. weather, setup deltas, mechanical notes. Keys are descriptive strings.
 
+## Optional `session_id` attribution on items (schema v2)
+
+`KPI` and `Anomaly` items have an optional `session_id` field as of schema v2.
+
+- **Session mode** (`Analysis.session_id` is set): leave each item's `session_id` as `null`. The parent analysis already pins the source session.
+- **Test-wide mode** (`Analysis.session_id` is `null`): set `session_id` on every KPI and Anomaly to attribute the metric / issue to its source session. The agent should populate this field for every cross-session item it emits.
+
+Backwards-compatible: pre-v2 docs read `None` for these fields and render unchanged.
+
+## Test-wide payload conventions (when `Analysis.session_id` is `null`)
+
+- `kpis[]` is flat. Name each KPI in an attribution-friendly way when comparing variants:
+  - `best_lap_p32psi`, `best_lap_p35psi`, `tire_wear_p32psi_laps`, …
+  - Also set the `session_id` field on each KPI item for the underlying source session.
+- `requirements_check[]` — one entry per stated requirement, with `evidence` citing cross-session findings.
+- `anomalies[]` — pool everything, tag each with its source `session_id`.
+- `summary_md` — structure around the test's requirements. Use markdown tables for variant comparisons (the frontend renders them via remark-gfm).
+- `logbook_refs[]` — include test-wide entries (logbook entries whose `session_id` is `null`).
+
+The frontend renders schema v1 and v2 docs identically in v1 of the UI — the `session_id` badge on attributed items is opt-in (visible only when set).
+
 ## Worked complete example
 
 ```json
