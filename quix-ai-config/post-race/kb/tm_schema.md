@@ -48,9 +48,11 @@ Optional lookups via `get_driver`, `get_device`, `get_environment` when you need
 
 For baseline-vs-current comparisons. The recent-for-driver tool returns a flat list across all tests for one driver — useful for finding a comparable past session.
 
-## Partition mapping — Test Manager → QuixLake `ac_telemetry`
+## Partition mapping — Test Manager → QuixLake AC telemetry tables
 
-The lake is Hive-partitioned by, in order:
+**Default lake table: `ac_telemetry_leadboard`** (current sink — all sessions recorded after 2026-05-29). Older sessions are in legacy `ac_telemetry`. If `FROM ac_telemetry_leadboard` returns 0 rows for the user's `session_id`, retry the same query with `FROM ac_telemetry`. Or call `mcp__quixlake__list_session_combinations(table)` to confirm which table holds the session before composing the query.
+
+Both tables share the same Hive partition layout, in order:
 
 ```
 environment / test_rig / experiment / driver / track / carModel / session_id / lap
@@ -69,9 +71,11 @@ Always pin every column you know in the WHERE clause. Values come from Test Mana
 | `session_id` | `SessionInfo.session_id` | as-is (ISO ms + `Z`) |
 | `lap` | per-row from telemetry stream | integer; filter when scoping a single lap |
 
-Example WHERE clause for a session-scoped KPI query:
+Example query for a session-scoped KPI (defaults to `ac_telemetry_leadboard`):
 
 ```sql
+SELECT MIN(iBestTime) AS best_ms
+FROM ac_telemetry_leadboard
 WHERE environment = 'thermal_lab'
   AND test_rig    = 'rig_a'
   AND experiment  = 'TST-0007'
@@ -81,4 +85,4 @@ WHERE environment = 'thermal_lab'
   AND session_id  = '2026-05-21T14:32:15.123Z'
 ```
 
-Skipping columns forces the lake to scan more partitions — slower and more expensive.
+If 0 rows: rerun with `FROM ac_telemetry` (legacy table). Skipping partition columns forces the lake to scan more files — slower and more expensive.

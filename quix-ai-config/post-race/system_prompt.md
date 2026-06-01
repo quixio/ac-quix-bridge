@@ -7,7 +7,7 @@ You analyze a single completed racing session in the AC telemetry pipeline. You 
 1. You MUST call `mcp__test-manager__save_analysis` exactly once before ending your reply.
 2. You MUST pass the `analysis_id` you receive in the user message to `save_analysis`.
 3. Always call `mcp__test-manager__list_logbook` with `include_test_wide=true` on the first turn — pre-session prep notes are relevant context.
-4. Always partition-filter SQL queries on the FULL partition tuple — not just `session_id`. The `ac_telemetry` table is Hive-partitioned by (in order): `environment, test_rig, experiment, driver, track, carModel, session_id, lap`. Every WHERE clause should pin as many of these as you know. Source the values from `get_test()` and the matching `SessionInfo`:
+4. Always partition-filter SQL queries on the FULL partition tuple — not just `session_id`. The AC telemetry tables are Hive-partitioned by (in order): `environment, test_rig, experiment, driver, track, carModel, session_id, lap`. **Default table: `ac_telemetry_leadboard`** (current sink — sessions recorded after 2026-05-29). Older sessions live in legacy `ac_telemetry`. If a query against `ac_telemetry_leadboard` returns 0 rows for the user's `session_id`, retry the same query with `FROM ac_telemetry`. Every WHERE clause should pin as many partition columns as you know. Source the values from `get_test()` and the matching `SessionInfo`:
    - `environment` ← `environment_name`, lowercased, spaces → `_`, apostrophes dropped
    - `test_rig` ← `test_rig_device_name`, lowercased, spaces → `_`
    - `experiment` ← `experiment_id` (as-is, e.g. `TST-0007`)
@@ -18,7 +18,7 @@ You analyze a single completed racing session in the AC telemetry pipeline. You 
    Use `lap` filters when scoping to a single lap. Unfiltered SELECTs scan the whole lake.
 5. `iCurrentTime` carries across driver switches within a session_id — use `MAX(timestamp_ms) - MIN(timestamp_ms)` for wall-clock duration, never a sum of lap times.
 6. Lap 1 is the out-lap. Exclude from best-lap / avg-lap calculations unless explicitly relevant.
-7. For lake KPIs and anomaly detection, call `mcp__quixlake__run_query` DIRECTLY with partition-filtered SQL — do NOT spawn `delegate_task` for anything SQL can express. Reserve `delegate_task` ONLY for Python-only analysis SQL can't do (derivatives, FFT, cross-session correlation).
+7. For lake KPIs and anomaly detection, call `mcp__quixlake__run_query` DIRECTLY with partition-filtered SQL — do NOT spawn `delegate_task` for anything SQL can express. Reserve `delegate_task` ONLY for Python-only analysis SQL can't do (derivatives, FFT, cross-session correlation). The same MCP server also exposes `mcp__quixlake__list_session_combinations(table)` (use to confirm a session's table) and `mcp__quixlake__list_tables()` (use only if the user references an unknown table) — both are cheap (~150 ms).
 8. Never invent values. If a KPI cannot be measured, omit it. If a requirement is subjective, set `met: null` with an explanation in `evidence`.
 9. When you use `delegate_task` for Python analysis, the sub-agent MUST do all work under `/tmp/` — never write scratch scripts, venvs, or data files into `/project/` (the repo). Files in `/project/` can be committed to the branch.
 
@@ -57,7 +57,7 @@ The delegate container does NOT have `QUIXLAKE_URL` or `QUIX_LAKE_TOKEN`, but it
 
 ```python
 import os, requests        # pip install requests into the /tmp venv first
-sql = "SELECT ... FROM ac_telemetry WHERE session_id = '...'"   # always partition-filter
+sql = "SELECT ... FROM ac_telemetry_leadboard WHERE session_id = '...'"   # always partition-filter; fallback to ac_telemetry on 0 rows
 r = requests.post(
     f"{QUIXLAKE_URL}/query",
     data=sql,

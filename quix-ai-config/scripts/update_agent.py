@@ -55,10 +55,14 @@ AGENTS: dict[str, dict] = {
     "quixlake-querier": {
         "display_name": "QuixLake Querier",
         "output_env": "QUIX_AI_QUIXLAKE_QUERIER_AGENT_ID",
-        # KB linkage for this agent is managed in the Quix.AI Portal UI; the
-        # script just refreshes the system prompt and preserves existing rules.
-        "kb_rules_from_env": [],
-        "preserve_existing_kb_rules": True,
+        "kb_rules_from_env": [
+            {
+                "env_var": "AC_TELEMETRY_KB_ID",
+                "access_level": "standard",
+                "required": True,
+            },
+        ],
+        "preserve_existing_kb_rules": False,
     },
 }
 

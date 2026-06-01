@@ -110,7 +110,61 @@ GROUP BY driver
 ORDER BY best_s
 ```
 
-`MIN(iBestTime) FILTER (WHERE iBestTime > 0)` gives the same `best_s` more cheaply since AC validates internally — use it as a shortcut when only "best" is needed.
+`MIN(iBestTime) FILTER (WHERE iBestTime > 0)` gives the same `best_s` more cheaply since AC validates internally — use it as a shortcut when only **one number per (driver, session) is needed** (e.g. "best lap per driver").
+
+### iBestTime cannot rank or list individual laps
+
+`iBestTime` is a running session-best — it stores the fastest lap recorded SO FAR, not the duration of any individual lap. Within a session it is monotonically non-increasing, so once lap N sets a new best, lap N+1, N+2 ... will all show the same `iBestTime` value until a faster lap arrives.
+
+Consequence: queries like "two fastest laps", "top N laps", "list all laps with their times", or anything that produces one row per lap **cannot use `iBestTime`**. They must use `timestamp_ms` deltas with `GROUP BY (session_id, lap)` (add `driver` and `experiment` if scope spans more than one session).
+
+Wrong:
+```sql
+SELECT lap, MIN(iBestTime) AS ms
+FROM ac_telemetry_leadboard
+WHERE driver = 'tomas'
+GROUP BY lap
+ORDER BY ms LIMIT 2
+```
+Returns the same `iBestTime` for every lap from the best-setting lap onward → ties + wrong ranking.
+
+### Clean-lap filter is MANDATORY for per-lap rankings
+
+Every recorded session has two truncated laps:
+- **Lap 1** = out-lap (rolling start / pit exit, partial).
+- **Last partition lap** = in-lap (session ended mid-lap; duration is truncated to whenever the user pressed escape).
+
+Both look unrealistically fast (often 5–40 s) and corrupt any "fastest lap" ranking. **Filter them out by joining against `MAX(lap)` per session and requiring `lap > 1 AND lap < last_lap`.** This is non-negotiable for any per-lap query.
+
+Row-count thresholds (e.g. `HAVING COUNT(*) >= 4000`) are NOT a substitute — a clean ~108 s lap at 50 Hz has ~5400 rows but slow laps, telemetry gaps, or sample-rate changes can drop a real lap below the threshold and inflate a truncated lap above it.
+
+Right (per-lap duration via timestamp deltas, scoped per session, both truncated laps excluded):
+```sql
+SELECT
+    clean.driver,
+    clean.session_id,
+    clean.lap,
+    (MAX(clean.timestamp_ms) - MIN(clean.timestamp_ms)) / 1000.0 AS duration_s
+FROM ac_telemetry_leadboard clean
+JOIN (
+    SELECT driver, session_id, MAX(lap) AS last_lap
+    FROM ac_telemetry_leadboard
+    WHERE driver = 'tomas'
+    GROUP BY driver, session_id
+) bounds
+  ON  clean.driver     = bounds.driver
+  AND clean.session_id = bounds.session_id
+WHERE clean.driver = 'tomas'
+  AND clean.lap > 1
+  AND clean.lap < bounds.last_lap
+GROUP BY clean.driver, clean.session_id, clean.lap
+ORDER BY duration_s
+LIMIT 2
+```
+
+The leaderboard / consistency examples earlier in this file follow the same pattern (`lap_table` joined against `last_per_session.last_lap`). Reuse that shape; do not invent shortcuts.
+
+Always `GROUP BY` includes `session_id` whenever the query may touch more than one session — bare `GROUP BY lap` pools timestamps across sessions sharing the same lap number and produces nonsense durations (a single `MAX - MIN` that spans days).
 
 ### 2. Lap-time consistency (stddev across clean laps)
 
