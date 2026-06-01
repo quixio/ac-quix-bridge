@@ -27,6 +27,7 @@ interface Props {
   selectedTestId: string | null;
   selectedSessionId: string | null;
   onChange: (sel: { testId: string | null; sessionId: string | null }) => void;
+  hideSessionPicker?: boolean;
 }
 
 export function TestSessionPicker({
@@ -35,6 +36,7 @@ export function TestSessionPicker({
   selectedTestId,
   selectedSessionId,
   onChange,
+  hideSessionPicker = false,
 }: Props) {
   const sessions = useMemo(
     () => (selectedTestId ? sessionsByTest[selectedTestId] ?? [] : []),
@@ -47,18 +49,32 @@ export function TestSessionPicker({
     [sessions],
   );
 
-  // Auto-pick latest session when test changes and nothing's selected yet
+  // Auto-pick latest session when test changes and nothing's selected yet.
+  // Skipped in test-wide mode so we don't fight the URL/state with a sessionId.
   useEffect(() => {
+    if (hideSessionPicker) return;
     if (selectedTestId && !selectedSessionId && sortedSessions.length > 0) {
       onChange({
         testId: selectedTestId,
         sessionId: sortedSessions[0].session_id,
       });
     }
-  }, [selectedTestId, selectedSessionId, sortedSessions, onChange]);
+  }, [
+    hideSessionPicker,
+    selectedTestId,
+    selectedSessionId,
+    sortedSessions,
+    onChange,
+  ]);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div
+      className={
+        hideSessionPicker
+          ? "grid grid-cols-1 gap-4"
+          : "grid grid-cols-1 md:grid-cols-2 gap-4"
+      }
+    >
       <div>
         <Label htmlFor="picker-test">Test</Label>
         <Select
@@ -80,40 +96,42 @@ export function TestSessionPicker({
         </Select>
       </div>
 
-      <div>
-        <Label htmlFor="picker-session">Session</Label>
-        <Select
-          value={selectedSessionId ?? ""}
-          onValueChange={(v) =>
-            onChange({ testId: selectedTestId, sessionId: v || null })
-          }
-          disabled={!selectedTestId || sortedSessions.length === 0}
-        >
-          <SelectTrigger id="picker-session" className="w-full">
-            <SelectValue
-              placeholder={
-                !selectedTestId
-                  ? "Pick a test first"
-                  : sortedSessions.length === 0
-                    ? "No sessions yet"
-                    : "Pick a session..."
-              }
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {sortedSessions.map((s) => (
-              <SelectItem key={s.session_id} value={s.session_id}>
-                {s.session_id.slice(0, 16)} · {s.track} / {s.car_model}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {selectedTestId && sortedSessions.length === 0 && (
-          <p className="text-xs text-muted-foreground mt-1">
-            No sessions on this test yet. Start an AC session first.
-          </p>
-        )}
-      </div>
+      {!hideSessionPicker && (
+        <div>
+          <Label htmlFor="picker-session">Session</Label>
+          <Select
+            value={selectedSessionId ?? ""}
+            onValueChange={(v) =>
+              onChange({ testId: selectedTestId, sessionId: v || null })
+            }
+            disabled={!selectedTestId || sortedSessions.length === 0}
+          >
+            <SelectTrigger id="picker-session" className="w-full">
+              <SelectValue
+                placeholder={
+                  !selectedTestId
+                    ? "Pick a test first"
+                    : sortedSessions.length === 0
+                      ? "No sessions yet"
+                      : "Pick a session..."
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {sortedSessions.map((s) => (
+                <SelectItem key={s.session_id} value={s.session_id}>
+                  {s.session_id.slice(0, 16)} · {s.track} / {s.car_model}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedTestId && sortedSessions.length === 0 && (
+            <p className="text-xs text-muted-foreground mt-1">
+              No sessions on this test yet. Start an AC session first.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

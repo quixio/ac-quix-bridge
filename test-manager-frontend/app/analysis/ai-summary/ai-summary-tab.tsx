@@ -43,6 +43,10 @@ interface TestRow {
   driver_name?: string | null;
 }
 
+type Mode = "session" | "test-wide";
+
+const modeLsKey = (testId: string) => `analysis-mode:${testId}`;
+
 export function AiSummaryTab() {
   const params = useSearchParams();
   const router = useRouter();
@@ -63,6 +67,26 @@ export function AiSummaryTab() {
 
   const selectedTestId = params.get("test_id");
   const selectedSessionId = params.get("session_id");
+
+  const [mode, setMode] = useState<Mode>("session");
+
+  // Hydrate mode from localStorage when the active test changes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedTestId) {
+      setMode("session");
+      return;
+    }
+    const stored = window.localStorage.getItem(modeLsKey(selectedTestId));
+    setMode(stored === "test-wide" ? "test-wide" : "session");
+  }, [selectedTestId]);
+
+  // Persist mode per test_id.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedTestId) return;
+    window.localStorage.setItem(modeLsKey(selectedTestId), mode);
+  }, [mode, selectedTestId]);
 
   const handlePickerChange = useCallback(
     (sel: { testId: string | null; sessionId: string | null }) => {
@@ -126,18 +150,28 @@ export function AiSummaryTab() {
     fetcher,
   );
 
-  // Load history of analyses for the selected (test, session). Refetch when a
-  // running analysis reaches a terminal state so the history list refreshes.
+  // Load history of analyses for the selected (test, session) or test-wide.
+  // Refetch when a running analysis reaches a terminal state so the history
+  // list refreshes.
   const polledTerminal =
     polled?.status === "complete" || polled?.status === "failed";
   useEffect(() => {
-    if (!selectedTestId || !selectedSessionId) {
+    if (!selectedTestId) {
+      setHistory([]);
+      setSelectedAnalysisId(null);
+      return;
+    }
+    if (mode === "session" && !selectedSessionId) {
       setHistory([]);
       setSelectedAnalysisId(null);
       return;
     }
     analysesApi
-      .list({ testId: selectedTestId, sessionId: selectedSessionId })
+      .list(
+        mode === "test-wide"
+          ? { testId: selectedTestId, sessionIdIsNull: true }
+          : { testId: selectedTestId, sessionId: selectedSessionId! },
+      )
       .then((res) => setHistory(res.items))
       .catch((e) =>
         toast({
@@ -146,13 +180,20 @@ export function AiSummaryTab() {
           variant: "destructive",
         }),
       );
-  }, [selectedTestId, selectedSessionId, analysesApi, polledTerminal, toast]);
+  }, [
+    selectedTestId,
+    selectedSessionId,
+    mode,
+    analysesApi,
+    polledTerminal,
+    toast,
+  ]);
 
-  // Reset history selection when the (test, session) pair changes so we default
-  // back to "latest" rather than carrying a stale id over.
+  // Reset history selection when the (test, session, mode) tuple changes so we
+  // default back to "latest" rather than carrying a stale id over.
   useEffect(() => {
     setSelectedAnalysisId(null);
-  }, [selectedTestId, selectedSessionId]);
+  }, [selectedTestId, selectedSessionId, mode]);
 
   // Display priority: actively-polling run > user-picked from history > newest
   const pickedFromHistory =
@@ -168,12 +209,13 @@ export function AiSummaryTab() {
     !(polled?.status === "complete" || polled?.status === "failed");
 
   const onAnalyze = useCallback(async () => {
-    if (!selectedTestId || !selectedSessionId) return;
+    if (!selectedTestId) return;
+    if (mode === "session" && !selectedSessionId) return;
     setAnalyzeStartedAt(Date.now());
     try {
       const { analysis_id } = await analysesApi.create({
         test_id: selectedTestId,
-        session_id: selectedSessionId,
+        session_id: mode === "test-wide" ? null : selectedSessionId,
       });
       setActiveAnalysisId(analysis_id);
     } catch (e) {
@@ -184,23 +226,56 @@ export function AiSummaryTab() {
         variant: "destructive",
       });
     }
-  }, [selectedTestId, selectedSessionId, analysesApi, toast]);
+  }, [selectedTestId, selectedSessionId, mode, analysesApi, toast]);
+
+  const analyzeDisabled =
+    !selectedTestId || (mode === "session" && !selectedSessionId);
 
   return (
     <div className="space-y-6 py-4">
+      {selectedTestId && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Mode:</span>
+          <button
+            type="button"
+            className={`rounded px-3 py-1 text-sm ${
+              mode === "session"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            }`}
+            onClick={() => setMode("session")}
+          >
+            Session
+          </button>
+          <button
+            type="button"
+            className={`rounded px-3 py-1 text-sm ${
+              mode === "test-wide"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            }`}
+            onClick={() => setMode("test-wide")}
+          >
+            Test-wide
+          </button>
+        </div>
+      )}
+
       <TestSessionPicker
         tests={tests}
         sessionsByTest={sessionsByTest}
         selectedTestId={selectedTestId}
         selectedSessionId={selectedSessionId}
         onChange={handlePickerChange}
+        hideSessionPicker={mode === "test-wide"}
       />
 
       <div className="flex justify-end">
         <AnalyzeButton
-          disabled={!selectedTestId || !selectedSessionId}
+          disabled={analyzeDisabled}
           isAnalyzing={isAnalyzing}
           hasExistingAnalysis={history.length > 0}
+          mode={mode}
           onClick={onAnalyze}
         />
       </div>
@@ -235,6 +310,11 @@ export function AiSummaryTab() {
         />
       ) : displayed ? (
         <AnalysisCard analysis={displayed} />
+      ) : mode === "test-wide" && selectedTestId ? (
+        <p className="text-sm text-muted-foreground">
+          No test-wide analyses yet for this test. Click Analyze test to start
+          one.
+        </p>
       ) : selectedSessionId ? (
         <p className="text-sm text-muted-foreground">
           No analyses yet for this session. Click Analyze to start one.
