@@ -50,6 +50,7 @@ export const analysesApi = {
     opts?: {
       testId?: string;
       sessionId?: string;
+      sessionIdIsNull?: boolean;
       status?: "complete" | "failed" | "in_progress";
       page?: number;
       pageSize?: number;
@@ -60,6 +61,7 @@ export const analysesApi = {
     const params: Record<string, string | number> = {};
     if (opts?.testId !== undefined) params.test_id = opts.testId;
     if (opts?.sessionId !== undefined) params.session_id = opts.sessionId;
+    if (opts?.sessionIdIsNull === true) params.session_id_is_null = "true";
     if (opts?.status !== undefined) params.status = opts.status;
     if (opts?.page !== undefined) params.page = opts.page;
     if (opts?.pageSize !== undefined) params.page_size = opts.pageSize;
