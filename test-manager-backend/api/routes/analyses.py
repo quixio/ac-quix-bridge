@@ -125,7 +125,10 @@ def list_analyses(
     if session_id is not None:
         query["session_id"] = session_id
     elif session_id_is_null is True:
-        query["session_id"] = None
+        # Match docs with null session_id (test-wide) OR no session_id field
+        # (defensive against legacy/migrated docs missing the field).
+        # session_id_is_null=False is a no-op — only True triggers filtering.
+        query["session_id"] = {"$in": [None]}
     if status_filter is not None:
         if status_filter == "in_progress":
             query["status"] = {"$in": list(IN_PROGRESS_STATUSES)}
