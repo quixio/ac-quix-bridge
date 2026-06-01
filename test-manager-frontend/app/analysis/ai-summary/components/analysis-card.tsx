@@ -58,6 +58,16 @@ const SEVERITY_STYLES: Record<string, string> = {
   error: "bg-red-500/10 text-red-700",
 };
 
+function SessionBadge({ sessionId }: { sessionId?: string | null }) {
+  if (!sessionId) return null;
+  const short = sessionId.replace("T", " ").slice(0, 16);
+  return (
+    <span className="ml-2 inline-block rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
+      {short}
+    </span>
+  );
+}
+
 export function AnalysisCard({ analysis }: { analysis: Analysis }) {
   return (
     <Card className="p-6 space-y-6">
@@ -66,7 +76,9 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
         <p className="text-sm text-muted-foreground">
           {[
             analysis.test_id,
-            formatSessionDate(analysis.session_id),
+            analysis.session_id
+              ? formatSessionDate(analysis.session_id)
+              : "Test-wide",
             subtitleExtras(analysis.extra),
           ]
             .filter(Boolean)
@@ -81,7 +93,10 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {analysis.kpis.map((k) => (
               <div key={k.name} className="p-3 rounded-md bg-muted">
-                <div className="text-xs text-muted-foreground">{k.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {k.name}
+                  <SessionBadge sessionId={k.session_id} />
+                </div>
                 <div className="text-lg font-semibold">{k.value}</div>
                 {k.unit && (
                   <div className="text-xs text-muted-foreground">{k.unit}</div>
@@ -132,7 +147,10 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
                     L{a.lap}
                   </span>
                 )}
-                <span>{a.description}</span>
+                <span>
+                  {a.description}
+                  <SessionBadge sessionId={a.session_id} />
+                </span>
               </li>
             ))}
           </ul>
