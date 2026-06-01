@@ -37,6 +37,9 @@ deployments:
         cpu: 200
         memory: 800
       replicas: 1
+    state:
+      enabled: true
+      size: 3
     network:
       serviceName: mongodb
       ports:
@@ -409,7 +412,7 @@ deployments:
       - name: TABLE_NAME
         inputType: FreeText
         description: QuixLake table name for telemetry data
-        value: ac_telemetry_leadboard
+        value: ac_telemetry
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
