@@ -28,8 +28,8 @@ from pymongo.database import Database
 logger = logging.getLogger(__name__)
 
 
-HARD_TIMEOUT_SECONDS: float = 600  # 10 minutes
-ORPHAN_THRESHOLD = timedelta(minutes=15)
+HARD_TIMEOUT_SECONDS: float = 900  # 15 min (test-wide iterates per-session)
+ORPHAN_THRESHOLD = timedelta(minutes=20)
 NON_TERMINAL = {"pending", "running", "fetching", "analyzing", "saving"}
 
 
