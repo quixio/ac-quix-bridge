@@ -37,9 +37,6 @@ deployments:
         cpu: 200
         memory: 800
       replicas: 1
-    state:
-      enabled: true
-      size: 3
     network:
       serviceName: mongodb
       ports:
@@ -55,6 +52,7 @@ deployments:
         inputType: ProjectVariable
         description: The root password to initialize MongoDB with
         required: true
+        secret: true
         variableKey: MONGO_PASSWORD
   - name: Session Config Bridge
     application: session-config-bridge
