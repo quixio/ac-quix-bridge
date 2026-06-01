@@ -9,7 +9,7 @@ Per spec §3 + §5:
   3. Read events silently from the response stream
   4. Update analysis.status as we see tool_call_starts (fetching/analyzing/saving)
   5. Persist model + token counts + duration on usage event
-  6. Hold connection for the full duration of the run; 10-min hard timeout via wait_for
+  6. Hold connection for the full duration of the run; 15-min hard timeout via wait_for
   7. On any unexpected exit, mark failed with appropriate error_kind
 """
 
