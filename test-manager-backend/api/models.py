@@ -518,9 +518,9 @@ class Analysis(BaseModel):
     """Persisted analysis result. One doc per click of Analyze."""
 
     id: str = Field(..., alias="_id")  # uuid4 string
-    schema_version: int = 1  # bump on breaking shape changes
+    schema_version: int = 2  # v2 introduces optional session_id (null = test-wide)
     test_id: str
-    session_id: str  # v1 always set
+    session_id: str | None  # null on test-wide rows
     status: Literal[
         "pending",
         "running",
@@ -558,10 +558,13 @@ class Analysis(BaseModel):
 
 
 class AnalysisCreate(BaseModel):
-    """Request body for POST /api/v1/analyses."""
+    """Request body for POST /api/v1/analyses.
+
+    session_id is optional: null = test-wide (analyze every session of the test).
+    """
 
     test_id: str = Field(..., min_length=1)
-    session_id: str = Field(..., min_length=1)
+    session_id: str | None = None
 
 
 class AnalysisListQuery(PaginationParams):

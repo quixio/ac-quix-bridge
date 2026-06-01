@@ -84,7 +84,7 @@ def test_analysis_minimal_defaults():
         status="pending",
     )
     assert a.id == "uuid-abc"
-    assert a.schema_version == 1
+    assert a.schema_version == 2
     assert a.kpis == []
     assert a.requirements_check == []
     assert a.anomalies == []
@@ -124,13 +124,13 @@ def test_analysis_invalid_error_kind_rejected():
 # --- Request models ------------------------------------------------------- #
 
 
-def test_analysis_create_requires_both_ids():
+def test_analysis_create_requires_test_id():
+    """test_id is required; session_id is optional (v2 — null = test-wide)."""
     with pytest.raises(ValidationError):
         AnalysisCreate(test_id="", session_id="s")  # min_length=1 on test_id
-    with pytest.raises(ValidationError):
-        AnalysisCreate(test_id="t", session_id="")
     ok = AnalysisCreate(test_id="t", session_id="s")
     assert ok.test_id == "t"
+    assert ok.session_id == "s"
 
 
 def test_save_analysis_payload_requires_summary_md():
@@ -307,3 +307,25 @@ def test_list_analyses_pagination(client: TestClient, create_test: TestFactory) 
 def test_list_analyses_rejects_invalid_status(client: TestClient) -> None:
     response = client.get("/api/v1/analyses?status=bogus")
     assert response.status_code == 422
+
+
+def test_analysis_create_accepts_null_session_id() -> None:
+    """AnalysisCreate accepts session_id=None for test-wide analysis mode.
+
+    v2 schema introduces optional session_id — null means analyze every session
+    on the test. Route-level handling of None is covered in Task B1.
+    """
+    ok = AnalysisCreate(test_id="t", session_id=None)
+    assert ok.test_id == "t"
+    assert ok.session_id is None
+
+    # Implicit None via omission also works.
+    ok2 = AnalysisCreate(test_id="t")
+    assert ok2.session_id is None
+
+
+def test_analysis_allows_null_session_id_and_bumps_schema_version() -> None:
+    """Analysis persisted doc tolerates null session_id; schema_version is 2."""
+    a = Analysis(_id="uuid-twa", test_id="t", session_id=None, status="pending")
+    assert a.session_id is None
+    assert a.schema_version == 2
