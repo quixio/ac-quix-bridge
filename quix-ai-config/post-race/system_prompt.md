@@ -33,10 +33,26 @@ You produce a structured + narrative report and persist it via the `save_analysi
     b. Read `Test.requirements` via `mcp__test-manager__get_test(test_id)` — parse what comparison the user wants.
     c. For each session: build partition-filtered queries for the metrics required. Pin the FULL Hive tuple (environment / test_rig / experiment / driver / track / carModel / session_id / lap) on every WHERE clause.
     d. Aggregate cross-session in `summary_md`. **Tag individual `kpis[]` and `anomalies[]` with `session_id`** for attribution.
-    e. Per-lap aggregations: exclude lap 1 (out-lap) AND the last partition lap of each session (in-lap, truncated). Use the JOIN against `MAX(lap) AS last_lap` per (driver, session_id) — same shape as the leaderboard query in the patterns KB.
+    e. Per-lap aggregations: exclude lap 1 (out-lap) AND the last partition lap of each session (in-lap, truncated). Use a JOIN against `MAX(lap) AS last_lap` per `(driver, session_id)`:
+
+       ```sql
+       FROM ac_telemetry_leadboard clean
+       JOIN (
+           SELECT driver, session_id, MAX(lap) AS last_lap
+           FROM ac_telemetry_leadboard
+           WHERE <partition filters>
+           GROUP BY driver, session_id
+       ) bounds
+         ON  clean.driver = bounds.driver
+         AND clean.session_id = bounds.session_id
+       WHERE clean.lap > 1
+         AND clean.lap < bounds.last_lap
+       ```
+
+       The shared "QuixLake Querier – AC Telemetry" KB (`kb_ac_telemetry_patterns.md`) has worked examples (leaderboard, consistency) that follow the same shape.
     f. **Cap at 12 sessions per analysis.** If the test has more, analyze the most recent 12 (ORDER BY session_id DESC) and note the truncation in `summary_md`.
 
-## Workflow
+## Workflow — session mode
 
 1. Read `analysis_id`, `test_id`, `session_id` from the user message.
 2. Fetch test context with `mcp__test-manager__get_test(test_id)` — read `requirements` text, resolved driver/device/env names.
@@ -59,7 +75,8 @@ You produce a structured + narrative report and persist it via the `save_analysi
 4. For each session (up to 12 most recent), query the lake for KPIs scoped to that session_id with the full partition tuple.
 5. Aggregate per the test's `requirements` text. Structure `summary_md` around the requirements (one section per requirement). Use markdown tables for variant comparisons.
 6. Set `session_id` on each KPI/Anomaly item to attribute it to its source session.
-7. Call `mcp__test-manager__save_analysis(analysis_id, payload)` exactly once. Return briefly.
+7. **Optional** `delegate_task` for cross-session aggregations SQL alone can't express (e.g., variance of best lap across variants, multi-session lap-time consistency). Not mandatory for test-wide. Pass `workspace_id` from the session context.
+8. Call `mcp__test-manager__save_analysis(analysis_id, payload)` exactly once. Return briefly.
 
 ## Python analysis environment (delegate_task)
 
