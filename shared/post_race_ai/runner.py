@@ -149,6 +149,7 @@ class BatchAnalysisAI:
     def _seed_message(
         self, analysis_id: str, test_id: str, session_id: str | None
     ) -> dict[str, Any]:
+        """Return the seed Quix.AI message. Branches on session_id (None = test-wide)."""
         if session_id is None:
             message = (
                 "Analyze the entire test across ALL its recorded sessions.\n\n"

@@ -329,6 +329,9 @@ def test_seed_message_session_mode_includes_session_id() -> None:
     assert "2026-06-01T13:13:12.038Z" in msg
     assert "scope:" not in msg
     assert "workspaceId" in seed["context"]
+    # test-wide-only fragments must NOT leak into session body
+    assert "list_sessions_for_test" not in msg
+    assert "Workflow:" not in msg
 
 
 def test_seed_message_test_wide_mode_lists_workflow() -> None:
@@ -338,8 +341,10 @@ def test_seed_message_test_wide_mode_lists_workflow() -> None:
     )
     seed = runner._seed_message(analysis_id="a1", test_id="TST-0001", session_id=None)
     msg = seed["message"]
-    assert "scope:       test-wide" in msg or "scope: test-wide" in msg
+    assert "scope:       test-wide" in msg
     assert "list_sessions_for_test" in msg
     assert "get_test" in msg
     assert "save_analysis" in msg
     assert "session_id:" not in msg
+    # session-mode-only fragments must NOT leak into test-wide body
+    assert "Analyze the racing session below" not in msg
