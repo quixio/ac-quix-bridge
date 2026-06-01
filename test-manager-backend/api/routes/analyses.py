@@ -42,14 +42,15 @@ async def create_analysis(
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
 
-    known_session_ids = {s["session_id"] for s in test.get("sessions", [])}
-    if payload.session_id not in known_session_ids:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"session_id '{payload.session_id}' not found on test {payload.test_id}"
-            ),
-        )
+    if payload.session_id is not None:
+        known_session_ids = {s["session_id"] for s in test.get("sessions", [])}
+        if payload.session_id not in known_session_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"session_id '{payload.session_id}' not found on test {payload.test_id}"
+                ),
+            )
 
     analysis_id = str(uuid4())
     now = datetime.now(timezone.utc)
@@ -77,7 +78,7 @@ async def create_analysis(
             analyzer.run(
                 analysis_id=analysis_id,
                 test_id=payload.test_id,
-                session_id=payload.session_id,
+                session_id=payload.session_id,  # ty: ignore[invalid-argument-type]
             )
         )
         _RUNNING_TASKS.add(task)

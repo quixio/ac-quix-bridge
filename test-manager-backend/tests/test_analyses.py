@@ -190,6 +190,29 @@ def test_post_analysis_rejects_unknown_session_id(
     assert response.status_code == 400
 
 
+def test_post_analysis_accepts_null_session_id(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """POST /api/v1/analyses with session_id=None returns 202 (test-wide mode)."""
+    _, created = create_test()
+    test_id = created["test_id"]
+
+    response = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": None},
+    )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert "analysis_id" in body
+
+    detail = client.get(f"/api/v1/analyses/{body['analysis_id']}")
+    assert detail.status_code == 200
+    doc = detail.json()
+    assert doc["session_id"] is None
+    assert doc["test_id"] == test_id
+    assert doc["status"] == "pending"
+
+
 def test_post_analysis_rejects_unknown_test(client: TestClient) -> None:
     response = client.post(
         "/api/v1/analyses",
