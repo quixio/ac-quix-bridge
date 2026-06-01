@@ -97,7 +97,7 @@ Use the venv's `bin/python` directly (no `activate`). Keep everything under `/tm
 
 ### Querying the lake from delegate_task
 
-Container doesn't set `QUIXLAKE_URL`, but does have `Quix__Sdk__Token` (QuixLake bearer). The lake is a remote HTTP API — never look for local Parquet/CSV. **Paste the URL verbatim** into a `LAKE_URL` constant (TWO `-dev` segments, both required; dropping the second causes a silent 120s timeout):
+No `QUIXLAKE_URL` in the delegate container; `Quix__Sdk__Token` is set (lake bearer). **Paste URL verbatim** — TWO `-dev` segments, both required; dropping either silently times out at 120s:
 
 ```python
 import os, requests        # pip install requests into the /tmp venv first
