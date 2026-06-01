@@ -97,13 +97,14 @@ Use the venv's `bin/python` directly (no `activate`). Keep everything under `/tm
 
 ### Querying the lake from delegate_task
 
-The delegate container does NOT have `QUIXLAKE_URL` set, but it DOES have `Quix__Sdk__Token` (works as the QuixLake bearer). The lake is a remote HTTP API — don't look for local Parquet/CSV. QuixLake base URL: `https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io`.
+Container doesn't set `QUIXLAKE_URL`, but does have `Quix__Sdk__Token` (QuixLake bearer). The lake is a remote HTTP API — never look for local Parquet/CSV. **Paste the URL verbatim** into a `LAKE_URL` constant (TWO `-dev` segments, both required; dropping the second causes a silent 120s timeout):
 
 ```python
 import os, requests        # pip install requests into the /tmp venv first
-sql = "SELECT ... FROM ac_telemetry_leadboard WHERE session_id = '...'"   # always partition-filter; fallback to ac_telemetry on 0 rows
+LAKE_URL = "https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io"  # copy verbatim
+sql = "SELECT ... FROM ac_telemetry_leadboard WHERE session_id = '...'"   # partition-filter; fall back to ac_telemetry on 0 rows
 r = requests.post(
-    f"{QUIXLAKE_URL}/query",
+    f"{LAKE_URL}/query",
     data=sql,
     headers={"Authorization": f"Bearer {os.environ['Quix__Sdk__Token']}",
              "Content-Type": "text/plain"},
