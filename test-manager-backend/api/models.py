@@ -574,6 +574,7 @@ class AnalysisListQuery(PaginationParams):
 
     test_id: str | None = None
     session_id: str | None = None
+    session_id_is_null: bool | None = None
     status: Literal["complete", "failed", "in_progress"] | None = None
 
 

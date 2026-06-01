@@ -168,6 +168,18 @@ def test_analysis_list_query_status_literal():
         AnalysisListQuery(status="bogus")  # ty: ignore[invalid-argument-type]
 
 
+def test_analysis_list_query_session_id_is_null_field():
+    """v2: AnalysisListQuery exposes session_id_is_null filter (default None)."""
+    q_default = AnalysisListQuery()
+    assert q_default.session_id_is_null is None
+
+    q_true = AnalysisListQuery(session_id_is_null=True)
+    assert q_true.session_id_is_null is True
+
+    q_false = AnalysisListQuery(session_id_is_null=False)
+    assert q_false.session_id_is_null is False
+
+
 # --- Routes: POST /api/v1/analyses ---------------------------------------- #
 
 
@@ -347,6 +359,25 @@ def test_list_analyses_pagination(client: TestClient, create_test: TestFactory) 
 def test_list_analyses_rejects_invalid_status(client: TestClient) -> None:
     response = client.get("/api/v1/analyses?status=bogus")
     assert response.status_code == 422
+
+
+def test_list_filter_by_session_id_is_null(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """GET /api/v1/analyses?session_id_is_null=true returns only test-wide docs."""
+    t, s = _create_test_with_session(client, create_test)
+
+    # One session-mode analysis (session_id set).
+    client.post("/api/v1/analyses", json={"test_id": t, "session_id": s})
+    # One test-wide analysis (session_id=None).
+    client.post("/api/v1/analyses", json={"test_id": t, "session_id": None})
+
+    response = client.get(f"/api/v1/analyses?test_id={t}&session_id_is_null=true")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["session_id"] is None
 
 
 def test_analysis_create_accepts_null_session_id() -> None:

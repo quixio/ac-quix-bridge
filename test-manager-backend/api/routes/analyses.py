@@ -110,6 +110,7 @@ def get_analysis(
 def list_analyses(
     test_id: str | None = None,
     session_id: str | None = None,
+    session_id_is_null: bool | None = None,
     status_filter: Literal["complete", "failed", "in_progress"] | None = Query(
         default=None, alias="status"
     ),
@@ -123,6 +124,8 @@ def list_analyses(
         query["test_id"] = test_id
     if session_id is not None:
         query["session_id"] = session_id
+    elif session_id_is_null is True:
+        query["session_id"] = None
     if status_filter is not None:
         if status_filter == "in_progress":
             query["status"] = {"$in": list(IN_PROGRESS_STATUSES)}
@@ -137,9 +140,10 @@ def list_analyses(
     items = [Analysis(**doc).model_dump(by_alias=False) for doc in cursor]
 
     logger.debug(
-        "[analyses] GET list (test_id=%s session_id=%s status=%s) -> %d/%d",
+        "[analyses] GET list (test_id=%s session_id=%s session_id_is_null=%s status=%s) -> %d/%d",
         test_id,
         session_id,
+        session_id_is_null,
         status_filter,
         len(items),
         total,
