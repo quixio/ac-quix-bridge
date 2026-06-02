@@ -2,12 +2,13 @@ import logging
 import os
 
 from quixstreams import Application
-from acc_source import AssettoCorsaCompetizioneSource
+from acc_source import AssettoCorsaCompetizioneSource, configure_logging
 
 from dotenv import load_dotenv
 load_dotenv()
 
-logging.basicConfig(level=os.environ.get("LOG_LEVEL", "DEBUG").upper())
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
+configure_logging()
 
 
 def main():
