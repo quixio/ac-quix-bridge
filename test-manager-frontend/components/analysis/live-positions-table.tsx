@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useAutoAnimate } from "@formkit/auto-animate/react"
 
 import {
@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { formatLapTime } from "@/lib/utils/format"
 import { cn } from "@/lib/utils"
 import {
@@ -19,55 +20,103 @@ import {
   collapseAroundIndex,
   useAnchoredActiveIdx,
 } from "@/lib/utils/leaderboard-window"
+import type { FreezeEvent } from "@/lib/hooks/use-live-stream"
 import type { LivePositionEntry } from "@/types/leaderboard"
 
 /**
- * "Live Sector Comparison" table.
+ * "Live Sector Comparison" table — spec
+ * `dev-planning/leaderboard-consolidated/spec.md` §3.
  *
  * Columns: Rank · Driver · Best Lap · At Position.
  *
- * Rank comes from the server's sector-based ordering. Rank changes at
- * sector boundaries. The Best Lap cell renders `m:ss.SSS (L{N})` with the
- * lap suffix dimmed via `text-muted-foreground`.
+ * Ranking comes from the server's sticky gate-N metric — the rank cell
+ * only changes at gate crossings.
  *
- * "At Position" coloring:
- *   * Non-active rows: rank-vs-active, same as before
- *     (row.rank < active.rank → emerald; > → rose).
- *   * Active row: driven by the server-computed `last_gate_state` —
- *     "ahead" → emerald, "behind" → rose, "neutral" / null → default
- *     text. The state is set by the backend when the active driver
- *     crosses each of the 20 checkpoint gates and stays sticky until
- *     the next crossing.
+ * "At Position" rendering (spec §3.3 / §3.4):
+ *   * Active row, live mode: `row.current_lap_time_ms` (live-ticking
+ *     iCurrentTime from the WS) coloured by server's `last_gate_state`:
+ *       "ahead" → emerald-400, "behind" → rose-400, else default.
+ *   * Active row, frozen mode (≤3 s after a crossing): the value
+ *     captured at the moment of crossing, in blue-400.
+ *   * Historical row, live mode: `row.current_lap_time_ms` which is the
+ *     server's gate_vector[i*+1] (next-gate value, snapped at each
+ *     crossing). No colour class — historicals are always default text.
+ *   * Historical row, frozen mode: `crossingSnapshot.historicalAtMs[
+ *     driver]` (gate_vector[i*]); falls back to the row's value if the
+ *     map is missing the driver (cold-cache).
  *
- * Active-driver clock source: the `/api/v1/leaderboard/live-stream`
- * WebSocket pushes AC's `iCurrentTime` verbatim at ≤20 Hz. The patched
- * `current_lap_time_ms` arrives via `useLiveStream` (one hook above
- * `LeaderboardTab`) and lands on `rows` here pre-merged — this
- * component just renders. There is no client-side extrapolation.
+ * Active-row dual gap chips (spec §3.5):
+ *   * Red `+X.XXX` = gap behind the row immediately above active (omitted
+ *     when active is rank 1).
+ *   * Green `-X.XXX` = gap ahead of the row immediately below (omitted
+ *     when active is last visible).
+ *   Both anchored on `crossingSnapshot.activeAtMs` / `historicalAtMs[
+ *   neighbour]` — sticky from the most-recent gate crossing, byte-stable
+ *   between crossings. Both render together when active is mid-rank.
  *
- * When AC pauses the source stops sending and the WS stops pushing —
- * the clock naturally freezes at the last value. After 10 s of
- * silence the backend's `STALE_AFTER_S` window expires and the next
- * snapshot rebroadcast (or reconnect) drops the active row.
+ * "See all" toggle (spec §3.2 / §4.4): renders above the table, right-
+ * aligned, `variant="outline" size="sm"`. Defaults to collapsed (8 rows).
  *
- * Historical rows show their ghost-interpolated `current_lap_time_ms`
- * at the active driver's current map position — a true live comparison.
- *
- * `useAutoAnimate` on the `<TableBody>` animates row reorders when the
- * server reshuffles ranks at sector boundaries.
+ * `useAutoAnimate` on the `<TableBody>` animates row reorders.
  */
 
 export interface LivePositionsTableProps {
   rows: LivePositionEntry[]
-  collapsed?: boolean
-  /** When `false`, render an empty-state instead of the table — spec §8
-   * "No live session — start an AC session to see live sector deltas." */
+  /** Synchronized blue-freeze trigger (spec §4.3). `null` until first
+   * gate crossing of the current connection. */
+  freezeEvent?: FreezeEvent | null
+  /** When `false`, render an empty-state instead of the table. */
   isLive?: boolean
+}
+
+const FREEZE_MS = 3000
+
+/**
+ * Mode of the synchronized blue-freeze state machine (spec §4.3).
+ *   * "live"   — the 3 s window has expired (or no crossing yet)
+ *                active row live-ticks, historicals show their next-gate
+ *                cumulative time, colour comes from `last_gate_state`.
+ *   * "frozen" — within 3 s of the latest gate crossing; active row is
+ *                blue and pinned to `activeAtCrossingMs`, historicals
+ *                pinned to their gate-N cumulative time.
+ * The crossing capture itself (active value + per-historical map) lives in
+ * `CrossingSnapshot` and is preserved AFTER the freeze expires so the
+ * dual gap chips (§3.5) stay sticky between crossings.
+ */
+type FreezeMode = "live" | "frozen"
+
+interface FreezeState {
+  mode: FreezeMode
+  /** Monotonic stamp of the crossing this state is locked to; matches
+   * `CrossingSnapshot.stamp` while the freeze is active. `0` before any
+   * crossing has happened on this connection. */
+  stamp: number
+}
+
+/**
+ * The most-recent gate crossing's captured values. Sticky across freeze
+ * transitions — when the 3 s timer expires we DROP the freeze mode but
+ * keep this snapshot so the gap chips and historical lookups continue
+ * to reference a stable gate-N cumulative time until the next crossing
+ * overrides it.
+ *
+ * Spec §3.5: "Both numbers update only at gate crossings; between
+ * crossings they are byte-stable." The chip math reads `activeAtMs`
+ * and `historicalAtMs[neighbour]` regardless of freeze mode — i.e.
+ * sticky from the last crossing.
+ */
+interface CrossingSnapshot {
+  stamp: number
+  /** Active's iCurrentTime at the moment of the most-recent crossing. */
+  activeAtMs: number
+  /** `{display_driver: gate_vector[crossedAtGate]}` for every historical
+   * in the group as of the most-recent crossing. */
+  historicalAtMs: Record<string, number>
 }
 
 export function LivePositionsTable({
   rows,
-  collapsed = false,
+  freezeEvent = null,
   isLive = true,
 }: LivePositionsTableProps) {
   // Every hook MUST be called before any conditional return so React's
@@ -83,15 +132,98 @@ export function LivePositionsTable({
   // visible *inside* the existing window before it re-centres — the
   // user reads the move, then the table scrolls to follow.
   const anchorIdx = useAnchoredActiveIdx(currentActiveIdx)
-  const visible = collapsed
-    ? collapseAroundIndex(sorted, COLLAPSED_ROW_COUNT, anchorIdx)
-    : sorted
+
+  // "See all" toggle (spec §3.2). Component-local state — refresh resets
+  // to collapsed; no localStorage.
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded
+    ? sorted
+    : collapseAroundIndex(sorted, COLLAPSED_ROW_COUNT, anchorIdx)
+
   const [bodyRef] = useAutoAnimate<HTMLTableSectionElement>({
     duration: 700,
     easing: "ease-in-out",
   })
-  const active = sorted.find((r) => r.is_active) ?? null
-  const activeRank = active?.rank ?? null
+
+  // Synchronized blue-freeze (spec §4.3) is split into TWO pieces of state:
+  //
+  //   * `freezeState` — mode + stamp. Drives the 3 s blue paint on the
+  //     active row's "At Position" cell. One setTimeout per crossing
+  //     a newer crossing fully overrides (new capture, new 3 s window).
+  //
+  //   * `crossingSnapshot` — the captured values at the most-recent
+  //     crossing. STICKY: preserved even after the 3 s freeze expires
+  //     so the dual gap chips (§3.5) and frozen-mode historical lookups
+  //     read from one stable source. Each crossing replaces it entirely.
+  //
+  // Splitting these two means the per-frame display logic always reads
+  // historical at-crossing values from `crossingSnapshot` (whether the
+  // freeze is active or not) — that closes nitpicker R2-2 (flicker
+  // between gate-N and gate-(N+1) on alternating frames) by removing
+  // the conditional source-switching from `rowDisplayMs`.
+  //
+  // Robustness:
+  //   * `latestFreezeStampRef` guards against a late setTimeout firing
+  //     after a newer crossing has already overridden the freeze.
+  //   * `freezeEventRef` is updated on every render so the stamp-keyed
+  //     effect can read the latest event identity without including
+  //     the object in its dep array (which would re-fire on every
+  //     parent render that recreated the FreezeEvent).
+  //   * Lap rollover is handled by clearing `freezeState` to "live" the
+  //     moment the active row's `last_gate_index` goes null. The
+  //     crossingSnapshot is left in place — the prior lap's at-crossing
+  //     values stay sticky until the first crossing of the new lap
+  //     overrides them; gap chips will still render against the most-
+  //     recent comparable reference. Acceptable behaviour at the
+  //     boundary; the lap rollover itself is a sub-second event in
+  //     practice.
+  const [freezeState, setFreezeState] = useState<FreezeState>({
+    mode: "live",
+    stamp: 0,
+  })
+  const [crossingSnapshot, setCrossingSnapshot] =
+    useState<CrossingSnapshot | null>(null)
+  const latestFreezeStampRef = useRef<number>(0)
+  const freezeEventRef = useRef<FreezeEvent | null>(null)
+  freezeEventRef.current = freezeEvent
+
+  useEffect(() => {
+    const ev = freezeEventRef.current
+    if (!ev) return
+    latestFreezeStampRef.current = ev.stamp
+    const stampAtSchedule = ev.stamp
+    // Two state updates per crossing — both batched by React 18 inside an
+    // effect, so the consumer sees ONE re-render with both new values.
+    setCrossingSnapshot({
+      stamp: ev.stamp,
+      activeAtMs: ev.activeAtCrossingMs,
+      historicalAtMs: ev.historicalAtCrossing,
+    })
+    setFreezeState({ mode: "frozen", stamp: ev.stamp })
+    const t = setTimeout(() => {
+      // Late-timer guard: only flip back to live if our scheduled stamp
+      // is still the latest. A newer crossing scheduled its own timer.
+      if (latestFreezeStampRef.current === stampAtSchedule) {
+        setFreezeState({ mode: "live", stamp: stampAtSchedule })
+      }
+    }, FREEZE_MS)
+    return () => clearTimeout(t)
+  }, [freezeEvent?.stamp])
+
+  // Lap rollover reset: spec §4.3 mandates restoring live mode when the
+  // active driver's `last_gate_index` goes null. We DON'T clear
+  // `crossingSnapshot` here — the gap chips lose meaning until the next
+  // crossing, but the user shouldn't see a layout flash. The next
+  // crossing fully replaces the snapshot.
+  const activeRow = sorted.find((r) => r.is_active) ?? null
+  const activeLastGateIdx = activeRow?.last_gate_index ?? null
+  useEffect(() => {
+    if (activeLastGateIdx === null || activeLastGateIdx === undefined) {
+      setFreezeState((prev) =>
+        prev.mode === "live" ? prev : { mode: "live", stamp: prev.stamp },
+      )
+    }
+  }, [activeLastGateIdx])
 
   if (!isLive) {
     return (
@@ -113,11 +245,24 @@ export function LivePositionsTable({
 
   return (
     <div className="w-full">
-      <div className="mb-2">
-        <h3 className="text-base font-semibold">Live Sector Comparison</h3>
-        <p className="text-xs text-muted-foreground">
-          Re-ranks at checkpoint gates
-        </p>
+      <div className="mb-2 flex items-end justify-between gap-2">
+        <div>
+          <h3 className="text-base font-semibold">Live Sector Comparison</h3>
+          <p className="text-xs text-muted-foreground">
+            Re-ranks at checkpoint gates
+          </p>
+        </div>
+        {sorted.length > COLLAPSED_ROW_COUNT && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setExpanded((v) => !v)}
+            data-testid="see-all-toggle"
+          >
+            {expanded ? "Show top 8" : "See all"}
+          </Button>
+        )}
       </div>
       <Table className="table-fixed">
         <TableHeader>
@@ -127,29 +272,38 @@ export function LivePositionsTable({
             <TableHead className="w-[160px] text-right tabular-nums">
               Best Lap
             </TableHead>
-            <TableHead className="text-right tabular-nums">At Position</TableHead>
+            <TableHead className="text-right tabular-nums">
+              At Position
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody ref={bodyRef}>
           {visible.map((row, idx) => {
-            // Gap math uses the row's own `current_lap_time_ms` so
-            // neighbour deltas stay stable between polls. For the
-            // active row that value now comes from the WebSocket
-            // stream; for historicals it comes from the polled
-            // payload (ghost-interpolated server-side).
-            const aboveAtPos =
-              idx > 0 ? visible[idx - 1].current_lap_time_ms : null
-            const belowAtPos =
-              idx < visible.length - 1
-                ? visible[idx + 1].current_lap_time_ms
+            // Gap math (spec §3.5) is sticky at the LAST crossing — it
+            // reads `crossingSnapshot.historicalAtMs[neighbour.driver]`
+            // regardless of freeze mode. Falls back to `null` when the
+            // snapshot is missing the neighbour (cold-cache pre-first-
+            // crossing) so the chip simply doesn't render rather than
+            // jumping to a wrong value.
+            const aboveDriver = idx > 0 ? visible[idx - 1].driver : null
+            const belowDriver =
+              idx < visible.length - 1 ? visible[idx + 1].driver : null
+            const aboveAtCrossingMs =
+              aboveDriver != null && crossingSnapshot
+                ? crossingSnapshot.historicalAtMs[aboveDriver] ?? null
+                : null
+            const belowAtCrossingMs =
+              belowDriver != null && crossingSnapshot
+                ? crossingSnapshot.historicalAtMs[belowDriver] ?? null
                 : null
             return (
               <LeaderRow
-                key={`${row.driver}|${row.track}|${row.car}|${row.experiment}`}
+                key={`${row.driver}|${row.track}|${row.car}|${row.experiment}|${row.is_active ? "live" : "ghost"}`}
                 row={row}
-                activeRank={activeRank}
-                aboveAtPosMs={aboveAtPos}
-                belowAtPosMs={belowAtPos}
+                freezeState={freezeState}
+                crossingSnapshot={crossingSnapshot}
+                aboveAtCrossingMs={aboveAtCrossingMs}
+                belowAtCrossingMs={belowAtCrossingMs}
               />
             )
           })}
@@ -159,58 +313,100 @@ export function LivePositionsTable({
   )
 }
 
-function formatGapMs(deltaMs: number, sign: "+" | "-"): string {
-  const abs = Math.abs(deltaMs) / 1000
-  return `${sign}${abs.toFixed(3)}`
+/** Resolve the "At Position" value a row should display right now.
+ *
+ * The active row's value depends on freeze mode (live → live timer
+ * frozen → captured `activeAtMs`). Historicals read STRICTLY from one
+ * source per mode:
+ *   * frozen → `crossingSnapshot.historicalAtMs[driver]` (gate-N).
+ *   * live   → `row.current_lap_time_ms` (backend's gate-N+1 next-gate
+ *              value, refreshed on every crossing tick via WS patch).
+ *
+ * Cold-cache fallbacks return the row's own `current_lap_time_ms` so
+ * the cell never shows 0 when state is briefly missing.
+ */
+function rowDisplayMs(
+  row: LivePositionEntry,
+  freezeState: FreezeState,
+  crossingSnapshot: CrossingSnapshot | null,
+): number {
+  if (freezeState.mode === "frozen" && crossingSnapshot != null) {
+    if (row.is_active) {
+      return crossingSnapshot.activeAtMs
+    }
+    const fromMap = crossingSnapshot.historicalAtMs[row.driver]
+    if (typeof fromMap === "number") {
+      return fromMap
+    }
+    return row.current_lap_time_ms
+  }
+  return row.current_lap_time_ms
 }
 
-/** Format a signed delta (ms) as `+0.123` / `-0.456` for the
- * per-historical `delta_at_last_gate_ms` column. Positive => active is
- * slower than this historical at the gate. */
-function formatSignedDeltaMs(deltaMs: number): string {
-  const sign = deltaMs > 0 ? "+" : deltaMs < 0 ? "-" : ""
+function formatGapMs(deltaMs: number, sign: "+" | "-"): string {
   const abs = Math.abs(deltaMs) / 1000
   return `${sign}${abs.toFixed(3)}`
 }
 
 function LeaderRow({
   row,
-  activeRank,
-  aboveAtPosMs,
-  belowAtPosMs,
+  freezeState,
+  crossingSnapshot,
+  aboveAtCrossingMs,
+  belowAtCrossingMs,
 }: {
   row: LivePositionEntry
-  activeRank: number | null
-  aboveAtPosMs: number | null
-  belowAtPosMs: number | null
+  freezeState: FreezeState
+  crossingSnapshot: CrossingSnapshot | null
+  /** Neighbour-above's `gate_vector[N]` cumulative time at the last
+   * crossing, or `null` when no snapshot has been captured yet. Used
+   * for the dual gap chip math (spec §3.5). */
+  aboveAtCrossingMs: number | null
+  /** Neighbour-below's `gate_vector[N]` at the last crossing. */
+  belowAtCrossingMs: number | null
 }) {
-  // Display value: the row's `current_lap_time_ms` straight from the
-  // server. For the active row this has been patched by the WebSocket
-  // stream in `mergeActiveWithStream` so it reflects AC's current
-  // `iCurrentTime` (no extrapolation).
-  const atPosLabel = formatLapTime(row.current_lap_time_ms)
+  const isFrozen = freezeState.mode === "frozen"
+  const displayMs = rowDisplayMs(row, freezeState, crossingSnapshot)
+  const atPosLabel = formatLapTime(displayMs)
 
-  // Colour cue:
-  //   * Non-active rows → rank-vs-active (unchanged).
-  //   * Active row → server-computed `last_gate_state`: "ahead" → emerald,
-  //     "behind" → rose, anything else → default. The state is sticky on
-  //     the server between gate crossings.
+  // Colour cue: spec §3.3 / §3.4 / §3.6.
+  // Active in live: emerald (ahead) / rose (behind) / default (neutral).
+  // Active in frozen: blue.
+  // Historicals: ALWAYS default text colour, regardless of mode or rank.
   let atPosClass = ""
-  if (!row.is_active && activeRank != null) {
-    if (row.rank < activeRank) atPosClass = "font-semibold text-emerald-400"
-    else if (row.rank > activeRank) atPosClass = "font-semibold text-rose-400"
-  } else if (row.is_active) {
-    if (row.last_gate_state === "ahead")
+  if (row.is_active) {
+    if (isFrozen) {
+      atPosClass = "font-semibold text-blue-400"
+    } else if (row.last_gate_state === "ahead") {
       atPosClass = "font-semibold text-emerald-400"
-    else if (row.last_gate_state === "behind")
+    } else if (row.last_gate_state === "behind") {
       atPosClass = "font-semibold text-rose-400"
+    }
   }
 
-  const serverAtPosMs = row.current_lap_time_ms
+  // Dual gap chips (spec §3.5). Both reference the LAST crossing's
+  // captured values — sticky between crossings, byte-stable. The gap
+  // is computed only when BOTH sides have a numeric reference, so a
+  // cold-cache pre-first-crossing renders nothing rather than wrong
+  // numbers.
+  //
+  // Round 2 fix (nitpicker R2-3): previously we used `displayMs` for
+  // the active reference, which in live mode is the live-ticking
+  // `current_lap_time_ms`. That mixed live (active) with sticky
+  // gate-N+1 (historicals' display value) and produced a negative
+  // `gapAbove` (active's small live timer < historical's gate-N+1
+  // ≈ 80s+), suppressing the red chip. Now both sides come from the
+  // captured at-crossing snapshot, so chips reflect the gate-N
+  // standing and both render simultaneously when active is mid-rank.
+  const activeRef = crossingSnapshot?.activeAtMs ?? null
   const gapAbove =
-    aboveAtPosMs != null ? Math.max(0, serverAtPosMs - aboveAtPosMs) : null
+    row.is_active && activeRef != null && aboveAtCrossingMs != null
+      ? Math.max(0, activeRef - aboveAtCrossingMs)
+      : null
   const gapBelow =
-    belowAtPosMs != null ? Math.max(0, belowAtPosMs - serverAtPosMs) : null
+    row.is_active && activeRef != null && belowAtCrossingMs != null
+      ? Math.max(0, belowAtCrossingMs - activeRef)
+      : null
 
   return (
     <TableRow
@@ -249,29 +445,16 @@ function LeaderRow({
       <TableCell className="text-right tabular-nums">
         <div className="flex items-center justify-end gap-2">
           <span className={cn(atPosClass)}>{atPosLabel}</span>
-          {row.is_active && gapAbove != null && (
-            <span className="text-xs font-semibold text-rose-400">
+          {/* Active-row dual gap: red `+` = behind the row above, green
+              `-` = ahead of the row below. Hidden when no neighbour. */}
+          {row.is_active && gapAbove != null && gapAbove > 0 && (
+            <span className="text-xs font-semibold tabular-nums text-rose-400">
               {formatGapMs(gapAbove, "+")}
             </span>
           )}
-          {row.is_active && gapBelow != null && (
-            <span className="text-xs font-semibold text-emerald-400">
+          {row.is_active && gapBelow != null && gapBelow > 0 && (
+            <span className="text-xs font-semibold tabular-nums text-emerald-400">
               {formatGapMs(gapBelow, "-")}
-            </span>
-          )}
-          {!row.is_active && row.delta_at_last_gate_ms != null && (
-            <span
-              className={cn(
-                "text-xs font-semibold tabular-nums",
-                row.delta_at_last_gate_ms > 0
-                  ? "text-rose-400"
-                  : row.delta_at_last_gate_ms < 0
-                    ? "text-emerald-400"
-                    : "text-muted-foreground",
-              )}
-              data-testid={`delta-at-last-gate-${row.driver}`}
-            >
-              {formatSignedDeltaMs(row.delta_at_last_gate_ms)}
             </span>
           )}
         </div>

@@ -45,6 +45,29 @@ export interface LiveCombo {
   car: string
 }
 
+/**
+ * Synchronized blue-freeze event (spec §4.3). Fires every time the
+ * active driver crosses a new gate; carries the values BOTH the active
+ * row and every historical row must show during the 3 s freeze window.
+ *
+ * Identity (`event` ref) changes on every crossing — pass it as a
+ * useEffect dep in the consumer to trigger the freeze state machine.
+ */
+export interface FreezeEvent {
+  /** The gate index just crossed (0..9). */
+  crossedAtGate: number
+  /** Active driver's iCurrentTime at the moment of crossing (= the
+   * server-stamped `gate_times_ms[crossedAtGate]`). */
+  activeAtCrossingMs: number
+  /** `{driver_display_name: gate_vector[crossedAtGate]}` — each
+   * historical's cumulative time at the just-crossed gate. */
+  historicalAtCrossing: Record<string, number>
+  /** Monotonic stamp so two crossings to the same gate index (e.g.
+   * after a lap rollover that bumps i* from 9 → null → 0) still produce
+   * a distinct event identity. */
+  stamp: number
+}
+
 export interface UseLiveStreamResult {
   rows: LivePositionEntry[]
   tracks: string[]
@@ -61,6 +84,10 @@ export interface UseLiveStreamResult {
    * `null` when `isLive === false`. Used by `LeaderboardTab` to drive
    * the right-table fetch when Follow-Live is ON. */
   liveCombo: LiveCombo | null
+  /** Latest gate-crossing event, or `null` before the first crossing
+   * of the current connection. Drives the synchronized 3 s blue-freeze
+   * for the active row AND every historical row in lockstep. */
+  freezeEvent: FreezeEvent | null
 }
 
 interface SnapshotMessage {
@@ -94,6 +121,15 @@ interface ActiveMessage {
    * `(driver, track, car, experiment)` historical row by patching
    * `delta_at_last_gate_ms`. */
   historical_deltas?: Record<string, number>
+  /** Per-historical cumulative time at the NEXT gate the active is
+   * racing toward — `gate_vector[i*+1]` (clamped). Patched into each
+   * historical row's `current_lap_time_ms` for live-mode display
+   * (spec §4.2 / §4.3). Empty between gate crossings. */
+  historical_at_positions_next?: Record<string, number>
+  /** Per-historical cumulative time AT the just-crossed gate —
+   * `gate_vector[i*]`. NOT patched into rows; the table reads it from
+   * the FreezeEvent during the 3 s blue freeze window (spec §3.4). */
+  historical_at_positions_at_crossing?: Record<string, number>
 }
 
 /**
@@ -168,9 +204,11 @@ function patchActiveRow(
   rows: LivePositionEntry[],
   mutation: ActiveMutation,
   historicalDeltas: Record<string, number> | undefined,
+  historicalAtPositionsNext: Record<string, number> | undefined,
 ): LivePositionEntry[] {
   let changed = false
   const deltas = historicalDeltas ?? {}
+  const atPositionsNext = historicalAtPositionsNext ?? {}
   const next = rows.map((row) => {
     // Active-row patch path.
     if (
@@ -192,9 +230,14 @@ function patchActiveRow(
       }
     }
     // Historical-row patch path: same group, non-active, name in the
-    // deltas map. We also write through `last_gate_index` so the row's
-    // delta column always points at the active driver's currently-
+    // deltas / next-position map. We also write through `last_gate_index`
+    // so the delta column always points at the active driver's currently-
     // crossed gate even between full snapshots.
+    //
+    // Spec §3.4 / §4.3: `historical_at_positions_next` carries
+    // `gate_vector[i*+1]` — the LIVE-mode display value. The at-crossing
+    // value is NOT patched into rows; the table's freeze state machine
+    // reads it from the FreezeEvent.
     if (
       !row.is_active &&
       row.track === mutation.track &&
@@ -202,12 +245,16 @@ function patchActiveRow(
       row.experiment === mutation.experiment
     ) {
       const newDelta = deltas[row.driver]
-      if (newDelta !== undefined) {
+      const newAtPos = atPositionsNext[row.driver]
+      if (newDelta !== undefined || newAtPos !== undefined) {
         changed = true
         return {
           ...row,
           last_gate_index: mutation.last_gate_index ?? row.last_gate_index,
-          delta_at_last_gate_ms: newDelta,
+          delta_at_last_gate_ms:
+            newDelta !== undefined ? newDelta : row.delta_at_last_gate_ms,
+          current_lap_time_ms:
+            newAtPos !== undefined ? newAtPos : row.current_lap_time_ms,
         }
       }
     }
@@ -227,6 +274,14 @@ export function useLiveStream(): UseLiveStreamResult {
   // gap is sub-second in practice).
   const [isLive, setIsLive] = useState(false)
   const [liveCombo, setLiveCombo] = useState<LiveCombo | null>(null)
+  // Latest gate-crossing snapshot. New identity on every crossing so the
+  // table's effect dep array fires; spec §4.3 freeze state machine.
+  const [freezeEvent, setFreezeEvent] = useState<FreezeEvent | null>(null)
+  // Previous gate index per active combo key. Kept in a ref so the
+  // message handler stays a pure function over inputs without re-
+  // rendering on every active envelope.
+  const prevGateIdxRef = useRef<Map<string, number | null>>(new Map())
+  const freezeStampRef = useRef(0)
   // Hold the latest token in a ref so the reconnect loop closure doesn't
   // capture a stale value. We DO want a full re-subscription when the
   // token actually changes, so the main effect's dep array still
@@ -288,7 +343,39 @@ export function useLiveStream(): UseLiveStreamResult {
           // once it crosses the function boundary).
           const mutation = parsed.row
           const deltas = parsed.historical_deltas
-          setRows((prev) => patchActiveRow(prev, mutation, deltas))
+          const atPositionsNext = parsed.historical_at_positions_next
+          const atPositionsAtCrossing =
+            parsed.historical_at_positions_at_crossing
+          setRows((prev) =>
+            patchActiveRow(prev, mutation, deltas, atPositionsNext),
+          )
+          // Detect a fresh gate crossing per (driver, track, car, exp)
+          // identity. A change in `last_gate_index` from one non-null
+          // value to a different non-null value is a crossing; the
+          // first non-null (after lap rollover or first snapshot) is
+          // NOT a crossing — there's no preceding gate to capture.
+          const comboKey = `${mutation.driver}|${mutation.track}|${mutation.car}|${mutation.experiment}`
+          const prevIdx = prevGateIdxRef.current.get(comboKey) ?? null
+          const newIdx = mutation.last_gate_index
+          if (
+            newIdx !== null &&
+            newIdx !== undefined &&
+            prevIdx !== null &&
+            prevIdx !== undefined &&
+            newIdx !== prevIdx
+          ) {
+            freezeStampRef.current += 1
+            setFreezeEvent({
+              crossedAtGate: newIdx,
+              activeAtCrossingMs: mutation.current_lap_time_ms,
+              historicalAtCrossing: atPositionsAtCrossing ?? {},
+              stamp: freezeStampRef.current,
+            })
+          }
+          prevGateIdxRef.current.set(
+            comboKey,
+            newIdx ?? null,
+          )
           // An `active` message before the first snapshot can't happen
           // (the server snapshot-first ordering guarantees it), but if
           // somehow we get here, treat the connection as established.
@@ -371,5 +458,15 @@ export function useLiveStream(): UseLiveStreamResult {
     [rows],
   )
 
-  return { rows, tracks, cars, experiments, loading, error, isLive, liveCombo }
+  return {
+    rows,
+    tracks,
+    cars,
+    experiments,
+    loading,
+    error,
+    isLive,
+    liveCombo,
+    freezeEvent,
+  }
 }

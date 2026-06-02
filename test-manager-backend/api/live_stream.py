@@ -575,9 +575,34 @@ def _build_wire_payload(snapshot: dict[str, Any]) -> dict[str, Any] | None:
             }
         else:
             historical_deltas = {}
+        raw_next = snapshot.get("historical_at_positions_next") or {}
+        if isinstance(raw_next, dict):
+            historical_at_positions_next = {
+                str(k): int(v) for k, v in raw_next.items()
+            }
+        else:
+            historical_at_positions_next = {}
+        raw_at_crossing = snapshot.get("historical_at_positions_at_crossing") or {}
+        if isinstance(raw_at_crossing, dict):
+            historical_at_positions_at_crossing = {
+                str(k): int(v) for k, v in raw_at_crossing.items()
+            }
+        else:
+            historical_at_positions_at_crossing = {}
     except (TypeError, ValueError):
         return None
-    return {"type": "active", "row": row, "historical_deltas": historical_deltas}
+    return {
+        "type": "active",
+        "row": row,
+        "historical_deltas": historical_deltas,
+        # Renamed from `historical_at_positions` to make the semantics
+        # explicit: this is the gate (i*+1) cumulative time used by the
+        # frontend in "live" mode (between blue-freeze windows).
+        "historical_at_positions_next": historical_at_positions_next,
+        # New (spec §4.2): gate (i*) cumulative time used by the frontend
+        # during the 3 s blue-freeze immediately after a gate crossing.
+        "historical_at_positions_at_crossing": historical_at_positions_at_crossing,
+    }
 
 
 async def _broadcast(text: str) -> None:

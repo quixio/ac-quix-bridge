@@ -25,7 +25,7 @@ export interface LivePositionEntry {
   /** 1..5 within the (track, car, experiment) group. Server-computed
    * from cumulative-at-sector-boundary times. */
   rank: number
-  /** 0..19; the latest checkpoint gate the active driver has crossed on
+  /** 0..9; the latest checkpoint gate the active driver has crossed on
    * the current lap. Echoed onto every row in the same group so the
    * frontend can render per-historical deltas against a consistent
    * label. `null` before gate 1 of every lap. */

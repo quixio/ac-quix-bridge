@@ -57,7 +57,12 @@ const FOLLOW_LIVE_STORAGE_KEY = "leaderboard.followLive"
  */
 export function LeaderboardTab() {
   const leaderboardApi = useLeaderboardApi()
-  const { rows: liveRows, isLive, liveCombo } = useLiveStream()
+  const {
+    rows: liveRows,
+    isLive,
+    liveCombo,
+    freezeEvent,
+  } = useLiveStream()
 
   // Tree fetch state. The tree drives every dropdown — one loading flag
   // is enough.
@@ -257,8 +262,8 @@ export function LeaderboardTab() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr] lg:gap-8">
         <LivePositionsTable
           rows={liveTableRows}
-          collapsed={false}
           isLive={isLive}
+          freezeEvent={freezeEvent}
         />
         <BestLapsPanel
           experiment={effectiveExperiment}

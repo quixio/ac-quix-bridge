@@ -536,6 +536,37 @@ deployments:
         order: 0
     blobStorage:
       bind: true
+  - name: Topic Replay
+    application: topic-replay
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 500
+      replicas: 1
+    state:
+      enabled: true
+      size: 1
+    variables:
+      - name: MODE
+        inputType: FreeText
+        description: Operating mode. Either 'capture' or 'replay'.
+        required: true
+        value: replay
+      - name: CAPTURE_DIR
+        inputType: FreeText
+        description: Directory for capture output / replay source JSONL files.
+        required: true
+        value: /data/topic-replay
+      - name: LAP_LOOP_SPEED
+        inputType: FreeText
+        description: Replay speed multiplier (1.0 = real time).
+        value: "1.0"
+      - name: TARGET_HOSTNAME_OVERRIDE
+        inputType: FreeText
+        description: Optional hostname to rewrite raw + session Kafka keys to during replay.
+        value: ""
 
 # This section describes the Topics of the data pipeline
 topics:

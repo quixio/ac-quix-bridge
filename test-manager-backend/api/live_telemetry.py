@@ -80,11 +80,11 @@ STALE_AFTER_S = 10.0
 CONSUMER_GROUP = "test-manager-backend-ghost-lap"
 
 # Number of equally-sized checkpoint gates the lap is split into for the
-# Live Sector Comparison table. 20 → gates at normalizedCarPosition 0.05,
-# 0.10, ..., 0.95, 1.00. The 0% gate is implicit (always 0 ms) and is not
-# stored, so `gate_times_ms[0]` corresponds to the 5% gate and `[19]` to
+# Live Sector Comparison table. 10 → gates at normalizedCarPosition 0.10,
+# 0.20, ..., 0.90, 1.00. The 0% gate is implicit (always 0 ms) and is not
+# stored, so `gate_times_ms[0]` corresponds to the 10% gate and `[9]` to
 # the lap line.
-GATE_COUNT = 20
+GATE_COUNT = 10
 
 # DCM experiment lookups: timeouts and a cache TTL fence. The TTL only
 # matters as a safety net — the primary invalidation event is a new session
@@ -200,12 +200,12 @@ _stop_event = threading.Event()
 class _HistoricalEntry:
     """Cached per-gate breakdown of one historical driver's best lap.
 
-    * `best_lap_ms` — by definition equal to `gate_vector[19]` (the 100% /
+    * `best_lap_ms` — by definition equal to `gate_vector[9]` (the 100% /
       lap-line gate). Stored explicitly so the assembly code reads more
-      naturally than `entry.gate_vector[19]`.
+      naturally than `entry.gate_vector[9]`.
     * `best_lap_number` — 1-indexed lap number on which the best was set,
       shown in the UI's Best Lap column.
-    * `gate_vector` — length-20 list of cumulative ms at the 5%, 10%, ...,
+    * `gate_vector` — length-10 list of cumulative ms at the 10%, 20%, ...,
       100% gates of that historical's best lap, sorted by position. The
       implicit 0% gate is always 0 ms and not stored. Monotonically
       non-decreasing by construction (it's a cumulative-time vector).
@@ -695,7 +695,7 @@ def _record_message(payload: dict[str, Any]) -> None:
     # the frontend's historical rows from the previous broadcast; an
     # empty `historical_deltas` dict skips the per-row patch entirely
     # (see `patchActiveRow` in `use-live-stream.ts`). ~80 B per gate
-    # crossing × ≤20 gates per lap = trivial.
+    # crossing × ≤10 gates per lap = trivial.
     name_lookup = _get_driver_name_lookup()
     if newly_crossed:
         from . import gate_math
@@ -707,8 +707,42 @@ def _record_message(payload: dict[str, Any]) -> None:
             _resolve_display_name(folded, name_lookup): delta_ms
             for folded, delta_ms in folded_deltas.items()
         }
+        # Two per-historical maps (spec §4.2 / §4.3) — both keyed by
+        # display-case driver name so the frontend's exact-equality
+        # match works without client-side folding.
+        #
+        #   historical_at_positions_next     — gate_vector[i*+1] (next gate);
+        #                                       used by frontend in "live" mode.
+        #   historical_at_positions_at_crossing — gate_vector[i*] (the just-
+        #                                         crossed gate); used by
+        #                                         frontend during the 3 s
+        #                                         blue-freeze.
+        #
+        # Both ride along only on `newly_crossed` ticks; intermediate ticks
+        # carry empty dicts (frontend reuses last-known values). The
+        # backend snapshot path independently puts the next-gate value into
+        # historicals' `current_lap_time_ms` (see leaderboard_real.py
+        # `_build_group_rows::gate_time_next`).
+        current_gate_idx = entry_partial["last_gate_index"]
+        historical_at_positions_next: dict[str, int] = {}
+        historical_at_positions_at_crossing: dict[str, int] = {}
+        if current_gate_idx is not None and historicals_for_group:
+            next_idx = min(current_gate_idx + 1, GATE_COUNT - 1)
+            last_idx = min(current_gate_idx, GATE_COUNT - 1)
+            for folded, hist in historicals_for_group.items():
+                display = _resolve_display_name(folded, name_lookup)
+                if 0 <= next_idx < len(hist.gate_vector):
+                    historical_at_positions_next[display] = int(
+                        hist.gate_vector[next_idx]
+                    )
+                if 0 <= last_idx < len(hist.gate_vector):
+                    historical_at_positions_at_crossing[display] = int(
+                        hist.gate_vector[last_idx]
+                    )
     else:
         historical_deltas = {}
+        historical_at_positions_next = {}
+        historical_at_positions_at_crossing = {}
 
     # Bug A: resolve the active-row driver name to display case BEFORE
     # publish so snapshots and active mutations carry identical text.
@@ -726,6 +760,8 @@ def _record_message(payload: dict[str, Any]) -> None:
         "last_gate_state": entry_partial["last_gate_state"],
         "last_gate_delta_ms": entry_partial["last_gate_delta_ms"],
         "historical_deltas": historical_deltas,
+        "historical_at_positions_next": historical_at_positions_next,
+        "historical_at_positions_at_crossing": historical_at_positions_at_crossing,
     }
     # Update the canonical active-state record + publish a transition
     # envelope if anything material changed.
@@ -1442,18 +1478,18 @@ def refresh_best_laps_cache(
     """Query QuixLake once per known (track, car, experiment, environment)
     group and atomically swap the result into `_best_laps_cache`.
 
-    The SQL uses AC's `iBestTime` directly (already a per-driver best in
-    ms) and includes the `environment` filter the lake partitions on —
-    fixing an earlier bug where missing the environment filter scanned
-    too wide a slice while still returning sparse Python-reduced lap times.
+    Discovery uses `_query_best_laps_with_lap` (an `iCurrentTime`-based
+    per-(driver, lap) scan with a 0.95-position-coverage filter), not
+    `_query_best_laps` (which filtered `iBestTime > 0` and silently
+    dropped historicals whose lake rows didn't carry a populated
+    iBestTime — the dominant cause of the round-1 "1 row only" blocker
+    in dev lake replays). Every driver with a real completed lap now
+    surfaces, regardless of whether iBestTime was being written on the
+    tick that produced their fastest lap.
 
     Group discovery: `_known_groups()` enumerates every (track, car,
     experiment, environment) tuple we have enrichment for. We run one
     query per group (typically 1–2 groups in practice).
-
-    Lazy-imports `_query_best_laps` from `routes.leaderboard_real` to
-    keep import order one-way (leaderboard_real already imports
-    live_telemetry, so the module-level import would cycle).
 
     All exceptions are caught and logged; on failure the previous cache
     value (possibly None on first run) stays valid.
@@ -1464,7 +1500,14 @@ def refresh_best_laps_cache(
     try:
         from concurrent.futures import ThreadPoolExecutor
 
-        from .routes.leaderboard_real import _query_best_laps
+        # Discover drivers via the iCurrentTime-based lap detector so any
+        # driver with a ≥95%-coverage completed lap surfaces in the table.
+        # The earlier `_query_best_laps` (filtering `iBestTime > 0`) silently
+        # dropped historicals whose AC session never wrote a populated
+        # iBestTime — which appears to be the common case in the dev lake
+        # for older replays and was the dominant cause of round-1 blocker
+        # #1 ("only 1 row shows in Live Sector Comparison").
+        from .routes.leaderboard_real import _query_best_laps_with_lap
 
         new_cache: dict[tuple[str, str, str, str], dict[str, int]] = {}
         groups = _known_groups()
@@ -1476,9 +1519,14 @@ def refresh_best_laps_cache(
 
         def _run_one(
             grp: tuple[str, str, str, str],
-        ) -> tuple[tuple[str, str, str, str], dict[str, int]]:
+        ) -> tuple[
+            tuple[str, str, str, str],
+            dict[str, tuple[int, int]],
+        ]:
             track, car, experiment, environment = grp
-            per_driver = _query_best_laps(
+            # Returns `{raw_lake_driver: (best_ms, lap_num)}` for every
+            # driver with a completed (≥0.95-coverage) lap in the group.
+            per_driver_raw = _query_best_laps_with_lap(
                 quixlake_url,
                 quix_lake_token,
                 track=track,
@@ -1492,9 +1540,9 @@ def refresh_best_laps_cache(
                 car,
                 experiment,
                 environment,
-                len(per_driver),
+                len(per_driver_raw),
             )
-            return grp, per_driver
+            return grp, per_driver_raw
 
         if groups:
             # Run one lake query per group in parallel. QuixLakeClient is
@@ -1503,8 +1551,18 @@ def refresh_best_laps_cache(
             # an event loop. Cap concurrency at 8 to avoid hammering the
             # lake on workspaces with many active drivers.
             with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
-                for grp, per_driver in pool.map(_run_one, groups):
-                    new_cache[grp] = per_driver
+                for grp, per_driver_raw in pool.map(_run_one, groups):
+                    # Fold raw lake driver names to the cache key shape
+                    # `_build_group_rows` expects. Keep the MIN best_ms
+                    # when two raw names fold to the same key (typical
+                    # case: a driver re-recorded under different casing).
+                    folded: dict[str, int] = {}
+                    for raw_driver, (best_ms, _lap_num) in per_driver_raw.items():
+                        key = _fold_for_lookup(raw_driver) or raw_driver.lower()
+                        prev = folded.get(key)
+                        if prev is None or best_ms < prev:
+                            folded[key] = best_ms
+                    new_cache[grp] = folded
     except Exception:
         logger.exception("best-laps cache refresh failed; keeping previous cache")
         return
@@ -1599,14 +1657,11 @@ def refresh_gate_vectors_cache(
             )
             return
 
-        # The reducer expects a `{(track, car, experiment, driver): (best_ms,
-        # lap_num)}` map. The best-laps cache only carries `best_ms` (no
-        # lap number). Since `_query_gate_samples` keys on `(track, car,
-        # experiment, driver, lap)`, we have to discover the lap number
-        # per driver. The cheapest discovery query is a single GROUP BY
-        # per group asking "for each driver, which lap matches their
-        # `MIN(iBestTime)`?". We piggy-back on `_query_best_laps_with_lap`
-        # added below for this purpose.
+        # Run one discovery query per group: `{raw_lake_driver: (best_ms,
+        # lap_num)}` for every driver with a ≥0.95-coverage completed lap.
+        # The gate-samples SQL downstream needs the RAW lake driver string
+        # (its WHERE clause matches the lake byte-for-byte); folding to
+        # the wire/cache form happens at the tail of the pipeline.
         from concurrent.futures import ThreadPoolExecutor
 
         from .routes.leaderboard_real import _query_best_laps_with_lap
@@ -1631,10 +1686,6 @@ def refresh_gate_vectors_cache(
                 _run_one_group, groups
             ):
                 for lake_driver, (best_ms, lap_num) in per_driver_with_lap.items():
-                    # Key on the RAW lake driver field so the gate-samples
-                    # SQL WHERE clause sees the same string the lake
-                    # stores. Folding to the wire/cache form happens at
-                    # the tail of the pipeline.
                     best_per_group[(track, car, experiment, lake_driver)] = (
                         int(best_ms),
                         int(lap_num),
@@ -1783,7 +1834,14 @@ def _consumer_loop() -> None:
         return
 
     try:
+        # `broker_address` and `quix_sdk_token` are mutually exclusive in
+        # QuixStreams' Application constructor. Passing `None` for
+        # `broker_address` (when `BROKER_ADDRESS` is unset/empty) falls
+        # through to the SDK-token path — cloud behaviour unchanged.
+        # Setting `BROKER_ADDRESS=kafka:9092` in docker-compose.dev.yml
+        # flips the consumer to the plaintext local broker.
         app = Application(
+            broker_address=os.environ.get("BROKER_ADDRESS") or None,
             consumer_group=CONSUMER_GROUP,
             auto_offset_reset="latest",
         )

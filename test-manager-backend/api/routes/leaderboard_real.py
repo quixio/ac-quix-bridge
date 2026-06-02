@@ -40,7 +40,7 @@ from pymongo.database import Database
 from quixlake import QuixLakeClient
 
 from .. import live_telemetry
-from ..live_telemetry import GATE_COUNT, _HistoricalEntry
+from ..live_telemetry import GATE_COUNT, _HistoricalEntry, _resolve_display_name
 from ..settings import get_settings
 from . import live_positions_sim as sim
 
@@ -459,7 +459,7 @@ def _reduce_to_gate_vectors(
 
     out: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
     for (track, car, experiment, driver), (best_ms, lap_num) in best_per_group.items():
-        candidate_keys = sorted(
+        candidate_keys = [
             k
             for k in buckets
             if k[0] == track
@@ -467,7 +467,7 @@ def _reduce_to_gate_vectors(
             and k[2] == experiment
             and k[3] == driver
             and k[5] == lap_num
-        )
+        ]
         if not candidate_keys:
             logger.info(
                 "no bucket for historical driver=%s lap_num=%d (track=%s car=%s exp=%s)",
@@ -478,9 +478,17 @@ def _reduce_to_gate_vectors(
                 experiment,
             )
             continue
+        # Multiple session_ids can produce the same (driver, lap) key (e.g.
+        # a driver ran lap 3 in multiple sessions). Sorting and picking
+        # [0] used to grab whichever session_id sorted first — often a
+        # partial-coverage run that bounced as `max_pos < 0.95`. Pick the
+        # session with the widest normPos coverage instead.
+        best_key = max(
+            candidate_keys, key=lambda k: max(s[0] for s in buckets[k])
+        )
         # Sort by iCurrentTime ascending; iCurrentTime IS the lap-relative
         # ms-since-start, so no lap_start subtraction is needed downstream.
-        samples = sorted(buckets[candidate_keys[0]], key=lambda x: x[1])
+        samples = sorted(buckets[best_key], key=lambda x: x[1])
         if not samples:
             continue
         max_pos = max(s[0] for s in samples)
@@ -587,6 +595,8 @@ def _historical_row(
     best_lap_number: int | None = None,
     last_gate_index: int | None = None,
     delta_at_last_gate_ms: int | None = None,
+    gate_time_at_active_ms: int = 0,
+    rank_time_ms: int = 0,
 ) -> dict[str, object]:
     """Build a `LivePositionEntry`-shaped dict for a historical driver.
 
@@ -606,7 +616,15 @@ def _historical_row(
         "best_lap_number": best_lap_number,
         "is_active": False,
         "current_lap": None,
-        "current_lap_time_ms": 0,
+        # `current_lap_time_ms` doubles as the "At Position" column. For
+        # historicals we project their cumulative gate-time at whatever
+        # gate the active driver most recently crossed so the column
+        # "ticks" as the active progresses (instead of frozen at 0).
+        "current_lap_time_ms": gate_time_at_active_ms,
+        # Rank sort key — see `live_positions_sim.rank_group`. Uses the
+        # cumulative time at the LAST crossed gate (not the display
+        # column's next-gate value) so rank only snaps at crossings.
+        "rank_time_ms": rank_time_ms or gate_time_at_active_ms,
         "rank": 0,
         "last_gate_index": last_gate_index,
         "last_gate_state": None,
@@ -628,6 +646,7 @@ def _active_row(
     last_gate_index: int | None = None,
     last_gate_state: str | None = None,
     last_gate_delta_ms: int | None = None,
+    rank_time_ms: int = 0,
 ) -> dict[str, object]:
     """Build a `LivePositionEntry`-shaped dict for the active driver.
 
@@ -645,6 +664,11 @@ def _active_row(
         "is_active": True,
         "current_lap": current_lap,
         "current_lap_time_ms": max(0, int(current_lap_time_ms)),
+        # Sort key: active's cumulative iCurrentTime at the LAST crossed
+        # gate. Sticky between crossings — matches the same gate the
+        # historicals are ranked by. Falls back to live current_lap_time_ms
+        # if no gate has been crossed yet (lap start).
+        "rank_time_ms": rank_time_ms or max(0, int(current_lap_time_ms)),
         "rank": 0,
         "last_gate_index": last_gate_index,
         "last_gate_state": last_gate_state,
@@ -666,6 +690,69 @@ def _best_for_active(
     if not candidates:
         return None
     return min(candidates)
+
+
+def historical_next_gate_value(
+    entry: _HistoricalEntry | None,
+    last_gate_index: int | None,
+    gate_count: int = GATE_COUNT,
+) -> int:
+    """Return the historical's `gate_vector[i*+1]` (clamped to last gate).
+
+    Single helper shared between this module (HTTP snapshot path) and
+    `live_telemetry._record_message` (WS active mutation path) so both
+    paths emit the same "next gate" value for the live-mode "At
+    Position" display (spec §7.7 reconciliation).
+
+    Pre-gate-1 fallback (spec §4.1): when `last_gate_index is None`
+    (lap just started, no gate crossed yet) we return `gate_vector[0]`
+    — gate 1's cumulative time — so historicals' ordering still
+    reflects the lake's real per-driver shape rather than collapsing
+    to 0 and tying everyone for rank 1.
+    """
+    if entry is None:
+        return 0
+    n = len(entry.gate_vector)
+    if n == 0:
+        return 0
+    if last_gate_index is None:
+        # Pre-gate-1: surface gate 1's cumulative time. The active driver's
+        # `rank_time_ms` is his live `current_lap_time_ms` in this case
+        # (spec §4.1), so historicals at `gate_vector[0]` give a stable,
+        # sensible-magnitude reference instead of 0.
+        return int(entry.gate_vector[0])
+    next_idx = min(last_gate_index + 1, gate_count - 1, n - 1)
+    if 0 <= next_idx < n:
+        return int(entry.gate_vector[next_idx])
+    return 0
+
+
+def historical_at_crossing_value(
+    entry: _HistoricalEntry | None,
+    last_gate_index: int | None,
+    gate_count: int = GATE_COUNT,
+) -> int:
+    """Return the historical's `gate_vector[i*]` (clamped to last gate).
+
+    Used by the rank metric (sticky at the last crossed gate). Pair of
+    `historical_next_gate_value` for symmetry / shared call sites.
+
+    Pre-gate-1 fallback (spec §4.1): when `last_gate_index is None` we
+    return `gate_vector[0]` so rank ordering pre-first-gate matches the
+    lake's per-driver shape — see `historical_next_gate_value` for the
+    same rationale.
+    """
+    if entry is None:
+        return 0
+    n = len(entry.gate_vector)
+    if n == 0:
+        return 0
+    if last_gate_index is None:
+        return int(entry.gate_vector[0])
+    last_idx = min(last_gate_index, gate_count - 1, n - 1)
+    if 0 <= last_idx < n:
+        return int(entry.gate_vector[last_idx])
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -700,8 +787,26 @@ def _build_group_rows(
         else {}
     )
 
+    # Active-row detection. When the active driver collides with a
+    # historical by folded key (spec §3.8), the historical MUST be
+    # suppressed — we render a single merged row keyed off the active.
+    active_in_group = bool(
+        active
+        and active.get("track") == track
+        and active.get("car") == car
+        and (active.get("experiment") or "") == experiment
+    )
+    active_folded: str | None = None
+    if active_in_group and active is not None:
+        active_folded = _fold_driver_name(str(active.get("driver") or ""))
+
     candidates: list[tuple[int, str]] = [
-        (best_ms, folded_driver) for folded_driver, best_ms in group_historicals.items()
+        (best_ms, folded_driver)
+        for folded_driver, best_ms in group_historicals.items()
+        # Spec §3.8: drop the historical that collides with the active
+        # driver's folded key — that row is emitted as the merged active
+        # row further down. Lake `"ludvik"` + Mongo `"Ludvík"` → one row.
+        if folded_driver != active_folded
     ]
     candidates.sort(key=lambda x: x[0])
     candidates = candidates[:_HISTORICAL_CAP_PER_GROUP]
@@ -710,12 +815,6 @@ def _build_group_rows(
     # triple. Both are gated on the active row matching this group; if
     # there is no active row, both are empty/None and historicals get
     # `delta_at_last_gate_ms = None`.
-    active_in_group = bool(
-        active
-        and active.get("track") == track
-        and active.get("car") == car
-        and (active.get("experiment") or "") == experiment
-    )
     per_historical_deltas: dict[str, int] = {}
     sticky_last_gate_index: int | None = None
     sticky_last_gate_state: str | None = None
@@ -741,13 +840,24 @@ def _build_group_rows(
 
     rows: list[dict[str, object]] = []
     for best_ms, folded_driver in candidates:
-        display_driver = driver_name_lookup.get(folded_driver, folded_driver)
+        # Centralised display-case resolution (spec §7.2) — same helper
+        # the WS broadcaster uses so HTTP snapshot driver names match the
+        # `{"type": "active"}` envelope exactly.
+        display_driver = _resolve_display_name(folded_driver, driver_name_lookup)
         entry = group_gate_vectors.get(folded_driver)
         best_lap_number = entry.best_lap_number if entry else None
         # The per-row delta uses the active driver's last_gate_index; if
         # we have no active row OR the active driver hasn't crossed gate
         # 1 yet, all historicals carry `None`.
         row_delta = per_historical_deltas.get(folded_driver)
+        # Historical's cumulative lap-time at the NEXT gate ahead of the
+        # active driver (display) and at the LAST crossed gate (rank).
+        # Display = gate (N+1) so the column shows the upcoming target.
+        # Rank   = gate N so the order only snaps at gate crossings.
+        # Both pulled from the same helpers the WS active mutation uses
+        # (spec §7.7 reconciliation): one source of truth per value.
+        gate_time_next = historical_next_gate_value(entry, sticky_last_gate_index)
+        gate_time_last = historical_at_crossing_value(entry, sticky_last_gate_index)
         rows.append(
             _historical_row(
                 track=track,
@@ -758,6 +868,8 @@ def _build_group_rows(
                 best_lap_number=best_lap_number,
                 last_gate_index=sticky_last_gate_index,
                 delta_at_last_gate_ms=row_delta,
+                gate_time_at_active_ms=gate_time_next,
+                rank_time_ms=gate_time_last,
             )
         )
 
@@ -766,17 +878,24 @@ def _build_group_rows(
     # driver lives in exactly one DCM experiment config (and therefore one
     # environment), so we can't end up rendering the same active driver in
     # two groups for different environments.
-    if active_in_group and active is not None:
-        raw_driver = str(active.get("driver") or "")
-        folded = _fold_driver_name(raw_driver)
-        display_driver = driver_name_lookup.get(folded, raw_driver)
-        lake_best = group_historicals.get(folded)
+    if active_in_group and active is not None and active_folded is not None:
+        # Use the centralised resolver — same fallback as WS broadcaster,
+        # so HTTP snapshot driver === WS `{"type":"active"}` driver.
+        # Mismatch freezes the live timer (frontend match is exact-equal).
+        display_driver = _resolve_display_name(active_folded, driver_name_lookup)
+        lake_best = group_historicals.get(active_folded)
         i_last_time = active.get("best_lap_ms_session")
         try:
             i_last_int: int | None = int(i_last_time) if i_last_time else None
         except (TypeError, ValueError):
             i_last_int = None
         active_best = _best_for_active(lake_best, i_last_int)
+        # Spec §3.8: the merged row inherits the lake's best_lap_number for
+        # the folded driver — Mongo display case, lake-derived best.
+        active_entry = group_gate_vectors.get(active_folded)
+        active_best_lap_number = (
+            active_entry.best_lap_number if active_entry is not None else None
+        )
 
         try:
             current_lap_time_ms = int(active.get("current_lap_time_ms") or 0)
@@ -787,6 +906,21 @@ def _build_group_rows(
         except (TypeError, ValueError):
             current_lap = 1
 
+        # Rank by active's cumulative iCurrentTime AT the last crossed
+        # gate (sticky between crossings) — matches the gate index used
+        # for historicals' rank_time_ms. Falls back to live time if no
+        # gate crossed yet (i.e. i* is None — pre-gate-1).
+        active_gate_times = list(active.get("gate_times_ms") or [])
+        if (
+            sticky_last_gate_index is not None
+            and 0 <= sticky_last_gate_index < len(active_gate_times)
+            and active_gate_times[sticky_last_gate_index] is not None
+        ):
+            active_rank_time = int(active_gate_times[sticky_last_gate_index])
+        else:
+            # Spec §3.7 fallback: only when i* is None (pre-gate-1).
+            active_rank_time = current_lap_time_ms
+
         rows.append(
             _active_row(
                 track=track,
@@ -796,9 +930,11 @@ def _build_group_rows(
                 best_lap_ms=active_best,
                 current_lap=current_lap,
                 current_lap_time_ms=current_lap_time_ms,
+                best_lap_number=active_best_lap_number,
                 last_gate_index=sticky_last_gate_index,
                 last_gate_state=sticky_last_gate_state,
                 last_gate_delta_ms=sticky_last_gate_delta_ms,
+                rank_time_ms=active_rank_time,
             )
         )
 
@@ -819,7 +955,14 @@ def _solo_active_group(
     breakdown column.
     """
     raw_driver = str(active.get("driver") or "")
-    display_driver = driver_name_lookup.get(_fold_driver_name(raw_driver), raw_driver)
+    folded_key = _fold_driver_name(raw_driver)
+    # Centralised display-case resolver — same fallback chain as WS
+    # broadcaster output so HTTP snapshot and `{"type": "active"}`
+    # mutations carry identical `driver` strings.
+    display_driver = (
+        _resolve_display_name(folded_key, driver_name_lookup) if folded_key
+        else raw_driver
+    )
     i_last_time = active.get("best_lap_ms_session")
     try:
         i_last_int: int | None = int(i_last_time) if i_last_time else None

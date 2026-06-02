@@ -25,7 +25,7 @@ Why this shape:
 
 Dual model (spec §8.5): the sim keeps the 3-sector rank function for
 ranking purposes (cheap, stable, no behaviour change for the rank
-column) but additionally tracks the active driver's 20-checkpoint-gate
+column) but additionally tracks the active driver's 10-checkpoint-gate
 crossings to drive the new `last_gate_state` colour. The two models
 serve different purposes — sector rank determines vertical order;
 gate state drives the "At Position" colour cue.
@@ -109,7 +109,7 @@ SECTOR_COUNT: int = 3
 # Real mode caches `_HistoricalEntry` objects queried from the lake. The sim
 # can't call the lake, so it synthesises equivalent entries from a small
 # set of perturbation profiles. Each profile distorts the equal-split
-# baseline `gate_vector[i] = best_ms * (i+1)/20` so the active driver's
+# baseline `gate_vector[i] = best_ms * (i+1)/10` so the active driver's
 # colour visibly cycles through "ahead" → "neutral" → "behind" → "neutral"
 # as he crosses successive gates.
 #
@@ -118,106 +118,22 @@ SECTOR_COUNT: int = 3
 # Driver names are folded the same way (`_fold_driver_name`) for parity.
 
 # Four perturbation profiles, each a list of per-gate offsets as a
-# fraction of `best_ms`. Sum across the 20 entries is zero so the lap
+# fraction of `best_ms`. Sum across the 10 entries is zero so the lap
 # total isn't perturbed. The profiles are intentionally diverse: profile
 # 0 is fast early then slow late, profile 1 the inverse, etc. Indexing
-# is `_GATE_PERTURBATIONS[profile][gate_idx]`. The values are scaled so a
+# is `_GATE_PERTURBATIONS[profile][gate_idx]`. Values scaled so a
 # 90-second lap shifts a gate by ~±400-800 ms — visibly different from
 # the active driver's elapsed but not so extreme that the rank order
-# becomes pathological.
+# becomes pathological. Lengths match GATE_COUNT=10.
 _GATE_PERTURBATIONS: list[list[float]] = [
-    # Profile 0: fast first half, slow second half.
-    [
-        -0.006,
-        -0.005,
-        -0.004,
-        -0.003,
-        -0.002,
-        -0.001,
-        0.0,
-        0.001,
-        0.002,
-        0.003,
-        0.004,
-        0.005,
-        0.004,
-        0.003,
-        0.002,
-        0.001,
-        0.0,
-        -0.001,
-        -0.002,
-        0.0,
-    ],
-    # Profile 1: slow first half, fast second half.
-    [
-        0.006,
-        0.005,
-        0.004,
-        0.003,
-        0.002,
-        0.001,
-        0.0,
-        -0.001,
-        -0.002,
-        -0.003,
-        -0.004,
-        -0.005,
-        -0.004,
-        -0.003,
-        -0.002,
-        -0.001,
-        0.0,
-        0.001,
-        0.002,
-        0.0,
-    ],
-    # Profile 2: mid-lap dip (fast in sectors 1–3, slow at the edges).
-    [
-        0.004,
-        0.003,
-        0.001,
-        -0.001,
-        -0.003,
-        -0.005,
-        -0.004,
-        -0.002,
-        0.0,
-        0.002,
-        0.003,
-        0.001,
-        -0.001,
-        -0.003,
-        -0.002,
-        0.0,
-        0.002,
-        0.004,
-        0.003,
-        0.0,
-    ],
-    # Profile 3: opposite of profile 2.
-    [
-        -0.004,
-        -0.003,
-        -0.001,
-        0.001,
-        0.003,
-        0.005,
-        0.004,
-        0.002,
-        0.0,
-        -0.002,
-        -0.003,
-        -0.001,
-        0.001,
-        0.003,
-        0.002,
-        0.0,
-        -0.002,
-        -0.004,
-        -0.003,
-        0.0,
-    ],
+    # Profile 0: fast first half, slow second half. Sum = 0.0.
+    [-0.006, -0.004, -0.002, 0.0, 0.002, 0.004, 0.003, 0.002, 0.001, 0.0],
+    # Profile 1: slow first half, fast second half. Sum = 0.0.
+    [0.006, 0.004, 0.002, 0.0, -0.002, -0.004, -0.003, -0.002, -0.001, 0.0],
+    # Profile 2: mid-lap dip. Sum = 0.0.
+    [0.004, 0.001, -0.003, -0.004, 0.0, 0.003, 0.001, -0.002, 0.0, 0.0],
+    # Profile 3: opposite of profile 2. Sum = 0.0.
+    [-0.004, -0.001, 0.003, 0.004, 0.0, -0.003, -0.001, 0.002, 0.0, 0.0],
 ]
 
 
@@ -812,10 +728,27 @@ def _rank_group(
 
 
 def rank_group(rows: list[dict[str, object]]) -> None:
-    """Public alias for `_rank_group`. Real-mode rows always carry a
-    populated `current_lap_time_ms`, so the unused `current_lap_ms` and
-    `completed` parameters are dropped from the public surface.
+    """Real-mode rank: sort by `rank_time_ms` (each row's cumulative lap
+    time at the LAST gate the active driver crossed).
+
+    For historicals that's `gate_vector[last_gate_index]` — sticky.
+    For the active row that's his own iCurrentTime captured at the moment
+    he crossed `last_gate_index` — also sticky.
+
+    Sorting on this snapshot means active's rank only changes at gate
+    crossings, not on every WS tick. Previously we sorted on
+    `current_lap_time_ms` directly, which conflated live (active) and
+    sticky (historicals) values and made the active drift from rank 1
+    (small live ticks) to rank 13 (large live ticks) within a single lap.
+
+    Falls back to `current_lap_time_ms` if `rank_time_ms` is absent (older
+    callers + sim-mode rows).
     """
-    rows.sort(key=lambda r: int(r["current_lap_time_ms"] or 0))
+    def _key(r: dict[str, object]) -> int:
+        v = r.get("rank_time_ms")
+        if v is None or v == 0:
+            v = r.get("current_lap_time_ms")
+        return int(v or 0)
+    rows.sort(key=_key)
     for i, r in enumerate(rows):
         r["rank"] = i + 1

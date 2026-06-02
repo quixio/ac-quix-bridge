@@ -467,11 +467,11 @@ class LiveDriverState(BaseModel):
     so far this session); may be `None` before the first lap completes.
 
     `gate_times_ms` records the live driver's `current_lap_time_ms` at the
-    moment they crossed each of the 20 evenly-spaced checkpoint gates on
+    moment they crossed each of the 10 evenly-spaced checkpoint gates on
     the current lap. Index `i` holds the time at `normalizedCarPosition =
-    (i+1)/20` (i.e. `[0]` = 5% gate, `[19]` = 100% / lap-line gate; the 0%
+    (i+1)/10` (i.e. `[0]` = 10% gate, `[9]` = 100% / lap-line gate; the 0%
     gate is implicit and always 0 ms). Entries are `None` until that gate
-    has been crossed in this lap; the whole list resets to `[None]*20`
+    has been crossed in this lap; the whole list resets to `[None]*10`
     when `completedLaps` advances or `iCurrentTime` resets.
     """
 
@@ -483,7 +483,7 @@ class LiveDriverState(BaseModel):
     current_lap_time_ms: int
     normalized_position: float
     best_lap_ms_session: int | None = None
-    gate_times_ms: list[int | None] = Field(default_factory=lambda: [None] * 20)
+    gate_times_ms: list[int | None] = Field(default_factory=lambda: [None] * 10)
     last_normalized_position: float = 0.0
 
 
@@ -561,7 +561,7 @@ class LivePositionEntry(BaseModel):
     current_lap_time_ms: int
     rank: int
     # Gate-state fields. `last_gate_index` is set on the active row when the
-    # active driver crosses the corresponding 5% / 10% / ... / 100% checkpoint
+    # active driver crosses the corresponding 10% / 20% / ... / 100% checkpoint
     # and stays sticky between crossings; it is also echoed on every
     # historical row in the same group so the frontend can render the
     # per-historical `delta_at_last_gate_ms` against the right gate index.

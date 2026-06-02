@@ -1,0 +1,26 @@
+name: Topic Replay
+language: python
+variables:
+  - name: MODE
+    inputType: FreeText
+    description: Operating mode. Either 'capture' or 'replay'. CLI subcommand overrides.
+    defaultValue: replay
+    required: true
+  - name: CAPTURE_DIR
+    inputType: FreeText
+    description: Directory for capture output / replay source JSONL files.
+    defaultValue: /data/topic-replay
+    required: true
+  - name: LAP_LOOP_SPEED
+    inputType: FreeText
+    description: Replay speed multiplier (1.0 = real time, 2.0 = 2x faster, 0.5 = half).
+    defaultValue: "1.0"
+    required: false
+  - name: TARGET_HOSTNAME_OVERRIDE
+    inputType: FreeText
+    description: Optional hostname to rewrite raw + session Kafka keys to during replay.
+    defaultValue: ""
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
