@@ -14,7 +14,7 @@ variables:
   - name: TABLE_NAME
     inputType: FreeText
     description: Table name for data organization and registration, else defaults to topic name
-    defaultValue: ac_telemetry
+    defaultValue: acc_telemetry_test
   - name: HIVE_COLUMNS
     inputType: FreeText
     multiline: false
