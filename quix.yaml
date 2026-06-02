@@ -258,10 +258,10 @@ deployments:
         description: Disable Next.js telemetry
         value: 1
       - name: NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
-        inputType: ProjectVariable
+        inputType: FreeText
         description: Public URL of the Telemetry Explorer deployment
         required: true
-        variableKey: TELEMETRY_EXPLORER_URL
+        value: https://telemetryexplorer-quixdev-acquixbridge-acctest.deployments-dev.quix.io
     plugin:
       embeddedView:
         enabled: true
