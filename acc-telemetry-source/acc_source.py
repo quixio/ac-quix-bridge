@@ -86,13 +86,24 @@ class AssettoCorsaCompetizioneSource(Source):
             headers=msg.headers,
         )
 
-    def _check_session(self, status: str, current_time: int, last_time: int, lap: int):
+    def _check_session(
+        self,
+        status: str,
+        current_time: int,
+        last_time: int,
+        speed_kmh: float,
+        lap: int,
+    ):
         """Decide whether the current tick begins a new session.
 
         Args:
             status: ACC status string ("off"/"replay"/"live"/"pause").
             current_time: iCurrentTime (current lap time in ms).
             last_time: iLastTime (last completed lap time; 2147483647 = no lap yet).
+            speed_kmh: Current car speed; ACC restart teleports the car to
+                pit/grid at speed=0, so we use this to distinguish a stable
+                post-restart iCurrentTime=0 state from a transient lap-rollover
+                iCurrentTime=0 at full speed.
             lap: completedLaps + 1 (for log context).
 
         Returns:
@@ -122,7 +133,11 @@ class AssettoCorsaCompetizioneSource(Source):
                 new_session = True
                 reason = f"Rule A ({self._prev_status} -> live)"
 
-        # Rule B: live -> live in-game restart (lap counters reset, status didn't flip)
+        # Rule B: live -> live in-game restart (lap counters reset, status didn't flip).
+        # The speed guard distinguishes a stable post-restart iCT=0 (car parked at
+        # pit/grid) from a transient lap-rollover iCT=0 (car crossing start line at
+        # full speed). At 50 Hz the lake-data evidence is that we never catch the
+        # rollover transient, but the guard makes Rule B safe at higher poll rates.
         elif (
             self._prev_status == "live"
             and status == "live"
@@ -130,11 +145,12 @@ class AssettoCorsaCompetizioneSource(Source):
             and last_time == ACC_INT32_MAX_SENTINEL
             and self._prev_current_time is not None
             and self._prev_current_time > 0
+            and speed_kmh < 5.0
         ):
             new_session = True
             reason = (
                 f"Rule B (in-game restart: iCT {self._prev_current_time} -> 0, "
-                f"iLastTime sentinel)"
+                f"iLastTime sentinel, speed={speed_kmh:.1f} km/h)"
             )
 
         # Log every status change even when no new session fires
@@ -183,9 +199,12 @@ class AssettoCorsaCompetizioneSource(Source):
                 status = data["status"]
                 current_time = data["iCurrentTime"]
                 last_time = data["iLastTime"]
+                speed_kmh = data["speedKmh"]
                 lap = data["completedLaps"] + 1
 
-                new_session = self._check_session(status, current_time, last_time, lap)
+                new_session = self._check_session(
+                    status, current_time, last_time, speed_kmh, lap
+                )
                 if new_session:
                     self._publish_session_metadata(reader)
 
