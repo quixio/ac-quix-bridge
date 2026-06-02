@@ -22,7 +22,7 @@ STATIC_DIR = BASE_DIR / "static"
 CHANNELS_FILE = BASE_DIR / "channels.json"
 DEFAULT_TRACK_CSV = "tracks/ks_nurburgring/layout_sprint_a.csv"
 
-TABLE_NAME = os.getenv("TABLE_NAME", "ac_telemetry")
+TABLE_NAME = os.getenv("TABLE_NAME", "acc_telemetry")
 QUIXLAKE_URL = os.getenv("QUIXLAKE_URL")
 QUIX_LAKE_TOKEN = os.getenv("QUIX_LAKE_TOKEN")
 BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
