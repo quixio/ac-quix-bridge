@@ -9,6 +9,7 @@ definitions ported from ACC Shared Memory Documentation v1.8.12.
 import ctypes
 import logging
 import mmap
+import sys
 
 from models import ACCGraphics, ACCPhysics, ACCStatic
 
@@ -17,6 +18,35 @@ logger = logging.getLogger(__name__)
 SHM_PHYSICS = "Local\\acpmf_physics"
 SHM_GRAPHICS = "Local\\acpmf_graphics"
 SHM_STATIC = "Local\\acpmf_static"
+
+# Win32 OpenFileMappingW probe: opens a named region ONLY if it exists.
+# Python's mmap.mmap(-1, size, name, ACCESS_READ) auto-creates a zero-filled
+# region when the name is missing — that hides "ACC not running" and risks
+# size-mismatch conflicts when ACC starts later. Probing with OpenFileMappingW
+# first lets us fail fast and never create the region ourselves.
+if sys.platform == "win32":
+    from ctypes import wintypes
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _OpenFileMappingW = _kernel32.OpenFileMappingW
+    _OpenFileMappingW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    _OpenFileMappingW.restype = wintypes.HANDLE
+    _CloseHandle = _kernel32.CloseHandle
+    _CloseHandle.argtypes = [wintypes.HANDLE]
+    _CloseHandle.restype = wintypes.BOOL
+    _FILE_MAP_READ = 0x0004
+
+
+def _probe_shm_exists(name: str) -> None:
+    """Raise FileNotFoundError if the named region does not already exist."""
+    if sys.platform != "win32":
+        return  # dev only; real run is always Windows
+    handle = _OpenFileMappingW(_FILE_MAP_READ, False, name)
+    if not handle:
+        raise FileNotFoundError(
+            f"Shared memory '{name}' not found — is ACC running and in a session?"
+        )
+    _CloseHandle(handle)
 
 SESSION_TYPES = {
     -1: "unknown", 0: "practice", 1: "qualify", 2: "race",
@@ -39,7 +69,8 @@ RAIN_INTENSITY = {
 
 
 def _open_shm(name: str, size: int) -> mmap.mmap:
-    """Open a named shared memory region. Raises FileNotFoundError on failure."""
+    """Open an existing named shared memory region. Raises FileNotFoundError if missing."""
+    _probe_shm_exists(name)
     try:
         m = mmap.mmap(-1, size, name, access=mmap.ACCESS_READ)
         logger.info("Opened shared memory '%s' (%d bytes)", name, size)
