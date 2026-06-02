@@ -220,7 +220,7 @@ deployments:
       - name: QUIXLAKE_URL
         inputType: FreeText
         required: true
-        value: https://telemetryexplorer-quixdev-acquixbridge-testmanager.deployments-dev.quix.io
+        value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: QUIX_LAKE_TOKEN
         inputType: ProjectVariable
         required: true
@@ -397,10 +397,10 @@ deployments:
         secret: true
         variableKey: pat_token
       - name: QUIXLAKE_URL
-        inputType: ProjectVariable
+        inputType: FreeText
         description: Base URL of the QuixLake instance
         required: true
-        variableKey: LAKE_API_URL
+        value: https://quixlake-quixdev-quixlakev2-dev.deployments-dev.quix.io
       - name: TABLE_NAME
         inputType: FreeText
         description: QuixLake table name for telemetry data
