@@ -548,3 +548,9 @@ topics:
   - name: ac-telemetry-config
   - name: csv-data
   - name: transform
+  - name: acc_telemetry_raw
+    configuration:
+      partitions: 1
+      replicationFactor: 1
+      retentionInMinutes: -1
+      retentionInBytes: 1048576000
