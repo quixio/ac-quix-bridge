@@ -84,12 +84,21 @@ prev_status == "live"  AND  current_status == "live"
 AND iCurrentTime == 0
 AND iLastTime == 2147483647     # ACC's INT32_MAX "no prior lap" sentinel
 AND prev_iCurrentTime > 0
+AND speedKmh < 5.0              # car parked at pit/grid (not crossing start line)
 ```
 
 This catches ACC's **"Restart Session"** button (often mapped to a steering
 wheel button) which resets lap counters without ever flipping `status`
 to pause/off long enough for our poll loop to notice. Rule A alone misses
 these events; Rule B classifies them correctly.
+
+The `speedKmh < 5` clause is defence in depth against a hypothetical
+torn-write scenario at lap-1 → lap-2 boundary: if a poll landed between
+ACC zeroing `iCurrentTime` and writing the just-completed lap into
+`iLastTime`, the other four conditions would match a lap rollover by
+accident. In practice, lake data at 50 Hz shows the boundary `iCT=0`
+transient is so brief (~3 ms) that we never sample it. The speed guard
+is cheap insurance for higher future poll rates (300 Hz physics tier).
 
 ### ACC sentinel — important
 
