@@ -68,6 +68,23 @@ RAIN_INTENSITY = {
 }
 
 
+def _player_xyz(g) -> tuple[float, float, float]:
+    """Player car coordinates from the multi-car array.
+
+    ACC stores positions for up to 60 cars; the player slot is found by
+    matching `playerCarID` against the `carID[]` array. Falls back to (0,0,0)
+    if the ID can't be located (offline/hotlap with no AI typically still has
+    activeCars=1 and carID[0]=playerCarID).
+    """
+    pid = g.playerCarID
+    n = max(1, min(g.activeCars, 60))
+    for i in range(n):
+        if g.carID[i] == pid:
+            c = g.carCoordinates[i]
+            return c[0], c[1], c[2]
+    return 0.0, 0.0, 0.0
+
+
 def _open_shm(name: str, size: int) -> mmap.mmap:
     """Open an existing named shared memory region. Raises FileNotFoundError if missing."""
     _probe_shm_exists(name)
@@ -119,9 +136,17 @@ class ACCReader:
         g = self._read_struct(self._graphics_mmap, ACCGraphics)
 
         WHEELS = ("FL", "FR", "RL", "RR")
-        DAMAGE = ("front", "rear", "left", "right", "centre")
+        # AC's per-wheel damage tuple — ACC PDF labels the 5th index "centre"
+        # but we keep "top" for AC column-name parity in the lake.
+        DAMAGE = ("front", "rear", "left", "right", "top")
+
+        # Player coordinates lifted from the multi-car array for AC parity
+        # (AC writes a single carCoordinates[3]; ACC has carCoordinates[60][3]).
+        px, py, pz = _player_xyz(g)
 
         data = {
+            # ===== AC-parity field set (same key names as ac_reader.py) =====
+
             # --- Physics scalars ---
             "packetId": p.packetId,
             "gas": p.gas,
@@ -140,6 +165,8 @@ class ACCReader:
             "numberOfTyresOut": p.numberOfTyresOut,
             "pitLimiterOn": p.pitLimiterOn,
             "abs": p.abs,
+            "kersCharge": p.kersCharge,
+            "kersInput": p.kersInput,
             "autoShifterOn": p.autoShifterOn,
             "turboBoost": p.turboBoost,
             "ballast": p.ballast,
@@ -147,22 +174,18 @@ class ACCReader:
             "airTemp": p.airTemp,
             "roadTemp": p.roadTemp,
             "finalFF": p.finalFF,
+            "performanceMeter": p.performanceMeter,
+            "engineBrake": p.engineBrake,
+            "ersRecoveryLevel": p.ersRecoveryLevel,
+            "ersPowerLevel": p.ersPowerLevel,
+            "ersHeatCharging": p.ersHeatCharging,
+            "ersIsCharging": p.ersIsCharging,
+            "kersCurrentKJ": p.kersCurrentKJ,
+            "drsAvailable": p.drsAvailable,
+            "drsEnabled": p.drsEnabled,
             "clutch": p.clutch,
             "isAIControlled": p.isAIControlled,
             "brakeBias": p.brakeBias,
-            "currentMaxRpm": p.currentMaxRpm,
-            "tcinAction": p.tcinAction,
-            "absInAction": p.absInAction,
-            "waterTemp": p.waterTemp,
-            "frontBrakeCompound": p.frontBrakeCompound,
-            "rearBrakeCompound": p.rearBrakeCompound,
-            "ignitionOn": p.ignitionOn,
-            "starterEngineOn": p.starterEngineOn,
-            "isEngineRunning": p.isEngineRunning,
-            "kerbVibration": p.kerbVibration,
-            "slipVibrations": p.slipVibrations,
-            "gVibrations": p.gVibrations,
-            "absVibrations": p.absVibrations,
 
             # Physics vec3
             "velocity_x": p.velocity[0],
@@ -185,17 +208,13 @@ class ACCReader:
             **{f"wheelAngularSpeed{w}": p.wheelAngularSpeed[i] for i, w in enumerate(WHEELS)},
             **{f"tyreWear{w}": p.tyreWear[i] for i, w in enumerate(WHEELS)},
             **{f"tyreDirtyLevel{w}": p.tyreDirtyLevel[i] for i, w in enumerate(WHEELS)},
-            **{f"tyreCoreTemp{w}": p.tyreCoreTemperature[i] for i, w in enumerate(WHEELS)},
-            **{f"tyreTemp{w}": p.tyreTemp[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreTemp{w}": p.tyreCoreTemperature[i] for i, w in enumerate(WHEELS)},
             **{f"camberRAD{w}": p.camberRAD[i] for i, w in enumerate(WHEELS)},
             **{f"suspensionTravel{w}": p.suspensionTravel[i] for i, w in enumerate(WHEELS)},
-            **{f"suspensionDamage{w}": p.suspensionDamage[i] for i, w in enumerate(WHEELS)},
             **{f"brakeTemp{w}": p.brakeTemp[i] for i, w in enumerate(WHEELS)},
-            **{f"brakePressure{w}": p.brakePressure[i] for i, w in enumerate(WHEELS)},
-            **{f"padLife{w}": p.padLife[i] for i, w in enumerate(WHEELS)},
-            **{f"discLife{w}": p.discLife[i] for i, w in enumerate(WHEELS)},
-            **{f"slipRatio{w}": p.slipRatio[i] for i, w in enumerate(WHEELS)},
-            **{f"slipAngle{w}": p.slipAngle[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreTempI{w}": p.tyreTempI[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreTempM{w}": p.tyreTempM[i] for i, w in enumerate(WHEELS)},
+            **{f"tyreTempO{w}": p.tyreTempO[i] for i, w in enumerate(WHEELS)},
 
             # Physics per-wheel vec3
             **{f"tyreContactPoint{w}_{a}": p.tyreContactPoint[i][j]
@@ -229,16 +248,45 @@ class ACCReader:
             "lastSectorTime": g.lastSectorTime,
             "numberOfLaps": g.numberOfLaps,
             "tyreCompound": g.tyreCompound.rstrip("\x00"),
+            "replayTimeMultiplier": g.replayTimeMultiplier,
             "normalizedCarPosition": g.normalizedCarPosition,
-            "activeCars": g.activeCars,
-            "playerCarID": g.playerCarID,
+            "carCoordinates_x": px,
+            "carCoordinates_y": py,
+            "carCoordinates_z": pz,
             "penaltyTime": g.penaltyTime,
             "flag": FLAG_TYPES.get(g.flag, str(g.flag)),
-            "penalty": g.penalty,
             "idealLineOn": g.idealLineOn,
             "isInPitLane": g.isInPitLane,
             "surfaceGrip": g.surfaceGrip,
             "mandatoryPitDone": g.mandatoryPitDone,
+
+            # ===== ACC-only extras (no AC equivalent) =====
+
+            # Physics extras
+            "currentMaxRpm": p.currentMaxRpm,
+            "tcinAction": p.tcinAction,
+            "absInAction": p.absInAction,
+            "waterTemp": p.waterTemp,
+            "frontBrakeCompound": p.frontBrakeCompound,
+            "rearBrakeCompound": p.rearBrakeCompound,
+            "ignitionOn": p.ignitionOn,
+            "starterEngineOn": p.starterEngineOn,
+            "isEngineRunning": p.isEngineRunning,
+            "kerbVibration": p.kerbVibration,
+            "slipVibrations": p.slipVibrations,
+            "gVibrations": p.gVibrations,
+            "absVibrations": p.absVibrations,
+            **{f"suspensionDamage{w}": p.suspensionDamage[i] for i, w in enumerate(WHEELS)},
+            **{f"brakePressure{w}": p.brakePressure[i] for i, w in enumerate(WHEELS)},
+            **{f"padLife{w}": p.padLife[i] for i, w in enumerate(WHEELS)},
+            **{f"discLife{w}": p.discLife[i] for i, w in enumerate(WHEELS)},
+            **{f"slipRatio{w}": p.slipRatio[i] for i, w in enumerate(WHEELS)},
+            **{f"slipAngle{w}": p.slipAngle[i] for i, w in enumerate(WHEELS)},
+
+            # Graphics extras
+            "activeCars": g.activeCars,
+            "playerCarID": g.playerCarID,
+            "penalty": g.penalty,
             "windSpeed": g.windSpeed,
             "windDirection": g.windDirection,
             "isSetupMenuVisible": g.isSetupMenuVisible,
@@ -307,6 +355,7 @@ class ACCReader:
         WHEELS = ("FL", "FR", "RL", "RR")
 
         return {
+            # ===== AC-parity field set (same key names as ac_reader.py) =====
             "smVersion": s.smVersion.rstrip("\x00"),
             "acVersion": s.acVersion.rstrip("\x00"),
             "numberOfSessions": s.numberOfSessions,
@@ -317,6 +366,8 @@ class ACCReader:
             "playerSurname": s.playerSurname.rstrip("\x00"),
             "playerNick": s.playerNick.rstrip("\x00"),
             "sectorCount": s.sectorCount,
+            "maxTorque": s.maxTorque,
+            "maxPower": s.maxPower,
             "maxRpm": s.maxRpm,
             "maxFuel": s.maxFuel,
             **{f"suspensionMaxTravel{w}": s.suspensionMaxTravel[i] for i, w in enumerate(WHEELS)},
@@ -326,13 +377,26 @@ class ACCReader:
             "aidFuelRate": s.aidFuelRate,
             "aidTireRate": s.aidTireRate,
             "aidMechanicalDamage": s.aidMechanicalDamage,
-            "allowTyreBlankets": s.allowTyreBlankets,
+            "aidAllowTyreBlankets": s.allowTyreBlankets,
             "aidStability": s.aidStability,
             "aidAutoClutch": s.aidAutoClutch,
             "aidAutoBlip": s.aidAutoBlip,
+            "hasDRS": s.hasDRS,
+            "hasERS": s.hasERS,
+            "hasKERS": s.hasKERS,
+            "kersMaxJoules": s.kersMaxJoules,
+            "engineBrakeSettingsCount": s.engineBrakeSettingsCount,
+            "ersPowerControllerCount": s.ersPowerControllerCount,
+            "trackSplineLength": s.trackSplineLength,
             "trackConfiguration": s.trackConfiguration.rstrip("\x00"),
+            "ersMaxJ": s.ersMaxJ,
+            "isTimedRace": s.isTimedRace,
+            "hasExtraLap": s.hasExtraLap,
+            "carSkin": s.carSkin.rstrip("\x00"),
+            "reversedGridPositions": s.reversedGridPositions,
             "pitWindowStart": s.pitWindowStart,
             "pitWindowEnd": s.pitWindowEnd,
+            # ===== ACC-only extras =====
             "isOnline": s.isOnline,
             "dryTyresName": s.dryTyresName.rstrip("\x00"),
             "wetTyresName": s.wetTyresName.rstrip("\x00"),
