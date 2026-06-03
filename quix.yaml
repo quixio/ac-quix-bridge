@@ -138,9 +138,9 @@ deployments:
         description: Column containing timestamp values to extract year/month/day/hour from
         value: timestamp_ms
       - name: CATALOG_URL
-        inputType: FreeText
+        inputType: ProjectVariable
         description: REST Catalog URL for optional table registration (leave empty to skip)
-        value: ICEBERG_CATALOG_URL
+        variableKey: ICEBERG_CATALOG_URL
       - name: CATALOG_AUTH_TOKEN
         inputType: ProjectVariable
         description: If using a catalog, the respective auth token to access it
