@@ -1,3 +1,3 @@
 import os
 
-print(os)
+print(os.environ)
