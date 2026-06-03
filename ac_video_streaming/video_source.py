@@ -1,11 +1,11 @@
 
 """
-QuixStreams Source that captures Assetto Corsa gameplay video.
+Assetto Corsa gameplay video capture (recording-only).
 
 - Reads AC shared memory (graphics/static) for session and status detection
 - Captures the game display via dxcam (DirectX Desktop Duplication)
 - Records per-lap MP4 files locally via ffmpeg, then uploads to blob storage
-- Publishes JPEG frames to a Kafka topic for live streaming via Quix Cloud
+- Consumes ac-telemetry-session to adopt the canonical session_id
 
 State machine (mirrors ac-telemetry-source/ac_source.py):
   off/None → live:   new session → start recording
@@ -16,15 +16,11 @@ State machine (mirrors ac-telemetry-source/ac_source.py):
   lap change:        finalize current lap MP4, upload, start next lap
 """
 
-import base64
 import logging
 import os
 import threading
 import time
 from datetime import datetime, timezone
-
-import cv2
-from quixstreams.sources import Source
 
 from session_tracker import SessionTracker
 from video_recorder import VideoRecorder
@@ -44,11 +40,15 @@ def _get_blob_fs():
         return None
 
 
-class ACVideoSource(Source):
-    """Captures AC gameplay, records per-lap MP4s, and streams frames to Kafka."""
+class ACVideoSource:
+    """Captures AC gameplay and records per-lap MP4s."""
 
     def __init__(self, name: str):
-        super().__init__(name=name)
+        self.name = name
+        # Lifecycle flag — formerly inherited from QuixStreams Source, now
+        # owned outright so run() doesn't depend on the Application/Source
+        # framework (which would otherwise force a Kafka output topic).
+        self.running = True
         # Display selection: numeric index, "auto" (primary), or a resolution
         # like "3440x1440" that picks the matching output. Resolved in
         # _init_camera() after dxcam has enumerated outputs.
@@ -58,19 +58,16 @@ class ACVideoSource(Source):
         # the AC game viewport instead of the whole desktop.
         self._capture_region = self._parse_region(os.environ.get("VIDEO_CAPTURE_REGION", ""))
         self._fps = int(os.environ.get("VIDEO_FPS", "15"))
-        self._stream_fps = int(os.environ.get("STREAM_FPS", "15"))
         self._output_dir = os.environ.get("VIDEO_OUTPUT_DIR", "./recordings")
         self._blob_prefix = os.environ.get("BLOB_VIDEO_PREFIX", "ac_video")
         self._recording_enabled = os.environ.get("VIDEO_RECORDING_ENABLED", "true").lower() == "true"
-        self._stream_enabled = os.environ.get("VIDEO_STREAM_ENABLED", "true").lower() == "true"
-        self._stream_width = int(os.environ.get("STREAM_WIDTH", "1280"))
-        self._jpeg_quality = int(os.environ.get("JPEG_QUALITY", "75"))
         self._recording_width = int(os.environ.get("RECORDING_WIDTH", "1920"))
         self._mock_mode = os.environ.get("AC_MOCK_MODE", "false").lower() == "true"
         self._blob_fs = _get_blob_fs() if self._recording_enabled else None
-        # SessionTracker is created in run() (the child subprocess) — it holds
-        # a threading.Lock which can't be pickled across processes.
         self._session_tracker: SessionTracker | None = None
+
+    def stop(self):
+        self.running = False
 
     @staticmethod
     def _fallback_session_id() -> str:
@@ -267,33 +264,6 @@ class ACVideoSource(Source):
             logger.info("Recording finalized (%s): %s", reason, path)
             self._upload_to_blob(path, session_id)
 
-    def _publish_frame(self, frame, session_id: str, timestamp_ms: int, completed_laps: int):
-        """Encode frame as JPEG and publish to Kafka topic."""
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-        # Resize for streaming
-        h, w = frame_bgr.shape[:2]
-        if w > self._stream_width:
-            scale = self._stream_width / w
-            new_h = int(h * scale)
-            frame_bgr = cv2.resize(frame_bgr, (self._stream_width, new_h))
-
-        _, jpeg_buf = cv2.imencode(
-            ".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality]
-        )
-        frame_b64 = base64.b64encode(jpeg_buf.tobytes()).decode("ascii")
-
-        msg = self.serialize(
-            key=session_id,
-            value={
-                "session_id": session_id,
-                "timestamp_ms": timestamp_ms,
-                "completedLaps": completed_laps,
-                "frame": frame_b64,
-            },
-        )
-        self.produce(key=msg.key, value=msg.value)
-
     def _create_reader(self):
         if self._mock_mode:
             from ac_reader_mock import ACGraphicsReaderMock
@@ -320,12 +290,23 @@ class ACVideoSource(Source):
             consumer = None
             try:
                 from quixstreams import Application as _App
+                from quixstreams.kafka import ConnectionConfig as _CC
+                conn = _CC(
+                    bootstrap_servers=os.environ["Quix__Broker__Address"],
+                    security_protocol="sasl_ssl",
+                    sasl_mechanism="SCRAM-SHA-512",
+                    sasl_username=os.environ["Quix__Broker__Username"],
+                    sasl_password=os.environ["Quix__Broker__Password"],
+                    enable_ssl_certificate_verification=False,
+                    ssl_endpoint_identification_algorithm="none",
+                )
                 mini_app = _App(
                     consumer_group=(
                         f"ac_video_session_tracker_{os.getpid()}_{int(time.time() * 1000)}"
                     ),
                     auto_offset_reset="earliest",
                     auto_create_topics=False,
+                    broker_address=conn,
                 )
                 # Use Application.topic() so the resolved name is workspace-
                 # prefixed (e.g. "quixers-acquixbridge-videostreaming-ac-telemetry-session").
@@ -398,35 +379,8 @@ class ACVideoSource(Source):
         prev_norm_pos = None          # for start-line crossing detection
         waiting_for_start_line = False
 
-        frame_count = 0
-        stream_interval = max(1, self._fps // self._stream_fps) if self._stream_fps > 0 else 0
-
         interval = 1.0 / self._fps
         next_tick = None
-
-        # Background thread for Kafka streaming (decoupled from capture loop)
-        stream_frame_lock = threading.Lock()
-        stream_frame_data = {"frame": None, "session_id": "", "timestamp_ms": 0, "laps": 0}
-        stream_running = True
-
-        def _stream_thread():
-            """Publishes frames to Kafka in a background thread so it doesn't slow capture."""
-            last_frame_id = None
-            while stream_running and self.running:
-                with stream_frame_lock:
-                    frame = stream_frame_data["frame"]
-                    sid = stream_frame_data["session_id"]
-                    ts = stream_frame_data["timestamp_ms"]
-                    laps = stream_frame_data["laps"]
-                if frame is not None and id(frame) != last_frame_id:
-                    last_frame_id = id(frame)
-                    self._publish_frame(frame, sid, ts, laps)
-                else:
-                    time.sleep(0.01)
-
-        if self._stream_enabled:
-            streamer = threading.Thread(target=_stream_thread, daemon=True)
-            streamer.start()
 
         while self.running:
             # ---- Connect to AC shared memory ----
@@ -632,17 +586,6 @@ class ACVideoSource(Source):
                         norm_pos = old_norm
                     recorder.log_frame(timestamp_ms, norm_pos)
 
-                # Hand frame to stream thread (non-blocking)
-                if self._stream_enabled and stream_interval > 0:
-                    frame_count += 1
-                    if frame_count >= stream_interval:
-                        frame_count = 0
-                        with stream_frame_lock:
-                            stream_frame_data["frame"] = frame
-                            stream_frame_data["session_id"] = session_id
-                            stream_frame_data["timestamp_ms"] = timestamp_ms
-                            stream_frame_data["laps"] = completed_laps
-
             prev_status = status
             prev_current_time = current_time
             prev_norm_pos = gfx.get("normalizedCarPosition")
@@ -653,7 +596,6 @@ class ACVideoSource(Source):
                 time.sleep(next_tick - now)
 
         # ---- Cleanup on source shutdown ----
-        stream_running = False
         self._finalize_recording(recorder, "source stopped", session_id or "")
         if camera is not None:
             del camera
