@@ -1,0 +1,43 @@
+name: quixlab-3
+language: docker
+variables:
+  - name: QUIXLAB_NOTEBOOK
+    inputType: FreeText
+    description: Notebook file to open on startup (leave empty for the file picker).
+    defaultValue: main.py
+  - name: QUIXLAB_MODE
+    inputType: Options
+    description: "Run mode: 'edit' opens the full editor (canvas, cell editing, file picker); 'app' renders the notebook in read-only output-only mode for end-user consumption."
+    defaultValue: edit
+    options:
+      - label: Edit (full editor)
+        value: edit
+      - label: App (view only)
+        value: app
+  - name: QUIX_PAT_TOKEN
+    inputType: ProjectVariable
+    description: Personal Access Token (Quix profile → Tokens). Only required when ql.topic() needs to read from Kafka topics in a different workspace than the one QuixLab is deployed in — the platform-injected token is scoped to the local workspace. Leave empty otherwise.
+    secret: true
+  - name: QUIXLAB_LOG_LEVEL
+    inputType: Options
+    description: Logging verbosity for the QuixLab process. DEBUG emits per-token-source and per-HTTP-call detail useful for diagnosing 403s and auth-chain issues.
+    defaultValue: INFO
+    options:
+      - label: DEBUG
+        value: DEBUG
+      - label: INFO
+        value: INFO
+      - label: WARNING
+        value: WARNING
+      - label: ERROR
+        value: ERROR
+  - name: QUIXLAB_MCP_KEY
+    inputType: ProjectVariable
+    description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent. Leave empty if the QuixLab Assistant integration is not used.
+    secret: true
+  - name: QUIXLAB_AGENT_ID
+    inputType: FreeText
+    description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent. Leave empty if the QuixLab Assistant integration is not used.
+dockerfile: dockerfile
+defaultFile: dockerfile
+libraryItemId: quixlab
