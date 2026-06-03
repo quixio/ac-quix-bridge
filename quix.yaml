@@ -28,6 +28,15 @@ deployments:
         description: Kafka topic to consume telemetry from
         required: true
         value: ac-telemetry-raw
+      - name: LEADERBOARD_SQL
+        inputType: FreeText
+        multiline: true
+        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Defaults to all-time fastest lap per driver from ac_telemetry.
+        value: ''
+      - name: LEADERBOARD_TTL_SECONDS
+        inputType: FreeText
+        description: Server-side cache TTL for the leaderboard query (seconds)
+        value: 15
   - name: MongoDB
     application: mongodb
     version: latest
