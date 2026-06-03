@@ -552,6 +552,67 @@ deployments:
         order: 1
     blobStorage:
       bind: true
+  - name: QuixLab 3
+    application: quixlab-3
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 2000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: quixlab3
+    state:
+      enabled: true
+      size: 1
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: QUIXLAB_NOTEBOOK
+        inputType: FreeText
+        description: Notebook file to open on startup (leave empty for the file picker).
+        value: main.py
+      - name: QUIXLAB_MODE
+        inputType: Options
+        description: "Run mode: 'edit' opens the full editor (canvas, cell editing, file picker); 'app' renders the notebook in read-only output-only mode for end-user consumption."
+        value: edit
+      - name: QUIX_PAT_TOKEN
+        inputType: ProjectVariable
+        description: Personal Access Token (Quix profile → Tokens). Only required when ql.topic() needs to read from Kafka topics in a different workspace than the one QuixLab is deployed in — the platform-injected token is scoped to the local workspace. Leave empty otherwise.
+        secret: true
+      - name: QUIXLAB_LOG_LEVEL
+        inputType: Options
+        description: Logging verbosity for the QuixLab process. DEBUG emits per-token-source and per-HTTP-call detail useful for diagnosing 403s and auth-chain issues.
+        value: INFO
+      - name: QUIXLAB_MCP_KEY
+        inputType: ProjectVariable
+        description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent. Leave empty if the QuixLab Assistant integration is not used.
+        secret: true
+      - name: QUIXLAB_AGENT_ID
+        inputType: FreeText
+        description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent. Leave empty if the QuixLab Assistant integration is not used.
+        value: ''
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: QuixLab
+        icon: grid_view
+        order: 1
+      globalItem:
+        show: true
+        label: QuixLab
+        icon: find_in_page
+        order: 1
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
