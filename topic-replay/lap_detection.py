@@ -105,16 +105,18 @@ def find_single_lap(raw_rows: list[dict]) -> tuple[int, int]:
             f"{len(increments)} increments total. Capture more data."
         )
 
-    # Pick the SINGLE FASTEST lap across all contiguous runs — the
-    # replay loops one clean lap forever. Earlier (multi-lap) behaviour
-    # has been retired per Ludvik's preference for a single-lap loop.
+    # Pick the SINGLE SLOWEST lap across all contiguous runs — the
+    # replay loops one clean lap forever. Slowest is preferred so the
+    # active driver lands mid-pack against the lake historicals,
+    # producing visible rank movement gate-by-gate as he overtakes /
+    # gets overtaken. Earlier "fastest" pick made him rank 1 every lap.
     best: tuple[int, int, int] | None = None  # (length, start, end)
     for run in runs:
         for a, b in zip(run, run[1:]):
             length = b - a
             if length < MIN_TICKS_FOR_LAP:
                 continue
-            if best is None or length < best[0]:
+            if best is None or length > best[0]:
                 best = (length, a, b)
     if best is None:
         raise LapDetectionError(
@@ -122,7 +124,7 @@ def find_single_lap(raw_rows: list[dict]) -> tuple[int, int]:
         )
     _length, start_idx, end_idx = best
     logger.info(
-        "Lap window detected (single fastest): start_idx=%d end_idx=%d ticks=%d",
+        "Lap window detected (single slowest): start_idx=%d end_idx=%d ticks=%d",
         start_idx,
         end_idx,
         end_idx - start_idx,

@@ -371,6 +371,20 @@ export function useLiveStream(): UseLiveStreamResult {
               historicalAtCrossing: atPositionsAtCrossing ?? {},
               stamp: freezeStampRef.current,
             })
+            // Gate crossing → backend's rank_group has reshuffled ranks,
+            // but WS active mutations don't carry the full rows list.
+            // Fire an HTTP refetch so rank order updates within ~100 ms
+            // instead of waiting for the next best-laps refresh snapshot.
+            fetch("/api/v1/leaderboard/live-positions", {
+              credentials: "include",
+            })
+              .then((r) => (r.ok ? r.json() : null))
+              .then((data: LivePositionEntry[] | null) => {
+                if (data && Array.isArray(data)) setRows(data)
+              })
+              .catch(() => {
+                // Silent — next snapshot will catch us up.
+              })
           }
           prevGateIdxRef.current.set(
             comboKey,
