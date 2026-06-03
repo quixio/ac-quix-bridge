@@ -6,6 +6,8 @@ over WebSocket for real-time visualization.
 """
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import os
@@ -14,6 +16,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -145,8 +148,82 @@ async def health():
     }
 
 
+# --- Leaderboard: proxy an all-time fastest-lap-per-driver query to the Quix
+# Data Lake query API. Token stays server-side (env var). The full SQL is an env
+# var so the table/columns can be tuned without a code change. The default targets
+# the lake's `ac_telemetry` table with `driver` / `iBestTime` columns.
+DEFAULT_LEADERBOARD_SQL = (
+    'SELECT driver AS name, MIN("iBestTime") AS ms '
+    'FROM ac_telemetry '
+    "WHERE \"iBestTime\" > 0 AND driver IS NOT NULL AND driver <> '' "
+    "GROUP BY driver ORDER BY ms ASC LIMIT 10"
+)
+_lb_cache: dict = {"ts": 0.0, "rows": []}
+
+
+def _parse_leaderboard_csv(text: str) -> list[dict]:
+    """Parse the streamed CSV (columns: name, ms) into [{name, ms}], skipping a
+    trailing `# ERROR: ...` line if the stream failed mid-flight."""
+    rows: list[dict] = []
+    for row in csv.DictReader(io.StringIO(text)):
+        name = (row.get("name") or "").strip()
+        if not name or name.startswith("# ERROR"):
+            continue
+        try:
+            ms = int(float(row["ms"]))
+        except (TypeError, ValueError, KeyError):
+            continue
+        rows.append({"name": name, "ms": ms})
+    return rows
+
+
+@api.get("/leaderboard")
+async def leaderboard():
+    """All-time fastest lap per driver, proxied from the Data Lake query API."""
+    # Prefer explicit overrides; otherwise use the Quix-injected Lakehouse Query
+    # vars that deployed services get for free.
+    url = os.environ.get("DATALAKE_API_URL") or os.environ.get("Quix__Lakehouse__Query__Url")
+    token = os.environ.get("DATALAKE_API_TOKEN") or os.environ.get("Quix__Lakehouse__Query__AuthToken")
+    if not url or not token:
+        return {"rows": [], "error": "datalake not configured"}
+
+    ttl = float(os.environ.get("LEADERBOARD_TTL_SECONDS", "15"))
+    now = time.monotonic()
+    if _lb_cache["rows"] and now - _lb_cache["ts"] < ttl:
+        return {"rows": _lb_cache["rows"], "cached": True}
+
+    sql = os.environ.get("LEADERBOARD_SQL") or DEFAULT_LEADERBOARD_SQL
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                f"{url.rstrip('/')}/query",
+                content=sql.encode("utf-8"),
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
+            )
+        r.raise_for_status()
+        rows = _parse_leaderboard_csv(r.text)
+        _lb_cache.update(ts=now, rows=rows)
+        return {"rows": rows}
+    except Exception as e:
+        logger.exception("Leaderboard query failed")
+        # Serve stale cache if we have one; otherwise surface the error.
+        if _lb_cache["rows"]:
+            return {"rows": _lb_cache["rows"], "stale": True, "error": str(e)}
+        return {"rows": [], "error": str(e)}
+
+
 @api.get("/{full_path:path}")
 async def root(full_path: str = ""):
+    # Serve real static assets (e.g. steering-wheel.png) when the path maps to an
+    # existing file under STATIC_DIR; otherwise fall through to the SPA index.
+    if full_path:
+        try:
+            candidate = (STATIC_DIR / full_path).resolve()
+            if candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
+                return FileResponse(str(candidate))
+        except (OSError, ValueError):
+            pass
+
     index = STATIC_DIR / "index.html"
     logger.info("Request for '/%s' — serving %s (exists: %s)", full_path, index, index.exists())
     if not index.exists():

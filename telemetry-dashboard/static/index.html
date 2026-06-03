@@ -3,20 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AC Telemetry Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<title>AC Telemetry — Live</title>
 <style>
   :root {
-    --bg: #0b0b15;
-    --card: #151525;
-    --border: #252545;
-    --text: #e0e0e0;
-    --dim: #666;
+    --bg: #08080f;
+    --card: #12121f;
+    --border: #23233f;
+    --text: #f0f0f5;
+    --dim: #6a6a85;
     --cyan: #00d4ff;
     --green: #00ff88;
     --amber: #ffaa00;
     --red: #ff3355;
-    --purple: #aa55ff;
+    --purple: #c14bff;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
@@ -27,616 +26,472 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
-    padding: 8px;
-    gap: 6px;
+    padding: 1vh 1vw;
+    gap: 1vh;
+    font-variant-numeric: tabular-nums;
   }
 
-  /* Header */
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
+  /* ---------- Top bar ---------- */
+  .topbar {
     flex-shrink: 0;
-    height: 24px;
-  }
-  .header h1 {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 3px;
-    color: var(--dim);
-  }
-  .header h1 span { color: var(--cyan); }
-  .dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--red);
-    transition: background 0.3s;
-  }
-  .dot.live { background: var(--green); }
-  .dot.warn { background: var(--amber); }
-  .status-text {
-    font-size: 0.6rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--dim);
-  }
-
-  /* Main grid */
-  .dash {
-    flex: 1;
+    height: 9vh;
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr;
-    grid-template-rows: auto 1fr 1fr;
-    gap: 6px;
-    min-height: 0;
-  }
-
-  .card {
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 2vw;
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px;
-    min-height: 0;
-    overflow: hidden;
+    border-radius: 10px;
+    padding: 0 1.6vw;
+  }
+  .tb-left { justify-self: start; display: flex; align-items: center; gap: 1.4vw; }
+  .tb-right { justify-self: end; display: flex; align-items: center; gap: 1.2vw; }
+  .driver { justify-self: center; font-size: 5vh; font-weight: 800; line-height: 1; white-space: nowrap; }
+
+  .brand-logo { height: 4.6vh; width: auto; display: block; }
+
+  .dot { width: 1.2vh; height: 1.2vh; border-radius: 50%; background: var(--red); transition: background .3s; }
+  .dot.live { background: var(--green); animation: blink 1.1s ease-in-out infinite; }
+  .dot.warn { background: var(--amber); }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
+  .status-text { font-size: 1.3vh; text-transform: uppercase; letter-spacing: .12vw; color: var(--dim); white-space: nowrap; }
+
+  .stat { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+  .stat .label { font-size: 1.2vh; text-transform: uppercase; letter-spacing: .12vw; color: var(--dim); margin-bottom: .5vh; }
+  .stat .val { font-size: 3vh; font-weight: 700; }
+  .stat .val.small { font-size: 2.2vh; }
+
+  .pill {
+    font-size: 1.8vh; font-weight: 800; letter-spacing: .1vw;
+    padding: .6vh 1vw; border-radius: 6px; border: 1.5px solid var(--border);
+    color: var(--dim); text-transform: uppercase; transition: all .2s;
+  }
+  .pill.drs.on { color: #000; background: var(--green); border-color: var(--green); }
+  .pill.pit.on { color: #000; background: var(--cyan); border-color: var(--cyan); }
+  .pill.flag.yellow { color: #000; background: var(--amber); border-color: var(--amber); }
+  .pill.flag.blue   { color: #fff; background: #2a6cff; border-color: #2a6cff; }
+  .pill.flag.white  { color: #000; background: #eee; border-color: #eee; }
+  .pill.flag.checkered { color: #000; background: repeating-linear-gradient(45deg,#fff 0 6px,#000 6px 12px); }
+
+  /* ---------- Main area ---------- */
+  .main { flex: 1; display: flex; flex-direction: column; gap: 1vh; min-height: 0; }
+  .row-top { flex: 2.3; display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 1vw; min-height: 0; }
+  .row-bot { flex: .8; display: grid; grid-template-columns: 1.6fr 1fr; gap: 1vw; min-height: 0; }
+  .col { display: flex; flex-direction: column; gap: 1vh; min-height: 0; }
+  .col > .card { flex: 1; }
+  .num-card.sg { flex: .8; }
+  .temp-card { flex: 1.2; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.2vh 1vw; min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column;
   }
   .card-title {
-    font-size: 0.6rem;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    color: var(--dim);
-    margin-bottom: 6px;
+    font-size: 1.4vh; text-transform: uppercase; letter-spacing: .2vw;
+    color: var(--dim); margin-bottom: .6vh; flex-shrink: 0;
   }
 
-  /* Row 1: Speed, RPM, Gear, Pedals */
-  .hero { text-align: center; display: flex; flex-direction: column; justify-content: center; }
-  .hero .value {
-    font-size: 2.8rem;
-    font-weight: 700;
-    line-height: 1;
-    transition: color 0.15s;
-  }
-  .hero .unit {
-    font-size: 0.7rem;
-    color: var(--dim);
-    margin-top: 2px;
-  }
+  /* ---------- Speed (number) ---------- */
+  .num-card { align-items: center; justify-content: center; }
+  .num-card .big { font-size: 7vh; font-weight: 800; line-height: .9; transition: color .15s; }
+  .num-card .unit { font-size: 1.8vh; text-transform: uppercase; letter-spacing: .2vw; color: var(--dim); margin-top: .6vh; }
 
-  /* Speed card with sparkline */
-  .speed-card { grid-column: 1 / 2; }
-  .sparkline-wrap { height: 32px; margin-top: 4px; }
+  /* ---------- Steering wheel (centre) ---------- */
+  .wheel-card { align-items: center; justify-content: space-between; }
+  .wheel-head { display: flex; flex-direction: column; align-items: center; gap: .8vh; flex-shrink: 0; }
+  .rpm-readout { line-height: 1; }
+  .rpm-readout b { font-size: 4.2vh; font-weight: 800; transition: color .15s; }
+  .rpm-readout span { font-size: 1.5vh; text-transform: uppercase; letter-spacing: .15vw; color: var(--dim); }
+  .shift-lights { display: flex; gap: .55vw; justify-content: center; flex-shrink: 0; }
+  .led { width: 1.6vh; height: 1.6vh; border-radius: 50%; background: #1c1c30; transition: background .05s, box-shadow .05s; }
+  .led.on.g { background: var(--green); box-shadow: 0 0 1.1vh var(--green); }
+  .led.on.a { background: var(--amber); box-shadow: 0 0 1.1vh var(--amber); }
+  .led.on.r { background: var(--red);   box-shadow: 0 0 1.1vh var(--red); }
+  .wheel-wrap { position: relative; flex: 1; width: 100%; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .wheel-img {
+    max-height: 82%; max-width: 82%; object-fit: contain;
+    will-change: transform; transition: transform .06s linear;
+    filter: drop-shadow(0 0 1.2vh rgba(0,0,0,.55));
+  }
+  .steer-readout { flex-shrink: 0; font-size: 2vh; font-weight: 800; color: var(--dim); letter-spacing: .1vw; }
+  .steer-readout b { color: var(--cyan); }
 
-  /* RPM card */
-  .rpm-card { grid-column: 2 / 3; }
-  .rpm-bar-wrap {
-    height: 6px;
-    background: #222;
-    border-radius: 3px;
-    margin-top: 6px;
-    overflow: hidden;
-  }
-  .rpm-bar {
-    height: 100%;
-    border-radius: 3px;
-    background: var(--cyan);
-    transition: width 0.1s, background 0.2s;
-    width: 0%;
-  }
-
-  /* Gear */
-  .gear-card { grid-column: 3 / 4; }
-  .gear-card .value { font-size: 3.5rem; }
-
-  /* Pedals */
-  .pedals-card {
-    grid-column: 4 / 5;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-  .pedal-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 6px;
-  }
-  .pedal-row:last-child { margin-bottom: 0; }
-  .pedal-label {
-    font-size: 0.6rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--dim);
-    width: 42px;
-    text-align: right;
-  }
-  .pedal-track {
-    flex: 1;
-    height: 14px;
-    background: #1a1a2a;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .pedal-fill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.08s;
-    width: 0%;
-  }
-  .pedal-fill.gas { background: var(--green); }
-  .pedal-fill.brake { background: var(--red); }
-  .pedal-fill.clutch { background: var(--purple); }
-  .pedal-pct {
-    font-size: 0.7rem;
-    font-weight: 600;
-    width: 32px;
-    text-align: right;
-  }
-
-  /* Row 2: G-force, Tyre temps, Stats */
-  .gforce-card { grid-column: 1 / 3; grid-row: 2; }
-  .gforce-inner {
-    display: flex;
-    gap: 10px;
-    height: calc(100% - 20px);
-    align-items: center;
-  }
-  .gforce-chart { flex: 1; height: 100%; max-height: 100%; }
-  .gforce-vals {
-    font-size: 0.75rem;
-    color: var(--dim);
-    line-height: 2;
-  }
-  .gforce-vals span { color: var(--green); font-weight: 600; }
-
-  .tyre-card { grid-column: 3 / 5; grid-row: 2; }
-  .quad {
-    display: grid;
-    grid-template-columns: 1fr 40px 1fr;
-    grid-template-rows: 1fr 20px 1fr;
-    gap: 4px;
-    height: calc(100% - 20px);
-    align-items: center;
-    justify-items: center;
-  }
+  /* ---------- Temps (compact) ---------- */
+  .quad { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: .7vh .8vw; min-height: 0; }
   .quad .cell {
-    width: 100%;
-    height: 100%;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.1rem;
-    font-weight: 700;
-    transition: background 0.3s;
-    background: #222;
-    color: #fff;
+    border-radius: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 1.9vh; font-weight: 800; background: #1c1c30; color: #fff; transition: background .3s;
   }
-  .quad .car-icon {
-    grid-column: 2; grid-row: 2;
-    font-size: 0.55rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--dim);
-  }
-  .quad .fl { grid-column: 1; grid-row: 1; }
-  .quad .fr { grid-column: 3; grid-row: 1; }
-  .quad .rl { grid-column: 1; grid-row: 3; }
-  .quad .rr { grid-column: 3; grid-row: 3; }
+  .quad .cell .pos { font-size: .85vh; letter-spacing: .1vw; color: rgba(255,255,255,.65); margin-bottom: .1vh; }
 
-  /* Row 3: Brake temps, Speed chart, Car info */
-  .brake-card { grid-column: 1 / 2; grid-row: 3; }
-  .brake-card .quad {
-    grid-template-columns: 1fr 24px 1fr;
-    grid-template-rows: 1fr 16px 1fr;
-  }
+  /* ---------- Inputs (horizontal bars) ---------- */
+  .inputs-inner { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1.6vh; }
+  .bar-row { display: flex; align-items: center; gap: 1vw; }
+  .bar-label { width: 4vw; font-size: 1.5vh; text-transform: uppercase; letter-spacing: .1vw; color: var(--dim); }
+  .bar-track { flex: 1; height: 3vh; background: #1a1a2a; border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 0%; border-radius: 5px; transition: width .08s; }
+  .bar-fill.gas { background: var(--green); }
+  .bar-fill.brake { background: var(--red); }
+  .bar-pct { width: 5vw; text-align: right; font-size: 2.2vh; font-weight: 800; }
 
-  .speed-chart-card { grid-column: 2 / 4; grid-row: 3; }
-  .speed-chart-wrap { height: calc(100% - 20px); }
+  /* ---------- Conditions ---------- */
+  .cond-inner { flex: 1; display: flex; align-items: center; justify-content: space-around; }
+  .cond-stat { text-align: center; line-height: 1.2; }
+  .cond-stat .cs-label { font-size: 1.2vh; text-transform: uppercase; letter-spacing: .12vw; color: var(--dim); margin-bottom: .5vh; }
+  .cond-stat .cs-val { font-size: 3vh; font-weight: 800; }
 
-  .info-card { grid-column: 4 / 5; grid-row: 3; }
-  .info-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    height: calc(100% - 20px);
-    align-content: center;
-  }
-  .info-item {
-    text-align: center;
-    padding: 4px;
-    background: #1a1a2a;
-    border-radius: 6px;
-  }
-  .info-item .label {
-    font-size: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--dim);
-    margin-bottom: 2px;
-  }
-  .info-item .val {
-    font-size: 1rem;
-    font-weight: 700;
-  }
+  /* ---------- Leaderboard ---------- */
+  .lb-body { flex: 1; display: flex; flex-direction: column; justify-content: space-around; min-height: 0; }
+  .lb-row { display: grid; grid-template-columns: 2.6vw 1fr auto; align-items: center; gap: .8vw; padding: .35vh .5vw; border-radius: 5px; }
+  .lb-row .lb-pos { font-size: 1.7vh; font-weight: 800; color: var(--dim); text-align: center; }
+  .lb-row .lb-name { font-size: 2.1vh; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lb-row .lb-time { font-size: 1.9vh; font-weight: 800; color: var(--cyan); }
+  .lb-row.me { background: #1c1c30; }
+  .lb-row.me .lb-pos, .lb-row.me .lb-name { color: var(--green); }
+  /* New personal-best lap: time goes purple and blinks for ~4s, then stays purple. */
+  .lb-time.flash { color: var(--purple); animation: lbflash .5s ease-in-out 8; }
+  @keyframes lbflash { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1><span>AC</span> Telemetry</h1>
-  <div class="dot" id="status-dot"></div>
-  <div class="status-text" id="status-text">connecting…</div>
+<!-- ===================== TOP BAR ===================== -->
+<div class="topbar">
+  <div class="tb-left">
+    <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 438.16 132" aria-label="Quix"><g><rect x="108" y="108" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><rect x="81" y="81" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><rect x="54" y="54" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><path d="M129.5,0H2.5C1.12,0,0,1.12,0,2.5v127c0,1.38,1.12,2.5,2.5,2.5h73c1.38,0,2.5-1.12,2.5-2.5v-19c0-1.38-1.12-2.5-2.5-2.5H24V24h84v51.5c0,1.38,1.12,2.5,2.5,2.5h19c1.38,0,2.5-1.12,2.5-2.5V2.5c0-1.38-1.12-2.5-2.5-2.5Z" fill="#fff"/><polygon points="410.55 66.29 437.18 31.38 417.48 31.38 401.65 53.85 386.24 31.38 366.11 31.38 391.98 65.79 363.16 103.15 382.72 103.15 400.81 78.13 418.04 103.15 438.16 103.15 410.55 66.29" fill="#fff"/><rect x="339.47" y="31.38" width="17.73" height="71.77" fill="#fff"/><rect x="338.62" width="19.28" height="19.56" fill="#fff"/><path d="M310.63,70.08c0,3.85-.84,7.32-2.53,10.41-1.59,3-3.8,5.35-6.61,7.04-2.72,1.69-5.91,2.53-9.57,2.53-4.03,0-7.18-1.13-9.43-3.38-2.16-2.25-3.24-5.58-3.24-9.99V31.38h-17.73v48.97c0,4.6.94,8.73,2.81,12.38,1.97,3.66,4.74,6.57,8.3,8.73,3.66,2.06,7.97,3.1,12.95,3.1,6.29,0,11.73-1.55,16.32-4.64,3.94-2.68,7-6.13,9.29-10.27v13.5h17.31V31.38h-17.87v38.7Z" fill="#fff"/><path d="M233.22,43.85c-1.42-3.64-3.7-6.64-6.9-8.95-4.41-3.28-9.99-4.93-16.75-4.93s-12.34,1.55-17.31,4.64c-4.88,3.1-8.68,7.46-11.4,13.09-2.72,5.63-4.08,12.24-4.08,19.84s1.31,14.03,3.94,19.56c2.63,5.54,6.33,9.85,11.12,12.95,4.88,3,10.6,4.5,17.17,4.5s12.06-1.55,16.75-4.64c3.07-2.08,5.31-4.66,6.9-7.62v39.71h17.87V31.38h-17.31v12.47ZM228.01,84.15c-3.38,3.94-7.97,5.91-13.79,5.91s-10.55-1.97-13.93-5.91c-3.38-3.94-5.07-9.52-5.07-16.75s1.69-12.81,5.07-16.75c3.38-4.03,7.97-6.05,13.79-6.05s10.41,1.97,13.79,5.91c3.47,3.94,5.21,9.52,5.21,16.75s-1.69,12.85-5.07,16.89Z" fill="#fff"/></g></svg>
+  </div>
+
+  <div class="driver" id="driver-name">Tomas</div>
+
+  <div class="tb-right">
+    <div class="pill flag" id="flag-pill" style="display:none">FLAG</div>
+    <div class="pill pit" id="pit-pill" style="display:none">PIT</div>
+    <div class="dot" id="status-dot"></div>
+    <div class="status-text" id="status-text">connecting…</div>
+  </div>
 </div>
 
-<div class="dash">
-  <!-- Row 1: Speed / RPM / Gear / Pedals -->
-  <div class="card hero speed-card">
-    <div class="card-title">Speed</div>
-    <div class="value" id="speed-val">---</div>
-    <div class="unit">km/h</div>
-  </div>
-
-  <div class="card hero rpm-card">
-    <div class="card-title">RPM</div>
-    <div class="value" id="rpm-val" style="color:var(--cyan)">---</div>
-    <div class="rpm-bar-wrap"><div class="rpm-bar" id="rpm-bar"></div></div>
-  </div>
-
-  <div class="card hero gear-card">
-    <div class="card-title">Gear</div>
-    <div class="value" id="gear-val">-</div>
-  </div>
-
-  <div class="card pedals-card">
-    <div class="card-title">Pedals</div>
-    <div class="pedal-row">
-      <div class="pedal-label">Gas</div>
-      <div class="pedal-track"><div class="pedal-fill gas" id="pedal-gas"></div></div>
-      <div class="pedal-pct" id="gas-pct" style="color:var(--green)">0%</div>
+<!-- ===================== MAIN ===================== -->
+<div class="main">
+  <div class="row-top">
+    <!-- LEFT: Speed, Gear, Tyre temps, Brake temps -->
+    <div class="col">
+      <div class="card num-card sg">
+        <div class="card-title">Speed</div>
+        <div class="big" id="speed-val">0</div>
+        <div class="unit">km/h</div>
+      </div>
+      <div class="card num-card sg">
+        <div class="card-title">Gear</div>
+        <div class="big" id="gear-val">N</div>
+      </div>
+      <div class="card temp-card">
+        <div class="card-title">Tyre Temp °C</div>
+        <div class="quad">
+          <div class="cell" id="tt-fl"><span class="pos">FL</span><span>--</span></div>
+          <div class="cell" id="tt-fr"><span class="pos">FR</span><span>--</span></div>
+          <div class="cell" id="tt-rl"><span class="pos">RL</span><span>--</span></div>
+          <div class="cell" id="tt-rr"><span class="pos">RR</span><span>--</span></div>
+        </div>
+      </div>
+      <div class="card temp-card">
+        <div class="card-title">Brake Temp °C</div>
+        <div class="quad">
+          <div class="cell" id="bt-fl"><span class="pos">FL</span><span>--</span></div>
+          <div class="cell" id="bt-fr"><span class="pos">FR</span><span>--</span></div>
+          <div class="cell" id="bt-rl"><span class="pos">RL</span><span>--</span></div>
+          <div class="cell" id="bt-rr"><span class="pos">RR</span><span>--</span></div>
+        </div>
+      </div>
     </div>
-    <div class="pedal-row">
-      <div class="pedal-label">Brake</div>
-      <div class="pedal-track"><div class="pedal-fill brake" id="pedal-brake"></div></div>
-      <div class="pedal-pct" id="brake-pct" style="color:var(--red)">0%</div>
-    </div>
-    <div class="pedal-row">
-      <div class="pedal-label">Clutch</div>
-      <div class="pedal-track"><div class="pedal-fill clutch" id="pedal-clutch"></div></div>
-      <div class="pedal-pct" id="clutch-pct" style="color:var(--purple)">0%</div>
-    </div>
-  </div>
 
-  <!-- Row 2: G-Force / Tyre Temps -->
-  <div class="card gforce-card">
-    <div class="card-title">G-Force</div>
-    <div class="gforce-inner">
-      <div class="gforce-chart"><canvas id="gforce-chart"></canvas></div>
-      <div class="gforce-vals">
-        Lat<br><span id="gf-x">0.00</span>g<br><br>
-        Lon<br><span id="gf-y">0.00</span>g<br><br>
-        Vert<br><span id="gf-z">0.00</span>g
+    <!-- CENTRE: Steering wheel (RPM shift lights + number above) -->
+    <div class="card wheel-card">
+      <div class="wheel-head">
+        <div class="shift-lights" id="shift-lights"></div>
+        <div class="rpm-readout"><b id="rpm-val">0</b> <span>rpm</span></div>
+      </div>
+      <div class="wheel-wrap">
+        <img id="wheel" class="wheel-img" src="steering-wheel.png" alt="steering wheel">
+      </div>
+      <div class="steer-readout">STEER <b id="steer-val">0°</b></div>
+    </div>
+
+    <!-- RIGHT: Leaderboard (placeholder data; will come from an API query) -->
+    <div class="col">
+      <div class="card">
+        <div class="card-title">Leaderboard</div>
+        <div class="lb-body" id="lb-body"></div>
       </div>
     </div>
   </div>
 
-  <div class="card tyre-card">
-    <div class="card-title">Tyre Temperature</div>
-    <div class="quad">
-      <div class="cell fl" id="tt-fl">--</div>
-      <div></div>
-      <div class="cell fr" id="tt-fr">--</div>
-      <div></div>
-      <div class="car-icon">front</div>
-      <div></div>
-      <div class="cell rl" id="tt-rl">--</div>
-      <div></div>
-      <div class="cell rr" id="tt-rr">--</div>
+  <!-- Bottom row: Inputs | Conditions -->
+  <div class="row-bot">
+    <div class="card">
+      <div class="card-title">Inputs</div>
+      <div class="inputs-inner">
+        <div class="bar-row">
+          <div class="bar-label">Thr</div>
+          <div class="bar-track"><div class="bar-fill gas" id="p-gas"></div></div>
+          <div class="bar-pct" style="color:var(--green)" id="g-pct">0%</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Brk</div>
+          <div class="bar-track"><div class="bar-fill brake" id="p-brake"></div></div>
+          <div class="bar-pct" style="color:var(--red)" id="b-pct">0%</div>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <!-- Row 3: Brake Temps / Speed History / Info -->
-  <div class="card brake-card">
-    <div class="card-title">Brake Temp</div>
-    <div class="quad">
-      <div class="cell fl" id="bt-fl">--</div>
-      <div></div>
-      <div class="cell fr" id="bt-fr">--</div>
-      <div></div>
-      <div class="car-icon">F</div>
-      <div></div>
-      <div class="cell rl" id="bt-rl">--</div>
-      <div></div>
-      <div class="cell rr" id="bt-rr">--</div>
-    </div>
-  </div>
-
-  <div class="card speed-chart-card">
-    <div class="card-title">Speed History</div>
-    <div class="speed-chart-wrap"><canvas id="speed-spark"></canvas></div>
-  </div>
-
-  <div class="card info-card">
-    <div class="card-title">Car Info</div>
-    <div class="info-grid">
-      <div class="info-item">
-        <div class="label">Turbo</div>
-        <div class="val" id="turbo-val" style="color:var(--amber)">0.0</div>
-      </div>
-      <div class="info-item">
-        <div class="label">Steer</div>
-        <div class="val" id="steer-val" style="color:var(--cyan)">0°</div>
-      </div>
-      <div class="info-item">
-        <div class="label">Air</div>
-        <div class="val" id="air-val">--°</div>
-      </div>
-      <div class="info-item">
-        <div class="label">Road</div>
-        <div class="val" id="road-val">--°</div>
-      </div>
-      <div class="info-item">
-        <div class="label">Fuel</div>
-        <div class="val" id="fuel-val" style="color:var(--amber)">--</div>
-      </div>
-      <div class="info-item">
-        <div class="label">DRS</div>
-        <div class="val" id="drs-val">OFF</div>
+    <div class="card">
+      <div class="card-title">Conditions</div>
+      <div class="cond-inner">
+        <div class="cond-stat"><div class="cs-label">Air</div><div class="cs-val" id="air-fs">--°</div></div>
+        <div class="cond-stat"><div class="cs-label">Road</div><div class="cs-val" id="road-fs">--°</div></div>
+        <div class="cond-stat"><div class="cs-label">Turbo</div><div class="cs-val" style="color:var(--amber)" id="turbo-fs">0.00</div></div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-const TRAIL_LEN = 80;
-const SPARK_LEN = 150;
-const RPM_MAX = 9000;
+// ============================================================
+//  AC Telemetry — F1-style live dashboard
+//  Centre steering wheel + speed/RPM (left) + temps + inputs.
+//  Consumes telemetry frames + {type:"status"} envelopes over /ws.
+// ============================================================
 
 let latest = null;
-let speedHistory = [];
-let gforceTrail = [];
 
-Chart.defaults.color = '#666';
-Chart.defaults.borderColor = '#252545';
+// Auto-calibrated gauge ranges (per session).
+let rpmMax = 8000;
+let speedMax = 300;
 
-// Speed history chart
-const speedCtx = document.getElementById('speed-spark').getContext('2d');
-const speedChart = new Chart(speedCtx, {
-  type: 'line',
-  data: {
-    labels: Array(SPARK_LEN).fill(''),
-    datasets: [{
-      data: Array(SPARK_LEN).fill(null),
-      borderColor: '#00d4ff',
-      borderWidth: 1.5,
-      pointRadius: 0,
-      fill: true,
-      backgroundColor: 'rgba(0,212,255,0.06)',
-      tension: 0.3
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { display: false },
-      y: { display: true, min: 0, grid: { color: '#1a1a2a' }, ticks: { font: { size: 9 }, maxTicksLimit: 4 } }
-    },
-    animation: false
-  }
-});
+// AC steerAngle is in radians and tends to be a small range, so the rim would
+// barely move at 1:1. Exaggerate the *visual* rotation by this factor; the
+// numeric STEER readout always shows the true angle. Flip the sign here if the
+// wheel turns the wrong way relative to real AC data.
+const STEER_VISUAL_GAIN = 3;
 
-// G-force scatter
-const gfCtx = document.getElementById('gforce-chart').getContext('2d');
-const gforceChart = new Chart(gfCtx, {
-  type: 'scatter',
-  data: {
-    datasets: [
-      {
-        label: 'Trail',
-        data: [],
-        pointRadius: 1.5,
-        pointBackgroundColor: 'rgba(0,255,136,0.25)',
-        pointBorderColor: 'transparent'
-      },
-      {
-        label: 'Current',
-        data: [{ x: 0, y: 0 }],
-        pointRadius: 5,
-        pointBackgroundColor: '#00ff88',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 1.5
-      }
-    ]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: {
-        min: -3, max: 3,
-        grid: { color: '#1a1a2a' },
-        ticks: { stepSize: 1, font: { size: 8 } }
-      },
-      y: {
-        min: -3, max: 3,
-        grid: { color: '#1a1a2a' },
-        ticks: { stepSize: 1, font: { size: 8 } }
-      }
-    },
-    animation: false
-  }
-});
-
-// Color helpers
+// --- Color helpers ---
 function tyreTempColor(t) {
-  if (t < 60) return 'rgba(0,100,220,0.8)';
-  if (t < 80) return 'rgba(0,180,100,0.8)';
-  if (t < 100) return 'rgba(0,230,120,0.8)';
-  if (t < 110) return 'rgba(240,160,0,0.8)';
-  return 'rgba(240,40,70,0.85)';
+  if (t < 60) return 'rgba(0,100,220,0.85)';
+  if (t < 80) return 'rgba(0,170,100,0.85)';
+  if (t < 100) return 'rgba(0,220,120,0.85)';
+  if (t < 110) return 'rgba(240,160,0,0.85)';
+  return 'rgba(240,40,70,0.9)';
 }
-
 function brakeTempColor(t) {
-  if (t < 200) return 'rgba(0,100,220,0.8)';
-  if (t < 400) return 'rgba(240,160,0,0.7)';
-  if (t < 600) return 'rgba(240,100,0,0.8)';
-  return 'rgba(240,40,70,0.85)';
+  if (t < 200) return 'rgba(0,100,220,0.85)';
+  if (t < 400) return 'rgba(0,170,100,0.85)';
+  if (t < 600) return 'rgba(240,160,0,0.85)';
+  return 'rgba(240,40,70,0.9)';
+}
+function speedColor(s) { return s < speedMax * 0.5 ? '#00ff88' : s < speedMax * 0.8 ? '#ffaa00' : '#ff3355'; }
+function rpmColor(pct) { return pct < 0.7 ? '#00d4ff' : pct < 0.88 ? '#ffaa00' : '#ff3355'; }
+
+function gearDisplay(g) { if (g === 0) return 'R'; if (g === 1) return 'N'; return String(g - 1); }
+const gearColors = ['#ff3355', '#aaa', '#00d4ff', '#00ff88', '#ffaa00', '#ff8800', '#ff5555', '#ff3355', '#c14bff', '#c14bff'];
+
+// --- DOM refs ---
+const $ = id => document.getElementById(id);
+const speedVal = $('speed-val');
+const rpmVal = $('rpm-val');
+const gearVal = $('gear-val'), steerVal = $('steer-val'), wheel = $('wheel');
+const driverEl = $('driver-name'), pitPill = $('pit-pill'), flagPill = $('flag-pill');
+const statusDot = $('status-dot'), statusText = $('status-text');
+
+// Driver name isn't in the raw telemetry stream — take it from ?driver=<name>
+// (handy per-TV), falling back to a default. Live data overrides if it ever carries one.
+driverEl.textContent = new URLSearchParams(location.search).get('driver') || 'Tomas';
+
+// --- Leaderboard ---------------------------------------------------------
+// Placeholder standings until this is wired to an API query. Replace the rows
+// ({name, ms}) and call renderLeaderboard(). ms = lap time in milliseconds; the
+// board is sorted fastest-first and shows the top 10. The current driver's row is
+// updated live from the telemetry best-lap (iBestTime) — a new personal best
+// re-sorts the board and blinks that lap time. Names are trusted here — escape if
+// the source ever becomes user-supplied.
+const TOP_N = 10;
+let LEADERBOARD = [
+  { name: 'Tomas',  ms: 82418 },
+  { name: 'Mika',   ms: 82673 },
+  { name: 'Sergio', ms: 82901 },
+  { name: 'Elena',  ms: 83244 },
+  { name: 'Dan',    ms: 83510 },
+  { name: 'Yuki',   ms: 83872 },
+  { name: 'Carlos', ms: 84115 },
+  { name: 'Lena',   ms: 84560 },
+  { name: 'Omar',   ms: 84988 },
+  { name: 'Priya',  ms: 85402 },
+];
+
+function fmtLap(ms) {
+  if (!ms || ms <= 0) return '--:--.---';
+  const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), mm = ms % 1000;
+  return m + ':' + String(s).padStart(2, '0') + '.' + String(mm).padStart(3, '0');
 }
 
-function speedColor(s) {
-  if (s < 100) return '#00ff88';
-  if (s < 200) return '#ffaa00';
-  return '#ff3355';
+function renderLeaderboard(flashName) {
+  const me = (driverEl.textContent || '').toLowerCase();
+  const flash = flashName ? flashName.toLowerCase() : null;
+  $('lb-body').innerHTML = LEADERBOARD.slice(0, TOP_N).map((r, i) =>
+    '<div class="lb-row' + (r.name.toLowerCase() === me ? ' me' : '') + '">' +
+      '<div class="lb-pos">' + (i + 1) + '</div>' +
+      '<div class="lb-name">' + r.name + '</div>' +
+      '<div class="lb-time' + (flash && r.name.toLowerCase() === flash ? ' flash' : '') + '">' + fmtLap(r.ms) + '</div>' +
+    '</div>'
+  ).join('');
+}
+renderLeaderboard();
+
+// Reflect the current driver's session-best lap on the board. First sync just
+// seeds their row; every later improvement re-sorts the board and blinks the time.
+let bestSessionId = null, lastBestMs = null;
+function updateDriverBest(d) {
+  if (d.session_id !== bestSessionId) { bestSessionId = d.session_id; lastBestMs = null; }
+  const best = d.iBestTime;
+  if (!best || best <= 0) return;
+  if (lastBestMs !== null && best >= lastBestMs) return;   // no improvement
+  const improved = lastBestMs !== null;
+  lastBestMs = best;
+
+  const name = (driverEl.textContent || '').trim();
+  let row = LEADERBOARD.find(r => r.name.toLowerCase() === name.toLowerCase());
+  if (row) row.ms = best;
+  else LEADERBOARD.push({ name, ms: best });
+  LEADERBOARD.sort((a, b) => a.ms - b.ms);
+
+  renderLeaderboard(improved ? name : null);
 }
 
-function rpmColor(pct) {
-  if (pct < 0.7) return '#00d4ff';
-  if (pct < 0.85) return '#ffaa00';
-  return '#ff3355';
+// Poll the backend /leaderboard proxy (Data Lake-backed, all-time). Falls back
+// silently to the placeholder + live-stream board if it's not configured or errors.
+// The current driver's live best is merged on top so it stays ahead of the lake.
+const LB_POLL_MS = 20000;
+async function pollLeaderboard() {
+  try {
+    const res = await fetch('/leaderboard', { cache: 'no-store' });
+    if (!res.ok) return;
+    const j = await res.json();
+    if (!Array.isArray(j.rows) || !j.rows.length) return;
+    LEADERBOARD = j.rows.map(r => ({ name: r.name, ms: r.ms }));
+    if (lastBestMs != null) {
+      const me = (driverEl.textContent || '').trim();
+      const mine = LEADERBOARD.find(r => r.name.toLowerCase() === me.toLowerCase());
+      if (mine) { if (lastBestMs < mine.ms) mine.ms = lastBestMs; }
+      else LEADERBOARD.push({ name: me, ms: lastBestMs });
+    }
+    LEADERBOARD.sort((a, b) => a.ms - b.ms);
+    renderLeaderboard();
+  } catch { /* keep current board */ }
 }
+setInterval(pollLeaderboard, LB_POLL_MS);
+pollLeaderboard();
 
-function gearDisplay(g) {
-  if (g === 0) return 'R';
-  if (g === 1) return 'N';
-  return String(g - 1);
-}
-
-const gearColors = ['#ff3355','#888','#00d4ff','#00ff88','#ffaa00','#ff8800','#ff5555','#ff3355','#cc00ff'];
-
-// DOM refs
-const speedVal = document.getElementById('speed-val');
-const rpmVal = document.getElementById('rpm-val');
-const rpmBar = document.getElementById('rpm-bar');
-const gearVal = document.getElementById('gear-val');
-const pedalGas = document.getElementById('pedal-gas');
-const pedalBrake = document.getElementById('pedal-brake');
-const pedalClutch = document.getElementById('pedal-clutch');
-const gasPct = document.getElementById('gas-pct');
-const brakePct = document.getElementById('brake-pct');
-const clutchPct = document.getElementById('clutch-pct');
-const gfX = document.getElementById('gf-x');
-const gfY = document.getElementById('gf-y');
-const gfZ = document.getElementById('gf-z');
-const ttFL = document.getElementById('tt-fl');
-const ttFR = document.getElementById('tt-fr');
-const ttRL = document.getElementById('tt-rl');
-const ttRR = document.getElementById('tt-rr');
-const btFL = document.getElementById('bt-fl');
-const btFR = document.getElementById('bt-fr');
-const btRL = document.getElementById('bt-rl');
-const btRR = document.getElementById('bt-rr');
-const turboVal = document.getElementById('turbo-val');
-const steerVal = document.getElementById('steer-val');
-const airVal = document.getElementById('air-val');
-const roadVal = document.getElementById('road-val');
-const fuelVal = document.getElementById('fuel-val');
-const drsVal = document.getElementById('drs-val');
-const statusDot = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
-
-// Reflect server-reported consumer health on the header dot. Green only when the
-// Kafka consumer is actually connected — not merely because the socket opened.
-function applyStatus(status, detail) {
-  statusDot.classList.remove('live', 'warn');
-  if (status === 'connected') {
-    statusDot.classList.add('live');
-    statusText.textContent = 'live';
-  } else if (status === 'connecting' || status === 'reconnecting' || status === 'starting') {
-    statusDot.classList.add('warn');
-    statusText.textContent = detail ? status + ' · ' + detail : status;
-  } else {
-    statusText.textContent = status || 'offline';
+// Build shift-light LEDs (15: 9 green / 3 amber / 3 red).
+const LED_COUNT = 15;
+const leds = [];
+(function buildLeds() {
+  const wrap = $('shift-lights');
+  for (let i = 0; i < LED_COUNT; i++) {
+    const el = document.createElement('div');
+    el.className = 'led ' + (i < 9 ? 'g' : i < 12 ? 'a' : 'r');
+    wrap.appendChild(el);
+    leds.push(el);
   }
+})();
+
+function setTemp(id, val, colorFn) {
+  const el = $(id);
+  const v = val || 0;
+  el.lastElementChild.textContent = Math.round(v) + '°';
+  el.style.background = colorFn(v);
+}
+function setBar(fillId, pct, pctId) {
+  $(fillId).style.width = Math.max(0, Math.min(pct, 100)) + '%';
+  $(pctId).textContent = Math.round(pct) + '%';
 }
 
 function render() {
-  if (!latest) { requestAnimationFrame(render); return; }
   const d = latest;
+  if (!d) { requestAnimationFrame(render); return; }
 
-  // Speed
+  // Auto-calibrate gauge ranges to the car.
+  if (d.rpms > rpmMax * 0.99) rpmMax = Math.ceil(d.rpms / 500) * 500;
+  if (d.speedKmh > speedMax * 0.99) speedMax = Math.ceil(d.speedKmh / 20) * 20;
+
+  // Speed (number)
   const spd = d.speedKmh || 0;
   speedVal.textContent = Math.round(spd);
   speedVal.style.color = speedColor(spd);
 
-  speedHistory.push(spd);
-  if (speedHistory.length > SPARK_LEN) speedHistory.shift();
-  speedChart.data.datasets[0].data = [...speedHistory];
-  speedChart.data.labels = speedHistory.map(() => '');
-  speedChart.update();
-
-  // RPM
+  // RPM number (gauge dropped — the shift lights are the RPM indicator)
   const rpm = d.rpms || 0;
-  const rpmPct = Math.min(rpm / RPM_MAX, 1);
-  rpmVal.textContent = rpm.toLocaleString();
+  const rpmPct = rpm / rpmMax;
+  rpmVal.textContent = Math.round(rpm).toLocaleString();
   rpmVal.style.color = rpmColor(rpmPct);
-  rpmBar.style.width = (rpmPct * 100) + '%';
-  rpmBar.style.background = rpmColor(rpmPct);
 
-  // Gear
+  // Shift lights
+  const lit = Math.round(Math.min(rpmPct, 1) * LED_COUNT);
+  for (let i = 0; i < LED_COUNT; i++) leds[i].classList.toggle('on', i < lit);
+
+  // Steering wheel + gear
+  const steerDeg = (d.steerAngle || 0) * 180 / Math.PI;
+  wheel.style.transform = 'rotate(' + (steerDeg * STEER_VISUAL_GAIN).toFixed(1) + 'deg)';
+  steerVal.textContent = (steerDeg > 0 ? '+' : '') + Math.round(steerDeg) + '°';
+
   const gear = d.gear ?? 1;
   gearVal.textContent = gearDisplay(gear);
-  gearVal.style.color = gearColors[Math.min(gear, gearColors.length - 1)];
+  gearVal.style.color = gearColors[Math.min(Math.max(gear, 0), gearColors.length - 1)];
 
-  // Pedals
-  const gas = (d.gas || 0) * 100;
-  const brake = (d.brake || 0) * 100;
-  const clutch = (1 - (d.clutch || 0)) * 100;
-  pedalGas.style.width = gas + '%';
-  pedalBrake.style.width = brake + '%';
-  pedalClutch.style.width = clutch + '%';
-  gasPct.textContent = Math.round(gas) + '%';
-  brakePct.textContent = Math.round(brake) + '%';
-  clutchPct.textContent = Math.round(clutch) + '%';
+  // Driver name — override only if live data ever carries one.
+  if (d.driverName || d.playerName) driverEl.textContent = d.driverName || d.playerName;
 
-  // G-force
-  const gx = d.accG_x || 0;
-  const gy = d.accG_y || 0;
-  const gz = d.accG_z || 0;
-  gfX.textContent = gx.toFixed(2);
-  gfY.textContent = gy.toFixed(2);
-  gfZ.textContent = gz.toFixed(2);
+  // PIT / Flag pills
+  const inPit = d.isInPitLane === 1 || d.isInPit === 1;
+  pitPill.style.display = inPit ? '' : 'none';
+  pitPill.classList.toggle('on', inPit);
+  const flag = d.flag && d.flag !== 'none' ? d.flag : null;
+  if (flag) { flagPill.style.display = ''; flagPill.textContent = flag; flagPill.className = 'pill flag ' + flag; }
+  else flagPill.style.display = 'none';
 
-  gforceTrail.push({ x: gx, y: gy });
-  if (gforceTrail.length > TRAIL_LEN) gforceTrail.shift();
-  gforceChart.data.datasets[0].data = [...gforceTrail];
-  gforceChart.data.datasets[1].data = [{ x: gx, y: gy }];
-  gforceChart.update();
+  // Temps
+  setTemp('tt-fl', d.tyreTempFL, tyreTempColor); setTemp('tt-fr', d.tyreTempFR, tyreTempColor);
+  setTemp('tt-rl', d.tyreTempRL, tyreTempColor); setTemp('tt-rr', d.tyreTempRR, tyreTempColor);
+  setTemp('bt-fl', d.brakeTempFL, brakeTempColor); setTemp('bt-fr', d.brakeTempFR, brakeTempColor);
+  setTemp('bt-rl', d.brakeTempRL, brakeTempColor); setTemp('bt-rr', d.brakeTempRR, brakeTempColor);
 
-  // Tyre temps
-  function setTemp(el, val, colorFn) {
-    el.textContent = Math.round(val) + '°';
-    el.style.background = colorFn(val);
-  }
-  setTemp(ttFL, d.tyreTempFL || 0, tyreTempColor);
-  setTemp(ttFR, d.tyreTempFR || 0, tyreTempColor);
-  setTemp(ttRL, d.tyreTempRL || 0, tyreTempColor);
-  setTemp(ttRR, d.tyreTempRR || 0, tyreTempColor);
+  // Inputs (throttle / brake) + conditions
+  setBar('p-gas', (d.gas || 0) * 100, 'g-pct');
+  setBar('p-brake', (d.brake || 0) * 100, 'b-pct');
+  $('air-fs').textContent = Math.round(d.airTemp || 0) + '°';
+  $('road-fs').textContent = Math.round(d.roadTemp || 0) + '°';
+  $('turbo-fs').textContent = (d.turboBoost || 0).toFixed(2);
 
-  // Brake temps
-  setTemp(btFL, d.brakeTempFL || 0, brakeTempColor);
-  setTemp(btFR, d.brakeTempFR || 0, brakeTempColor);
-  setTemp(btRL, d.brakeTempRL || 0, brakeTempColor);
-  setTemp(btRR, d.brakeTempRR || 0, brakeTempColor);
-
-  // Car info
-  turboVal.textContent = (d.turboBoost || 0).toFixed(2);
-  steerVal.textContent = Math.round((d.steerAngle || 0) * (180 / Math.PI)) + '°';
-  airVal.textContent = Math.round(d.airTemp || 0) + '°';
-  roadVal.textContent = Math.round(d.roadTemp || 0) + '°';
-  fuelVal.textContent = (d.fuel || 0).toFixed(1);
-  const drsOn = d.drsEnabled === 1;
-  drsVal.textContent = drsOn ? 'ON' : 'OFF';
-  drsVal.style.color = drsOn ? 'var(--green)' : 'var(--dim)';
+  // Leaderboard: reflect a new personal-best lap for the current driver.
+  updateDriverBest(d);
 
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
 
-// WebSocket
+// --- Status dot driven by real consumer health ---
+function applyStatus(status, detail) {
+  statusDot.classList.remove('live', 'warn');
+  if (status === 'connected') { statusDot.classList.add('live'); statusText.textContent = 'live'; }
+  else if (status === 'connecting' || status === 'reconnecting' || status === 'starting') {
+    statusDot.classList.add('warn');
+    statusText.textContent = detail ? status + ' · ' + detail : status;
+  } else statusText.textContent = status || 'offline';
+}
+
+// --- WebSocket ---
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(proto + '//' + location.host + '/ws');
-
   ws.onopen = () => { statusText.textContent = 'connecting…'; };
   ws.onmessage = (e) => {
     let msg;
