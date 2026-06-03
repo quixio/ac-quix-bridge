@@ -39,8 +39,8 @@ QuixStreams' `Application()` constructor auto-resolves cloud broker from either:
 
 | Variable | Description | Default |
 |---|---|---|
-| `output` | Kafka topic for physics+graphics ticks. | `acc-telemetry-raw` |
-| `session_output` | Kafka topic for session metadata (1 row per session start). | `acc-telemetry-session` |
+| `output` | Kafka topic for physics+graphics ticks. | `ac-telemetry-raw` |
+| `session_output` | Kafka topic for session metadata (1 row per session start). | `ac-telemetry-session` |
 | `SAMPLE_RATE_HZ` | Polling rate. Graphics block updates at ~60 Hz; physics at ~333 Hz. | `50` |
 | `LOG_LEVEL` | `INFO` / `DEBUG` / `WARNING`. Default is `INFO`. | `INFO` |
 

@@ -4,12 +4,12 @@ variables:
   - name: output
     inputType: OutputTopic
     description: Name of the output topic to write telemetry into
-    defaultValue: acc-telemetry-raw
+    defaultValue: ac-telemetry-raw
     required: true
   - name: session_output
     inputType: OutputTopic
     description: Topic to write session metadata into
-    defaultValue: acc-telemetry-session
+    defaultValue: ac-telemetry-session
     required: true
   - name: SAMPLE_RATE_HZ
     inputType: FreeText
