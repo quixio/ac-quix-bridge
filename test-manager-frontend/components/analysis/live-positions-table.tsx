@@ -288,14 +288,28 @@ export function LivePositionsTable({
             const aboveDriver = idx > 0 ? visible[idx - 1].driver : null
             const belowDriver =
               idx < visible.length - 1 ? visible[idx + 1].driver : null
+            // Primary source: sticky crossingSnapshot. Fallback: the
+            // neighbour row's own `current_lap_time_ms`. The fallback
+            // matters after a rank-shuffle gate crossing — the new
+            // neighbour might not be in the snapshot's map yet, but
+            // their `current_lap_time_ms` is always up-to-date from the
+            // HTTP refetch / WS patch. Prevents chips from blinking out
+            // when active climbs/drops several places at one crossing.
+            const aboveRow = idx > 0 ? visible[idx - 1] : null
+            const belowRow =
+              idx < visible.length - 1 ? visible[idx + 1] : null
             const aboveAtCrossingMs =
               aboveDriver != null && crossingSnapshot
-                ? crossingSnapshot.historicalAtMs[aboveDriver] ?? null
-                : null
+                ? crossingSnapshot.historicalAtMs[aboveDriver] ??
+                  aboveRow?.current_lap_time_ms ??
+                  null
+                : aboveRow?.current_lap_time_ms ?? null
             const belowAtCrossingMs =
               belowDriver != null && crossingSnapshot
-                ? crossingSnapshot.historicalAtMs[belowDriver] ?? null
-                : null
+                ? crossingSnapshot.historicalAtMs[belowDriver] ??
+                  belowRow?.current_lap_time_ms ??
+                  null
+                : belowRow?.current_lap_time_ms ?? null
             return (
               <LeaderRow
                 key={`${row.driver}|${row.track}|${row.car}|${row.experiment}|${row.is_active ? "live" : "ghost"}`}
@@ -369,19 +383,15 @@ function LeaderRow({
   const displayMs = rowDisplayMs(row, freezeState, crossingSnapshot)
   const atPosLabel = formatLapTime(displayMs)
 
-  // Colour cue: spec §3.3 / §3.4 / §3.6.
-  // Active in live: emerald (ahead) / rose (behind) / default (neutral).
-  // Active in frozen: blue.
-  // Historicals: ALWAYS default text colour, regardless of mode or rank.
+  // Colour cue (per Ludvik 2026-06-03): the active row's live timer
+  // stays default-white at all times EXCEPT during the 3 s blue freeze
+  // at gate crossings. The ahead/behind signal is carried by the dual
+  // gap chips next to the time, NOT by the time text itself, so the
+  // user can read the time stably without the colour shifting under it.
+  // Historicals: always default text colour.
   let atPosClass = ""
-  if (row.is_active) {
-    if (isFrozen) {
-      atPosClass = "font-semibold text-blue-400"
-    } else if (row.last_gate_state === "ahead") {
-      atPosClass = "font-semibold text-emerald-400"
-    } else if (row.last_gate_state === "behind") {
-      atPosClass = "font-semibold text-rose-400"
-    }
+  if (row.is_active && isFrozen) {
+    atPosClass = "font-semibold text-blue-400"
   }
 
   // Dual gap chips (spec §3.5). Both reference the LAST crossing's

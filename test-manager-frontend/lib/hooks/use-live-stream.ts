@@ -205,10 +205,23 @@ function patchActiveRow(
   mutation: ActiveMutation,
   historicalDeltas: Record<string, number> | undefined,
   historicalAtPositionsNext: Record<string, number> | undefined,
+  historicalAtPositionsAtCrossing: Record<string, number> | undefined,
 ): LivePositionEntry[] {
   let changed = false
   const deltas = historicalDeltas ?? {}
-  const atPositionsNext = historicalAtPositionsNext ?? {}
+  // Spec §3.4: at a gate crossing, the WS active envelope carries BOTH
+  // the at-crossing (gate-N) and next-gate (gate-(N+1)) maps. The 3 s
+  // blue freeze (which fires on this same WS message) needs gate-N to
+  // be the rendered value. If we patch rows to gate-(N+1) here, the
+  // brief 1-frame gap before freezeState catches up shows next-gate
+  // times — exactly Ludvik's complaint. Patch to AT-CROSSING when
+  // present; HTTP refetch (~100 ms later) will bring gate-(N+1) before
+  // the freeze expires.
+  const atCrossing = historicalAtPositionsAtCrossing ?? {}
+  const hasCrossing = Object.keys(atCrossing).length > 0
+  const atPositionsNext = hasCrossing
+    ? atCrossing
+    : historicalAtPositionsNext ?? {}
   const next = rows.map((row) => {
     // Active-row patch path.
     if (
@@ -347,7 +360,13 @@ export function useLiveStream(): UseLiveStreamResult {
           const atPositionsAtCrossing =
             parsed.historical_at_positions_at_crossing
           setRows((prev) =>
-            patchActiveRow(prev, mutation, deltas, atPositionsNext),
+            patchActiveRow(
+              prev,
+              mutation,
+              deltas,
+              atPositionsNext,
+              atPositionsAtCrossing,
+            ),
           )
           // Detect a fresh gate crossing per (driver, track, car, exp)
           // identity. A change in `last_gate_index` from one non-null
