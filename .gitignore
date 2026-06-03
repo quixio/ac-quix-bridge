@@ -22,6 +22,8 @@ dcm_source_code/
 # Playwright MCP artifacts (smoke tests, agent screenshots, MCP cache)
 .playwright-mcp/
 *.png
+# ...but keep real static image assets served by apps
+!telemetry-dashboard/static/*.png
 
 # Mock server for local UI testing
 telemetry-comparison/mock/
