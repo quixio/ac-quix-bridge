@@ -24,10 +24,6 @@ variables:
     inputType: FreeText
     description: Column containing timestamp values to extract year/month/day/hour from
     defaultValue: timestamp_ms
-  - name: CATALOG_URL
-    inputType: FreeText
-    description: REST Catalog URL for optional table registration (leave empty to skip)
-    defaultValue: https://iceberg-catalog-quixers-testrigdemodatawarehouse-prod.az-france-0.app.quix.io
   - name: AUTO_DISCOVER
     inputType: Options
     description: Automatically register table in REST Catalog on first write
