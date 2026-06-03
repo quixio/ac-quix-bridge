@@ -1,2 +1,3 @@
 import os
-print(os.env)
+
+print(os)
