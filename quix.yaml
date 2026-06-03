@@ -532,6 +532,55 @@ deployments:
         value: transform
     blobStorage:
       bind: true
+  - name: QuixLab
+    application: quixlab
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 2000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: quixlab
+    state:
+      enabled: true
+      size: 1
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: QUIXLAB_NOTEBOOK
+        inputType: FreeText
+        description: Notebook file to open on startup (leave empty for the file picker)
+        value: main.py
+      - name: QUIXLAB_MODE
+        inputType: FreeText
+        description: "Run mode: 'app' (view only) or 'edit' (full editor)"
+        value: edit
+      - name: QUIX_LAKE_TOKEN
+        inputType: ProjectVariable
+        description: Override token for QuixLake queries. Leave empty to use the platform-injected Quix__Sdk__Token.
+        secret: true
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: QuixLab
+        icon: grid_view
+        order: 1
+      globalItem:
+        show: true
+        label: QuixLab
+        icon: find_in_page
+        order: 1
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
