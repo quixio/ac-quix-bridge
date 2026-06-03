@@ -64,18 +64,23 @@ workspace_id = os.getenv("Quix__Workspace__Id", "")
 # Note: Blob storage credentials are configured via Quix__BlobStorage__Connection__Json
 # environment variable, which is automatically read by quixportal.
 # The bucket name is extracted automatically from the quixportal configuration.
+# Quix Portal injects the Catalog URL under both the Quix naming convention
+# (`Quix__Lakehouse__Catalog__Url`) and the PyIceberg one (`CATALOG_URL`) when a Lakehouse Catalog
+# deployment exists in the workspace; prefer the Quix name, fall back to the PyIceberg one for
+# legacy compatibility. The auth token is only injected under the Quix name — it routes via the
+# secrets-bag / secretKeyRef path that the platform uses for the Catalog's own credentials.
 blob_sink = QuixTSDataLakeSink(
     s3_prefix=TIMESERIES_PREFIX,
     table_name=table_name,
     workspace_id=workspace_id,
     hive_columns=hive_columns,
     timestamp_column=os.getenv("TIMESTAMP_COLUMN", "ts_ms"),
-    catalog_url=os.getenv("CATALOG_URL"),
-    catalog_auth_token=os.getenv("CATALOG_AUTH_TOKEN", os.getenv("Quix__Sdk__Token", "")),
+    catalog_url=os.getenv("Quix__Lakehouse__Catalog__Url") or os.getenv("CATALOG_URL"),
+    catalog_auth_token=os.getenv("Quix__Lakehouse__Catalog__AuthToken"),
     auto_discover=auto_discover,
     namespace=os.getenv("CATALOG_NAMESPACE", "default"),
     auto_create_bucket=True,
-    max_workers=int(os.getenv("MAX_WRITE_WORKERS", "10")),
+    max_workers=_positive_int("MAX_WRITE_WORKERS", "10"),
     on_client_connect_success=lambda: print("CONNECTED!"),
     on_client_connect_failure=lambda e: print(f"ERROR! {e}"),
 )
