@@ -29,6 +29,16 @@ logger = logging.getLogger(__name__)
 TIMESERIES_PREFIX = "data-lake/time-series"
 
 
+def _positive_int(env_var: str, default: str) -> int:
+    raw = os.getenv(env_var, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{env_var} must be a positive integer, got '{raw}'")
+    if value <= 0:
+        raise ValueError(f"{env_var} must be a positive integer, got {value}")
+    return value
+
 def parse_hive_columns(columns_str: str) -> list:
     """
     Parse comma-separated list of partition columns.
