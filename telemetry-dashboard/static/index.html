@@ -54,6 +54,13 @@
     transition: background 0.3s;
   }
   .dot.live { background: var(--green); }
+  .dot.warn { background: var(--amber); }
+  .status-text {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--dim);
+  }
 
   /* Main grid */
   .dash {
@@ -258,6 +265,7 @@
 <div class="header">
   <h1><span>AC</span> Telemetry</h1>
   <div class="dot" id="status-dot"></div>
+  <div class="status-text" id="status-text">connecting…</div>
 </div>
 
 <div class="dash">
@@ -524,6 +532,22 @@ const roadVal = document.getElementById('road-val');
 const fuelVal = document.getElementById('fuel-val');
 const drsVal = document.getElementById('drs-val');
 const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+
+// Reflect server-reported consumer health on the header dot. Green only when the
+// Kafka consumer is actually connected — not merely because the socket opened.
+function applyStatus(status, detail) {
+  statusDot.classList.remove('live', 'warn');
+  if (status === 'connected') {
+    statusDot.classList.add('live');
+    statusText.textContent = 'live';
+  } else if (status === 'connecting' || status === 'reconnecting' || status === 'starting') {
+    statusDot.classList.add('warn');
+    statusText.textContent = detail ? status + ' · ' + detail : status;
+  } else {
+    statusText.textContent = status || 'offline';
+  }
+}
 
 function render() {
   if (!latest) { requestAnimationFrame(render); return; }
@@ -613,10 +637,16 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(proto + '//' + location.host + '/ws');
 
-  ws.onopen = () => { statusDot.classList.add('live'); };
-  ws.onmessage = (e) => { try { latest = JSON.parse(e.data); } catch {} };
+  ws.onopen = () => { statusText.textContent = 'connecting…'; };
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg && msg.type === 'status') { applyStatus(msg.status, msg.detail); return; }
+    latest = msg;
+  };
   ws.onclose = () => {
-    statusDot.classList.remove('live');
+    statusDot.classList.remove('live', 'warn');
+    statusText.textContent = 'disconnected';
     setTimeout(connect, 2000);
   };
   ws.onerror = () => ws.close();
