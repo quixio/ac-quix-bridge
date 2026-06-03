@@ -23,7 +23,7 @@ connection = ConnectionConfig(
 )
 
 def main():
-    app = Application(consumer_group="acc_telemetry_source", auto_create_topics=True, broker_address=connection)
+    app = Application(consumer_group="acc_telemetry_source", auto_create_topics=False, broker_address=connection)
     output_topic = app.topic(name=os.environ["output"])
     session_topic = app.topic(name=os.environ.get("session_output", "ac-telemetry-session"))
 
