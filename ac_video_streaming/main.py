@@ -11,7 +11,9 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# override=True so a stale shell env (e.g. an `$env:session_input` left over
+# from a prior run) doesn't shadow what's in the root .env.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 from video_source import ACVideoSource
 

@@ -29,12 +29,40 @@ logger = logging.getLogger(__name__)
 
 
 def _get_blob_fs():
-    """Get quixportal filesystem for blob storage. Returns None if unavailable."""
+    """Build an s3fs filesystem for blob storage straight from
+    Quix__BlobStorage__Connection__Json. We bypass quixportal.get_filesystem()
+    because it doesn't expose an SSL-verify-disable knob, and the MinIO
+    deployment uses a self-signed cert chain. Returns None on any failure
+    (recording continues, MP4s stay local)."""
+    import json
+    raw = os.environ.get("Quix__BlobStorage__Connection__Json", "").strip()
+    if not raw:
+        logger.warning("Quix__BlobStorage__Connection__Json not set — MP4s stay local")
+        return None
     try:
-        from quixportal.storage import get_filesystem
-        fs = get_filesystem()
-        logger.info("Blob storage connected")
-        return fs
+        cfg = json.loads(raw)
+        s3 = cfg.get("S3Compatible") or cfg.get("s3_compatible") or {}
+        bucket = s3.get("BucketName") or s3.get("bucket_name")
+        endpoint = s3.get("ServiceUrl") or s3.get("service_url")
+        access = s3.get("AccessKeyId") or s3.get("access_key_id")
+        secret = s3.get("SecretAccessKey") or s3.get("secret_access_key")
+        if not all([bucket, endpoint, access, secret]):
+            raise ValueError("missing one of bucket/endpoint/access/secret")
+        import fsspec
+        fs = fsspec.filesystem(
+            "s3",
+            key=access,
+            secret=secret,
+            endpoint_url=endpoint,
+            use_ssl=endpoint.startswith("https://"),
+            # MinIO is fronted by a self-signed cert — skip verification.
+            client_kwargs={"verify": False},
+        )
+        # Validate by listing the bucket root.
+        fs.ls(f"{bucket}/", refresh=True)
+        wrapped = fsspec.filesystem("dir", fs=fs, path=bucket)
+        logger.info("Blob storage connected (s3://%s @ %s, SSL verify off)", bucket, endpoint)
+        return wrapped
     except Exception as e:
         logger.warning("Blob storage not available, MP4s will remain local only: %s", e)
         return None
