@@ -14,7 +14,10 @@ configure_logging()
 
 connection = ConnectionConfig(
     bootstrap_servers=os.environ["Quix__Broker__Address"],
-    security_protocol="ssl",
+    security_protocol="sasl_ssl",
+    sasl_mechanism="SCRAM-SHA-512",
+    sasl_username=os.environ["Quix__Broker__Username"],
+    sasl_password=os.environ["Quix__Broker__Password"],
     enable_ssl_certificate_verification=False,
     ssl_endpoint_identification_algorithm="none",
 )
