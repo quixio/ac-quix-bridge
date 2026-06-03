@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -1,12 +1,13 @@
 import logging
 import os
 import time
+from pathlib import Path
 
 from quixstreams import Application
 from video_source import ACVideoSource
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 

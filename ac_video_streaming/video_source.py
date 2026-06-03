@@ -49,7 +49,14 @@ class ACVideoSource(Source):
 
     def __init__(self, name: str):
         super().__init__(name=name)
-        self._display_index = int(os.environ.get("VIDEO_DISPLAY_INDEX", "0"))
+        # Display selection: numeric index, "auto" (primary), or a resolution
+        # like "3440x1440" that picks the matching output. Resolved in
+        # _init_camera() after dxcam has enumerated outputs.
+        self._display_selector = os.environ.get("VIDEO_DISPLAY_INDEX", "auto").strip()
+        # Optional sub-rect crop within the chosen display, "left,top,right,bottom"
+        # in display-local pixels. Useful on ultrawide screens to record only
+        # the AC game viewport instead of the whole desktop.
+        self._capture_region = self._parse_region(os.environ.get("VIDEO_CAPTURE_REGION", ""))
         self._fps = int(os.environ.get("VIDEO_FPS", "15"))
         self._stream_fps = int(os.environ.get("STREAM_FPS", "15"))
         self._output_dir = os.environ.get("VIDEO_OUTPUT_DIR", "./recordings")
@@ -71,6 +78,87 @@ class ACVideoSource(Source):
         recorded with this id won't be syncable in the Telemetry Explorer."""
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
+    @staticmethod
+    def _parse_region(value: str) -> tuple[int, int, int, int] | None:
+        """Parse "left,top,right,bottom" into a dxcam region tuple. Returns
+        None when the env var is empty or malformed (caller falls back to
+        full-display capture)."""
+        if not value:
+            return None
+        try:
+            parts = [int(p.strip()) for p in value.split(",")]
+            if len(parts) != 4:
+                raise ValueError("expected 4 comma-separated ints")
+            left, top, right, bottom = parts
+            if right <= left or bottom <= top:
+                raise ValueError("right>left and bottom>top required")
+            return left, top, right, bottom
+        except Exception as e:
+            logger.warning("Invalid VIDEO_CAPTURE_REGION %r (%s) — ignoring", value, e)
+            return None
+
+    def _enumerate_outputs(self, dxcam) -> list[dict]:
+        """Return [{device, output, resolution, primary}, ...] across all GPU/output
+        pairs. Parses dxcam.output_info() — a multi-line human-readable string
+        whose format dxcam doesn't promise; we log it raw too so the user always
+        has a fallback."""
+        outputs: list[dict] = []
+        try:
+            raw = dxcam.output_info()
+        except Exception:
+            logger.exception("dxcam.output_info() failed; cannot enumerate displays")
+            return outputs
+        logger.info("dxcam.output_info():\n%s", raw)
+        # Lines look like: "Device[0] Output[1]: Res:(3440, 1440) Rot:0 Primary:True"
+        import re
+        pattern = re.compile(
+            r"Device\[(\d+)\]\s+Output\[(\d+)\].*?Res:\(\s*(\d+)\s*,\s*(\d+)\s*\).*?Primary:(\w+)",
+            re.IGNORECASE,
+        )
+        for m in pattern.finditer(raw):
+            outputs.append({
+                "device": int(m.group(1)),
+                "output": int(m.group(2)),
+                "resolution": (int(m.group(3)), int(m.group(4))),
+                "primary": m.group(5).strip().lower() == "true",
+            })
+        return outputs
+
+    def _resolve_display(self, outputs: list[dict]) -> tuple[int | None, int | None]:
+        """Map VIDEO_DISPLAY_INDEX to (device_idx, output_idx). Accepts:
+          - "" or "auto"   → primary display
+          - integer        → output_idx on device 0 (legacy behavior)
+          - "WxH"          → first output whose resolution matches
+        Returns (None, None) when no match."""
+        sel = self._display_selector.lower()
+        if not sel or sel == "auto":
+            for o in outputs:
+                if o["primary"]:
+                    logger.info("Display selector 'auto' → primary %s", o)
+                    return o["device"], o["output"]
+            if outputs:
+                logger.info("No primary flag found; using first output %s", outputs[0])
+                return outputs[0]["device"], outputs[0]["output"]
+            return None, None
+        if "x" in sel and sel.replace("x", "").isdigit():
+            try:
+                w, h = (int(p) for p in sel.split("x", 1))
+                for o in outputs:
+                    if o["resolution"] == (w, h):
+                        logger.info("Display selector '%s' matched %s", sel, o)
+                        return o["device"], o["output"]
+                logger.error("No display matches resolution %dx%d", w, h)
+                return None, None
+            except ValueError:
+                pass
+        try:
+            idx = int(sel)
+            logger.info("Display selector legacy index → device=0 output=%d", idx)
+            return 0, idx
+        except ValueError:
+            logger.error("Unrecognized VIDEO_DISPLAY_INDEX value: %r", self._display_selector)
+            return None, None
+
     def _init_camera(self):
         """Initialize dxcam screen capture. Returns (camera, (width, height)) or (None, None)."""
         try:
@@ -81,24 +169,47 @@ class ACVideoSource(Source):
             )
             return None, None
 
+        outputs = self._enumerate_outputs(dxcam)
+        if outputs:
+            logger.info(
+                "Available displays:\n%s",
+                "\n".join(
+                    f"  device={o['device']} output={o['output']} "
+                    f"{o['resolution'][0]}x{o['resolution'][1]} "
+                    f"{'(primary)' if o['primary'] else ''}"
+                    for o in outputs
+                ),
+            )
+        device_idx, output_idx = self._resolve_display(outputs)
+        if output_idx is None:
+            return None, None
+
         try:
-            camera = dxcam.create(output_idx=self._display_index)
+            create_kwargs = {"output_idx": output_idx}
+            if device_idx is not None:
+                create_kwargs["device_idx"] = device_idx
+            if self._capture_region is not None:
+                create_kwargs["region"] = self._capture_region
+            camera = dxcam.create(**create_kwargs)
             frame = camera.grab()
             if frame is None:
                 logger.error(
-                    "Failed to grab initial frame from display %d. "
+                    "Failed to grab initial frame from device=%s output=%d region=%s. "
                     "Is the display active and not in an RDP session?",
-                    self._display_index,
+                    device_idx, output_idx, self._capture_region,
                 )
                 return None, None
             h, w = frame.shape[:2]
             logger.info(
-                "Camera initialized: display %d, resolution %dx%d",
-                self._display_index, w, h,
+                "Camera initialized: device=%s output=%d region=%s resolution %dx%d",
+                device_idx, output_idx, self._capture_region, w, h,
             )
             return camera, (w, h)
         except Exception:
-            logger.exception("Failed to initialize dxcam on display %d", self._display_index)
+            logger.exception(
+                "Failed to initialize dxcam (device=%s output=%s region=%s)",
+                device_idx, output_idx, self._capture_region,
+            )
             return None, None
 
     def _is_new_session(self, prev_status, status, prev_current_time, current_time) -> bool:

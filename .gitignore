@@ -37,3 +37,9 @@ dev-planning/
 
 # scratch
 .tmp/
+
+# Local-only architecture notes (docs/ is otherwise tracked)
+docs/architecture-leaderboard-*.md
+
+# Local backend Docker artifacts
+test-manager-backend/.dockerignore
