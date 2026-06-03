@@ -1,1 +1,2 @@
-print("")
+import os
+print(os.env)
