@@ -107,8 +107,15 @@ interface FreezeState {
  */
 interface CrossingSnapshot {
   stamp: number
-  /** Active's iCurrentTime at the moment of the most-recent crossing. */
+  /** Active's iCurrentTime at the moment of the most-recent crossing.
+   * Used as the frozen "At Position" display value (spec §3.4). */
   activeAtMs: number
+  /** Active's server-stamped cumulative time AT the just-crossed gate
+   * (= `gate_times_ms[crossedAtGate]`). The reference the dual gap chips
+   * (§3.5) compare each historical's `gate_vector[crossedAtGate]`
+   * against. Distinct from `activeAtMs` only by a possible single-frame
+   * lag; kept separate so the chip math always has an exact reference. */
+  activeAtGateMs: number
   /** `{display_driver: gate_vector[crossedAtGate]}` for every historical
    * in the group as of the most-recent crossing. */
   historicalAtMs: Record<string, number>
@@ -197,6 +204,7 @@ export function LivePositionsTable({
     setCrossingSnapshot({
       stamp: ev.stamp,
       activeAtMs: ev.activeAtCrossingMs,
+      activeAtGateMs: ev.activeAtCrossingGateMs ?? ev.activeAtCrossingMs,
       historicalAtMs: ev.historicalAtCrossing,
     })
     setFreezeState({ mode: "frozen", stamp: ev.stamp })
@@ -408,7 +416,18 @@ function LeaderRow({
   // ≈ 80s+), suppressing the red chip. Now both sides come from the
   // captured at-crossing snapshot, so chips reflect the gate-N
   // standing and both render simultaneously when active is mid-rank.
-  const activeRef = crossingSnapshot?.activeAtMs ?? null
+  //
+  // Regression fix 2026-06-03: the active reference now prefers the
+  // server-stamped `activeAtGateMs` (= gate_times_ms[i*]) over the
+  // live `activeAtMs`, and falls back to the active row's WS
+  // `current_lap_time_ms` when no snapshot exists yet (cold-cache /
+  // immediately after a lap rollover, before the first crossing of the
+  // new lap is captured). Without that fallback the red `+X.XXX` chip
+  // disappeared whenever the snapshot was stale or null.
+  const activeRef =
+    crossingSnapshot?.activeAtGateMs ??
+    crossingSnapshot?.activeAtMs ??
+    (row.is_active ? row.current_lap_time_ms : null)
   const gapAbove =
     row.is_active && activeRef != null && aboveAtCrossingMs != null
       ? Math.max(0, activeRef - aboveAtCrossingMs)

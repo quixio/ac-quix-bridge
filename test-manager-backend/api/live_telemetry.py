@@ -748,6 +748,22 @@ def _record_message(payload: dict[str, Any]) -> None:
     # publish so snapshots and active mutations carry identical text.
     display_driver = _resolve_display_name(_fold_for_lookup(driver), name_lookup)
 
+    # Active's cumulative time AT the just-crossed gate (= gate_times_ms[i*]).
+    # This is the stable reference the frontend's dual gap chips (spec §3.5)
+    # compare each historical's gate_vector[i*] against. The frontend's
+    # `crossingSnapshot.activeAtMs` can be stale or null right after a lap
+    # rollover (i* goes None) — without a wire-carried fallback the red chip
+    # vanishes. We ship the at-crossing value on every `newly_crossed` tick;
+    # on non-crossing ticks it is None (frontend keeps the last-known value).
+    active_at_crossing_ms: int | None = None
+    if newly_crossed:
+        gate_idx = entry_partial["last_gate_index"]
+        if gate_idx is not None:
+            clamped = min(max(gate_idx, 0), GATE_COUNT - 1)
+            cell = gate_times[clamped]
+            if cell is not None:
+                active_at_crossing_ms = int(cell)
+
     snapshot = {
         "driver": display_driver,
         "car": car,
@@ -759,6 +775,7 @@ def _record_message(payload: dict[str, Any]) -> None:
         "last_gate_index": entry_partial["last_gate_index"],
         "last_gate_state": entry_partial["last_gate_state"],
         "last_gate_delta_ms": entry_partial["last_gate_delta_ms"],
+        "active_at_crossing_ms": active_at_crossing_ms,
         "historical_deltas": historical_deltas,
         "historical_at_positions_next": historical_at_positions_next,
         "historical_at_positions_at_crossing": historical_at_positions_at_crossing,

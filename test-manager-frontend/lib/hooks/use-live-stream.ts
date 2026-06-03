@@ -62,6 +62,15 @@ export interface FreezeEvent {
   /** `{driver_display_name: gate_vector[crossedAtGate]}` — each
    * historical's cumulative time at the just-crossed gate. */
   historicalAtCrossing: Record<string, number>
+  /** Active driver's cumulative time AT the just-crossed gate
+   * (= server's `gate_times_ms[crossedAtGate]`). The stable reference the
+   * dual gap chips (spec §3.5) compare each historical's
+   * `gate_vector[crossedAtGate]` against. Prefer this over
+   * `activeAtCrossingMs` when present — `activeAtCrossingMs` is the live
+   * `current_lap_time_ms` at the crossing tick, which is fine in the
+   * normal case but can lag by a frame; the server-stamped value is
+   * exact. `null` when the server didn't stamp one (cold-cache). */
+  activeAtCrossingGateMs: number | null
   /** Monotonic stamp so two crossings to the same gate index (e.g.
    * after a lap rollover that bumps i* from 9 → null → 0) still produce
    * a distinct event identity. */
@@ -111,6 +120,11 @@ interface ActiveMutation {
   last_gate_index: number | null
   last_gate_state: "ahead" | "behind" | "neutral" | null
   last_gate_delta_ms: number | null
+  /** Active's cumulative time AT the just-crossed gate
+   * (= `gate_times_ms[last_gate_index]`). Present (non-null) only on
+   * `newly_crossed` ticks; the stable reference for the dual gap chips
+   * (spec §3.5). See `FreezeEvent.activeAtCrossingGateMs`. */
+  active_at_crossing_ms?: number | null
 }
 
 interface ActiveMessage {
@@ -369,24 +383,37 @@ export function useLiveStream(): UseLiveStreamResult {
             ),
           )
           // Detect a fresh gate crossing per (driver, track, car, exp)
-          // identity. A change in `last_gate_index` from one non-null
-          // value to a different non-null value is a crossing; the
-          // first non-null (after lap rollover or first snapshot) is
-          // NOT a crossing — there's no preceding gate to capture.
+          // identity. A change in `last_gate_index` to a non-null value
+          // that differs from the previous is a crossing.
+          //
+          // CRITICAL (regression fix 2026-06-03): the FIRST gate of a new
+          // lap is a real crossing and MUST fire a freeze event. After a
+          // lap rollover `last_gate_index` goes 9 → null → 0; the old
+          // condition required `prevIdx !== null`, which swallowed that
+          // first crossing. The stale previous-lap-gate-9 snapshot then
+          // drove the gap chips for ~10 s (until the next normal crossing),
+          // producing wrong/absent chips. Now `prevIdx === null` (lap
+          // start / first snapshot) with a non-null `newIdx` IS treated as
+          // a crossing so freeze + snapshot capture engage immediately.
           const comboKey = `${mutation.driver}|${mutation.track}|${mutation.car}|${mutation.experiment}`
           const prevIdx = prevGateIdxRef.current.get(comboKey) ?? null
           const newIdx = mutation.last_gate_index
           if (
             newIdx !== null &&
             newIdx !== undefined &&
-            prevIdx !== null &&
-            prevIdx !== undefined &&
             newIdx !== prevIdx
           ) {
             freezeStampRef.current += 1
             setFreezeEvent({
               crossedAtGate: newIdx,
               activeAtCrossingMs: mutation.current_lap_time_ms,
+              // Prefer the server-stamped at-crossing time; fall back to
+              // the live `current_lap_time_ms` when the backend didn't
+              // ship one (cold-cache). This is the stable reference the
+              // dual gap chips lock onto.
+              activeAtCrossingGateMs:
+                mutation.active_at_crossing_ms ??
+                mutation.current_lap_time_ms,
               historicalAtCrossing: atPositionsAtCrossing ?? {},
               stamp: freezeStampRef.current,
             })
