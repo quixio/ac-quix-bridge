@@ -105,18 +105,26 @@ def find_single_lap(raw_rows: list[dict]) -> tuple[int, int]:
             f"{len(increments)} increments total. Capture more data."
         )
 
-    # Pick the longest run (most laps replayed back-to-back).
-    runs.sort(key=lambda r: -len(r))
-    chosen = runs[0]
-    start_idx, end_idx = chosen[0], chosen[-1]
-    laps = len(chosen) - 1
+    # Pick the SINGLE FASTEST lap across all contiguous runs — the
+    # replay loops one clean lap forever. Earlier (multi-lap) behaviour
+    # has been retired per Ludvik's preference for a single-lap loop.
+    best: tuple[int, int, int] | None = None  # (length, start, end)
+    for run in runs:
+        for a, b in zip(run, run[1:]):
+            length = b - a
+            if length < MIN_TICKS_FOR_LAP:
+                continue
+            if best is None or length < best[0]:
+                best = (length, a, b)
+    if best is None:
+        raise LapDetectionError(
+            "No single-lap window passed the MIN_TICKS_FOR_LAP filter."
+        )
+    _length, start_idx, end_idx = best
     logger.info(
-        "Lap window detected: start_idx=%d end_idx=%d ticks=%d laps=%d "
-        "(out of %d run candidates)",
+        "Lap window detected (single fastest): start_idx=%d end_idx=%d ticks=%d",
         start_idx,
         end_idx,
         end_idx - start_idx,
-        laps,
-        len(runs),
     )
     return start_idx, end_idx
