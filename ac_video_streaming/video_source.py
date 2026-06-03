@@ -311,7 +311,13 @@ class ACVideoSource:
         import json
 
         self._session_tracker = SessionTracker()
-        session_topic_name = os.environ.get("session_input", "ac-telemetry-session")
+        # Single source of truth across producer (ac-telemetry-source) and
+        # consumer (this recorder): both read `session_output` from the
+        # shared root .env.
+        session_topic_name = os.environ.get(
+            "session_output",
+            os.environ.get("session_input", "ac-telemetry-session"),
+        )
         tracker = self._session_tracker
 
         def _run():
