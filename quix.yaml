@@ -536,13 +536,13 @@ deployments:
         description: Override token for QuixLake queries. Leave empty to use the platform-injected Quix__Sdk__Token.
         secret: true
       - name: QUIXLAB_MCP_KEY
-        inputType: Secret
+        inputType: ProjectVariable
         description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent.
-        secretKey: quixlab_mcp_key
+        variableKey: quixlab_mcp_key
       - name: QUIXLAB_AGENT_ID
-        inputType: Secret
+        inputType: ProjectVariable
         description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent.
-        secretKey: quixlab_agent_id
+        variableKey: quixlab_agent_id
     plugin:
       embeddedView:
         enabled: true
