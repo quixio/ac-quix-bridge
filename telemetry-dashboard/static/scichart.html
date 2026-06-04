@@ -670,20 +670,23 @@ renderLeaderboard();
 function updateDriverPosition(d) {
   if (d.session_id !== posSessionId) { posSessionId = d.session_id; lastBestMs = null; lbFlashUntil = 0; }
 
-  // Track the session-best lap — drives the new-PB flash and the driver's settled best row.
+  // Track this driver's session-best lap (AC's iBestTime is session-scoped, not all-time).
   const best = (typeof d.iBestTime === 'number' && d.iBestTime > 0 && d.iBestTime < INT_MAX) ? d.iBestTime : null;
-  if (best !== null && (lastBestMs === null || best < lastBestMs)) {
-    if (lastBestMs !== null) lbFlashUntil = now() + 4000;   // genuine improvement → flash ~4 s
-    lastBestMs = best;
-  }
+  if (best !== null && (lastBestMs === null || best < lastBestMs)) lastBestMs = best;
 
   const name = (driverName || '').trim();
 
-  // Entry #1 — the driver's settled best lap row.
+  // Entry #1 — the driver's settled best lap row. The board row holds their ALL-TIME best
+  // (from the lake poll); the session best only updates it when it's actually faster. Flash
+  // purple ONLY when the shown time genuinely improves — not on a session best that's still
+  // slower than their all-time PB (which would flash a record they didn't set).
   if (lastBestMs !== null) {
     const row = LEADERBOARD.find(r => r.name.toLowerCase() === name.toLowerCase());
-    if (row) { if (lastBestMs < row.ms) row.ms = lastBestMs; }
-    else LEADERBOARD.push({ name, ms: lastBestMs });
+    if (row) {
+      if (lastBestMs < row.ms) { row.ms = lastBestMs; lbFlashUntil = now() + 4000; }
+    } else {
+      LEADERBOARD.push({ name, ms: lastBestMs });
+    }
   }
 
   // Entry #2 — the live in-progress lap: shown ONLY when AC provides a projected time
