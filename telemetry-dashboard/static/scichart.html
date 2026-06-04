@@ -194,7 +194,7 @@
 
   <div class="spacer"></div>
 
-  <span class="hint">Rolling 60&thinsp;s window</span>
+  <span class="hint" id="window-label">Rolling 30&thinsp;s window</span>
 
   <label class="toggle"><input type="checkbox" id="pin-toggle"> Pin values</label>
 
@@ -363,12 +363,19 @@ class PinnedRollover extends RolloverModifier {
   }
 }
 
-// Fixed 60-second time window. The x-axis maps by timestamp (seconds since page
-// load), and every frame we pin its visibleRange to exactly [now-60s, now] off the
+// Rolling time window (seconds). The x-axis maps by timestamp (seconds since page
+// load), and every frame we pin its visibleRange to exactly [now-WINDOW_S, now] off the
 // wall clock. Consequences: each pixel is always the same time slice (constant
 // ms/pixel) regardless of sample rate; the trace scrolls left at a constant rate;
 // and if data stalls you get a growing gap on the right rather than a stretched line.
-const WINDOW_S = 60;
+// A narrower window scrolls faster / shows more detail; a wider one shows more context.
+// Default 30 s; override live with ?window=<seconds> (e.g. ?window=15 or ?window=60).
+// Clamped to a sane range so a typo can't break the axis.
+const winParam = parseFloat(new URLSearchParams(location.search).get('window'));
+const WINDOW_S = isFinite(winParam) && winParam > 0 ? Math.min(Math.max(winParam, 2), 600) : 30;
+// Reflect the actual window in the topbar label (kept in sync with ?window=).
+const winLabel = document.getElementById('window-label');
+if (winLabel) winLabel.textContent = 'Rolling ' + WINDOW_S + ' s window';
 // Memory is bounded by trimming old samples off the head each frame (see trimOld /
 // loop), NOT by SciChart's circular FIFO buffer. fifoCapacity is deliberately avoided:
 // its wrap-around seam draws a spurious line from the newest point back to the oldest
