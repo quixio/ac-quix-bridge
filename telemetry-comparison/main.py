@@ -7,7 +7,7 @@ an interactive Plotly.js UI for overlaying telemetry from different sessions/lap
 Module layout:
   - config.py           — env vars, paths, rendering constants
   - partition_filter.py — SQL-safe WHERE builder for partition cols
-  - partition_walker.py — QuixLake /partitions tree walker (used by /api/sessions)
+  - partition_walker.py — Iceberg catalog /manifest reader (used by /api/sessions)
   - track_loader.py     — /api/track + /api/track/config (APIRouter)
   - video_proxy.py      — /api/video/... MP4 + sidecar proxy (APIRouter)
   - main.py (this file) — FastAPI app + plotting routes (/api/sessions,
@@ -33,7 +33,7 @@ import config
 import track_loader
 import video_proxy
 from partition_filter import _build_partition_filter
-from partition_walker import _walk_partition_tree
+from partition_walker import _list_session_combinations
 
 logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 # Uvicorn's own handler already formats its lifecycle/error/access logs; stop
@@ -129,9 +129,10 @@ async def list_sessions(
 ):
     """Return partition-column combinations in the lake.
 
-    With no query params → full tree walk, every session (direct-access UX).
-    With partition column query params → walk narrowed to matching branch
-    (deep-link fast path, typically one session, ~300-400 ms).
+    Hits the Iceberg catalog /manifest endpoint (one ~130 ms call,
+    size-independent), dedupes distinct (env, rig, exp, driver, track, car,
+    session_id) combinations, attaches lap numbers, applies any query-param
+    filters client-side, and returns the result.
     """
     filters = {
         c: v
@@ -147,7 +148,7 @@ async def list_sessions(
         if v
     }
     try:
-        sessions = await _walk_partition_tree("", 0, filters or None)
+        sessions = await _list_session_combinations(filters or None)
         return JSONResponse(content={"sessions": sessions})
     except httpx.HTTPStatusError as e:
         # QuixLake returned an error. Surface the real upstream status so

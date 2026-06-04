@@ -64,6 +64,15 @@ variables:
     inputType: FreeText
     description: How many files can be written in parallel to storage at once (based on partitioning + batch size)
     defaultValue: 10
+  - name: STREAM_TIMEOUT_MS
+    inputType: FreeText
+    description: Per-key silence threshold in milliseconds. When a Kafka message key has not published for this duration, a warning is logged (sensor drop-out detection). Leave empty to disable.
+    defaultValue: ""
+  - name: TEST_COMPLETED_TOPIC
+    inputType: OutputTopic
+    description: Topic to publish test-completed events when a stream key goes silent
+    defaultValue: test-completed
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

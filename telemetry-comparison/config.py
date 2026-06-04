@@ -23,8 +23,12 @@ CHANNELS_FILE = BASE_DIR / "channels.json"
 DEFAULT_TRACK_CSV = "tracks/ks_nurburgring/layout_sprint_a.csv"
 
 TABLE_NAME = os.getenv("TABLE_NAME", "ac_telemetry")
-QUIXLAKE_URL = os.getenv("QUIXLAKE_URL")
-QUIX_LAKE_TOKEN = os.getenv("QUIX_LAKE_TOKEN")
+# Prefer byox-injected Quix__Lakehouse__* vars; fall back to legacy
+# QUIXLAKE_URL / QUIX_LAKE_TOKEN / CATALOG_URL / CATALOG_TOKEN for local dev.
+QUIXLAKE_URL = os.getenv("Quix__Lakehouse__Query__Url") or os.getenv("QUIXLAKE_URL")  # noqa: SIM112
+QUIX_LAKE_TOKEN = os.getenv("Quix__Lakehouse__Query__AuthToken") or os.getenv("QUIX_LAKE_TOKEN")  # noqa: SIM112
+CATALOG_URL = os.getenv("Quix__Lakehouse__Catalog__Url") or os.getenv("CATALOG_URL")  # noqa: SIM112
+CATALOG_TOKEN = os.getenv("Quix__Lakehouse__Catalog__AuthToken") or os.getenv("CATALOG_TOKEN")  # noqa: SIM112
 BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
 
 # Quix Portal API base. `Quix__Portal__Api` is the canonical name — Quix Cloud
@@ -63,6 +67,8 @@ def validate_env() -> None:
     required = {
         "QUIXLAKE_URL": QUIXLAKE_URL,
         "QUIX_LAKE_TOKEN": QUIX_LAKE_TOKEN,
+        "CATALOG_URL": CATALOG_URL,
+        "CATALOG_TOKEN": CATALOG_TOKEN,
         "Quix__Portal__Api": PORTAL,
         "QUIX_TOKEN": QUIX_TOKEN,
     }

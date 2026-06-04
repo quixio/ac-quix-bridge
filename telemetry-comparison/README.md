@@ -22,8 +22,10 @@ FastAPI service that serves a Plotly UI for cross-run/lap telemetry comparison, 
 | `Quix__Workspace__Id` | (auto-injected) | Workspace ID used when validating user Bearer tokens. Set by Quix Cloud; for local dev populate via `.env`. |
 | `API_AUTH_ACTIVE` | `true` | Set to `false` to bypass auth entirely (tests, some local flows). |
 | `LOCAL_DEV_MODE` | `false` | When `true`, swaps in `LocalAuth` (all permissions granted) instead of calling Quix Portal. |
-| `QUIXLAKE_URL` | (required) | QuixLake base URL. |
-| `QUIX_LAKE_TOKEN` | (required) | Bearer token for QuixLake API. |
+| `Quix__Lakehouse__Query__Url` | (auto-injected on byox) | QuixLake base URL. Falls back to legacy `QUIXLAKE_URL` for local dev. |
+| `Quix__Lakehouse__Query__AuthToken` | (auto-injected on byox) | Bearer token for QuixLake API. Falls back to legacy `QUIX_LAKE_TOKEN` for local dev. |
+| `Quix__Lakehouse__Catalog__Url` | (auto-injected on byox) | Iceberg catalog base URL (used by `/api/sessions` via manifest endpoint). Falls back to legacy `CATALOG_URL`. |
+| `Quix__Lakehouse__Catalog__AuthToken` | (auto-injected on byox) | Bearer token for catalog API. Falls back to legacy `CATALOG_TOKEN`. |
 | `TABLE_NAME` | `ac_telemetry` | QuixLake table name. |
 | `BLOB_VIDEO_PREFIX` | `ac_video` | Blob storage prefix for MP4 recordings + sidecar JSONs. |
 
