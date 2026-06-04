@@ -171,4 +171,8 @@ logger.info(f"  Storage path: {storage_path}/{table_name}")
 logger.info(f"  Partitioning: {hive_columns if hive_columns else 'none'}")
 
 if __name__ == "__main__":
-    app.run()
+    with app.get_producer() as producer:
+        # Assign to module-level reference so _on_stream_timeout (called from
+        # a background StreamTimeoutTracker thread) can use it safely.
+        _event_producer = producer
+        app.run()
