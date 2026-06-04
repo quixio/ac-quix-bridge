@@ -81,7 +81,7 @@ def _on_stream_timeout(key) -> None:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _event_producer.produce(
-            topic=test_completed_topic,
+            topic=test_completed_topic.name,
             key=key_str.encode() if isinstance(key_str, str) else key_str,
             value=json.dumps(event).encode(),
         )
