@@ -134,6 +134,17 @@ class Sim:
             "tyreTempRL": round(self.tyre[2], 1), "tyreTempRR": round(self.tyre[3], 1),
             "brakeTempFL": round(self.brake[0]), "brakeTempFR": round(self.brake[1]),
             "brakeTempRL": round(self.brake[2]), "brakeTempRR": round(self.brake[3]),
+            "wheelsPressureFL": round(26.5 + wave * 0.9, 1), "wheelsPressureFR": round(26.7 + wave * 1.1, 1),
+            "wheelsPressureRL": round(26.2 + wave * 0.7, 1), "wheelsPressureRR": round(26.4 + wave * 0.8, 1),
+            "accG_x": round(-steer * 2.5, 2),
+            "accG_y": round((gas - brake) * 2.2, 2),
+            "waterTemp": round(80 + wave * 8),
+            "exhaustTemperature": round(320 + wave * 230),
+            "fuelEstimatedLaps": round(max(0.0, 18 - self.completed_laps * 0.8), 1),
+            "iDeltaLapTime": int(math.sin(t * 0.3) * 1800),
+            "brakeBias": 0.62,
+            "tc": 1 if (gas > 0.9 and speed < 120) else 0,
+            "abs": 1 if brake > 0.6 else 0,
         }
 
 

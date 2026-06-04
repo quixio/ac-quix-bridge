@@ -66,7 +66,7 @@ export const LeaderboardTable = memo(function LeaderboardTable({
         accessorKey: "driver",
         header: () => <span>Driver</span>,
         cell: ({ row }) => (
-          <span className="font-medium">{row.original.driver}</span>
+          <span className="font-medium capitalize">{row.original.driver}</span>
         ),
       },
       {

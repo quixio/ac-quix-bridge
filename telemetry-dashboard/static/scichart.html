@@ -67,17 +67,7 @@
   .title { font-size: 2.2vh; font-weight: 800; white-space: nowrap; }
   .title small { color: var(--dim); font-weight: 600; font-size: 1.4vh; }
   .spacer { flex: 1; }
-
-  .ctrl {
-    font-size: 1.5vh; font-weight: 700; letter-spacing: .04vw;
-    padding: .8vh 1.1vw; border-radius: 7px;
-    border: 1.5px solid var(--border); background: #1a1a2c; color: var(--text);
-    cursor: pointer; transition: all .15s; white-space: nowrap;
-  }
-  .ctrl:hover { border-color: var(--cyan); }
-  .ctrl.active { background: var(--cyan); color: #000; border-color: var(--cyan); }
-  .toggle { display: flex; align-items: center; gap: .5vw; font-size: 1.5vh; color: var(--dim); cursor: pointer; user-select: none; }
-  .toggle input { width: 1.6vh; height: 1.6vh; accent-color: var(--cyan); cursor: pointer; }
+  .driver { font-size: 2.8vh; font-weight: 800; line-height: 1; white-space: nowrap; text-transform: capitalize; }
 
   .src {
     display: flex; align-items: center; gap: .6vw;
@@ -91,11 +81,9 @@
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
   .src .hz { color: var(--dim); font-weight: 600; }
 
-  .link { color: var(--cyan); text-decoration: none; font-size: 1.5vh; font-weight: 700; white-space: nowrap; }
-  .link:hover { text-decoration: underline; }
-
   /* ---------- Charts ---------- */
-  .grid { flex: 1; display: flex; flex-direction: column; gap: 1vh; min-height: 0; position: relative; }
+  .grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 1vh 1vw; min-height: 0; position: relative; }
+  .grid > .waiting { grid-column: 1 / -1; }
 
   /* "Waiting for telemetry" overlay — shown when demo is off and no live frames. */
   .waiting { position: absolute; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; pointer-events: none; }
@@ -128,6 +116,48 @@
   }
   .fatal b { color: var(--red); }
   .fatal code { color: var(--cyan); background: #1a1a2c; padding: .1em .4em; border-radius: 4px; }
+
+  /* ---------- Charts + sidebar layout ---------- */
+  .content { flex: 1; display: flex; gap: 1vh 1vw; min-height: 0; }
+  .sidebar {
+    width: 22vw; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 1vh 1vw; min-height: 0;
+  }
+  .sidebar .lb-card { flex: 3; }     /* leaderboard — top 3/4 of the column */
+  .sidebar .wheel-card { flex: 1; }  /* steering wheel — bottom 1/4 */
+
+  /* ---------- Steering wheel (ported from index.html) ---------- */
+  .wheel-card { align-items: center; justify-content: space-between; }
+  .wheel-head { display: flex; flex-direction: column; align-items: center; gap: .8vh; flex-shrink: 0; width: 100%; }
+  .rpm-readout { line-height: 1; }
+  .rpm-readout b { font-size: 3vh; font-weight: 800; transition: color .15s; }
+  .rpm-readout span { font-size: 1.3vh; text-transform: uppercase; letter-spacing: .15vw; color: var(--dim); }
+  .shift-lights { display: flex; gap: .45vw; justify-content: center; flex-shrink: 0; width: 70%; }
+  /* LEDs flex to fill the 70% row; aspect-ratio locks them circular so they never squash. */
+  .led { flex: 1 1 0; min-width: 0; aspect-ratio: 1 / 1; border-radius: 50%; background: #1c1c30; transition: background .05s, box-shadow .05s; }
+  .led.on.g { background: var(--green); box-shadow: 0 0 1.1vh var(--green); }
+  .led.on.a { background: var(--amber); box-shadow: 0 0 1.1vh var(--amber); }
+  .led.on.r { background: var(--red);   box-shadow: 0 0 1.1vh var(--red); }
+  .wheel-wrap { position: relative; flex: 1; width: 100%; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .wheel-img {
+    max-height: 90%; max-width: 90%; object-fit: contain;
+    will-change: transform; transition: transform .06s linear;
+    filter: drop-shadow(0 0 1.2vh rgba(0,0,0,.55));
+  }
+  .steer-readout { flex-shrink: 0; font-size: 1.7vh; font-weight: 800; color: var(--dim); letter-spacing: .1vw; }
+  .steer-readout b { color: var(--cyan); }
+
+  /* ---------- Leaderboard (ported from index.html) ---------- */
+  .lb-body { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; gap: .6vh; min-height: 0; overflow: hidden; }
+  .lb-row { display: grid; grid-template-columns: 2.6vw 1fr auto; align-items: center; gap: .8vw; padding: .35vh .5vw; border-radius: 5px; }
+  .lb-row .lb-pos { font-size: 1.7vh; font-weight: 800; color: var(--dim); text-align: center; }
+  .lb-row .lb-name { font-size: 2.1vh; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
+  .lb-row .lb-time { font-size: 1.9vh; font-weight: 800; color: var(--cyan); }
+  .lb-row.me { background: #1c1c30; }
+  .lb-row.me .lb-pos, .lb-row.me .lb-name { color: var(--green); }
+  /* New personal-best lap: time goes purple and blinks for ~4s, then stays purple. */
+  .lb-time.flash { color: var(--purple); animation: lbflash .5s ease-in-out 8; }
+  @keyframes lbflash { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
 </style>
 </head>
 <body>
@@ -136,23 +166,23 @@
 <div class="topbar">
   <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 438.16 132" aria-label="Quix"><g><rect x="108" y="108" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><rect x="81" y="81" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><rect x="54" y="54" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><path d="M129.5,0H2.5C1.12,0,0,1.12,0,2.5v127c0,1.38,1.12,2.5,2.5,2.5h73c1.38,0,2.5-1.12,2.5-2.5v-19c0-1.38-1.12-2.5-2.5-2.5H24V24h84v51.5c0,1.38,1.12,2.5,2.5,2.5h19c1.38,0,2.5-1.12,2.5-2.5V2.5c0-1.38-1.12-2.5-2.5-2.5Z" fill="#fff"/><polygon points="410.55 66.29 437.18 31.38 417.48 31.38 401.65 53.85 386.24 31.38 366.11 31.38 391.98 65.79 363.16 103.15 382.72 103.15 400.81 78.13 418.04 103.15 438.16 103.15 410.55 66.29" fill="#fff"/><rect x="339.47" y="31.38" width="17.73" height="71.77" fill="#fff"/><rect x="338.62" width="19.28" height="19.56" fill="#fff"/><path d="M310.63,70.08c0,3.85-.84,7.32-2.53,10.41-1.59,3-3.8,5.35-6.61,7.04-2.72,1.69-5.91,2.53-9.57,2.53-4.03,0-7.18-1.13-9.43-3.38-2.16-2.25-3.24-5.58-3.24-9.99V31.38h-17.73v48.97c0,4.6.94,8.73,2.81,12.38,1.97,3.66,4.74,6.57,8.3,8.73,3.66,2.06,7.97,3.1,12.95,3.1,6.29,0,11.73-1.55,16.32-4.64,3.94-2.68,7-6.13,9.29-10.27v13.5h17.31V31.38h-17.87v38.7Z" fill="#fff"/><path d="M233.22,43.85c-1.42-3.64-3.7-6.64-6.9-8.95-4.41-3.28-9.99-4.93-16.75-4.93s-12.34,1.55-17.31,4.64c-4.88,3.1-8.68,7.46-11.4,13.09-2.72,5.63-4.08,12.24-4.08,19.84s1.31,14.03,3.94,19.56c2.63,5.54,6.33,9.85,11.12,12.95,4.88,3,10.6,4.5,17.17,4.5s12.06-1.55,16.75-4.64c3.07-2.08,5.31-4.66,6.9-7.62v39.71h17.87V31.38h-17.31v12.47ZM228.01,84.15c-3.38,3.94-7.97,5.91-13.79,5.91s-10.55-1.97-13.93-5.91c-3.38-3.94-5.07-9.52-5.07-16.75s1.69-12.81,5.07-16.75c3.38-4.03,7.97-6.05,13.79-6.05s10.41,1.97,13.79,5.91c3.47,3.94,5.21,9.52,5.21,16.75s-1.69,12.85-5.07,16.89Z" fill="#fff"/></g></svg>
 
-  <div class="title">SciChart.js <small>· streaming telemetry preview</small></div>
+  <div class="title"><small>streaming telemetry preview</small></div>
 
   <div class="spacer"></div>
 
-  <span class="hint">Rolling 60&thinsp;s window · pause to zoom &amp; inspect</span>
+  <div class="driver" id="driver-name"></div>
 
-  <button class="ctrl" id="pause-btn">⏸ Pause</button>
-  <label class="toggle"><input type="checkbox" id="force-demo"> Demo data</label>
+  <div class="spacer"></div>
+
+  <span class="hint">Rolling 60&thinsp;s window</span>
 
   <div class="src" id="src">
     <span class="dot"></span><span id="src-label">starting…</span><span class="hz" id="hz"></span>
   </div>
-
-  <a class="link" href="/" title="Back to the production dashboard">← Dashboard</a>
 </div>
 
-<!-- ===================== CHARTS ===================== -->
+<!-- ===================== CHARTS + SIDEBAR ===================== -->
+<div class="content">
 <div class="grid" id="grid">
   <div id="waiting" class="waiting">
     <div class="waiting-box">
@@ -172,6 +202,53 @@
     <div class="card-title">Tyre Temps <b>°C</b> &nbsp;·&nbsp; FL / FR / RL / RR</div>
     <div class="chart" id="chart-tt"></div>
   </div>
+  <div class="card">
+    <div class="card-title">Tyre Pressure <b>psi</b> &nbsp;·&nbsp; FL / FR / RL / RR</div>
+    <div class="chart" id="chart-tp"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Brake Temps <b>°C</b> &nbsp;·&nbsp; FL / FR / RL / RR</div>
+    <div class="chart" id="chart-bt"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">G-Force <b>g</b> &nbsp;·&nbsp; Lateral / Longitudinal</div>
+    <div class="chart" id="chart-g"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Engine Temps <b>°C</b> &nbsp;·&nbsp; Water / Exhaust</div>
+    <div class="chart" id="chart-eng"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Fuel <b>L</b> &nbsp;·&nbsp; load &amp; est. laps remaining</div>
+    <div class="chart" id="chart-fuel"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Lap Delta <b>s</b> &nbsp;·&nbsp; iDeltaLapTime (− ahead / + behind)</div>
+    <div class="chart" id="chart-delta"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Brake Bias &amp; Aids <b>%</b> &nbsp;·&nbsp; bias / TC / ABS</div>
+    <div class="chart" id="chart-bias"></div>
+  </div>
+</div>
+
+<!-- ===================== SIDEBAR: leaderboard (top 3/4) + steering wheel (bottom 1/4) ===================== -->
+<aside class="sidebar">
+  <div class="card lb-card">
+    <div class="card-title">Leaderboard</div>
+    <div class="lb-body" id="sb-lb-body"></div>
+  </div>
+  <div class="card wheel-card">
+    <div class="wheel-head">
+      <div class="shift-lights" id="sb-shift-lights"></div>
+      <div class="rpm-readout"><b id="sb-rpm-val">0</b> <span>rpm</span></div>
+    </div>
+    <div class="wheel-wrap">
+      <img id="sb-wheel" class="wheel-img" src="steering-wheel.png" alt="steering wheel">
+    </div>
+    <div class="steer-readout">STEER <b id="sb-steer-val">0°</b></div>
+  </div>
+</aside>
 </div>
 
 <script>
@@ -304,11 +381,144 @@ async function buildChart(divId, yAxes, series) {
 
 const fin = (v, d = 0) => (typeof v === 'number' && isFinite(v) ? v : d);
 const pct = (v) => Math.max(0, Math.min(100, fin(v) * 100));
+const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, fin(v)));
 
-let C = null;          // built charts, keyed sr/in/tt
+let C = null;          // built charts
 let sampleCount = 0;   // total appended frames (for the Hz readout)
 
+// ============================================================
+//  Sidebar: leaderboard (top) + steering wheel (bottom)
+//  Ported from the live dashboard (index.html). Driven by the same /ws frames
+//  via updateSidebar(), independent of the SciChart surfaces — so the wheel and
+//  board keep live-updating even while the charts are paused.
+// ============================================================
+const STEER_VISUAL_GAIN = 3;   // exaggerate the visual rim rotation; readout shows true angle
+const LED_COUNT = 15;          // shift lights: 9 green / 3 amber / 3 red
+const TOP_N = 10;
+let sbRpmMax = 8000;           // auto-calibrated per session
+let driverName = new URLSearchParams(location.search).get('driver') || 'Tomas';
+const rpmColor = (p) => (p < 0.7 ? '#00d4ff' : p < 0.88 ? '#ffaa00' : '#ff3355');
+
+const sbRpmVal = document.getElementById('sb-rpm-val');
+const sbSteerVal = document.getElementById('sb-steer-val');
+const wheelImg = document.getElementById('sb-wheel');
+const lbBody = document.getElementById('sb-lb-body');
+const driverEl = document.getElementById('driver-name');
+
+// Single source of truth for the current driver — keeps the title-bar display and
+// the leaderboard "me" match in sync. Obtained exactly like the root dashboard:
+// ?driver= URL param (seeded above) → live frame's driverName/playerName → a
+// {type:"driver"} WS message.
+function setDriver(name) {
+  driverName = name;
+  driverEl.textContent = name;
+}
+setDriver(driverName);   // seed from the URL param / 'Tomas' default
+
+const leds = [];
+(function buildLeds() {
+  const wrap = document.getElementById('sb-shift-lights');
+  for (let i = 0; i < LED_COUNT; i++) {
+    const el = document.createElement('div');
+    el.className = 'led ' + (i < 9 ? 'g' : i < 12 ? 'a' : 'r');
+    wrap.appendChild(el);
+    leds.push(el);
+  }
+})();
+
+// Placeholder standings until the /leaderboard proxy answers. ms = lap time in ms.
+let LEADERBOARD = [
+  { name: 'Tomas',  ms: 82418 },
+  { name: 'Mika',   ms: 82673 },
+  { name: 'Sergio', ms: 82901 },
+  { name: 'Elena',  ms: 83244 },
+  { name: 'Dan',    ms: 83510 },
+  { name: 'Yuki',   ms: 83872 },
+  { name: 'Carlos', ms: 84115 },
+  { name: 'Lena',   ms: 84560 },
+  { name: 'Omar',   ms: 84988 },
+  { name: 'Priya',  ms: 85402 },
+];
+
+function fmtLap(ms) {
+  if (!ms || ms <= 0) return '--:--.---';
+  const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), mm = ms % 1000;
+  return m + ':' + String(s).padStart(2, '0') + '.' + String(mm).padStart(3, '0');
+}
+
+function renderLeaderboard(flashName) {
+  const me = (driverName || '').toLowerCase();
+  const flash = flashName ? flashName.toLowerCase() : null;
+  lbBody.innerHTML = LEADERBOARD.slice(0, TOP_N).map((r, i) =>
+    '<div class="lb-row' + (r.name.toLowerCase() === me ? ' me' : '') + '">' +
+      '<div class="lb-pos">' + (i + 1) + '</div>' +
+      '<div class="lb-name">' + r.name + '</div>' +
+      '<div class="lb-time' + (flash && r.name.toLowerCase() === flash ? ' flash' : '') + '">' + fmtLap(r.ms) + '</div>' +
+    '</div>'
+  ).join('');
+}
+renderLeaderboard();
+
+// Reflect the current driver's session-best lap on the board (re-sorts + blinks on improvement).
+let bestSessionId = null, lastBestMs = null;
+function updateDriverBest(d) {
+  if (d.session_id !== bestSessionId) { bestSessionId = d.session_id; lastBestMs = null; }
+  const best = d.iBestTime;
+  if (!best || best <= 0) return;
+  if (lastBestMs !== null && best >= lastBestMs) return;   // no improvement
+  const improved = lastBestMs !== null;
+  lastBestMs = best;
+  const name = (driverName || '').trim();
+  let row = LEADERBOARD.find(r => r.name.toLowerCase() === name.toLowerCase());
+  if (row) row.ms = best;
+  else LEADERBOARD.push({ name, ms: best });
+  LEADERBOARD.sort((a, b) => a.ms - b.ms);
+  renderLeaderboard(improved ? name : null);
+}
+
+// Poll the backend /leaderboard proxy (Data Lake-backed). Falls back silently to the
+// placeholder + live best if it's not configured or errors.
+const LB_POLL_MS = 20000;
+async function pollLeaderboard() {
+  try {
+    const res = await fetch('/leaderboard', { cache: 'no-store' });
+    if (!res.ok) return;
+    const j = await res.json();
+    if (!Array.isArray(j.rows) || !j.rows.length) return;
+    LEADERBOARD = j.rows.map(r => ({ name: r.name, ms: r.ms }));
+    if (lastBestMs != null) {
+      const me = (driverName || '').trim();
+      const mine = LEADERBOARD.find(r => r.name.toLowerCase() === me.toLowerCase());
+      if (mine) { if (lastBestMs < mine.ms) mine.ms = lastBestMs; }
+      else LEADERBOARD.push({ name: me, ms: lastBestMs });
+    }
+    LEADERBOARD.sort((a, b) => a.ms - b.ms);
+    renderLeaderboard();
+  } catch { /* keep current board */ }
+}
+setInterval(pollLeaderboard, LB_POLL_MS);
+pollLeaderboard();
+
+// Update wheel rotation, shift lights, RPM readout, and the leaderboard from a frame.
+function updateSidebar(d) {
+  const rpm = fin(d.rpms);
+  if (rpm > sbRpmMax * 0.99) sbRpmMax = Math.ceil(rpm / 500) * 500;
+  const rpmPct = rpm / sbRpmMax;
+  sbRpmVal.textContent = Math.round(rpm).toLocaleString();
+  sbRpmVal.style.color = rpmColor(rpmPct);
+  const lit = Math.round(Math.min(rpmPct, 1) * LED_COUNT);
+  for (let i = 0; i < LED_COUNT; i++) leds[i].classList.toggle('on', i < lit);
+
+  const steerDeg = fin(d.steerAngle) * 180 / Math.PI;
+  wheelImg.style.transform = 'rotate(' + (steerDeg * STEER_VISUAL_GAIN).toFixed(1) + 'deg)';
+  sbSteerVal.textContent = (steerDeg > 0 ? '+' : '') + Math.round(steerDeg) + '°';
+
+  if (d.driverName || d.playerName) setDriver(d.driverName || d.playerName);
+  updateDriverBest(d);
+}
+
 function onFrame(d) {
+  updateSidebar(d);          // wheel + leaderboard — independent of the chart surfaces
   if (paused || !C) return;
   const t = (now() - t0) / 1000;
   C.sr.ds.speed.append(t, fin(d.speedKmh));
@@ -319,6 +529,26 @@ function onFrame(d) {
   C.tt.ds.fr.append(t, fin(d.tyreTempFR));
   C.tt.ds.rl.append(t, fin(d.tyreTempRL));
   C.tt.ds.rr.append(t, fin(d.tyreTempRR));
+  // --- additional populated channels (discovered from the lake) ---
+  C.tp.ds.fl.append(t, fin(d.wheelsPressureFL));
+  C.tp.ds.fr.append(t, fin(d.wheelsPressureFR));
+  C.tp.ds.rl.append(t, fin(d.wheelsPressureRL));
+  C.tp.ds.rr.append(t, fin(d.wheelsPressureRR));
+  C.bt.ds.fl.append(t, fin(d.brakeTempFL));
+  C.bt.ds.fr.append(t, fin(d.brakeTempFR));
+  C.bt.ds.rl.append(t, fin(d.brakeTempRL));
+  C.bt.ds.rr.append(t, fin(d.brakeTempRR));
+  C.g.ds.lat.append(t, cl(d.accG_x, -4, 4));        // crash spikes hit ±40 — clamp
+  C.g.ds.lon.append(t, cl(d.accG_y, -4, 4));
+  C.eng.ds.water.append(t, fin(d.waterTemp));
+  C.eng.ds.exh.append(t, fin(d.exhaustTemperature));
+  C.fuel.ds.fuel.append(t, fin(d.fuel));
+  C.fuel.ds.laps.append(t, fin(d.fuelEstimatedLaps));
+  // iDeltaLapTime: ms ahead(−)/behind(+) the reference lap; clamp out-lap sentinels.
+  C.delta.ds.delta.append(t, cl((typeof d.iDeltaLapTime === 'number' ? d.iDeltaLapTime : 0) / 1000, -5, 5));
+  C.bias.ds.bias.append(t, pct(d.brakeBias));
+  C.bias.ds.tc.append(t, fin(d.tc) > 0.01 ? 100 : 0);
+  C.bias.ds.abs.append(t, fin(d.abs) > 0.01 ? 100 : 0);
   sampleCount++;
 }
 
@@ -340,6 +570,24 @@ function demoFrame(t) {
     tyreTempFR: base + load * 12,
     tyreTempRL: base + load * 6 + 2,
     tyreTempRR: base + load * 8,
+    wheelsPressureFL: 26.5 + load * 1.2 + 0.4,
+    wheelsPressureFR: 26.7 + load * 1.5,
+    wheelsPressureRL: 26.2 + load * 0.9 + 0.3,
+    wheelsPressureRR: 26.4 + load * 1.1,
+    brakeTempFL: 220 + brake * 360 + Math.max(0, load) * 60,
+    brakeTempFR: 230 + brake * 380 + Math.max(0, load) * 55,
+    brakeTempRL: 180 + brake * 300 + Math.max(0, load) * 40,
+    brakeTempRR: 190 + brake * 320 + Math.max(0, load) * 45,
+    accG_x: load * 2.6,                 // lateral ~ cornering
+    accG_y: (gas - brake) * 2.3,        // longitudinal ~ accel/brake
+    waterTemp: 80 + warm * 9,
+    exhaustTemperature: 300 + corner * 250,
+    fuel: Math.max(0, 60 - t * 0.04),
+    fuelEstimatedLaps: Math.max(0, 18 - t * 0.015),
+    iDeltaLapTime: Math.round(Math.sin(t * 0.3) * 1800),
+    brakeBias: 0.62,
+    tc: (gas > 0.9 && corner < 0.35) ? 1 : 0,
+    abs: brake > 0.55 ? 1 : 0,
   };
 }
 
@@ -353,25 +601,10 @@ let forceDemo = demoParam !== null && demoParam !== '0' && demoParam.toLowerCase
 let lastLive = -1e9;     // timestamp of the last real telemetry frame
 let consumer = 'starting';
 
-const pauseBtn = document.getElementById('pause-btn');
-const forceChk = document.getElementById('force-demo');
 const waitingEl = document.getElementById('waiting');
 const srcEl = document.getElementById('src');
 const srcLabel = document.getElementById('src-label');
 const hzEl = document.getElementById('hz');
-
-forceChk.checked = forceDemo;
-pauseBtn.onclick = () => setPaused(!paused);
-forceChk.onchange = () => { forceDemo = forceChk.checked; };
-
-function setPaused(p) {
-  paused = p;
-  // Live → the loop keeps snapping the window to the last 60 s (a locked scroll).
-  // Paused → we stop touching visibleRange, freeing scroll-zoom + hover on the
-  // frozen trace.
-  pauseBtn.textContent = p ? '▶ Resume' : '⏸ Pause';
-  pauseBtn.classList.toggle('active', p);
-}
 
 function setSource(state) {
   // state: 'live' | 'demo' | 'waiting'
@@ -420,6 +653,7 @@ function connect() {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg && msg.type === 'status') { consumer = msg.status; return; }
+    if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); renderLeaderboard(); } return; }
     lastLive = now();
     if (!forceDemo) onFrame(msg);   // demo loop stands down while live data flows
   };
@@ -435,7 +669,7 @@ function connect() {
         'chart-sr',
         [
           { axisId: 'speed', align: EAxisAlignment.Left, title: 'km/h', color: '#00d4ff' },
-          { axisId: 'rpm', align: EAxisAlignment.Right, title: 'rpm', color: '#ffaa00', grow: [0.1, 0.3] },
+          { axisId: 'rpm', align: EAxisAlignment.Right, title: 'rpm', color: '#ffaa00', range: [0, 9000] },
         ],
         [
           { key: 'speed', name: 'Speed', color: '#00d4ff', yAxisId: 'speed' },
@@ -458,6 +692,70 @@ function connect() {
           { key: 'fr', name: 'FR', color: '#ffaa00', yAxisId: 'temp' },
           { key: 'rl', name: 'RL', color: '#00ff88', yAxisId: 'temp' },
           { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'temp' },
+        ],
+      ),
+      tp: await buildChart(
+        'chart-tp',
+        [{ axisId: 'psi', align: EAxisAlignment.Left, title: 'psi' }],
+        [
+          { key: 'fl', name: 'FL', color: '#00d4ff', yAxisId: 'psi' },
+          { key: 'fr', name: 'FR', color: '#ffaa00', yAxisId: 'psi' },
+          { key: 'rl', name: 'RL', color: '#00ff88', yAxisId: 'psi' },
+          { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'psi' },
+        ],
+      ),
+      bt: await buildChart(
+        'chart-bt',
+        [{ axisId: 'btemp', align: EAxisAlignment.Left, title: '°C' }],
+        [
+          { key: 'fl', name: 'FL', color: '#00d4ff', yAxisId: 'btemp' },
+          { key: 'fr', name: 'FR', color: '#ffaa00', yAxisId: 'btemp' },
+          { key: 'rl', name: 'RL', color: '#00ff88', yAxisId: 'btemp' },
+          { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'btemp' },
+        ],
+      ),
+      g: await buildChart(
+        'chart-g',
+        [{ axisId: 'g', align: EAxisAlignment.Left, title: 'g', range: [-3.5, 3.5] }],
+        [
+          { key: 'lat', name: 'Lateral', color: '#00d4ff', yAxisId: 'g' },
+          { key: 'lon', name: 'Longitudinal', color: '#ffaa00', yAxisId: 'g' },
+        ],
+      ),
+      eng: await buildChart(
+        'chart-eng',
+        [
+          { axisId: 'water', align: EAxisAlignment.Left, title: '°C water', color: '#00d4ff' },
+          { axisId: 'exh', align: EAxisAlignment.Right, title: '°C exh', color: '#ff3355', grow: [0.1, 0.3] },
+        ],
+        [
+          { key: 'water', name: 'Water', color: '#00d4ff', yAxisId: 'water' },
+          { key: 'exh', name: 'Exhaust', color: '#ff3355', yAxisId: 'exh' },
+        ],
+      ),
+      fuel: await buildChart(
+        'chart-fuel',
+        [
+          { axisId: 'L', align: EAxisAlignment.Left, title: 'L', color: '#00ff88' },
+          { axisId: 'laps', align: EAxisAlignment.Right, title: 'laps', color: '#ffaa00', grow: [0.1, 0.3] },
+        ],
+        [
+          { key: 'fuel', name: 'Fuel L', color: '#00ff88', yAxisId: 'L' },
+          { key: 'laps', name: 'Est. laps', color: '#ffaa00', yAxisId: 'laps' },
+        ],
+      ),
+      delta: await buildChart(
+        'chart-delta',
+        [{ axisId: 's', align: EAxisAlignment.Left, title: 's', range: [-5, 5] }],
+        [{ key: 'delta', name: 'Δ to best (s)', color: '#c14bff', yAxisId: 's' }],
+      ),
+      bias: await buildChart(
+        'chart-bias',
+        [{ axisId: 'pct', align: EAxisAlignment.Left, title: '% / on', range: [0, 105] }],
+        [
+          { key: 'bias', name: 'Brake bias %', color: '#00d4ff', yAxisId: 'pct' },
+          { key: 'tc', name: 'TC', color: '#ffaa00', yAxisId: 'pct' },
+          { key: 'abs', name: 'ABS', color: '#ff3355', yAxisId: 'pct' },
         ],
       ),
     };
