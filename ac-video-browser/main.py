@@ -73,14 +73,29 @@ blob_fs = _get_blob_fs()
 api = FastAPI(title="AC Video Browser")
 
 
+def _invalidate(path: str) -> None:
+    """Invalidate the s3fs dircache for ``path``.
+
+    ``blob_fs`` is an fsspec ``DirFileSystem`` wrapping an inner ``S3FileSystem``;
+    ``DirFileSystem.invalidate_cache`` doesn't apply its bucket prefix, so calls
+    reach the inner FS with the unprefixed path while ``dircache`` is keyed
+    ``<bucket>/<path>`` — leaving the real entry stuck. Pop on the inner FS using
+    the prefixed key.
+    """
+    inner = getattr(blob_fs, "fs", blob_fs)
+    bucket_path = getattr(blob_fs, "path", "")
+    key = f"{bucket_path}/{path}" if bucket_path else path
+    inner.invalidate_cache(key)
+
+
 @api.get("/api/sessions")
 def list_sessions():
     """List all session IDs in blob storage."""
     if not blob_fs:
         raise HTTPException(503, "Blob storage not connected")
     try:
-        blob_fs.invalidate_cache(BLOB_PREFIX)
-        entries = blob_fs.ls(BLOB_PREFIX, detail=False)
+        _invalidate(BLOB_PREFIX)
+        entries = blob_fs.ls(BLOB_PREFIX, detail=False, refresh=True)
         sessions = []
         for entry in entries:
             path = entry if isinstance(entry, str) else entry.get("name", "")
@@ -102,8 +117,8 @@ def list_files(session_id: str):
     safe_id = session_id.replace(":", "-")
     prefix = f"{BLOB_PREFIX}/session_id={safe_id}"
     try:
-        blob_fs.invalidate_cache(prefix)
-        entries = blob_fs.ls(prefix, detail=True)
+        _invalidate(prefix)
+        entries = blob_fs.ls(prefix, detail=True, refresh=True)
         files = []
         for entry in entries:
             name = entry["name"].rsplit("/", 1)[-1]
