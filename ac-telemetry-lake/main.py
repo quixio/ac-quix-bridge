@@ -170,6 +170,8 @@ sdf = sdf.join_lookup(
 sdf = sdf.fill(completedLaps=-1)
 sdf["lap"] = sdf["completedLaps"] + 1
 
+sdf = sdf.group_by("session_id")
+
 # Attach sink (batching is handled by BatchingSink)
 sdf.sink(blob_sink)
 
