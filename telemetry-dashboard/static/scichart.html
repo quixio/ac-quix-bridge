@@ -602,8 +602,12 @@ let LEADERBOARD = [
   { name: 'Priya',  ms: 85402 },
 ];
 
+// A lap is valid (has a real time) when it isn't AC's "no time set" sentinel. Single
+// source of truth for both the time formatter and the gap/badge logic below.
+const hasLap = (ms) => typeof ms === 'number' && ms > 0 && ms < INT_MAX;
+
 function fmtLap(ms) {
-  if (!ms || ms <= 0 || ms >= INT_MAX) return '--:--.---';
+  if (!hasLap(ms)) return '--:--.---';
   const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), mm = ms % 1000;
   return m + ':' + String(s).padStart(2, '0') + '.' + String(mm).padStart(3, '0');
 }
@@ -641,21 +645,24 @@ function renderLeaderboard(flashName) {
   const leaderMs = rows.length ? rows[0].ms : 0;
   lbBody.innerHTML = rows.map((r, i) => {
     const isMe = r.name.toLowerCase() === me;
+    // No valid lap yet (AC sentinel) → first lap in progress. Sorts last, so it's never P1.
+    const noLap = !hasLap(r.ms);
     // Live in-progress row: green blink dot + amber "~" time. Best/other rows render
     // as settled times; only a settled best row can flash on a new PB.
     const timeCls = 'lb-time' + (r.live ? ' live-lap' : (flash && r.name.toLowerCase() === flash ? ' flash' : ''));
     // Stacked under the time (smaller): gap to leader + interval to the car ahead.
-    // P1 is the reference, so it gets no gap line.
+    // P1 is the reference, so it gets no gap line. A driver still on their first lap has
+    // no time to diff against, so show dashes instead of nonsense from the sentinel.
     const deltas = i === 0 ? '' :
       '<div class="lb-deltas">' +
-        '<span class="lb-gap-leader">' + fmtGap(r.ms - leaderMs) + '</span>' +
-        '<span class="lb-gap-ahead">' + fmtGap(r.ms - rows[i - 1].ms) + '</span>' +
+        '<span class="lb-gap-leader">' + (noLap ? '—' : fmtGap(r.ms - leaderMs)) + '</span>' +
+        '<span class="lb-gap-ahead">' + (noLap ? '—' : fmtGap(r.ms - rows[i - 1].ms)) + '</span>' +
       '</div>';
     return '<div class="lb-row' + (isMe ? ' me' : '') + '">' +
       '<div class="lb-pos">' + (i + 1) + '</div>' +
       '<div class="lb-namewrap">' +
         '<div class="lb-name">' + r.name + '</div>' +
-        (r.live ? '<div class="lb-hot">Hot Lap</div>' : '') +
+        (r.live ? '<div class="lb-hot">Hot Lap</div>' : (noLap ? '<div class="lb-hot">First Lap</div>' : '')) +
       '</div>' +
       '<div class="lb-timewrap">' +
         '<div class="' + timeCls + '">' +
