@@ -628,9 +628,9 @@ function loop() {
   if (!paused && C) {
     const right = (tn - t0) / 1000;
     const win = new NumberRange(right - WINDOW_S, right);
-    C.sr.xAxis.visibleRange = win;
-    C.in.xAxis.visibleRange = win;
-    C.tt.xAxis.visibleRange = win;
+    // Slide EVERY chart's window — not just the first few — or the rest keep their
+    // initial [-60, 0] range while data appends at growing t and scrolls out of view.
+    for (const k in C) C[k].xAxis.visibleRange = win;
   }
 
   if (tn - hzT > 500) {
