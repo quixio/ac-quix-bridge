@@ -161,6 +161,15 @@ DEFAULT_LEADERBOARD_SQL = (
 _lb_cache: dict = {"ts": 0.0, "rows": []}
 
 
+def _datalake_verify():
+    """TLS verification for the lake call. Honour the platform CA bundle when set
+    (in-cluster REQUESTS_CA_BUNDLE / SSL_CERT_FILE); allow an explicit insecure
+    override (DATALAKE_INSECURE_SSL=true) for self-signed internal/edge certs."""
+    if os.environ.get("DATALAKE_INSECURE_SSL", "").lower() in ("1", "true", "yes"):
+        return False
+    return os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE") or True
+
+
 def _parse_leaderboard_csv(text: str) -> list[dict]:
     """Parse the streamed CSV (columns: name, ms) into [{name, ms}], skipping a
     trailing `# ERROR: ...` line if the stream failed mid-flight."""
@@ -181,7 +190,8 @@ def _parse_leaderboard_csv(text: str) -> list[dict]:
 async def leaderboard():
     """All-time fastest lap per driver, proxied from the Data Lake query API."""
     # Prefer explicit overrides; otherwise use the Quix-injected Lakehouse Query
-    # vars that deployed services get for free.
+    # vars. NOTE: this workspace injects only the *Catalog* vars, not Query — set
+    # DATALAKE_API_URL/DATALAKE_API_TOKEN on the deployment to point at the query API.
     url = os.environ.get("DATALAKE_API_URL") or os.environ.get("Quix__Lakehouse__Query__Url")
     token = os.environ.get("DATALAKE_API_TOKEN") or os.environ.get("Quix__Lakehouse__Query__AuthToken")
     if not url or not token:
@@ -194,7 +204,7 @@ async def leaderboard():
 
     sql = os.environ.get("LEADERBOARD_SQL") or DEFAULT_LEADERBOARD_SQL
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with httpx.AsyncClient(timeout=20, verify=_datalake_verify()) as client:
             r = await client.post(
                 f"{url.rstrip('/')}/query",
                 content=sql.encode("utf-8"),

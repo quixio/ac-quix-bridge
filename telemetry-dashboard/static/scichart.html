@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AC Telemetry — SciChart Preview</title>
+
+<!--
+  Standalone evaluation page for SciChart.js (https://www.scichart.com).
+  NOT wired into the production dashboard — reachable at /scichart.html only.
+
+  What it shows: SciChart's reason to exist — real-time streaming line charts on
+  the GPU (WebGL + WASM). It consumes the SAME /ws telemetry feed as the live
+  dashboard and renders rolling time-series traces that the current dashboard
+  doesn't have (speed/RPM, throttle/brake, tyre temps over time).
+
+  No build step: the library is loaded from CDN as a UMD bundle that exposes a
+  global `SciChart` and auto-loads its .wasm/.data from the same CDN.
+
+  Licensing: this runs in unlicensed TRIAL mode, so SciChart paints a small
+  watermark bottom-right. That's expected for a preview; a shipped product needs
+  a purchased license key via SciChartSurface.setRuntimeLicenseKey(...).
+-->
+<script src="https://cdn.jsdelivr.net/npm/scichart@5/index.min.js" crossorigin="anonymous"></script>
+
+<style>
+  :root {
+    --bg: #08080f;
+    --card: #12121f;
+    --border: #23233f;
+    --text: #f0f0f5;
+    --dim: #6a6a85;
+    --cyan: #00d4ff;
+    --green: #00ff88;
+    --amber: #ffaa00;
+    --red: #ff3355;
+    --purple: #c14bff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 1vh 1vw;
+    gap: 1vh;
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 1.4vw;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1vh 1.4vw;
+  }
+  .brand-logo { height: 3.4vh; width: auto; display: block; flex-shrink: 0; }
+  .title { font-size: 2.2vh; font-weight: 800; white-space: nowrap; }
+  .title small { color: var(--dim); font-weight: 600; font-size: 1.4vh; }
+  .spacer { flex: 1; }
+
+  .ctrl {
+    font-size: 1.5vh; font-weight: 700; letter-spacing: .04vw;
+    padding: .8vh 1.1vw; border-radius: 7px;
+    border: 1.5px solid var(--border); background: #1a1a2c; color: var(--text);
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .ctrl:hover { border-color: var(--cyan); }
+  .ctrl.active { background: var(--cyan); color: #000; border-color: var(--cyan); }
+  .toggle { display: flex; align-items: center; gap: .5vw; font-size: 1.5vh; color: var(--dim); cursor: pointer; user-select: none; }
+  .toggle input { width: 1.6vh; height: 1.6vh; accent-color: var(--cyan); cursor: pointer; }
+
+  .src {
+    display: flex; align-items: center; gap: .6vw;
+    padding: .7vh 1vw; border-radius: 7px; border: 1.5px solid var(--border);
+    font-size: 1.4vh; font-weight: 800; letter-spacing: .08vw; white-space: nowrap;
+  }
+  .src .dot { width: 1.1vh; height: 1.1vh; border-radius: 50%; background: var(--dim); }
+  .src.live .dot { background: var(--green); animation: blink 1.1s ease-in-out infinite; }
+  .src.demo .dot { background: var(--amber); }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+  .src .hz { color: var(--dim); font-weight: 600; }
+
+  .link { color: var(--cyan); text-decoration: none; font-size: 1.5vh; font-weight: 700; white-space: nowrap; }
+  .link:hover { text-decoration: underline; }
+
+  /* ---------- Charts ---------- */
+  .grid { flex: 1; display: flex; flex-direction: column; gap: 1vh; min-height: 0; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1vh 1vw .6vh; min-height: 0; flex: 1;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .card-title {
+    font-size: 1.4vh; text-transform: uppercase; letter-spacing: .2vw;
+    color: var(--dim); margin-bottom: .6vh; flex-shrink: 0;
+  }
+  .card-title b { color: var(--text); }
+  .chart { flex: 1; width: 100%; min-height: 0; position: relative; }
+
+  .hint { font-size: 1.2vh; color: var(--dim); }
+  .hint b { color: var(--cyan); }
+
+  .fatal {
+    margin: auto; max-width: 640px; text-align: center; color: var(--dim);
+    font-size: 1.8vh; line-height: 1.5; padding: 3vh;
+  }
+  .fatal b { color: var(--red); }
+  .fatal code { color: var(--cyan); background: #1a1a2c; padding: .1em .4em; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ===================== TOP BAR ===================== -->
+<div class="topbar">
+  <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 438.16 132" aria-label="Quix"><g><rect x="108" y="108" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><rect x="81" y="81" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><rect x="54" y="54" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><path d="M129.5,0H2.5C1.12,0,0,1.12,0,2.5v127c0,1.38,1.12,2.5,2.5,2.5h73c1.38,0,2.5-1.12,2.5-2.5v-19c0-1.38-1.12-2.5-2.5-2.5H24V24h84v51.5c0,1.38,1.12,2.5,2.5,2.5h19c1.38,0,2.5-1.12,2.5-2.5V2.5c0-1.38-1.12-2.5-2.5-2.5Z" fill="#fff"/><polygon points="410.55 66.29 437.18 31.38 417.48 31.38 401.65 53.85 386.24 31.38 366.11 31.38 391.98 65.79 363.16 103.15 382.72 103.15 400.81 78.13 418.04 103.15 438.16 103.15 410.55 66.29" fill="#fff"/><rect x="339.47" y="31.38" width="17.73" height="71.77" fill="#fff"/><rect x="338.62" width="19.28" height="19.56" fill="#fff"/><path d="M310.63,70.08c0,3.85-.84,7.32-2.53,10.41-1.59,3-3.8,5.35-6.61,7.04-2.72,1.69-5.91,2.53-9.57,2.53-4.03,0-7.18-1.13-9.43-3.38-2.16-2.25-3.24-5.58-3.24-9.99V31.38h-17.73v48.97c0,4.6.94,8.73,2.81,12.38,1.97,3.66,4.74,6.57,8.3,8.73,3.66,2.06,7.97,3.1,12.95,3.1,6.29,0,11.73-1.55,16.32-4.64,3.94-2.68,7-6.13,9.29-10.27v13.5h17.31V31.38h-17.87v38.7Z" fill="#fff"/><path d="M233.22,43.85c-1.42-3.64-3.7-6.64-6.9-8.95-4.41-3.28-9.99-4.93-16.75-4.93s-12.34,1.55-17.31,4.64c-4.88,3.1-8.68,7.46-11.4,13.09-2.72,5.63-4.08,12.24-4.08,19.84s1.31,14.03,3.94,19.56c2.63,5.54,6.33,9.85,11.12,12.95,4.88,3,10.6,4.5,17.17,4.5s12.06-1.55,16.75-4.64c3.07-2.08,5.31-4.66,6.9-7.62v39.71h17.87V31.38h-17.31v12.47ZM228.01,84.15c-3.38,3.94-7.97,5.91-13.79,5.91s-10.55-1.97-13.93-5.91c-3.38-3.94-5.07-9.52-5.07-16.75s1.69-12.81,5.07-16.75c3.38-4.03,7.97-6.05,13.79-6.05s10.41,1.97,13.79,5.91c3.47,3.94,5.21,9.52,5.21,16.75s-1.69,12.85-5.07,16.89Z" fill="#fff"/></g></svg>
+
+  <div class="title">SciChart.js <small>· streaming telemetry preview</small></div>
+
+  <div class="spacer"></div>
+
+  <span class="hint">Hover to inspect · scroll to zoom · double-click to reset</span>
+
+  <button class="ctrl" id="pause-btn">⏸ Pause</button>
+  <label class="toggle"><input type="checkbox" id="force-demo"> Force demo data</label>
+
+  <div class="src" id="src">
+    <span class="dot"></span><span id="src-label">starting…</span><span class="hz" id="hz"></span>
+  </div>
+
+  <a class="link" href="/" title="Back to the production dashboard">← Dashboard</a>
+</div>
+
+<!-- ===================== CHARTS ===================== -->
+<div class="grid" id="grid">
+  <div class="card">
+    <div class="card-title">Speed <b>km/h</b> &nbsp;·&nbsp; RPM</div>
+    <div class="chart" id="chart-sr"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Throttle &amp; Brake <b>%</b></div>
+    <div class="chart" id="chart-in"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Tyre Temps <b>°C</b> &nbsp;·&nbsp; FL / FR / RL / RR</div>
+    <div class="chart" id="chart-tt"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  SciChart.js streaming preview
+//  - Same /ws feed as the live dashboard.
+//  - Rolling FIFO line series (the streaming use case SciChart is built for).
+//  - Auto-falls back to synthetic "demo" telemetry when no live frames arrive,
+//    so the page is meaningful even when AC isn't running.
+// ============================================================
+
+const now = () => performance.now();
+
+// --- Guard: did the CDN bundle load? ---
+if (typeof SciChart === 'undefined') {
+  document.getElementById('grid').innerHTML =
+    '<div class="fatal"><b>SciChart failed to load.</b><br>' +
+    'The library is fetched from <code>cdn.jsdelivr.net/npm/scichart@5</code> ' +
+    '(plus its WebAssembly files). Check this machine has internet access to that CDN, ' +
+    'then reload.</div>';
+  throw new Error('SciChart global not present');
+}
+
+const {
+  SciChartSurface, NumericAxis, FastLineRenderableSeries, XyDataSeries,
+  NumberRange, EAutoRange, EAxisAlignment, SciChartJsNavyTheme,
+  LegendModifier, RolloverModifier, MouseWheelZoomModifier, ZoomExtentsModifier,
+  Point, translateFromSeriesViewRectToCanvas,
+} = SciChart;
+
+// --- RolloverModifier that "auto-hovers" the live edge ---------------------
+// The value popups are the head-turning bit, but SciChart only draws them on a
+// real mouse hover. This subclass injects a synthetic hover at a pinned X (the
+// latest sample) on every render, so the tooltips sit at the right-hand edge and
+// track the live values with no cursor. When the real mouse IS over the chart we
+// stand down and let normal hover take over — see modifierMouseMove/Leave.
+class PinnedRollover extends RolloverModifier {
+  constructor(options) {
+    super(options);
+    this.pinnedX = null;
+    this.hovering = false;
+  }
+  setPinnedX(x) { this.pinnedX = x; }
+
+  modifierMouseMove(args) { this.hovering = true; super.modifierMouseMove(args); }
+  modifierMouseLeave(args) { this.hovering = false; super.modifierMouseLeave(args); }
+
+  onParentSurfaceRendered() {
+    const surface = this.parentSurface;
+    if (!this.hovering && this.pinnedX != null && surface && surface.seriesViewRect) {
+      const xAxis = surface.xAxes.getById(this.xAxisId);
+      if (xAxis) {
+        const xCoord = xAxis.getCurrentCoordinateCalculator().getCoordinate(this.pinnedX);
+        const rect = surface.seriesViewRect;
+        const mousePoint =
+          typeof translateFromSeriesViewRectToCanvas === 'function'
+            ? translateFromSeriesViewRectToCanvas(new Point(xCoord, 0), rect)
+            : new Point((rect.x != null ? rect.x : rect.left) + xCoord, (rect.y != null ? rect.y : rect.top) + 1);
+        // Bypass our own override so this synthetic move doesn't flip `hovering`.
+        super.modifierMouseMove({ mousePoint });
+      }
+    }
+    super.onParentSurfaceRendered();
+  }
+}
+
+// FIFO capacity per series. At ~60 Hz this is a rolling ~33 s window that
+// scrolls as new points push old ones out — no full redraw, no array growth.
+const FIFO = 2000;
+
+const theme = new SciChartJsNavyTheme();
+theme.sciChartBackground = '#12121f';
+theme.loadingAnimationBackground = '#12121f';
+
+// Shared, monotonically-increasing x clock (seconds since page load).
+const t0 = now();
+
+function makeYAxis(wasm, s) {
+  return new NumericAxis(wasm, {
+    axisId: s.axisId,
+    axisAlignment: s.align,
+    autoRange: s.range ? EAutoRange.Never : EAutoRange.Always,
+    visibleRange: s.range ? new NumberRange(s.range[0], s.range[1]) : undefined,
+    growBy: new NumberRange(s.grow ? s.grow[0] : 0.1, s.grow ? s.grow[1] : 0.1),
+    drawMinorGridLines: false,
+    axisTitle: s.title,
+    axisTitleStyle: { fontSize: 11, color: s.color || '#9a9ab5' },
+    labelStyle: { fontSize: 10, color: '#8a8aa5' },
+  });
+}
+
+async function buildChart(divId, yAxes, series) {
+  const { sciChartSurface, wasmContext } = await SciChartSurface.create(divId, { theme });
+
+  const xAxis = new NumericAxis(wasmContext, {
+    autoRange: EAutoRange.Always,
+    drawLabels: false,
+    drawMajorTickLines: false,
+    drawMinorGridLines: false,
+    growBy: new NumberRange(0, 0),
+  });
+  sciChartSurface.xAxes.add(xAxis);
+  yAxes.forEach((ys) => sciChartSurface.yAxes.add(makeYAxis(wasmContext, ys)));
+
+  const ds = {};
+  series.forEach((s) => {
+    const d = new XyDataSeries(wasmContext, { fifoCapacity: FIFO, dataSeriesName: s.name });
+    ds[s.key] = d;
+    sciChartSurface.renderableSeries.add(
+      new FastLineRenderableSeries(wasmContext, {
+        dataSeries: d,
+        stroke: s.color,
+        strokeThickness: 2.5,
+        yAxisId: s.yAxisId,
+      }),
+    );
+  });
+
+  const rollover = new PinnedRollover({ showTooltip: true, showRolloverLine: true });
+  sciChartSurface.chartModifiers.add(
+    new MouseWheelZoomModifier(),
+    new ZoomExtentsModifier(),
+    rollover,
+    new LegendModifier({ showCheckboxes: false, showSeriesMarkers: true }),
+  );
+
+  return { sciChartSurface, xAxis, ds, rollover };
+}
+
+const fin = (v, d = 0) => (typeof v === 'number' && isFinite(v) ? v : d);
+const pct = (v) => Math.max(0, Math.min(100, fin(v) * 100));
+
+let C = null;          // built charts, keyed sr/in/tt
+let sampleCount = 0;   // total appended frames (for the Hz readout)
+
+function onFrame(d) {
+  if (paused || !C) return;
+  const t = (now() - t0) / 1000;
+  C.sr.ds.speed.append(t, fin(d.speedKmh));
+  C.sr.ds.rpm.append(t, fin(d.rpms));
+  C.in.ds.gas.append(t, pct(d.gas));
+  C.in.ds.brake.append(t, pct(d.brake));
+  C.tt.ds.fl.append(t, fin(d.tyreTempFL));
+  C.tt.ds.fr.append(t, fin(d.tyreTempFR));
+  C.tt.ds.rl.append(t, fin(d.tyreTempRL));
+  C.tt.ds.rr.append(t, fin(d.tyreTempRR));
+  sampleCount++;
+
+  // Park the value popups on the live edge so they're always on screen.
+  C.sr.rollover.setPinnedX(t);
+  C.in.rollover.setPinnedX(t);
+  C.tt.rollover.setPinnedX(t);
+}
+
+// --- Synthetic telemetry: a believable lap-like oscillation so the preview is
+// alive without AC. corner≈0 at an apex (slow, braking), corner≈1 on a straight.
+function demoFrame(t) {
+  const phase = t * 0.45;
+  const corner = (Math.sin(phase) + 1) / 2;
+  const speed = 70 + corner * 230 + Math.sin(t * 3.1) * 5;
+  const rpm = 2800 + corner * 4800 + Math.sin(t * 9) * 250;
+  const gas = Math.min(1, Math.max(0, corner * 1.35 - 0.12));
+  const brake = Math.max(0, (0.45 - corner) * 1.9);
+  const warm = Math.min(1, t / 25);          // tyres warm up over the first ~25 s
+  const base = 70 + warm * 22;
+  const load = Math.sin(phase);              // outer/loaded tyres run hotter in corners
+  return {
+    speedKmh: speed, rpms: rpm, gas, brake,
+    tyreTempFL: base + load * 9 + 4,
+    tyreTempFR: base + load * 12,
+    tyreTempRL: base + load * 6 + 2,
+    tyreTempRR: base + load * 8,
+  };
+}
+
+// --- Controls + source indicator ---
+let paused = false;
+let forceDemo = false;
+let lastLive = -1e9;     // timestamp of the last real telemetry frame
+let consumer = 'starting';
+
+const pauseBtn = document.getElementById('pause-btn');
+const forceChk = document.getElementById('force-demo');
+const srcEl = document.getElementById('src');
+const srcLabel = document.getElementById('src-label');
+const hzEl = document.getElementById('hz');
+
+pauseBtn.onclick = () => setPaused(!paused);
+forceChk.onchange = () => { forceDemo = forceChk.checked; };
+
+function setPaused(p) {
+  paused = p;
+  // Frozen → let the user pan/zoom freely; live → resume auto-scroll.
+  const mode = p ? EAutoRange.Never : EAutoRange.Always;
+  if (C) Object.values(C).forEach((c) => { c.xAxis.autoRange = mode; });
+  pauseBtn.textContent = p ? '▶ Resume' : '⏸ Pause';
+  pauseBtn.classList.toggle('active', p);
+}
+
+function setSource(usingLive) {
+  srcEl.className = 'src ' + (usingLive ? 'live' : 'demo');
+  srcLabel.textContent = usingLive ? 'LIVE' : 'DEMO';
+}
+
+// --- Drive loop: demo generator + Hz meter. Live frames append directly from
+// the socket; this loop only synthesises frames when live data is absent.
+let hzT = now();
+let hzCount = 0;
+function loop() {
+  const tn = now();
+  const liveRecent = tn - lastLive < 2500;
+  const usingLive = liveRecent && !forceDemo;
+  if (!paused && !usingLive) onFrame(demoFrame((tn - t0) / 1000));
+
+  if (tn - hzT > 500) {
+    const hz = Math.round(((sampleCount - hzCount) * 1000) / (tn - hzT));
+    hzCount = sampleCount;
+    hzT = tn;
+    setSource(usingLive);
+    hzEl.textContent = paused ? '· paused' : '· ' + hz + ' Hz';
+  }
+  requestAnimationFrame(loop);
+}
+
+// --- WebSocket: same envelope contract as the live dashboard. ---
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(proto + '//' + location.host + '/ws');
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg && msg.type === 'status') { consumer = msg.status; return; }
+    lastLive = now();
+    if (!forceDemo) onFrame(msg);   // demo loop stands down while live data flows
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+// --- Boot ---
+(async function init() {
+  try {
+    C = {
+      sr: await buildChart(
+        'chart-sr',
+        [
+          { axisId: 'speed', align: EAxisAlignment.Left, title: 'km/h', color: '#00d4ff' },
+          { axisId: 'rpm', align: EAxisAlignment.Right, title: 'rpm', color: '#ffaa00', grow: [0.1, 0.3] },
+        ],
+        [
+          { key: 'speed', name: 'Speed', color: '#00d4ff', yAxisId: 'speed' },
+          { key: 'rpm', name: 'RPM', color: '#ffaa00', yAxisId: 'rpm' },
+        ],
+      ),
+      in: await buildChart(
+        'chart-in',
+        [{ axisId: 'pct', align: EAxisAlignment.Left, title: '%', range: [0, 105] }],
+        [
+          { key: 'gas', name: 'Throttle', color: '#00ff88', yAxisId: 'pct' },
+          { key: 'brake', name: 'Brake', color: '#ff3355', yAxisId: 'pct' },
+        ],
+      ),
+      tt: await buildChart(
+        'chart-tt',
+        [{ axisId: 'temp', align: EAxisAlignment.Left, title: '°C' }],
+        [
+          { key: 'fl', name: 'FL', color: '#00d4ff', yAxisId: 'temp' },
+          { key: 'fr', name: 'FR', color: '#ffaa00', yAxisId: 'temp' },
+          { key: 'rl', name: 'RL', color: '#00ff88', yAxisId: 'temp' },
+          { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'temp' },
+        ],
+      ),
+    };
+  } catch (err) {
+    document.getElementById('grid').innerHTML =
+      '<div class="fatal"><b>Could not initialise SciChart.</b><br>' +
+      String(err && err.message ? err.message : err) + '</div>';
+    throw err;
+  }
+
+  connect();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -10,16 +10,39 @@ Run via scripts/preview-dashboard.ps1 (sets up the venv + deps).
 """
 
 import asyncio
+import csv
+import io
 import json
 import math
+import os
 import random
 import time
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
-STATIC = Path(__file__).resolve().parent.parent / "telemetry-dashboard" / "static"
+REPO = Path(__file__).resolve().parent.parent
+STATIC = REPO / "telemetry-dashboard" / "static"
+
+
+def _load_env():
+    """Populate unset env vars from telemetry-dashboard/.env or repo .env so the
+    real Data Lake leaderboard can be tested locally."""
+    for f in (REPO / "telemetry-dashboard" / ".env", REPO / ".env"):
+        if not f.exists():
+            continue
+        for line in f.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                k, v = k.strip(), v.strip().strip('"').strip("'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+
+
+_load_env()
 
 app = FastAPI()
 
@@ -119,10 +142,47 @@ async def health():
     return {"status": "connected", "detail": "preview", "clients": 0}
 
 
+DEFAULT_LEADERBOARD_SQL = (
+    'SELECT driver AS name, MIN("iBestTime") AS ms '
+    'FROM ac_telemetry '
+    "WHERE \"iBestTime\" > 0 AND driver IS NOT NULL AND driver <> '' "
+    "GROUP BY driver ORDER BY ms ASC LIMIT 10"
+)
+
+
 @app.get("/leaderboard")
 async def leaderboard():
-    # Preview has no Data Lake; return empty so the UI keeps its placeholder board.
-    return {"rows": []}
+    # Proxy the real Data Lake if creds are configured (via .env); otherwise empty
+    # so the UI keeps its placeholder board. Mirrors the deployed backend.
+    url = os.environ.get("DATALAKE_API_URL") or os.environ.get("Quix__Lakehouse__Query__Url")
+    token = os.environ.get("DATALAKE_API_TOKEN") or os.environ.get("Quix__Lakehouse__Query__AuthToken")
+    if not url or not token:
+        return {"rows": []}
+    sql = os.environ.get("LEADERBOARD_SQL") or DEFAULT_LEADERBOARD_SQL
+    if os.environ.get("DATALAKE_INSECURE_SSL", "").lower() in ("1", "true", "yes"):
+        verify = False
+    else:
+        verify = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE") or True
+    try:
+        async with httpx.AsyncClient(timeout=20, verify=verify) as client:
+            r = await client.post(
+                f"{url.rstrip('/')}/query",
+                content=sql.encode("utf-8"),
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
+            )
+        r.raise_for_status()
+        rows = []
+        for row in csv.DictReader(io.StringIO(r.text)):
+            name = (row.get("name") or "").strip()
+            if not name or name.startswith("# ERROR"):
+                continue
+            try:
+                rows.append({"name": name, "ms": int(float(row["ms"]))})
+            except (TypeError, ValueError, KeyError):
+                continue
+        return {"rows": rows}
+    except Exception as e:
+        return {"rows": [], "error": str(e)}
 
 
 @app.websocket("/ws")

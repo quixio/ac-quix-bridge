@@ -17,6 +17,11 @@ variables:
     description: Server-side cache TTL for the leaderboard query (seconds)
     defaultValue: "15"
     required: false
+  - name: DATALAKE_INSECURE_SSL
+    inputType: FreeText
+    description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
+    defaultValue: ""
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py
