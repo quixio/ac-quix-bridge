@@ -82,9 +82,14 @@ CONSUMER_GROUP = "test-manager-backend-ghost-lap"
 # Number of equally-sized checkpoint gates the lap is split into for the
 # Live Sector Comparison table. 10 → gates at normalizedCarPosition 0.10,
 # 0.20, ..., 0.90, 1.00. The 0% gate is implicit (always 0 ms) and is not
-# stored, so `gate_times_ms[0]` corresponds to the 10% gate and `[9]` to
-# the lap line.
-GATE_COUNT = 10
+# stored, so `gate_times_ms[0]` corresponds to the 10% gate and `[GATE_COUNT-1]`
+# to the lap line.
+#
+# Configurable via env so you can A/B different resolutions for the live
+# sector comparison without code edits. At higher counts, also shorten
+# the frontend's freeze window (NEXT_PUBLIC_FREEZE_MS) — the default 3 s
+# stacks until the table feels permanently frozen.
+GATE_COUNT = max(2, int(os.environ.get("GATE_COUNT", "10")))
 
 # DCM experiment lookups: timeouts and a cache TTL fence. The TTL only
 # matters as a safety net — the primary invalidation event is a new session

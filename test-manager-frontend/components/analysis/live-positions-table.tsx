@@ -69,7 +69,14 @@ export interface LivePositionsTableProps {
   isLive?: boolean
 }
 
-const FREEZE_MS = 3000
+// Duration (ms) of the blue-freeze window after each gate crossing.
+// Override via NEXT_PUBLIC_FREEZE_MS so it can be tuned alongside the
+// backend's GATE_COUNT — at 30+ gates the default 3 s stacks until the
+// table feels permanently frozen.
+const FREEZE_MS = Number.parseInt(
+  process.env.NEXT_PUBLIC_FREEZE_MS ?? "3000",
+  10,
+)
 
 /**
  * Mode of the synchronized blue-freeze state machine (spec §4.3).
