@@ -37,6 +37,8 @@ deployments:
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
         value: 15
+    blobStorage:
+      bind: true
   - name: MongoDB
     application: mongodb
     version: latest
