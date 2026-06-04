@@ -9,10 +9,6 @@ variables:
     inputType: FreeText
     description: "Run mode: 'app' (view only) or 'edit' (full editor)"
     defaultValue: edit
-  - name: QUIX_LAKE_TOKEN
-    inputType: ProjectVariable
-    description: Override token for QuixLake queries. Leave empty to use the platform-injected Quix__Sdk__Token.
-    secret: true
 dockerfile: dockerfile
 defaultFile: dockerfile
 libraryItemId: quixlab
