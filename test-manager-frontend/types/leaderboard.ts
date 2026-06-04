@@ -49,4 +49,11 @@ export interface LivePositionEntry {
    * `null` on the active row, on non-active rows when no active driver,
    * or before gate 1 of the active driver's current lap. */
   delta_at_last_gate_ms?: number | null
+  /** Cumulative time at the LAST crossed gate (i*). For historicals it's
+   * `gate_vector[i*]`; for the active row it's `gate_times_ms[i*]`.
+   * Sticky between crossings. The dual gap chips in
+   * live-positions-table read this directly so a rank-shuffled
+   * neighbour mid-lap carries its own correct reference instead of
+   * falling back to the N+1 `current_lap_time_ms` value. */
+  gate_time_at_crossing_ms?: number | null
 }

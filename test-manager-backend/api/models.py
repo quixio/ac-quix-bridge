@@ -588,3 +588,15 @@ class LivePositionEntry(BaseModel):
     last_gate_state: Literal["ahead", "behind", "neutral"] | None = None
     last_gate_delta_ms: int | None = None
     delta_at_last_gate_ms: int | None = None
+    # Cumulative time at the LAST crossed gate (i*) — same gate the
+    # active driver is currently parked on. For the active row this is
+    # `gate_times_ms[i*]`; for historicals it's `gate_vector[i*]`.
+    #
+    # The frontend's dual gap chips (live-positions-table §3.5) compare
+    # active vs neighbour using THIS field rather than the WS
+    # `historical_at_positions_at_crossing` map. Carrying it per-row
+    # guarantees a fresh value for any neighbour that arrives via
+    # rank-shuffle mid-lap — the previous design fell back to
+    # `current_lap_time_ms` (gate i*+1) and produced an N+1 mismatch
+    # that suppressed the red chip and inflated the green one.
+    gate_time_at_crossing_ms: int | None = None

@@ -625,6 +625,14 @@ def _historical_row(
         # cumulative time at the LAST crossed gate (not the display
         # column's next-gate value) so rank only snaps at crossings.
         "rank_time_ms": rank_time_ms or gate_time_at_active_ms,
+        # Per-row at-crossing reference for the frontend's dual gap
+        # chips (LivePositionEntry.gate_time_at_crossing_ms docstring).
+        # Mirrors `rank_time_ms` for historicals — both are the
+        # cumulative time at the LAST crossed gate, sticky between
+        # crossings. Exposing this on the row eliminates the
+        # `current_lap_time_ms` (gate i*+1) fallback that produced the
+        # N+1 chip mismatch on rank-shuffle.
+        "gate_time_at_crossing_ms": rank_time_ms or None,
         "rank": 0,
         "last_gate_index": last_gate_index,
         "last_gate_state": None,
@@ -669,6 +677,9 @@ def _active_row(
         # historicals are ranked by. Falls back to live current_lap_time_ms
         # if no gate has been crossed yet (lap start).
         "rank_time_ms": rank_time_ms or max(0, int(current_lap_time_ms)),
+        # Mirror of `rank_time_ms` exposed to the wire for the dual gap
+        # chips. See LivePositionEntry.gate_time_at_crossing_ms.
+        "gate_time_at_crossing_ms": rank_time_ms or None,
         "rank": 0,
         "last_gate_index": last_gate_index,
         "last_gate_state": last_gate_state,

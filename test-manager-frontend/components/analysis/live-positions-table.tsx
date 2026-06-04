@@ -287,37 +287,30 @@ export function LivePositionsTable({
         </TableHeader>
         <TableBody ref={bodyRef}>
           {visible.map((row, idx) => {
-            // Gap math (spec §3.5) is sticky at the LAST crossing — it
-            // reads `crossingSnapshot.historicalAtMs[neighbour.driver]`
-            // regardless of freeze mode. Falls back to `null` when the
-            // snapshot is missing the neighbour (cold-cache pre-first-
-            // crossing) so the chip simply doesn't render rather than
-            // jumping to a wrong value.
-            const aboveDriver = idx > 0 ? visible[idx - 1].driver : null
-            const belowDriver =
-              idx < visible.length - 1 ? visible[idx + 1].driver : null
-            // Primary source: sticky crossingSnapshot. Fallback: the
-            // neighbour row's own `current_lap_time_ms`. The fallback
-            // matters after a rank-shuffle gate crossing — the new
-            // neighbour might not be in the snapshot's map yet, but
-            // their `current_lap_time_ms` is always up-to-date from the
-            // HTTP refetch / WS patch. Prevents chips from blinking out
-            // when active climbs/drops several places at one crossing.
+            // Gap math (spec §3.5). Both sides read the per-row
+            // `gate_time_at_crossing_ms` field — cumulative time at the
+            // active driver's last crossed gate i*. The backend stamps
+            // this on every row (historical AND active) so neighbours
+            // that arrive via rank-shuffle mid-lap carry the correct
+            // value without depending on the sticky `crossingSnapshot`
+            // map. Falls back to that map only if the row is missing
+            // the field (pre-deploy backend), and to `null` after that
+            // — never to `current_lap_time_ms` (= gate i*+1, would
+            // re-introduce the N+1 mismatch that suppressed the red
+            // chip and inflated the green one).
             const aboveRow = idx > 0 ? visible[idx - 1] : null
             const belowRow =
               idx < visible.length - 1 ? visible[idx + 1] : null
             const aboveAtCrossingMs =
-              aboveDriver != null && crossingSnapshot
-                ? crossingSnapshot.historicalAtMs[aboveDriver] ??
-                  aboveRow?.current_lap_time_ms ??
-                  null
-                : aboveRow?.current_lap_time_ms ?? null
+              aboveRow?.gate_time_at_crossing_ms ??
+              (aboveRow?.driver != null && crossingSnapshot
+                ? crossingSnapshot.historicalAtMs[aboveRow.driver] ?? null
+                : null)
             const belowAtCrossingMs =
-              belowDriver != null && crossingSnapshot
-                ? crossingSnapshot.historicalAtMs[belowDriver] ??
-                  belowRow?.current_lap_time_ms ??
-                  null
-                : belowRow?.current_lap_time_ms ?? null
+              belowRow?.gate_time_at_crossing_ms ??
+              (belowRow?.driver != null && crossingSnapshot
+                ? crossingSnapshot.historicalAtMs[belowRow.driver] ?? null
+                : null)
             return (
               <LeaderRow
                 key={`${row.driver}|${row.track}|${row.car}|${row.experiment}|${row.is_active ? "live" : "ghost"}`}
