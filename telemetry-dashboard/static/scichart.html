@@ -445,6 +445,9 @@ function makeYAxis(wasm, s) {
     autoRange: s.range ? EAutoRange.Never : EAutoRange.Always,
     visibleRange: s.range ? new NumberRange(s.range[0], s.range[1]) : undefined,
     growBy: new NumberRange(s.grow ? s.grow[0] : 0.1, s.grow ? s.grow[1] : 0.1),
+    // A hidden axis still maps coordinates (so its series renders in its own band) but
+    // draws no labels/ticks — used by the gear trace to avoid a cluttering third axis.
+    isVisible: !s.hidden,
     drawMinorGridLines: false,
     axisTitle: s.title,
     axisTitleStyle: { fontSize: 11, color: s.color || '#9a9ab5' },
@@ -474,12 +477,19 @@ async function buildChart(divId, yAxes, series, markers = []) {
       stroke: s.color,
       strokeThickness: 2.5,
       yAxisId: s.yAxisId,
+      // Step line for discrete signals (e.g. gear): hold then jump, no diagonal interp.
+      isDigitalLine: !!s.digital,
     });
     // Render NaN samples as a break (DiscontinuousLine), not bridged across, so a data
     // stall leaves a gap instead of one long segment spanning the chart. The enum member
     // is DiscontinuousLine (NOT "Gaps"); set on the instance so it definitely applies.
     if (ELineDrawMode && ELineDrawMode.DiscontinuousLine !== undefined) {
       line.drawNaNAs = ELineDrawMode.DiscontinuousLine;
+    }
+    // Optional per-series tooltip text (e.g. map raw gear → R/N/1…). Guarded so an API
+    // shape difference just falls back to the default numeric tooltip.
+    if (s.tooltip && line.rolloverModifierProps) {
+      line.rolloverModifierProps.tooltipDataTemplate = (info) => [s.tooltip(info.yValue)];
     }
     sciChartSurface.renderableSeries.add(line);
   });
@@ -520,6 +530,8 @@ async function buildChart(divId, yAxes, series, markers = []) {
 const fin = (v, d = 0) => (typeof v === 'number' && isFinite(v) ? v : d);
 const pct = (v) => Math.max(0, Math.min(100, fin(v) * 100));
 const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, fin(v)));
+// Raw AC gear → label: 0=R, 1=N, 2+ = numbered gears (g-1). Mirrors index.html.
+const gearDisplay = (g) => (g === 0 ? 'R' : g === 1 ? 'N' : String(g - 1));
 
 // Manual FIFO: drop samples older than `cutoff` off the head of a data series. X is
 // appended strictly increasing, so just count the leading points below the cutoff and
@@ -841,6 +853,8 @@ function onFrame(d) {
   lastFrameT = t;
   C.sr.ds.speed.append(t, fin(d.speedKmh));
   C.sr.ds.rpm.append(t, fin(d.rpms));
+  // Gear: append raw value (step line); NaN when missing so it gaps instead of faking "R".
+  C.sr.ds.gear.append(t, typeof d.gear === 'number' ? d.gear : NaN);
   C.in.ds.gas.append(t, pct(d.gas));
   C.in.ds.brake.append(t, pct(d.brake));
   C.in.ds.steer.append(t, fin(d.steerAngle) * 180 / Math.PI);   // steering angle in degrees
@@ -883,8 +897,11 @@ function demoFrame(t) {
   const warm = Math.min(1, t / 25);          // tyres warm up over the first ~25 s
   const base = 70 + warm * 22;
   const load = Math.sin(phase);              // outer/loaded tyres run hotter in corners
+  // Plausible gear shifting with speed (raw AC value; display = raw-1, so 1st = 2).
+  const dgear = speed < 80 ? 1 : speed < 120 ? 2 : speed < 160 ? 3 : speed < 205 ? 4 : speed < 255 ? 5 : 6;
   return {
     speedKmh: speed, rpms: rpm, gas, brake,
+    gear: dgear + 1,
     steerAngle: -load * 0.4,            // ± ~23° steering, correlated with cornering load
     tyreTempFL: base + load * 9 + 4,
     tyreTempFR: base + load * 12,
@@ -1015,10 +1032,16 @@ function connect() {
         [
           { axisId: 'speed', align: EAxisAlignment.Left, title: 'km/h', color: '#00d4ff' },
           { axisId: 'rpm', align: EAxisAlignment.Right, title: 'rpm', color: '#ffaa00', range: [0, 9000] },
+          // Hidden axis for the gear step line. Range generous (> max gear) so the trace
+          // sits in the lower band instead of spanning the full height; tune if needed.
+          { axisId: 'gear', align: EAxisAlignment.Right, range: [0, 16], hidden: true },
         ],
         [
           { key: 'speed', name: 'Speed', color: '#00d4ff', yAxisId: 'speed' },
           { key: 'rpm', name: 'RPM', color: '#ffaa00', yAxisId: 'rpm' },
+          // Gear: pink step line on its own hidden axis; value shown in the tooltip (R/N/1…).
+          { key: 'gear', name: 'Gear', color: '#ff5ccd', yAxisId: 'gear', digital: true,
+            tooltip: (v) => 'Gear ' + gearDisplay(Math.round(v)) },
         ],
       ),
       in: await buildChart(
