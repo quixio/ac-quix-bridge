@@ -86,6 +86,9 @@ table_name = os.getenv("TABLE_NAME") or os.environ["input"]
 # Workspace ID (automatically injected by Quix platform)
 workspace_id = os.getenv("Quix__Workspace__Id", "")
 
+stream_timeout_ms = _optional_positive_int("STREAM_TIMEOUT_MS")
+
+
 # Initialize QuixLakeSink
 # Note: Blob storage credentials are configured via Quix__BlobStorage__Connection__Json
 # environment variable, which is automatically read by quixportal.
@@ -107,6 +110,7 @@ blob_sink = QuixTSDataLakeSink(
     namespace=os.getenv("CATALOG_NAMESPACE", "default"),
     auto_create_bucket=True,
     max_workers=_positive_int("MAX_WRITE_WORKERS", "10"),
+    stream_timeout_ms=stream_timeout_ms,
     on_stream_timeout=_on_stream_timeout if stream_timeout_ms is not None else None,
     on_client_connect_success=lambda: print("CONNECTED!"),
     on_client_connect_failure=lambda e: print(f"ERROR! {e}"),
