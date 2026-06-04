@@ -122,6 +122,11 @@
   .g-readout { flex-shrink: 0; display: flex; justify-content: space-around; font-size: 1.3vh; font-weight: 800; color: var(--dim); letter-spacing: .08vw; padding-top: .3vh; }
   .g-readout b { color: var(--text); font-variant-numeric: tabular-nums; }
 
+  /* ---------- Lap delta / current-lap readout ---------- */
+  .ld-body { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .8vh; }
+  .ld-val { font-size: 6vh; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text); }
+  .ld-sub { font-size: 1.3vh; text-transform: uppercase; letter-spacing: .15vw; color: var(--dim); }
+
   .hint { font-size: 1.2vh; color: var(--dim); }
   .hint b { color: var(--cyan); }
 
@@ -256,8 +261,11 @@
     <div class="chart" id="chart-eng"></div>
   </div>
   <div class="card">
-    <div class="card-title">Lap Delta <b>s</b> &nbsp;·&nbsp; iDeltaLapTime (− ahead / + behind)</div>
-    <div class="chart" id="chart-delta"></div>
+    <div class="card-title" id="ld-title">Lap Delta</div>
+    <div class="ld-body">
+      <div class="ld-val" id="ld-val">--:--.---</div>
+      <div class="ld-sub" id="ld-sub">waiting for telemetry</div>
+    </div>
   </div>
 </div>
 
@@ -306,7 +314,7 @@ const {
   SciChartSurface, NumericAxis, FastLineRenderableSeries, XyDataSeries,
   NumberRange, EAutoRange, EAxisAlignment, SciChartJsNavyTheme,
   LegendModifier, RolloverModifier, MouseWheelZoomModifier, ZoomExtentsModifier,
-  Point,
+  Point, ELineDrawMode,
 } = SciChart;
 
 // --- RolloverModifier that "auto-hovers" the live edge ---------------------
@@ -364,6 +372,12 @@ const WINDOW_S = 60;
 // comfortably hold > 1 minute even at high sample rates (100 Hz here).
 const FIFO = WINDOW_S * 100;
 
+// A gap longer than this (seconds) between consecutive samples is treated as a stall
+// (WS reconnect, sim paused, tab backgrounded) and breaks the line — see onFrame.
+// Well above any normal inter-sample spacing (60 Hz ≈ 0.017 s, 30 Hz ≈ 0.033 s).
+const GAP_S = 0.5;
+let lastFrameT = null;   // x (s) of the last appended sample, for stall detection
+
 const theme = new SciChartJsNavyTheme();
 theme.sciChartBackground = '#12121f';
 theme.loadingAnimationBackground = '#12121f';
@@ -408,6 +422,9 @@ async function buildChart(divId, yAxes, series) {
         stroke: s.color,
         strokeThickness: 2.5,
         yAxisId: s.yAxisId,
+        // Render NaN samples as gaps (not bridged) so a data stall breaks the line
+        // instead of drawing one long segment across the chart. See onFrame's gap check.
+        drawNaNAs: ELineDrawMode ? ELineDrawMode.Gaps : undefined,
       }),
     );
   });
@@ -595,11 +612,48 @@ function updateGMeter(d) {
   gTot.textContent = mag.toFixed(1);
 }
 
+// --- Lap delta / current-lap readout -------------------------------------
+// iDeltaLapTime is only meaningful once a reference lap exists; until then AC
+// reports iBestTime as the int-max sentinel and the delta reads 0. So show the
+// running current-lap time until there's a valid best lap, then switch to the
+// delta (− ahead / + behind), coloured green/red.
+const INT_MAX = 2147483647;     // AC's "no time set" sentinel for iBestTime/iLastTime
+const ldTitle = document.getElementById('ld-title');
+const ldVal = document.getElementById('ld-val');
+const ldSub = document.getElementById('ld-sub');
+
+function updateLapDelta(d) {
+  const best = d.iBestTime;
+  const hasRef = typeof best === 'number' && best > 0 && best < INT_MAX;
+  if (hasRef && typeof d.iDeltaLapTime === 'number') {
+    const s = d.iDeltaLapTime / 1000;                // seconds: − ahead, + behind
+    ldTitle.textContent = 'Lap Delta';
+    ldSub.textContent = 'vs best lap';
+    ldVal.textContent = (s > 0 ? '+' : '') + s.toFixed(3);
+    ldVal.style.color = s > 0 ? '#ff3355' : s < 0 ? '#00ff88' : 'var(--text)';
+  } else {
+    const cur = d.iCurrentTime;                      // running current-lap time (ms)
+    ldTitle.textContent = 'Current Lap';
+    ldSub.textContent = 'no reference lap yet';
+    ldVal.textContent = (typeof cur === 'number' && cur > 0 && cur < INT_MAX) ? fmtLap(cur) : '--:--.---';
+    ldVal.style.color = 'var(--text)';
+  }
+}
+
 function onFrame(d) {
   updateSidebar(d);          // wheel + leaderboard — independent of the chart surfaces
   updateGMeter(d);           // friction-circle g-meter — also independent of the chart surfaces
+  updateLapDelta(d);         // lap delta / current-lap readout — also DOM, not a chart
   if (paused || !C) return;
   const t = (now() - t0) / 1000;
+  // If telemetry stalled (WS reconnect, sim paused, tab backgrounded), break every
+  // series with a NaN before the new sample so the renderer leaves a gap rather than
+  // bridging the old left-hand point to the new right-hand one with a long line.
+  if (lastFrameT !== null && t - lastFrameT > GAP_S) {
+    const gapX = lastFrameT + 0.001;
+    for (const k in C) { const ds = C[k].ds; for (const key in ds) ds[key].append(gapX, NaN); }
+  }
+  lastFrameT = t;
   C.sr.ds.speed.append(t, fin(d.speedKmh));
   C.sr.ds.rpm.append(t, fin(d.rpms));
   C.in.ds.gas.append(t, pct(d.gas));
@@ -624,8 +678,6 @@ function onFrame(d) {
   C.eng.ds.exh.append(t, fin(d.exhaustTemperature));
   C.eng.ds.fuel.append(t, fin(d.fuel));
   C.eng.ds.laps.append(t, fin(d.fuelEstimatedLaps));
-  // iDeltaLapTime: ms ahead(−)/behind(+) the reference lap; clamp out-lap sentinels.
-  C.delta.ds.delta.append(t, cl((typeof d.iDeltaLapTime === 'number' ? d.iDeltaLapTime : 0) / 1000, -5, 5));
   sampleCount++;
 }
 
@@ -661,6 +713,8 @@ function demoFrame(t) {
     exhaustTemperature: 300 + corner * 250,
     fuel: Math.max(0, 60 - t * 0.04),
     fuelEstimatedLaps: Math.max(0, 18 - t * 0.015),
+    iCurrentTime: Math.round((t % 95) * 1000),                 // running lap clock (ms)
+    iBestTime: t > 18 ? 88000 : 2147483647,                    // no reference for the first ~18 s, then a 1:28 best
     iDeltaLapTime: Math.round(Math.sin(t * 0.3) * 1800),
     brakeBias: 0.62,
     tc: (gas > 0.9 && corner < 0.35) ? 1 : 0,
@@ -815,11 +869,7 @@ function connect() {
           { key: 'laps', name: 'Est. laps', color: '#ffaa00', yAxisId: 'fl' },
         ],
       ),
-      delta: await buildChart(
-        'chart-delta',
-        [{ axisId: 's', align: EAxisAlignment.Left, title: 's', range: [-5, 5] }],
-        [{ key: 'delta', name: 'Δ to best (s)', color: '#c14bff', yAxisId: 's' }],
-      ),
+      // Lap Delta is a numeric readout (DOM), not a SciChart surface — see updateLapDelta().
     };
   } catch (err) {
     document.getElementById('grid').innerHTML =
