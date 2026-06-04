@@ -29,6 +29,20 @@ logger = logging.getLogger(__name__)
 TIMESERIES_PREFIX = "data-lake/time-series"
 
 
+def _optional_positive_int(env_var: str) -> int | None:
+    raw = os.getenv(env_var)
+    if not raw or raw.strip() == "":
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{env_var} must be a positive integer, got '{raw}'")
+    if value <= 0:
+        raise ValueError(f"{env_var} must be a positive integer, got {value}")
+    return value
+
+    
+
 def _positive_int(env_var: str, default: str) -> int:
     raw = os.getenv(env_var, default)
     try:
