@@ -542,10 +542,6 @@ deployments:
         inputType: FreeText
         description: "Run mode: 'app' (view only) or 'edit' (full editor)"
         value: edit
-      - name: QUIX_LAKE_TOKEN
-        inputType: ProjectVariable
-        description: Override token for QuixLake queries. Leave empty to use the platform-injected Quix__Sdk__Token.
-        secret: true
       - name: QUIXLAB_MCP_KEY
         inputType: ProjectVariable
         description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent.
