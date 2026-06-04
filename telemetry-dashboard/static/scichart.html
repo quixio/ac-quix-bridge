@@ -87,6 +87,7 @@
   .src .dot { width: 1.1vh; height: 1.1vh; border-radius: 50%; background: var(--dim); }
   .src.live .dot { background: var(--green); animation: blink 1.1s ease-in-out infinite; }
   .src.demo .dot { background: var(--amber); }
+  .src.waiting .dot { background: var(--amber); animation: blink 1.1s ease-in-out infinite; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
   .src .hz { color: var(--dim); font-weight: 600; }
 
@@ -94,7 +95,18 @@
   .link:hover { text-decoration: underline; }
 
   /* ---------- Charts ---------- */
-  .grid { flex: 1; display: flex; flex-direction: column; gap: 1vh; min-height: 0; }
+  .grid { flex: 1; display: flex; flex-direction: column; gap: 1vh; min-height: 0; position: relative; }
+
+  /* "Waiting for telemetry" overlay — shown when demo is off and no live frames. */
+  .waiting { position: absolute; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; pointer-events: none; }
+  .waiting-box {
+    display: flex; align-items: center; gap: 1vw; text-align: left;
+    background: rgba(8,8,15,.82); border: 1px solid var(--border); border-radius: 12px;
+    padding: 2vh 2.4vw; font-size: 2.1vh; font-weight: 700; color: var(--text);
+  }
+  .waiting-box .wdot { width: 1.3vh; height: 1.3vh; border-radius: 50%; background: var(--amber); animation: blink 1.1s ease-in-out infinite; flex-shrink: 0; }
+  .waiting-box .wsub { display: block; font-size: 1.4vh; font-weight: 500; color: var(--dim); margin-top: .5vh; }
+  .waiting-box .wsub b { color: var(--cyan); font-weight: 700; }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
     padding: 1vh 1vw .6vh; min-height: 0; flex: 1;
@@ -131,7 +143,7 @@
   <span class="hint">Rolling 60&thinsp;s window · pause to zoom &amp; inspect</span>
 
   <button class="ctrl" id="pause-btn">⏸ Pause</button>
-  <label class="toggle"><input type="checkbox" id="force-demo"> Force demo data</label>
+  <label class="toggle"><input type="checkbox" id="force-demo"> Demo data</label>
 
   <div class="src" id="src">
     <span class="dot"></span><span id="src-label">starting…</span><span class="hz" id="hz"></span>
@@ -142,6 +154,12 @@
 
 <!-- ===================== CHARTS ===================== -->
 <div class="grid" id="grid">
+  <div id="waiting" class="waiting">
+    <div class="waiting-box">
+      <span class="wdot"></span>
+      <span>Waiting for live telemetry…<span class="wsub">No frames on <b>/ws</b> yet — start an AC session, or add <b>?demo=1</b> to preview.</span></span>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">Speed <b>km/h</b> &nbsp;·&nbsp; RPM</div>
     <div class="chart" id="chart-sr"></div>
@@ -161,8 +179,9 @@
 //  SciChart.js streaming preview
 //  - Same /ws feed as the live dashboard.
 //  - Rolling FIFO line series (the streaming use case SciChart is built for).
-//  - Auto-falls back to synthetic "demo" telemetry when no live frames arrive,
-//    so the page is meaningful even when AC isn't running.
+//  - Live by default: shows real telemetry, or a "waiting" state when none is
+//    arriving. Synthetic demo data is opt-in (?demo=1 or the "Demo data" toggle),
+//    so a deployed page never silently shows fake values.
 // ============================================================
 
 const now = () => performance.now();
@@ -326,16 +345,22 @@ function demoFrame(t) {
 
 // --- Controls + source indicator ---
 let paused = false;
-let forceDemo = false;
+// Demo is OFF by default in production: the page shows live data, or a clear
+// "waiting" state when none is arriving — never synthetic data unless asked.
+// Enable with the "Demo data" toggle or a ?demo=1 (also ?demo / ?demo=true) param.
+const demoParam = new URLSearchParams(location.search).get('demo');
+let forceDemo = demoParam !== null && demoParam !== '0' && demoParam.toLowerCase() !== 'false';
 let lastLive = -1e9;     // timestamp of the last real telemetry frame
 let consumer = 'starting';
 
 const pauseBtn = document.getElementById('pause-btn');
 const forceChk = document.getElementById('force-demo');
+const waitingEl = document.getElementById('waiting');
 const srcEl = document.getElementById('src');
 const srcLabel = document.getElementById('src-label');
 const hzEl = document.getElementById('hz');
 
+forceChk.checked = forceDemo;
 pauseBtn.onclick = () => setPaused(!paused);
 forceChk.onchange = () => { forceDemo = forceChk.checked; };
 
@@ -348,20 +373,22 @@ function setPaused(p) {
   pauseBtn.classList.toggle('active', p);
 }
 
-function setSource(usingLive) {
-  srcEl.className = 'src ' + (usingLive ? 'live' : 'demo');
-  srcLabel.textContent = usingLive ? 'LIVE' : 'DEMO';
+function setSource(state) {
+  // state: 'live' | 'demo' | 'waiting'
+  srcEl.className = 'src ' + state;
+  srcLabel.textContent = state.toUpperCase();
 }
 
-// --- Drive loop: demo generator + Hz meter. Live frames append directly from
-// the socket; this loop only synthesises frames when live data is absent.
+// --- Drive loop: window scroll + Hz meter (+ demo generator when enabled). Live
+// frames append directly from the socket; synthetic frames only when demo is on.
 let hzT = now();
 let hzCount = 0;
 function loop() {
   const tn = now();
   const liveRecent = tn - lastLive < 2500;
-  const usingLive = liveRecent && !forceDemo;
-  if (!paused && !usingLive) onFrame(demoFrame((tn - t0) / 1000));
+  // Synthetic frames only when demo is explicitly enabled; otherwise the charts
+  // stay empty (and the "waiting" overlay shows) until real frames arrive.
+  if (!paused && forceDemo) onFrame(demoFrame((tn - t0) / 1000));
 
   // Slide the fixed 60 s window with wall-clock time. Same NumberRange width every
   // frame ⇒ constant ms/pixel; right edge = now ⇒ a stall leaves a gap, not a stretch.
@@ -377,7 +404,9 @@ function loop() {
     const hz = Math.round(((sampleCount - hzCount) * 1000) / (tn - hzT));
     hzCount = sampleCount;
     hzT = tn;
-    setSource(usingLive);
+    const state = forceDemo ? 'demo' : liveRecent ? 'live' : 'waiting';
+    setSource(state);
+    if (waitingEl) waitingEl.style.display = state === 'waiting' ? 'flex' : 'none';
     hzEl.textContent = paused ? '· paused' : '· ' + hz + ' Hz';
   }
   requestAnimationFrame(loop);
