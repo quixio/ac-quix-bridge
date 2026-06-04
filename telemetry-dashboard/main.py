@@ -4,13 +4,15 @@ Telemetry Dashboard — FastAPI + QuixStreams consumer + WebSocket broadcast.
 Consumes telemetry from a Kafka topic and pushes it to browser clients
 over WebSocket for real-time visualization.
 """
+import os
+print(os.environ)
+
 
 import asyncio
 import csv
 import io
 import json
 import logging
-import os
 import threading
 import time
 from contextlib import asynccontextmanager
