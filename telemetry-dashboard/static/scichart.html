@@ -217,7 +217,7 @@
     <div class="chart" id="chart-sr"></div>
   </div>
   <div class="card">
-    <div class="card-title">Pedals &amp; Aids <b>%</b> &nbsp;·&nbsp; throttle / brake / bias · TC / ABS</div>
+    <div class="card-title">Pedals &amp; Aids <b>%</b> &nbsp;·&nbsp; throttle / brake · bias <b id="bias-val">--%</b> · TC / ABS</div>
     <div class="chart" id="chart-in"></div>
   </div>
   <div class="card">
@@ -312,6 +312,7 @@ if (typeof SciChart === 'undefined') {
 
 const {
   SciChartSurface, NumericAxis, FastLineRenderableSeries, XyDataSeries,
+  XyScatterRenderableSeries, SquarePointMarker,
   NumberRange, EAutoRange, EAxisAlignment, SciChartJsNavyTheme,
   LegendModifier, RolloverModifier, MouseWheelZoomModifier, ZoomExtentsModifier,
   Point, ELineDrawMode,
@@ -378,6 +379,11 @@ const FIFO = WINDOW_S * 100;
 const GAP_S = 0.5;
 let lastFrameT = null;   // x (s) of the last appended sample, for stall detection
 
+// Bottom-lane y positions (on the 0–105% axis) for the TC / ABS on/off square markers.
+const AID_TC_Y = 9;
+const AID_ABS_Y = 4;
+const biasEl = document.getElementById('bias-val');   // live brake-bias % in the card title
+
 const theme = new SciChartJsNavyTheme();
 theme.sciChartBackground = '#12121f';
 theme.loadingAnimationBackground = '#12121f';
@@ -399,7 +405,7 @@ function makeYAxis(wasm, s) {
   });
 }
 
-async function buildChart(divId, yAxes, series) {
+async function buildChart(divId, yAxes, series, markers = []) {
   const { sciChartSurface, wasmContext } = await SciChartSurface.create(divId, { theme });
 
   const xAxis = new NumericAxis(wasmContext, {
@@ -416,15 +422,36 @@ async function buildChart(divId, yAxes, series) {
   series.forEach((s) => {
     const d = new XyDataSeries(wasmContext, { fifoCapacity: FIFO, dataSeriesName: s.name });
     ds[s.key] = d;
+    const line = new FastLineRenderableSeries(wasmContext, {
+      dataSeries: d,
+      stroke: s.color,
+      strokeThickness: 2.5,
+      yAxisId: s.yAxisId,
+    });
+    // Render NaN samples as a break (DiscontinuousLine), not bridged across, so a data
+    // stall leaves a gap instead of one long segment spanning the chart. The enum member
+    // is DiscontinuousLine (NOT "Gaps"); set on the instance so it definitely applies.
+    if (ELineDrawMode && ELineDrawMode.DiscontinuousLine !== undefined) {
+      line.drawNaNAs = ELineDrawMode.DiscontinuousLine;
+    }
+    sciChartSurface.renderableSeries.add(line);
+  });
+
+  // Optional on/off square markers (e.g. TC / ABS) drawn as a lane near the bottom.
+  // Append the marker's y when active and NaN when not — scatter skips NaN, so a
+  // square appears only while the flag is on. Guarded so a missing type can't kill init.
+  markers.forEach((m) => {
+    if (!XyScatterRenderableSeries || !SquarePointMarker) return;
+    const d = new XyDataSeries(wasmContext, { fifoCapacity: FIFO, dataSeriesName: m.name });
+    ds[m.key] = d;
     sciChartSurface.renderableSeries.add(
-      new FastLineRenderableSeries(wasmContext, {
+      new XyScatterRenderableSeries(wasmContext, {
         dataSeries: d,
-        stroke: s.color,
-        strokeThickness: 2.5,
-        yAxisId: s.yAxisId,
-        // Render NaN samples as gaps (not bridged) so a data stall breaks the line
-        // instead of drawing one long segment across the chart. See onFrame's gap check.
-        drawNaNAs: ELineDrawMode ? ELineDrawMode.Gaps : undefined,
+        yAxisId: m.yAxisId,
+        pointMarker: new SquarePointMarker(wasmContext, {
+          width: m.size || 5, height: m.size || 5,
+          fill: m.color, stroke: m.color, strokeThickness: 0,
+        }),
       }),
     );
   });
@@ -658,9 +685,11 @@ function onFrame(d) {
   C.sr.ds.rpm.append(t, fin(d.rpms));
   C.in.ds.gas.append(t, pct(d.gas));
   C.in.ds.brake.append(t, pct(d.brake));
-  C.in.ds.bias.append(t, pct(d.brakeBias));
-  C.in.ds.tc.append(t, fin(d.tc) > 0.01 ? 100 : 0);
-  C.in.ds.abs.append(t, fin(d.abs) > 0.01 ? 100 : 0);
+  // TC / ABS: a square in the bottom lane while active, nothing (NaN) when off.
+  C.in.ds.tc.append(t, fin(d.tc) > 0.01 ? AID_TC_Y : NaN);
+  C.in.ds.abs.append(t, fin(d.abs) > 0.01 ? AID_ABS_Y : NaN);
+  // Brake bias is a continuous setting, not on/off — show it as a live % readout.
+  biasEl.textContent = Math.round(pct(d.brakeBias)) + '%';
   C.tt.ds.fl.append(t, fin(d.tyreTempFL));
   C.tt.ds.fr.append(t, fin(d.tyreTempFR));
   C.tt.ds.rl.append(t, fin(d.tyreTempRL));
@@ -818,9 +847,11 @@ function connect() {
         [
           { key: 'gas', name: 'Throttle', color: '#00ff88', yAxisId: 'pct' },
           { key: 'brake', name: 'Brake', color: '#ff3355', yAxisId: 'pct' },
-          { key: 'bias', name: 'Brake bias', color: '#00d4ff', yAxisId: 'pct' },
-          { key: 'tc', name: 'TC', color: '#ffaa00', yAxisId: 'pct' },
-          { key: 'abs', name: 'ABS', color: '#c14bff', yAxisId: 'pct' },
+        ],
+        // TC / ABS as on/off squares in a lane at the bottom (y = AID_TC_Y / AID_ABS_Y).
+        [
+          { key: 'tc', name: 'TC', color: '#ffaa00', yAxisId: 'pct', size: 5 },
+          { key: 'abs', name: 'ABS', color: '#c14bff', yAxisId: 'pct', size: 5 },
         ],
       ),
       tt: await buildChart(
