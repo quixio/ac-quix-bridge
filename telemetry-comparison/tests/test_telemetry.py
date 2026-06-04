@@ -74,22 +74,22 @@ def test_lake_error_surfaces_as_502(stub_lake, client) -> None:
 
 
 def test_missing_env_var_yields_500_with_var_name(stub_lake, client, monkeypatch) -> None:
-    """If LAKEHOUSE_QUERY_URL isn't set, the route must surface a clear error instead
+    """If QUIXLAKE_URL isn't set, the route must surface a clear error instead
     of leaking an httpx.InvalidURL stack trace."""
-    monkeypatch.setattr(config, "LAKEHOUSE_QUERY_URL", None)
+    monkeypatch.setattr(config, "QUIXLAKE_URL", None)
     r = client.get("/api/telemetry", params={**COMMON_PARAMS, "lap": 1, "signals": "speedKmh"})
     assert r.status_code == 500
-    assert "LAKEHOUSE_QUERY_URL" in r.json()["detail"]
+    assert "QUIXLAKE_URL" in r.json()["detail"]
 
 
 def test_missing_token_only_names_token_in_error(stub_lake, client, monkeypatch) -> None:
     """Mirror of the URL-missing test for the other env var, so a deploy that
     forgets only the token gets a clear hint pointing at the right name."""
-    monkeypatch.setattr(config, "LAKEHOUSE_QUERY_TOKEN", None)
+    monkeypatch.setattr(config, "QUIX_LAKE_TOKEN", None)
     r = client.get("/api/telemetry", params={**COMMON_PARAMS, "lap": 1, "signals": "speedKmh"})
     assert r.status_code == 500
-    assert "LAKEHOUSE_QUERY_TOKEN" in r.json()["detail"]
-    assert "LAKEHOUSE_QUERY_URL" not in r.json()["detail"]
+    assert "QUIX_LAKE_TOKEN" in r.json()["detail"]
+    assert "QUIXLAKE_URL" not in r.json()["detail"]
 
 
 def test_lap_1_race_start_trim_drops_pre_start_samples(stub_lake, client) -> None:

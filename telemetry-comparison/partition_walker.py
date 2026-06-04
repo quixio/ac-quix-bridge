@@ -9,7 +9,7 @@ Replaces the previous lake /partitions tree walk (D × ~150 ms per request)
 since the catalog has an indexed manifest_entries table optimized for this.
 
 Config values are read off the `config` module at call time so tests can
-monkeypatch `config.LAKEHOUSE_CATALOG_URL` / `config.LAKEHOUSE_CATALOG_TOKEN` to simulate
+monkeypatch `config.CATALOG_URL` / `config.CATALOG_TOKEN` to simulate
 missing vars. The httpx client is module-level so the TLS handshake +
 connection pool are amortized across requests.
 """
@@ -48,12 +48,12 @@ async def _list_session_combinations(
     response shaved before returning. Catalog is fast enough that the
     optimization of pushing filters down isn't worth the API complexity.
     """
-    if not config.LAKEHOUSE_CATALOG_URL or not config.LAKEHOUSE_CATALOG_TOKEN:
+    if not config.CATALOG_URL or not config.CATALOG_TOKEN:
         missing = [
             name
             for name, val in (
-                ("LAKEHOUSE_CATALOG_URL", config.LAKEHOUSE_CATALOG_URL),
-                ("LAKEHOUSE_CATALOG_TOKEN", config.LAKEHOUSE_CATALOG_TOKEN),
+                ("CATALOG_URL", config.CATALOG_URL),
+                ("CATALOG_TOKEN", config.CATALOG_TOKEN),
             )
             if not val
         ]
@@ -63,8 +63,8 @@ async def _list_session_combinations(
         )
 
     response = await _http_client.get(
-        f"{config.LAKEHOUSE_CATALOG_URL}/namespaces/default/tables/{config.TABLE_NAME}/manifest",
-        headers={"Authorization": f"Bearer {config.LAKEHOUSE_CATALOG_TOKEN}"},
+        f"{config.CATALOG_URL}/namespaces/default/tables/{config.TABLE_NAME}/manifest",
+        headers={"Authorization": f"Bearer {config.CATALOG_TOKEN}"},
     )
     response.raise_for_status()
     entries = response.json().get("entries") or []
