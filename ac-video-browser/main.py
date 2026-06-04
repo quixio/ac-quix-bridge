@@ -4,6 +4,7 @@ AC Video Browser — browse and download recorded session MP4s from blob storage
 Lists sessions from S3, shows per-lap MP4 files, and serves them for download.
 """
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -18,11 +19,50 @@ logger = logging.getLogger(__name__)
 BLOB_PREFIX = os.environ.get("BLOB_VIDEO_PREFIX", "ac_video")
 STATIC_DIR = Path(__file__).parent / "static"
 
+
 def _get_blob_fs():
+    """Build the blob filesystem. Prefer parsing
+    Quix__BlobStorage__Connection__Json directly so we can pass
+    client_kwargs={"verify": False} for MinIO endpoints fronted by a
+    self-signed cert chain (quixportal 2.0.1 has no knob for this).
+    Falls back to quixportal.get_filesystem() when the JSON isn't set
+    or the direct build fails — that preserves the working path for the
+    older AWS S3 / GCP-S3 deployments with valid certs."""
+    raw = os.environ.get("Quix__BlobStorage__Connection__Json", "").strip()
+    if raw:
+        try:
+            cfg = json.loads(raw)
+            s3 = cfg.get("S3Compatible") or cfg.get("s3_compatible") or {}
+            bucket = s3.get("BucketName") or s3.get("bucket_name")
+            endpoint = s3.get("ServiceUrl") or s3.get("service_url")
+            access = s3.get("AccessKeyId") or s3.get("access_key_id")
+            secret = s3.get("SecretAccessKey") or s3.get("secret_access_key")
+            if all([bucket, endpoint, access, secret]):
+                import fsspec
+                inner = fsspec.filesystem(
+                    "s3",
+                    key=access,
+                    secret=secret,
+                    endpoint_url=endpoint,
+                    use_ssl=endpoint.startswith("https://"),
+                    client_kwargs={"verify": False},
+                )
+                inner.ls(f"{bucket}/", refresh=True)
+                fs = fsspec.filesystem("dir", fs=inner, path=bucket)
+                logger.info(
+                    "Blob storage connected (s3://%s @ %s, SSL verify off)",
+                    bucket, endpoint,
+                )
+                return fs
+        except Exception as e:
+            logger.warning(
+                "Direct s3fs build failed (%s) — falling back to quixportal",
+                e,
+            )
     try:
         from quixportal.storage import get_filesystem
         fs = get_filesystem()
-        logger.info("Blob storage connected")
+        logger.info("Blob storage connected (via quixportal)")
         return fs
     except Exception as e:
         logger.error("Blob storage not available: %s", e)
