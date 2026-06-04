@@ -54,6 +54,22 @@ def parse_hive_columns(columns_str: str) -> list:
     return [col.strip() for col in columns_str.split(",") if col.strip()]
 
 
+def _on_stream_timeout(key) -> None:
+    key_str = key.decode() if isinstance(key, bytes) else str(key)
+    logger.warning("Stream silent: key=%s has not published for %d ms", key_str, stream_timeout_ms)
+    if _event_producer is not None:
+        event = {
+            "event": "test-completed",
+            "key": key_str,
+            "stream_timeout_ms": stream_timeout_ms,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        _event_producer.produce(
+            topic=test_completed_topic,
+            key=key_str.encode() if isinstance(key_str, str) else key_str,
+            value=json.dumps(event).encode(),
+        )
+
 # Initialize Quix Streams Application
 app = Application(
     consumer_group=os.getenv("CONSUMER_GROUP", "s3_direct_sink_v1.0"),
@@ -91,6 +107,7 @@ blob_sink = QuixTSDataLakeSink(
     namespace=os.getenv("CATALOG_NAMESPACE", "default"),
     auto_create_bucket=True,
     max_workers=_positive_int("MAX_WRITE_WORKERS", "10"),
+    on_stream_timeout=_on_stream_timeout if stream_timeout_ms is not None else None,
     on_client_connect_success=lambda: print("CONNECTED!"),
     on_client_connect_failure=lambda e: print(f"ERROR! {e}"),
 )
