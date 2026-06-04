@@ -9,6 +9,8 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
@@ -59,6 +61,9 @@
   "devDependencies": {
     "@playwright/test": "^1.48.0",
     "@tailwindcss/typography": "^0.5.19",
+    "@testing-library/jest-dom": "^6.4.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.0",
     "@types/node": "20.10.5",
     "@types/react": "18.2.45",
     "@types/react-dom": "18.2.18",
@@ -70,6 +75,9 @@
     "prettier": "3.1.1",
     "prettier-plugin-tailwindcss": "^0.5.9",
     "tailwindcss": "3.4.0",
-    "typescript": "5.3.3"
+    "typescript": "5.3.3",
+    "vitest": "^2.0.0",
+    "@vitejs/plugin-react": "~4.3.4",
+    "jsdom": "^25.0.0"
   }
 }

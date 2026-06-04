@@ -42,6 +42,7 @@ import { portalApi as portalApiRaw } from "../api/portal";
 import { driversApi as driversApiRaw } from "../api/drivers";
 import { environmentsApi as environmentsApiRaw } from "../api/environments";
 import { leaderboardApi as leaderboardApiRaw } from "../api/leaderboard";
+import { analysesApi as analysesApiRaw } from "../api/analyses";
 
 /**
  * Generic helper to create an authenticated API client hook
@@ -198,28 +199,10 @@ export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw);
 export const useLeaderboardApi = createAuthenticatedApi(leaderboardApiRaw);
 
 /**
- * Stub for the unmerged AI-analysis hook. The ai-summary tab imports this,
- * but its underlying API client wasn't carried over when the leaderboard
- * rebuild was integrated. The returned proxy rejects every method call so
- * the AI Summary tab surfaces a clear runtime error when opened, while the
- * rest of the app compiles and runs normally.
- *
- * TODO: replace with the real hook once the post-race-AI feature is merged.
+ * Authenticated Analyses API Hook (post-race AI analyzer).
+ *   const analysesApi = useAnalysesApi()
+ *   const { analysis_id } = await analysesApi.create({ test_id, session_id })
+ *   const analysis = await analysesApi.get(analysis_id)
+ *   const list = await analysesApi.list({ testId, sessionId })
  */
-// eslint-disable-next-line
-type StubMethod = (...args: never[]) => Promise<{ items?: unknown[]; [k: string]: unknown }>;
-type StubAPI = Record<string, StubMethod>;
-export const useAnalysesApi = (): StubAPI =>
-  new Proxy(
-    {} as StubAPI,
-    {
-      get:
-        () =>
-        (..._args: never[]) =>
-          Promise.reject(
-            new Error(
-              "useAnalysesApi is not implemented on this branch — post-race-AI analyzer hook missing.",
-            ),
-          ),
-    },
-  );
+export const useAnalysesApi = createAuthenticatedApi(analysesApiRaw);
