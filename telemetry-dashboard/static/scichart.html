@@ -111,7 +111,7 @@
   .card-title b { color: var(--text); }
   /* "Invalid Lap" badge in the Lap Times title — hidden until isValidLap == 0. */
   .lap-invalid { display: none; margin-left: .6vw; color: var(--red); font-weight: 800; }
-  .lap-invalid.show { display: inline; }
+  .lap-invalid.show { display: inline; animation: blink 1.1s ease-in-out infinite; }
   .chart { flex: 1; width: 100%; min-height: 0; position: relative; }
 
   /* SciChart legend swatches → small squares instead of wide (30×13) rectangles.
@@ -183,7 +183,10 @@
   .lb-body { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; gap: .6vh; min-height: 0; overflow: hidden; }
   .lb-row { display: grid; grid-template-columns: 2.6vw 1fr auto; align-items: center; gap: .8vw; padding: .35vh .5vw; border-radius: 5px; }
   .lb-row .lb-pos { font-size: 1.7vh; font-weight: 800; color: var(--dim); text-align: center; }
+  .lb-namewrap { min-width: 0; }
   .lb-row .lb-name { font-size: 2.1vh; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
+  /* "HOT LAP" caption under the name on the current driver's live (valid, projected) row. */
+  .lb-hot { font-size: 1.2vh; font-weight: 800; letter-spacing: .12vw; text-transform: uppercase; color: var(--amber); line-height: 1; margin-top: .2vh; }
   .lb-row .lb-time { font-size: 1.9vh; font-weight: 800; color: var(--cyan); display: inline-flex; align-items: baseline; justify-content: flex-end; gap: .55vw; }
   /* Time + stacked gaps: absolute lap on top, the two deltas in a smaller line beneath. */
   .lb-timewrap { display: flex; flex-direction: column; align-items: flex-end; gap: .25vh; }
@@ -650,7 +653,10 @@ function renderLeaderboard(flashName) {
       '</div>';
     return '<div class="lb-row' + (isMe ? ' me' : '') + '">' +
       '<div class="lb-pos">' + (i + 1) + '</div>' +
-      '<div class="lb-name">' + r.name + '</div>' +
+      '<div class="lb-namewrap">' +
+        '<div class="lb-name">' + r.name + '</div>' +
+        (r.live ? '<div class="lb-hot">Hot Lap</div>' : '') +
+      '</div>' +
       '<div class="lb-timewrap">' +
         '<div class="' + timeCls + '">' +
           (r.live ? '<span class="lb-live"></span>~' : '') + fmtLap(r.ms) +
@@ -680,14 +686,12 @@ function updateDriverPosition(d) {
     else LEADERBOARD.push({ name, ms: lastBestMs });
   }
 
-  // Entry #2 — the live in-progress lap: projected (best + live delta) when the current lap
-  // is valid and AC provides it, else the running current-lap time. null on an invalid lap.
+  // Entry #2 — the live in-progress lap: shown ONLY when AC provides a projected time
+  // (best + live delta) and the current lap is valid. With no projection (e.g. first lap
+  // with no reference, or an invalid lap) there's no live row — just the best row above.
   const lapValid = d.isValidLap !== 0;        // 0 = invalidated; 1 or missing = valid
   const est = (typeof d.iEstimatedLapTime === 'number' && d.iEstimatedLapTime > 0 && d.iEstimatedLapTime < INT_MAX) ? d.iEstimatedLapTime : null;
-  const cur = (typeof d.iCurrentTime === 'number' && d.iCurrentTime > 0 && d.iCurrentTime < INT_MAX) ? d.iCurrentTime : null;
-  if (lapValid && est !== null) liveLapMs = est;
-  else if (lapValid && cur !== null) liveLapMs = cur;
-  else liveLapMs = null;
+  liveLapMs = (lapValid && est !== null) ? est : null;
 
   lbLiveUntil = now() + 2000;   // live row + blink dot shown while telemetry is fresh
 
