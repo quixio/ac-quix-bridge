@@ -412,17 +412,9 @@ deployments:
         - port: 80
           targetPort: 80
     variables:
-      - name: QUIX_LAKE_TOKEN
-        inputType: ProjectVariable
-        description: Token to authenticate against QuixLake
-        required: true
-        secret: true
-        variableKey: quix_lake_pat
-      - name: QUIXLAKE_URL
-        inputType: ProjectVariable
-        description: Base URL of the QuixLake instance
-        required: true
-        variableKey: LAKE_API_URL
+      # QuixLake URL + auth token are auto-injected by byox as
+      # Quix__Lakehouse__Query__Url + Quix__Lakehouse__Query__AuthToken.
+      # config.py falls back to legacy QUIXLAKE_URL / QUIX_LAKE_TOKEN for local dev.
       - name: TABLE_NAME
         inputType: FreeText
         description: QuixLake table name for telemetry data
