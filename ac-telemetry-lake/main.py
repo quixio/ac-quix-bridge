@@ -17,7 +17,8 @@ import logging
 from quixstreams import Application
 from quixstreams.dataframe.joins.lookups import QuixConfigurationService
 from quixstreams.sinks.core.quix_ts_datalake_sink import QuixTSDataLakeSink
-from datetime import datetime
+from datetime import datetime, timezone
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -80,10 +81,12 @@ def _on_stream_timeout(key) -> None:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         _event_producer.produce(
-            topic=test_completed_topic,
+            topic=test_completed_topic.name,
             key=key_str.encode() if isinstance(key_str, str) else key_str,
             value=json.dumps(event).encode(),
         )
+
+
 
 # Initialize Quix Streams Application
 app = Application(
@@ -91,6 +94,12 @@ app = Application(
     auto_offset_reset=os.getenv("AUTO_OFFSET_RESET", "latest"),
     commit_interval=int(os.getenv("COMMIT_INTERVAL", "30")),
     commit_every=int(os.getenv("BATCH_SIZE", "10000"))
+)
+
+# Test-completed topic - receives an event whenever a stream key goes silent
+test_completed_topic = app.topic(
+    os.getenv("TEST_COMPLETED_TOPIC", "test-completed"),
+    value_serializer="json",
 )
 
 # Parse configuration
