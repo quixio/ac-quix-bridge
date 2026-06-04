@@ -620,6 +620,17 @@ deployments:
         order: 1
     blobStorage:
       bind: true
+  - name: Quix DataLake Raw Sink
+    application: DataLake.Sink
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 500
+        memory: 1500
+      replicas: 1
+    configuration:
+      topic: ac-telemetry-raw
 
 # This section describes the Topics of the data pipeline
 topics:
