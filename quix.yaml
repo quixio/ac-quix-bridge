@@ -631,6 +631,20 @@ deployments:
       replicas: 1
     configuration:
       topic: ac-telemetry-raw
+  - name: ac-telemetry-raw replay
+    application: DataLake.Replay
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 300
+        memory: 500
+      replicas: 1
+    configuration:
+      sourceWorkspaceId: demo-acquixbridge-dev
+      sourceTopic: ac-telemetry-raw
+      sourceKeys: QUIX-GAMING
+      destinationTopic: ac-telemetry-raw-replay
 
 # This section describes the Topics of the data pipeline
 topics:
