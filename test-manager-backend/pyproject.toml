@@ -19,7 +19,7 @@ dependencies = [
 	"quixstreams",
 	"pandas",
 	"httpx",
-	"mcp>=1.0.0",
+	"mcp>=1.27",
 	"asgi-correlation-id>=4.3.4",
 ]
 
@@ -30,16 +30,21 @@ dev = [
 	"ruff",
 	"ty",
 	"testcontainers[mongodb]",
+	"respx>=0.21",
+	"pytest-asyncio>=0.23",
 ]
 
 [tool.pytest.ini_options]
-pythonpath = "."
+# ".." puts the repo root on sys.path so tests can import the shared/
+# post_race_ai package (the runner used by the analyses route).
+pythonpath = [".", ".."]
 filterwarnings = [
 	# api.models.Test is a Pydantic BaseModel; pytest's class collector flags
 	# it because the name starts with "Test". Narrow filter — any OTHER class
 	# that accidentally isn't collectable still emits a warning.
 	"ignore:cannot collect test class 'Test':pytest.PytestCollectionWarning",
 ]
+asyncio_mode = "auto"
 
 [tool.uv.sources]
 quixportal = { index = "quix-public" }

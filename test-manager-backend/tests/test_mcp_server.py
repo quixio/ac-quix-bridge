@@ -387,7 +387,13 @@ def test_save_analysis_writes_payload(
     assert doc["status"] == "complete"
     assert doc["summary_md"].startswith("## Pace")
     assert doc["kpis"] == [
-        {"name": "best_lap", "value": "1:45.321", "unit": None, "notes": None, "session_id": None}
+        {
+            "name": "best_lap",
+            "value": "1:45.321",
+            "unit": None,
+            "notes": None,
+            "session_id": None,
+        }
     ]
     assert doc["extra"] == {"weather": "20C dry"}
 

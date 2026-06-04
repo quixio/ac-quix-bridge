@@ -55,6 +55,13 @@ class Settings(BaseSettings):
         None, description="Topic/table name for test measurements in the Data Lake"
     )
 
+    # Shared secret for the /mcp endpoint (X-API-Key). Empty disables /mcp.
+    testmanager_mcp_api_key: str = Field(
+        "",
+        alias="TESTMANAGER_MCP_API_KEY",
+        description="Shared secret for the /mcp X-API-Key auth",
+    )
+
     # Quix Lakehouse Query API — used by the leaderboard endpoints to run
     # SQL against the shared lake. Auto-injected by Box Cloud as
     # Quix__Lakehouse__Query__Url and Quix__Lakehouse__Query__AuthToken.

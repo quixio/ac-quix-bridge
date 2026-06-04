@@ -1,9 +1,9 @@
 from datetime import datetime
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 from enum import Enum
 from math import ceil
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .utils import now
 
@@ -141,6 +141,7 @@ class LogbookEntry(BaseModel):
 
     id: str = Field(..., alias="_id")
     test_id: str
+    session_id: str | None = None  # None = test-wide note
     created_at: datetime = Field(default_factory=now)
     content: str
 
@@ -149,12 +150,14 @@ class LogbookEntryCreate(BaseModel):
     """Request model for creating a logbook entry."""
 
     content: str = Field(..., min_length=1)
+    session_id: str | None = None
 
 
 class LogbookEntryUpdate(BaseModel):
     """Request model for updating a logbook entry."""
 
     content: str | None = Field(default=None, min_length=1)
+    session_id: str | None = None  # explicit set/change/clear
     timestamp: datetime | None = None
 
 
@@ -588,3 +591,111 @@ class LivePositionEntry(BaseModel):
     last_gate_state: Literal["ahead", "behind", "neutral"] | None = None
     last_gate_delta_ms: int | None = None
     delta_at_last_gate_ms: int | None = None
+
+
+# Analysis Models
+# ============================================================================
+
+
+class KpiValue(BaseModel):
+    """One measurable KPI surfaced by the AI agent."""
+
+    name: str  # opaque string — e.g. "best_lap"
+    value: float | str
+    unit: str | None = None
+    notes: str | None = None
+    session_id: str | None = None  # v2: attribution in test-wide mode
+
+
+class RequirementCheck(BaseModel):
+    """One requirement extracted from Test.requirements + verdict."""
+
+    requirement: str  # free text echoing Test.requirements
+    met: bool | None = None  # tri-state: true / false / None (undetermined)
+    evidence: str | None = None
+
+
+class Anomaly(BaseModel):
+    """One detected event of note (brake spike, off-track, telemetry gap, ...)."""
+
+    severity: Literal["info", "warn", "error"]
+    kind: str  # opaque string — e.g. "brake_spike"
+    lap: int | None = None
+    time_ms: int | None = None
+    description: str
+    evidence: str | None = None
+    session_id: str | None = None  # v2: attribution in test-wide mode
+
+
+class Analysis(BaseModel):
+    """Persisted analysis result. One doc per click of Analyze."""
+
+    id: str = Field(..., alias="_id")  # uuid4 string
+    schema_version: int = 2  # v2 introduces optional session_id (null = test-wide)
+    test_id: str
+    session_id: str | None  # null on test-wide rows
+    status: Literal[
+        "pending",
+        "running",
+        "fetching",
+        "analyzing",
+        "saving",
+        "complete",
+        "failed",
+    ]
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)
+
+    # Quix.AI session linkage (for debug)
+    quix_session_id: str | None = None
+    model: str | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    tokens_cache_create: int | None = None
+    tokens_cache_read: int | None = None
+    duration_ms: int | None = None
+
+    # Failure info (only set when status="failed")
+    error: str | None = None
+    error_kind: Literal["timeout", "agent", "validation", "orphan"] | None = None
+
+    # Content — only populated on save_analysis MCP call
+    kpis: list[KpiValue] = []
+    requirements_check: list[RequirementCheck] = []
+    logbook_refs: list[str] = []
+    anomalies: list[Anomaly] = []
+    summary_md: str = ""  # required at save time; "" while pending
+    extra: dict[str, Any] = {}  # freeform escape hatch
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AnalysisCreate(BaseModel):
+    """Request body for POST /api/v1/analyses.
+
+    session_id is optional: null = test-wide (analyze every session of the test).
+    """
+
+    test_id: str = Field(..., min_length=1)
+    session_id: str | None = None
+
+
+class AnalysisListQuery(PaginationParams):
+    """Query parameters for GET /api/v1/analyses."""
+
+    test_id: str | None = None
+    session_id: str | None = None
+    session_id_is_null: bool | None = None
+    status: Literal["complete", "failed", "in_progress"] | None = None
+
+
+class SaveAnalysisPayload(BaseModel):
+    """MCP write tool input — agent submits this via save_analysis."""
+
+    analysis_id: str
+    kpis: list[KpiValue] = []
+    requirements_check: list[RequirementCheck] = []
+    logbook_refs: list[str] = []
+    anomalies: list[Anomaly] = []
+    summary_md: str = Field(..., min_length=1)
+    extra: dict[str, Any] = {}

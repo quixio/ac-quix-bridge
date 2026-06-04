@@ -12,6 +12,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import live_stream, live_telemetry, mongo
+from shared.post_race_ai.runner import BatchAnalysisAI
+from .routes import mcp as mcp_router
+from .routes.analyses import router as analyses_router
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
@@ -68,6 +71,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _probe_config_api(settings.config_api_url, settings.sdk_token)
 
     mongo.connect(settings.mongo)
+    mcp = mcp_router.install(app, mongo=mongo.get_mongo())
+
+    # Mark stuck non-terminal analyses as orphaned on every restart.
+    BatchAnalysisAI(mongo.get_mongo()).cleanup_orphans()
 
     # Start the WebSocket broadcaster BEFORE the Kafka consumer so the
     # consumer thread sees a live event loop on its very first
@@ -79,7 +86,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # (the consumer thread logs+exits) so the API stays up.
     live_telemetry.start()
 
-    yield
+    # FastMCP's streamable_http transport needs its session manager active
+    # for the lifetime of the app. Without this, requests hit
+    # "Task group is not initialized. Make sure to use run()." (mcp>=1.27).
+    async with mcp.session_manager.run():
+        yield
+
     live_telemetry.stop()
     await live_stream.stop_broadcaster()
     mongo.disconnect()
@@ -238,6 +250,7 @@ def create_app() -> FastAPI:
     application.include_router(
         leaderboard_stream_router, tags=["leaderboard"], prefix="/api/v1"
     )
+    application.include_router(analyses_router, tags=["analyses"], prefix="/api/v1")
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
