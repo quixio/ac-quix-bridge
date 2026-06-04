@@ -85,11 +85,7 @@ def _on_stream_timeout(key) -> None:
             value=json.dumps(event).encode(),
         )
 
-# Test-completed topic - receives an event whenever a stream key goes silent
-test_completed_topic = app.topic(
-    os.getenv("TEST_COMPLETED_TOPIC", "test-completed"),
-    value_serializer="json",
-)
+
 
 # Initialize Quix Streams Application
 app = Application(
@@ -97,6 +93,12 @@ app = Application(
     auto_offset_reset=os.getenv("AUTO_OFFSET_RESET", "latest"),
     commit_interval=int(os.getenv("COMMIT_INTERVAL", "30")),
     commit_every=int(os.getenv("BATCH_SIZE", "10000"))
+)
+
+# Test-completed topic - receives an event whenever a stream key goes silent
+test_completed_topic = app.topic(
+    os.getenv("TEST_COMPLETED_TOPIC", "test-completed"),
+    value_serializer="json",
 )
 
 # Parse configuration
