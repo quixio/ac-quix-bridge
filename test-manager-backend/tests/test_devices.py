@@ -73,7 +73,9 @@ def test_list_devices_empty(client: TestClient) -> None:
     assert data["total_pages"] == 0
 
 
-def test_list_devices_with_data(create_device: DeviceFactory, client: TestClient) -> None:
+def test_list_devices_with_data(
+    create_device: DeviceFactory, client: TestClient
+) -> None:
     """Test listing devices with filtering."""
     create_device(name="PC Alpha", category="pc")
     create_device(name="Fanatec DD Pro", category="test_rig")
@@ -96,7 +98,9 @@ def test_list_devices_with_data(create_device: DeviceFactory, client: TestClient
     assert response.json()["total"] == 2
 
 
-def test_list_devices_text_search(create_device: DeviceFactory, client: TestClient) -> None:
+def test_list_devices_text_search(
+    create_device: DeviceFactory, client: TestClient
+) -> None:
     """Test text search with q parameter."""
     create_device(name="Daniel XPS", category="pc")
     create_device(name="Logitech G29", category="test_rig")
@@ -176,7 +180,9 @@ def test_update_device_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_update_device_no_fields(create_device: DeviceFactory, client: TestClient) -> None:
+def test_update_device_no_fields(
+    create_device: DeviceFactory, client: TestClient
+) -> None:
     """Test that updating with no fields returns 400."""
     _, created = create_device()
     response = client.put(f"/api/v1/devices/{created['device_id']}", json={})
@@ -221,13 +227,16 @@ def test_delete_device_referenced_by_test(
     env_id = env_resp.json()["environment_id"]
 
     # Create a test referencing the PC device
-    client.post("/api/v1/tests", json={
-        "experiment_id": "exp1",
-        "pc_device_id": pc["device_id"],
-        "test_rig_device_id": rig["device_id"],
-        "environment_id": env_id,
-        "driver": "Tomas",
-    })
+    client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": "exp1",
+            "pc_device_id": pc["device_id"],
+            "test_rig_device_id": rig["device_id"],
+            "environment_id": env_id,
+            "driver": "Tomas",
+        },
+    )
 
     # Attempt to delete referenced device
     response = client.delete(f"/api/v1/devices/{pc['device_id']}")
@@ -260,7 +269,9 @@ def test_pagination_default(create_device: DeviceFactory, client: TestClient) ->
     assert len(data["items"]) == 5
 
 
-def test_pagination_multiple_pages(create_device: DeviceFactory, client: TestClient) -> None:
+def test_pagination_multiple_pages(
+    create_device: DeviceFactory, client: TestClient
+) -> None:
     """Test pagination across multiple pages."""
     for i in range(25):
         create_device(name=f"Device {i:03d}")
@@ -279,7 +290,9 @@ def test_pagination_multiple_pages(create_device: DeviceFactory, client: TestCli
     assert len(response.json()["items"]) == 5
 
 
-def test_pagination_beyond_total(create_device: DeviceFactory, client: TestClient) -> None:
+def test_pagination_beyond_total(
+    create_device: DeviceFactory, client: TestClient
+) -> None:
     """Test requesting a page beyond available data."""
     for i in range(3):
         create_device(name=f"Device {i}")
@@ -291,7 +304,9 @@ def test_pagination_beyond_total(create_device: DeviceFactory, client: TestClien
     assert len(data["items"]) == 0
 
 
-def test_pagination_with_filtering(create_device: DeviceFactory, client: TestClient) -> None:
+def test_pagination_with_filtering(
+    create_device: DeviceFactory, client: TestClient
+) -> None:
     """Test pagination works correctly with filtering."""
     for i in range(8):
         create_device(name=f"PC {i}", category="pc")

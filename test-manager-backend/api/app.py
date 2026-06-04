@@ -5,13 +5,19 @@ import socket
 from collections.abc import Sequence
 from typing import Any, AsyncGenerator
 
+import secrets
+
 import httpx
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import mongo
+from shared.post_race_ai.runner import BatchAnalysisAI
+from .routes import mcp as mcp_router
+from .routes.analyses import router as analyses_router
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
@@ -44,26 +50,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("✓ Using local MongoDB and Config API")
         logger.info("✓ Using mock authentication (all requests allowed)")
         logger.info(
-            f"✓ API authentication: {'DISABLED' if not settings.api_auth_active else 'ENABLED'}"
+            "✓ API authentication: %s",
+            "DISABLED" if not settings.api_auth_active else "ENABLED",
         )
-        logger.info(f"✓ Config API: {settings.config_api_url}")
+        logger.info("✓ Config API: %s", settings.config_api_url)
         logger.info("=" * 60)
     else:
         logger.info("=" * 60)
         logger.info("☁️  STARTING IN PRODUCTION MODE (Quix Cloud)")
         logger.info("=" * 60)
-        logger.info(f"✓ Workspace ID: {settings.workspace_id}")
+        logger.info("✓ Workspace ID: %s", settings.workspace_id)
         logger.info(
-            f"✓ API authentication: {'ENABLED' if settings.api_auth_active else 'DISABLED'}"
+            "✓ API authentication: %s",
+            "ENABLED" if settings.api_auth_active else "DISABLED",
         )
-        logger.info(f"✓ Config API: {settings.config_api_url}")
+        logger.info("✓ Config API: %s", settings.config_api_url)
         logger.info("=" * 60)
 
     _probe_config_api(settings.config_api_url, settings.sdk_token)
 
     mongo.connect(settings.mongo)
+    mcp = mcp_router.install(app, mongo=mongo.get_mongo())
 
-    yield
+    # Mark stuck non-terminal analyses as orphaned on every restart.
+    BatchAnalysisAI(mongo.get_mongo()).cleanup_orphans()
+
+    # FastMCP's streamable_http transport needs its session manager active
+    # for the lifetime of the app. Without this, requests hit
+    # "Task group is not initialized. Make sure to use run()." (mcp>=1.27).
+    async with mcp.session_manager.run():
+        yield
+
     mongo.disconnect()
 
 
@@ -79,17 +96,12 @@ def _probe_config_api(url: str, sdk_token: str) -> None:
 
     try:
         with httpx.Client() as client:
-            resp = client.get(
+            client.get(
                 f"{url}/api/v1/configurations",
                 headers={"Authorization": f"Bearer {sdk_token}"} if sdk_token else {},
                 timeout=5.0,
             )
-        logger.info(
-            "[probe] GET %s/api/v1/configurations → %d %s",
-            url,
-            resp.status_code,
-            resp.text[:200],
-        )
+        # httpx auto-logs the request + status; no bespoke success log needed.
     except Exception as e:
         logger.error("[probe] /api/v1/configurations FAILED — %s", e)
 
@@ -214,12 +226,19 @@ def create_app() -> FastAPI:
     application.include_router(
         leaderboard_router, tags=["leaderboard"], prefix="/api/v1"
     )
+    application.include_router(analyses_router, tags=["analyses"], prefix="/api/v1")
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    # Added last so it wraps outermost: every other middleware + handler sees
+    # the correlation_id contextvar set, and our log filter picks it up.
+    application.add_middleware(
+        CorrelationIdMiddleware,
+        generator=lambda: secrets.token_hex(6),
     )
 
     @application.get("/health")

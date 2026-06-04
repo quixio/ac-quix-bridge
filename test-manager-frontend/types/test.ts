@@ -70,14 +70,17 @@ export interface TestFullData {
 export interface LogbookEntry {
   id: string;
   test_id: string;
+  session_id: string | null;
   created_at: string;
   content: string;
 }
 
 export interface LogbookEntryCreate {
   content: string;
+  session_id?: string | null;
 }
 
 export interface LogbookEntryUpdate {
   content?: string;
+  session_id?: string | null;
 }

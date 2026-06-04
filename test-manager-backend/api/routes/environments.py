@@ -49,7 +49,11 @@ def create_environment(
     return environment
 
 
-@router.get("/environments", response_model=PaginatedResponse[Environment], response_model_by_alias=False)
+@router.get(
+    "/environments",
+    response_model=PaginatedResponse[Environment],
+    response_model_by_alias=False,
+)
 def list_environments(
     query_params: EnvironmentQuery = Depends(),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -65,7 +69,10 @@ def list_environments(
         query["name"] = {"$regex": re.escape(query_params.name), "$options": "i"}
 
     if query_params.location:
-        query["location"] = {"$regex": re.escape(query_params.location), "$options": "i"}
+        query["location"] = {
+            "$regex": re.escape(query_params.location),
+            "$options": "i",
+        }
 
     if query_params.status:
         query["status"] = query_params.status.value
@@ -76,25 +83,36 @@ def list_environments(
             word_conditions = []
             for word in words:
                 word_pattern = {"$regex": re.escape(word), "$options": "i"}
-                word_conditions.append({
-                    "$or": [
-                        {"_id": word_pattern},
-                        {"name": word_pattern},
-                        {"location": word_pattern},
-                    ]
-                })
+                word_conditions.append(
+                    {
+                        "$or": [
+                            {"_id": word_pattern},
+                            {"name": word_pattern},
+                            {"location": word_pattern},
+                        ]
+                    }
+                )
             query["$and"] = word_conditions
 
     total = mongo.environments.count_documents(query)
     skip = (page - 1) * page_size
     environments = [
         Environment(**d)
-        for d in mongo.environments.find(query).sort("_id", 1).skip(skip).limit(page_size)
+        for d in mongo.environments.find(query)
+        .sort("_id", 1)
+        .skip(skip)
+        .limit(page_size)
     ]
-    return PaginatedResponse.create(items=environments, total=total, page=page, page_size=page_size)
+    return PaginatedResponse.create(
+        items=environments, total=total, page=page, page_size=page_size
+    )
 
 
-@router.get("/environments/{environment_id}", response_model=Environment, response_model_by_alias=False)
+@router.get(
+    "/environments/{environment_id}",
+    response_model=Environment,
+    response_model_by_alias=False,
+)
 def get_environment(
     environment_id: str,
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -107,7 +125,11 @@ def get_environment(
     return Environment(**doc)
 
 
-@router.put("/environments/{environment_id}", response_model=Environment, response_model_by_alias=False)
+@router.put(
+    "/environments/{environment_id}",
+    response_model=Environment,
+    response_model_by_alias=False,
+)
 def update_environment(
     environment_id: str,
     env_data: EnvironmentUpdate = Body(...),

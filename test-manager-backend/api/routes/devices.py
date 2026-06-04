@@ -49,7 +49,9 @@ def create_device(
     return device
 
 
-@router.get("/devices", response_model=PaginatedResponse[Device], response_model_by_alias=False)
+@router.get(
+    "/devices", response_model=PaginatedResponse[Device], response_model_by_alias=False
+)
 def list_devices(
     query_params: DeviceQuery = Depends(),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -73,13 +75,15 @@ def list_devices(
             word_conditions = []
             for word in words:
                 word_pattern = {"$regex": re.escape(word), "$options": "i"}
-                word_conditions.append({
-                    "$or": [
-                        {"_id": word_pattern},
-                        {"name": word_pattern},
-                        {"category": word_pattern},
-                    ]
-                })
+                word_conditions.append(
+                    {
+                        "$or": [
+                            {"_id": word_pattern},
+                            {"name": word_pattern},
+                            {"category": word_pattern},
+                        ]
+                    }
+                )
             query["$and"] = word_conditions
 
     total = mongo.devices.count_documents(query)
@@ -88,10 +92,14 @@ def list_devices(
         Device(**d)
         for d in mongo.devices.find(query).sort("_id", 1).skip(skip).limit(page_size)
     ]
-    return PaginatedResponse.create(items=devices, total=total, page=page, page_size=page_size)
+    return PaginatedResponse.create(
+        items=devices, total=total, page=page, page_size=page_size
+    )
 
 
-@router.get("/devices/{device_id}", response_model=Device, response_model_by_alias=False)
+@router.get(
+    "/devices/{device_id}", response_model=Device, response_model_by_alias=False
+)
 def get_device(
     device_id: str,
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -104,7 +112,9 @@ def get_device(
     return Device(**doc)
 
 
-@router.post("/devices/batch", response_model=list[Device], response_model_by_alias=False)
+@router.post(
+    "/devices/batch", response_model=list[Device], response_model_by_alias=False
+)
 def get_devices_batch(
     device_ids: list[str] = Body(..., description="List of Device IDs to fetch"),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
@@ -117,7 +127,9 @@ def get_devices_batch(
     return [Device(**d) for d in devices]
 
 
-@router.put("/devices/{device_id}", response_model=Device, response_model_by_alias=False)
+@router.put(
+    "/devices/{device_id}", response_model=Device, response_model_by_alias=False
+)
 def update_device(
     device_id: str,
     device_data: DeviceUpdate = Body(...),
@@ -152,10 +164,12 @@ def delete_device(
         raise HTTPException(status_code=404, detail="Device not found")
 
     # Check if referenced by tests (as PC device or test rig)
-    referencing = list(mongo.tests.find(
-        {"$or": [{"pc_device_id": device_id}, {"test_rig_device_id": device_id}]},
-        {"_id": 1},
-    ))
+    referencing = list(
+        mongo.tests.find(
+            {"$or": [{"pc_device_id": device_id}, {"test_rig_device_id": device_id}]},
+            {"_id": 1},
+        )
+    )
     if referencing:
         test_ids = [t["_id"] for t in referencing[:5]]
         more = f" and {len(referencing) - 5} more" if len(referencing) > 5 else ""

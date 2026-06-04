@@ -17,12 +17,16 @@ dependencies = [
 	"python-multipart",
 	"quixportal",
 	"quixlake-sdk",
+	"mcp>=1.0.0",
+	"asgi-correlation-id>=4.3.4",
 ]
 
 [dependency-groups]
 dev = [
 	"pytest",
+	"pytest-asyncio>=0.23",
 	"pytest-cov",
+	"respx>=0.21",
 	"ruff",
 	"ty",
 	"httpx",
@@ -30,13 +34,17 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = "."
+pythonpath = [".", ".."]
+asyncio_mode = "auto"
 filterwarnings = [
 	# api.models.Test is a Pydantic BaseModel; pytest's class collector flags
 	# it because the name starts with "Test". Narrow filter — any OTHER class
 	# that accidentally isn't collectable still emits a warning.
 	"ignore:cannot collect test class 'Test':pytest.PytestCollectionWarning",
 ]
+
+[tool.ty.environment]
+extra-paths = [".."]
 
 [tool.uv.sources]
 quixportal = { index = "quix-public" }

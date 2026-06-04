@@ -78,7 +78,7 @@ export function LogbookEntryList({
     );
   }
 
-  // Sort entries by timestamp (newest first)
+  // Sort entries by created_at (newest first)
   const sortedEntries = [...entries].sort(
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -107,9 +107,20 @@ export function LogbookEntryList({
                 {/* Header */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-1 flex-1 min-w-0">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
                       <Clock className="h-3.5 w-3.5" />
                       <span>{formatDateTime(entry.created_at)}</span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          entry.session_id
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {entry.session_id
+                          ? entry.session_id.slice(0, 16)
+                          : "Test-wide"}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">

@@ -9,7 +9,7 @@ import { useIntegrationsApi, useTestsApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
 import type { Test } from "@/types/test";
-import { ExternalLink, TrendingUp } from "lucide-react";
+import { ExternalLink, TrendingUp, Sparkles } from "lucide-react";
 
 interface TestDetailCardProps {
   test: Test;
@@ -63,6 +63,14 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
     }
   };
 
+  const handleAiSummary = (sessionId?: string) => {
+    const params = new URLSearchParams();
+    params.set("tab", "ai-summary");
+    params.set("test_id", test.test_id);
+    if (sessionId) params.set("session_id", sessionId);
+    router.push(`/analysis?${params.toString()}`);
+  };
+
   return (
     <div className="space-y-6">
       {/* Quick Access */}
@@ -80,6 +88,14 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
             >
               <TrendingUp className="mr-2 h-4 w-4" />
               {isOpeningAnalysis ? "Opening..." : "Analyze"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleAiSummary()}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              AI Summary
             </Button>
           </div>
         </CardContent>
@@ -132,9 +148,18 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
                   <span className="font-mono text-xs">
                     {session.session_id}
                   </span>
-                  <div className="flex gap-3 text-muted-foreground text-xs">
+                  <div className="flex items-center gap-3 text-muted-foreground text-xs">
                     <span>{session.track}</span>
                     <span>{session.car_model}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => handleAiSummary(session.session_id)}
+                    >
+                      <Sparkles className="mr-1 h-3 w-3" />
+                      AI Summary
+                    </Button>
                   </div>
                 </div>
               ))}
