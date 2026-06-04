@@ -10,7 +10,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from ..auth import read_permission, update_permission
-from ..models import IntegrationSettings, IntegrationSettingsUpdate, Topic, Workspace, DeploymentReference, TopicReference
+from ..models import (
+    IntegrationSettings,
+    IntegrationSettingsUpdate,
+    Topic,
+    Workspace,
+    DeploymentReference,
+    TopicReference,
+)
 from ..mongo import get_mongo
 from ..settings import get_settings
 
@@ -50,7 +57,8 @@ def get_effective_integration_settings() -> IntegrationSettings:
     if env_settings.measurements_topic_name:
         effective.measurements_topic = TopicReference(
             topic_name=env_settings.measurements_topic_name,
-            workspace_id=env_settings.measurements_workspace_id or env_settings.workspace_id,
+            workspace_id=env_settings.measurements_workspace_id
+            or env_settings.workspace_id,
             workspace_name=None,
         )
 
@@ -108,12 +116,14 @@ async def apply_fallback_deployments(
                     deployment_name=fallback.name,
                     public_url=fallback.public_url,
                     embedded_view_url=fallback.embedded_view_url,
-                    internal_url=f"http://{fallback.service_name}" if fallback.service_name else fallback.public_url,
+                    internal_url=f"http://{fallback.service_name}"
+                    if fallback.service_name
+                    else fallback.public_url,
                 )
                 settings.config_api_is_fallback = True
 
         except Exception as e:
-            logger.warning(f"Failed to get Config API fallback deployment: {e}")
+            logger.warning("Failed to get Config API fallback deployment: %s", e)
 
     # Measurements (Query UI) fallback - search for "Query UI"
     if not settings.measurements_deployment:
@@ -131,18 +141,21 @@ async def apply_fallback_deployments(
                     deployment_name=fallback.name,
                     public_url=fallback.public_url,
                     embedded_view_url=fallback.embedded_view_url,
-                    internal_url=f"http://{fallback.service_name}" if fallback.service_name else fallback.public_url,
+                    internal_url=f"http://{fallback.service_name}"
+                    if fallback.service_name
+                    else fallback.public_url,
                 )
                 settings.measurements_is_fallback = True
 
         except Exception as e:
-            logger.warning(f"Failed to get Measurements fallback deployment: {e}")
+            logger.warning("Failed to get Measurements fallback deployment: %s", e)
 
     # Measurements topic fallback - use env var if not set
     if not settings.measurements_topic and app_settings.measurements_topic_name:
         settings.measurements_topic = TopicReference(
             topic_name=app_settings.measurements_topic_name,
-            workspace_id=app_settings.measurements_workspace_id or app_settings.workspace_id,
+            workspace_id=app_settings.measurements_workspace_id
+            or app_settings.workspace_id,
             workspace_name=None,
         )
 
@@ -171,12 +184,14 @@ async def apply_fallback_deployments(
                     deployment_name=fallback.name,
                     public_url=fallback.public_url,
                     embedded_view_url=fallback.embedded_view_url,
-                    internal_url=f"http://{fallback.service_name}" if fallback.service_name else fallback.public_url,
+                    internal_url=f"http://{fallback.service_name}"
+                    if fallback.service_name
+                    else fallback.public_url,
                 )
                 settings.analytics_is_fallback = True
 
         except Exception as e:
-            logger.warning(f"Failed to get Analytics fallback deployment: {e}")
+            logger.warning("Failed to get Analytics fallback deployment: %s", e)
 
     return settings
 
@@ -242,7 +257,7 @@ async def update_integration_settings(
                     last_name = data.get("lastName") or ""
                     user_name = f"{first_name} {last_name}".strip() or "Unknown"
         except Exception as e:
-            logger.warning(f"Failed to get user profile: {e}")
+            logger.warning("Failed to get user profile: %s", e)
 
     # Build the update document - use exclude_unset to preserve explicit null values
     update_data = settings_update.model_dump(exclude_unset=True)
@@ -310,7 +325,10 @@ async def get_topics(
             )
 
             if not response.is_success:
-                logger.warning(f"Portal API error fetching topics: {response.status_code}")
+                logger.warning(
+                    "Portal API error fetching topics: %s",
+                    response.status_code,
+                )
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Portal API error: {response.status_code}",
@@ -323,8 +341,12 @@ async def get_topics(
             if isinstance(data, list):
                 for item in data:
                     if isinstance(item, dict):
-                        topic_id = item.get("id") or item.get("name") or item.get("topicId")
-                        topic_name = item.get("name") or item.get("id") or item.get("topicName")
+                        topic_id = (
+                            item.get("id") or item.get("name") or item.get("topicId")
+                        )
+                        topic_name = (
+                            item.get("name") or item.get("id") or item.get("topicName")
+                        )
                         if topic_id and topic_name:
                             topics.append(Topic(id=topic_id, name=topic_name))
                     elif isinstance(item, str):
@@ -335,7 +357,7 @@ async def get_topics(
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Portal API timeout")
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error fetching topics: {e}")
+        logger.error("HTTP error fetching topics: %s", e)
         raise HTTPException(status_code=500, detail=f"Portal API error: {str(e)}")
 
 
@@ -379,7 +401,10 @@ async def get_workspaces(
             )
 
             if not response.is_success:
-                logger.warning(f"Portal API error fetching workspaces: {response.status_code}")
+                logger.warning(
+                    "Portal API error fetching workspaces: %s",
+                    response.status_code,
+                )
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Portal API error: {response.status_code}",
@@ -402,5 +427,5 @@ async def get_workspaces(
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Portal API timeout")
     except httpx.HTTPError as e:
-        logger.error(f"HTTP error fetching workspaces: {e}")
+        logger.error("HTTP error fetching workspaces: %s", e)
         raise HTTPException(status_code=500, detail=f"Portal API error: {str(e)}")

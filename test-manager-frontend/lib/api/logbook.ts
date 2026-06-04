@@ -16,12 +16,20 @@ export const logbookApi = {
    */
   list: (
     testId: string,
+    options?: { sessionId?: string; includeTestWide?: boolean },
     token?: string | null,
     refreshToken?: () => Promise<string | null>,
   ) => {
+    const params: Record<string, string | boolean> = {};
+    if (options?.sessionId !== undefined) {
+      params.session_id = options.sessionId;
+    }
+    if (options?.includeTestWide !== undefined) {
+      params.include_test_wide = options.includeTestWide;
+    }
     return apiGet<LogbookEntry[]>(
       `/tests/${testId}/logbook`,
-      undefined,
+      Object.keys(params).length > 0 ? params : undefined,
       token,
       refreshToken,
     );

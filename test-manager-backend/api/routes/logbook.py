@@ -11,15 +11,28 @@ from ..mongo import get_mongo
 router = APIRouter()
 
 
-@router.post("/tests/{test_id}/logbook", response_model=LogbookEntry, response_model_by_alias=False)
+@router.post(
+    "/tests/{test_id}/logbook",
+    response_model=LogbookEntry,
+    response_model_by_alias=False,
+)
 def create_logbook_entry(
     test_id: str,
     logbook_entry_data: LogbookEntryCreate = Body(...),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     _: None = Depends(update_permission),
 ) -> LogbookEntry:
-    if not mongo.tests.find_one({"_id": test_id}):
+    test = mongo.tests.find_one({"_id": test_id})
+    if not test:
         raise HTTPException(status_code=404, detail="Test not found")
+
+    if logbook_entry_data.session_id is not None:
+        known_session_ids = {s["session_id"] for s in test.get("sessions", [])}
+        if logbook_entry_data.session_id not in known_session_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"session_id '{logbook_entry_data.session_id}' not found on test",
+            )
 
     entry = LogbookEntry(
         _id=str(uuid4()),
@@ -30,7 +43,11 @@ def create_logbook_entry(
     return entry
 
 
-@router.get("/tests/{test_id}/logbook/{entry_id}", response_model=LogbookEntry, response_model_by_alias=False)
+@router.get(
+    "/tests/{test_id}/logbook/{entry_id}",
+    response_model=LogbookEntry,
+    response_model_by_alias=False,
+)
 def get_logbook_entry(
     test_id: str,
     entry_id: str,
@@ -42,17 +59,38 @@ def get_logbook_entry(
     return LogbookEntry(**entry)
 
 
-@router.get("/tests/{test_id}/logbook", response_model=list[LogbookEntry], response_model_by_alias=False)
+@router.get(
+    "/tests/{test_id}/logbook",
+    response_model=list[LogbookEntry],
+    response_model_by_alias=False,
+)
 def get_logbook_entries(
     test_id: str,
+    session_id: str | None = None,
+    include_test_wide: bool = False,
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     _: None = Depends(read_permission),
 ) -> list[LogbookEntry]:
-    entries = mongo.logbook.find({"test_id": test_id}).sort("created_at", -1)
+    if session_id is not None:
+        if include_test_wide:
+            query: dict[str, Any] = {
+                "test_id": test_id,
+                "$or": [{"session_id": session_id}, {"session_id": None}],
+            }
+        else:
+            query = {"test_id": test_id, "session_id": session_id}
+    else:
+        query = {"test_id": test_id}
+
+    entries = mongo.logbook.find(query).sort("created_at", 1)
     return [LogbookEntry(**entry) for entry in entries]
 
 
-@router.put("/tests/{test_id}/logbook/{entry_id}", response_model=LogbookEntry, response_model_by_alias=False)
+@router.put(
+    "/tests/{test_id}/logbook/{entry_id}",
+    response_model=LogbookEntry,
+    response_model_by_alias=False,
+)
 def update_logbook_entry(
     test_id: str,
     entry_id: str,
@@ -63,6 +101,17 @@ def update_logbook_entry(
     update_data = entry_update.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    if "session_id" in update_data and update_data["session_id"] is not None:
+        test = mongo.tests.find_one({"_id": test_id})
+        if not test:
+            raise HTTPException(status_code=404, detail="Test not found")
+        known_session_ids = {s["session_id"] for s in test.get("sessions", [])}
+        if update_data["session_id"] not in known_session_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"session_id '{update_data['session_id']}' not found on test",
+            )
 
     if not (
         updated_entry := mongo.logbook.find_one_and_update(

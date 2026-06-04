@@ -13,21 +13,41 @@ def ac_telemetry():
       AND driver = 'tomas'
       AND track = 'Spa'
       AND carModel = 'lamborghini_huracan_gt3_evo'
-      AND session_id = '2026-06-03T11:08:18.206Z'
+      AND session_id = '2026-06-04T13:01:02.619Z'
     ORDER BY timestamp_ms""")
 
 
 @canvas.cell(position=(1089, 104), size=(831, 578), code_height=200, viz={'type': 'line', 'x': 'timestamp_ms', 'y': ['speedKmh']})
 def cell_1(ac_telemetry):
-    return ac_telemetry
+    import pandas as pd
+
+    cols = {}
+    for lap, g in ac_telemetry.groupby("lap", sort=True):
+        g = g.sort_values("timestamp_ms")
+        offset = g["timestamp_ms"] - g["timestamp_ms"].iloc[0]   # zeroed, in ms
+        s = pd.Series(g["speedKmh"].values, index=offset.values,
+                      name=f"Speed_lap_{lap}")
+        cols[lap] = s
+
+    result = pd.concat(cols.values(), axis=1)
+    result.index.name = "elapsed_ms"
+
+    cols = {}
+    for lap, g in ac_telemetry.groupby("lap", sort=True):
+        g = g.sort_values("timestamp_ms")
+        offset = g["timestamp_ms"] - g["timestamp_ms"].iloc[0]
+        s = pd.Series(g["speedKmh"].values, index=offset.values, name=f"Speed_lap_{lap}")
+        cols[lap] = s
+
+    result = pd.concat(cols.values(), axis=1)
+    result.index.name = "elapsed_ms"
+    result = result.ffill()   
+    result = result.reset_index()
+    result
 
 
 @canvas.cell(position=(-714, 194), size=(560, 420), code_height=200)
 def cell_2():
-    import pandas as pd
-    df = pd.DataFrame({"x": [1,2,3], "y": [4,5,6]})
-    import plotly.express as px
-    return px.bar(df, x="x", y="y")
 
 
 if __name__ == "__main__":

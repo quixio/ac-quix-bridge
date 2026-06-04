@@ -1,20 +1,83 @@
 import logging
+import logging.config
 import os
 import sys
+import time
 
 import uvicorn
+from asgi_correlation_id import CorrelationIdFilter
 
 from api.app import create_app
 from api.settings import get_settings
 
 
+_LOG_FORMAT = (
+    "%(asctime)s %(levelname)-7s %(name)s [req=%(correlation_id)s] %(message)s"
+)
+
+
+class _UtcIsoFormatter(logging.Formatter):
+    """Render asctime as ISO 8601 UTC with millisecond precision and a Z suffix."""
+
+    default_time_format = "%Y-%m-%dT%H:%M:%S"
+    default_msec_format = "%s.%03dZ"
+
+    @staticmethod
+    def converter(timestamp: float | None) -> time.struct_time:
+        return time.gmtime(timestamp)
+
+
+def _build_log_config() -> dict:
+    """Return a dictConfig that pipes every logger (incl. uvicorn) through one handler."""
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "filters": {
+            "correlation_id": {
+                "()": CorrelationIdFilter,
+                "default_value": "-",
+            },
+        },
+        "formatters": {
+            "default": {
+                "()": _UtcIsoFormatter,
+                "format": _LOG_FORMAT,
+            },
+        },
+        "handlers": {
+            "default": {
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+                "formatter": "default",
+                "filters": ["correlation_id"],
+            },
+        },
+        "loggers": {
+            "": {
+                "level": os.getenv("LOG_LEVEL", "INFO").upper(),
+                "handlers": ["default"],
+            },
+            # Route uvicorn's own loggers through our handler explicitly. Without
+            # this, --reload can reinstall uvicorn's defaults and split the log
+            # stream (duplicate or oddly-formatted access lines).
+            "uvicorn": {"level": "INFO", "handlers": ["default"], "propagate": False},
+            "uvicorn.access": {
+                "level": "INFO",
+                "handlers": ["default"],
+                "propagate": False,
+            },
+            "uvicorn.error": {
+                "level": "INFO",
+                "handlers": ["default"],
+                "propagate": False,
+            },
+        },
+    }
+
+
 def main() -> int:
-    # Configure root logger so application loggers (api.auth, api.routes.*, etc.)
-    # actually emit. Without this, Python's default WARNING level swallows INFO.
-    logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        format="%(levelname)s:%(name)s:%(message)s",
-    )
+    log_config = _build_log_config()
+    logging.config.dictConfig(log_config)
 
     settings = get_settings()
 
@@ -32,6 +95,7 @@ def main() -> int:
             # spurious restarts when ad-hoc scripts compile .pyc files.
             reload_dirs=["/app/api"],
             reload_excludes=["*.pyc", "**/__pycache__/**"],
+            log_config=log_config,
         )
     else:
         # In production: use app object with multiple workers
@@ -40,6 +104,7 @@ def main() -> int:
             host=settings.api_host,
             port=settings.api_port,
             workers=settings.api_workers,
+            log_config=log_config,
         )
     return 0
 

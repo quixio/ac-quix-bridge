@@ -200,8 +200,6 @@ and the only one that needs regeneration.
 - **`test_*.py` outside `tests/` dirs are still scanned.** E.g. `ac_video_streaming/test_stream.py` exposes a route and ends up indexed. That's
   correct: it's a runnable script, not a pytest module. If it becomes noise,
   add name-level filtering.
-- **Notebooks (`racetelemetryanalysis/`, `rawdatavisualization/`)** are not
-  indexed. Marimo cells don't map cleanly onto the symbol model.
 - **`ac-video-browser` / `ac-video-viewer`** are flagged `fastapi` because
   they expose routes, but they're disabled by default in `quix.yaml`. The JSON
   doesn't currently surface "disabled" state.

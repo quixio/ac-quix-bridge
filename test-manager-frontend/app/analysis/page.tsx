@@ -6,17 +6,11 @@ import { MainLayout } from "@/components/layout/main-layout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-import {
-  GitCompare,
-  MapPin,
-  Radio,
-  BarChart3,
-  Trophy,
-  BookOpenText,
-} from "lucide-react";
+import { GitCompare, Trophy, Sparkles } from "lucide-react";
 import { useTestsApi } from "@/lib/hooks/use-api";
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
 import { LeaderboardTab } from "@/components/analysis/leaderboard-tab";
+import { AiSummaryTab } from "./ai-summary/ai-summary-tab";
 
 // Telemetry Explorer deployment URL — baked at build time. `_ORIGIN` is the
 // scheme+host+port part, used to gate the auth-token postMessage handshake
@@ -40,30 +34,6 @@ const ANALYSIS_TABS = [
       "Compare laps across multiple tests to find performance tradeoffs. Overlay speed, tire temperatures, and driver inputs by track position.",
   },
   {
-    value: "per-corner",
-    label: "Per-Corner",
-    icon: MapPin,
-    title: "Per-Corner Analysis",
-    description:
-      "Analyze performance at specific track corners using sector metadata. See entry speed, min speed, exit speed, and time-in-corner for each run.",
-  },
-  {
-    value: "live",
-    label: "Live",
-    icon: Radio,
-    title: "Live Telemetry",
-    description:
-      "Real-time telemetry dashboard for tests currently in progress. Monitor speed, tire temps, lap splits, and driver inputs as they happen.",
-  },
-  {
-    value: "single-run",
-    label: "Single Run",
-    icon: BarChart3,
-    title: "Single Run Analysis",
-    description:
-      "Deep-dive analysis of a single test. Lap-by-lap breakdown, corner-by-corner performance, driver input traces, and telemetry small-multiples.",
-  },
-  {
     value: "leaderboard",
     label: "Leaderboard",
     icon: Trophy,
@@ -72,28 +42,14 @@ const ANALYSIS_TABS = [
       "Historical best laps with real-time ghost projection. Track your fastest laps across sessions and see a live projected lap time during active tests.",
   },
   {
-    value: "notebook",
-    label: "Notebook",
-    icon: BookOpenText,
-    title: "Interactive Notebook",
+    value: "ai-summary",
+    label: "AI Summary",
+    icon: Sparkles,
+    title: "AI Summary",
     description:
-      "Interactive data science notebook for advanced analysis. Currently available via Analytics in the sidebar.",
+      "Post-race AI analysis: KPIs, requirements pass/fail, anomalies, and narrative summary for a chosen session.",
   },
 ] as const;
-
-function PlaceholderTab({ tab }: { tab: (typeof ANALYSIS_TABS)[number] }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-        <div className="mb-4 rounded-full bg-primary/10 p-4">
-          <tab.icon className="h-8 w-8 text-primary" />
-        </div>
-        <h2 className="text-xl font-semibold mb-2">{tab.title}</h2>
-        <span className="text-sm text-muted-foreground">Coming soon</span>
-      </CardContent>
-    </Card>
-  );
-}
 
 function CompareTab({ testId }: { testId: string | null }) {
   const testsApi = useTestsApi();
@@ -255,13 +211,9 @@ function AnalysisPageContent() {
             <LeaderboardTab />
           </TabsContent>
 
-          {ANALYSIS_TABS.filter(
-            (t) => t.value !== "compare" && t.value !== "leaderboard",
-          ).map((tab) => (
-            <TabsContent key={tab.value} value={tab.value}>
-              <PlaceholderTab tab={tab} />
-            </TabsContent>
-          ))}
+          <TabsContent value="ai-summary">
+            <AiSummaryTab />
+          </TabsContent>
         </Tabs>
       </div>
     </MainLayout>
