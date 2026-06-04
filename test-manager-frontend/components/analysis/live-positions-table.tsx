@@ -330,28 +330,38 @@ export function LivePositionsTable({
 
 /** Resolve the "At Position" value a row should display right now.
  *
- * The active row's value depends on freeze mode (live → live timer
- * frozen → captured `activeAtMs`). Historicals read STRICTLY from one
- * source per mode:
- *   * frozen → `crossingSnapshot.historicalAtMs[driver]` (gate-N).
- *   * live   → `row.current_lap_time_ms` (backend's gate-N+1 next-gate
- *              value, refreshed on every crossing tick via WS patch).
+ * The active row's value depends on freeze mode (live → live timer;
+ * frozen → captured `activeAtMs`).
  *
- * Cold-cache fallbacks return the row's own `current_lap_time_ms` so
- * the cell never shows 0 when state is briefly missing.
+ * Historicals:
+ *   * frozen → `gate_time_at_crossing_ms` (gate-i*, per-row, server-
+ *     stamped). Falls back to the sticky `historicalAtMs` map, then
+ *     to `current_lap_time_ms` only as a last resort. The per-row
+ *     value lets a rank-shuffled neighbour mid-lap show its own
+ *     correct gate-i* time during the 3 s freeze — without the row
+ *     field we'd fall straight through to the gate-i*+1 projection
+ *     and the user couldn't visually compare like-for-like with the
+ *     frozen active timer.
+ *   * live   → `row.current_lap_time_ms` (backend's gate-i*+1
+ *     projection, refreshed on every crossing tick via WS patch).
  */
 function rowDisplayMs(
   row: LivePositionEntry,
   freezeState: FreezeState,
   crossingSnapshot: CrossingSnapshot | null,
 ): number {
-  if (freezeState.mode === "frozen" && crossingSnapshot != null) {
+  if (freezeState.mode === "frozen") {
     if (row.is_active) {
-      return crossingSnapshot.activeAtMs
+      return crossingSnapshot?.activeAtMs ?? row.current_lap_time_ms
     }
-    const fromMap = crossingSnapshot.historicalAtMs[row.driver]
-    if (typeof fromMap === "number") {
-      return fromMap
+    if (typeof row.gate_time_at_crossing_ms === "number") {
+      return row.gate_time_at_crossing_ms
+    }
+    if (crossingSnapshot != null) {
+      const fromMap = crossingSnapshot.historicalAtMs[row.driver]
+      if (typeof fromMap === "number") {
+        return fromMap
+      }
     }
     return row.current_lap_time_ms
   }
