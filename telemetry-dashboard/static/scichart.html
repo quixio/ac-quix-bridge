@@ -292,7 +292,7 @@
 // ============================================================
 //  SciChart.js streaming preview
 //  - Same /ws feed as the live dashboard.
-//  - Rolling FIFO line series (the streaming use case SciChart is built for).
+//  - Rolling line series, head-trimmed each frame (the streaming use case SciChart is built for).
 //  - Live by default: shows real telemetry, or a "waiting" state when none is
 //    arriving. Synthetic demo data is opt-in (?demo=1 or the "Demo data" toggle),
 //    so a deployed page never silently shows fake values.
@@ -369,9 +369,13 @@ class PinnedRollover extends RolloverModifier {
 // ms/pixel) regardless of sample rate; the trace scrolls left at a constant rate;
 // and if data stalls you get a growing gap on the right rather than a stretched line.
 const WINDOW_S = 60;
-// FIFO only bounds memory — the visible 60 s is enforced by visibleRange. Sized to
-// comfortably hold > 1 minute even at high sample rates (100 Hz here).
-const FIFO = WINDOW_S * 100;
+// Memory is bounded by trimming old samples off the head each frame (see trimOld /
+// loop), NOT by SciChart's circular FIFO buffer. fifoCapacity is deliberately avoided:
+// its wrap-around seam draws a spurious line from the newest point back to the oldest
+// once the buffer fills (~after the window's worth of data). A plain monotonic series
+// trimmed with removeRange() has no such seam. Keep a small margin beyond the visible
+// window so points aren't culled while still on-screen.
+const TRIM_MARGIN_S = 5;
 
 // A gap longer than this (seconds) between consecutive samples is treated as a stall
 // (WS reconnect, sim paused, tab backgrounded) and breaks the line — see onFrame.
@@ -420,7 +424,7 @@ async function buildChart(divId, yAxes, series, markers = []) {
 
   const ds = {};
   series.forEach((s) => {
-    const d = new XyDataSeries(wasmContext, { fifoCapacity: FIFO, dataSeriesName: s.name });
+    const d = new XyDataSeries(wasmContext, { dataSeriesName: s.name });
     ds[s.key] = d;
     const line = new FastLineRenderableSeries(wasmContext, {
       dataSeries: d,
@@ -442,7 +446,7 @@ async function buildChart(divId, yAxes, series, markers = []) {
   // square appears only while the flag is on. Guarded so a missing type can't kill init.
   markers.forEach((m) => {
     if (!XyScatterRenderableSeries || !SquarePointMarker) return;
-    const d = new XyDataSeries(wasmContext, { fifoCapacity: FIFO, dataSeriesName: m.name });
+    const d = new XyDataSeries(wasmContext, { dataSeriesName: m.name });
     ds[m.key] = d;
     sciChartSurface.renderableSeries.add(
       new XyScatterRenderableSeries(wasmContext, {
@@ -470,6 +474,18 @@ async function buildChart(divId, yAxes, series, markers = []) {
 const fin = (v, d = 0) => (typeof v === 'number' && isFinite(v) ? v : d);
 const pct = (v) => Math.max(0, Math.min(100, fin(v) * 100));
 const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, fin(v)));
+
+// Manual FIFO: drop samples older than `cutoff` off the head of a data series. X is
+// appended strictly increasing, so just count the leading points below the cutoff and
+// remove them in one go. Called every frame for every series — replaces fifoCapacity's
+// circular buffer (whose wrap seam drew a line from the live edge back to the start).
+function trimOld(ds, cutoff) {
+  const xs = ds.getNativeXValues();
+  const n = xs.size();
+  let r = 0;
+  while (r < n && xs.get(r) < cutoff) r++;
+  if (r > 0) ds.removeRange(0, r);
+}
 
 let C = null;          // built charts
 let sampleCount = 0;   // total appended frames (for the Hz readout)
@@ -793,9 +809,16 @@ function loop() {
   if (!paused && C) {
     const right = (tn - t0) / 1000;
     const win = new NumberRange(right - WINDOW_S, right);
+    const cutoff = right - WINDOW_S - TRIM_MARGIN_S;
     // Slide EVERY chart's window — not just the first few — or the rest keep their
     // initial [-60, 0] range while data appends at growing t and scrolls out of view.
-    for (const k in C) C[k].xAxis.visibleRange = win;
+    // Trim aged-out samples off each series here too (manual FIFO; the ds object holds
+    // both line and marker series, so the inner loop covers both).
+    for (const k in C) {
+      C[k].xAxis.visibleRange = win;
+      const ds = C[k].ds;
+      for (const key in ds) trimOld(ds[key], cutoff);
+    }
   }
 
   if (tn - hzT > 500) {
