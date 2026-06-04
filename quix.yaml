@@ -666,3 +666,4 @@ topics:
       retentionInBytes: 52428800
   - name: transform
   - name: test-completed
+  - name: ac-telemetry-raw-replay
