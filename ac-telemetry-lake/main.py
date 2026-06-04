@@ -85,6 +85,12 @@ def _on_stream_timeout(key) -> None:
             value=json.dumps(event).encode(),
         )
 
+# Test-completed topic - receives an event whenever a stream key goes silent
+test_completed_topic = app.topic(
+    os.getenv("TEST_COMPLETED_TOPIC", "test-completed"),
+    value_serializer="json",
+)
+
 # Initialize Quix Streams Application
 app = Application(
     consumer_group=os.getenv("CONSUMER_GROUP", "s3_direct_sink_v1.0"),
