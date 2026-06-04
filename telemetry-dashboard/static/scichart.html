@@ -109,6 +109,9 @@
     color: var(--dim); margin-bottom: .6vh; flex-shrink: 0;
   }
   .card-title b { color: var(--text); }
+  /* "Invalid Lap" badge in the Lap Times title — hidden until isValidLap == 0. */
+  .lap-invalid { display: none; margin-left: .6vw; color: var(--red); font-weight: 800; }
+  .lap-invalid.show { display: inline; }
   .chart { flex: 1; width: 100%; min-height: 0; position: relative; }
 
   /* SciChart legend swatches → small squares instead of wide (30×13) rectangles.
@@ -182,12 +185,21 @@
   .lb-row .lb-pos { font-size: 1.7vh; font-weight: 800; color: var(--dim); text-align: center; }
   .lb-row .lb-name { font-size: 2.1vh; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
   .lb-row .lb-time { font-size: 1.9vh; font-weight: 800; color: var(--cyan); display: inline-flex; align-items: baseline; justify-content: flex-end; gap: .55vw; }
+  /* Time + stacked gaps: absolute lap on top, the two deltas in a smaller line beneath. */
+  .lb-timewrap { display: flex; flex-direction: column; align-items: flex-end; gap: .25vh; }
+  .lb-deltas { display: flex; gap: .7vw; font-size: 1.3vh; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .lb-gap-leader { color: #9aa0c0; }      /* gap to P1 (overall standing) */
+  .lb-gap-ahead { color: var(--cyan); }   /* interval to the car directly ahead */
   .lb-row.me { background: #1c1c30; }
   .lb-row.me .lb-pos, .lb-row.me .lb-name { color: var(--text); }
-  /* Live current-driver row: blinking green dot before the time = live telemetry. */
-  .lb-live { align-self: center; width: 1vh; height: 1vh; border-radius: 50%; background: var(--green); box-shadow: 0 0 .9vh var(--green); animation: blink 1.1s ease-in-out infinite; flex-shrink: 0; }
-  /* Provisional/projected lap (live estimate, not a completed lap): amber + italic, "~" prefix. */
-  .lb-time.provisional { color: var(--amber); font-style: italic; }
+  /* Live current-driver row: blinking green dot before the time = live telemetry.
+     Opacity is driven from the shared wall-clock in loop() (not a CSS animation) so the
+     blink stays a steady 1.1s — matching the top-right status LED — even though the row
+     is rebuilt on each leaderboard render, which would otherwise restart a CSS animation. */
+  .lb-live { align-self: center; width: 1vh; height: 1vh; border-radius: 50%; background: var(--green); box-shadow: 0 0 .9vh var(--green); flex-shrink: 0; }
+  /* The current driver's live in-progress lap (projected, or current valid lap) — a second
+     row distinct from their settled best (cyan): amber + italic, green blink dot, "~" prefix. */
+  .lb-time.live-lap { color: var(--amber); font-style: italic; }
   /* New personal-best lap: time goes purple and blinks for ~4s, then stays purple. */
   .lb-time.flash { color: var(--purple); animation: lbflash .5s ease-in-out 8; }
   @keyframes lbflash { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
@@ -280,7 +292,7 @@
     <div class="chart" id="chart-eng"></div>
   </div>
   <div class="card">
-    <div class="card-title">Lap Times</div>
+    <div class="card-title">Lap Times <span class="lap-invalid" id="lap-invalid">Invalid Lap</span></div>
     <div class="ld-body">
       <div class="ld-row"><span class="ld-label">Last</span><span class="ld-time" id="ld-last">--:--.---</span></div>
       <div class="ld-row"><span class="ld-label">Current</span><span class="ld-time" id="ld-cur">--:--.---</span></div>
@@ -593,35 +605,56 @@ function fmtLap(ms) {
   return m + ':' + String(s).padStart(2, '0') + '.' + String(mm).padStart(3, '0');
 }
 
-// --- Live leaderboard position from the estimated lap time --------------------
-// The current driver's row is placed by their ESTIMATED lap time (best lap projected
-// by the live delta) while the current lap is valid, falling back to their best lap on
-// out-laps / invalid laps. The board re-sorts as the estimate evolves, so they climb on
-// a hot lap and slide back on a slow one. Other drivers keep their best-lap times.
-let posSessionId = null, lastBestMs = null;   // lastBestMs: session best (PB flash + fallback)
-let lbFlashUntil = 0;                          // flash the driver's row until this time (new PB)
+// --- Live leaderboard: the current driver gets TWO rows -----------------------
+// 1) their settled best lap (ranked like everyone else's best), and
+// 2) a live in-progress row — their projected lap (best + live delta) while the current
+//    lap is valid, else the running current-lap time — shown with the green blink dot in
+//    a distinct colour. The live row re-sorts as the estimate evolves, so it climbs on a
+//    hot lap and slides back on a slow one. Dropped (no row) on an invalid lap.
+let posSessionId = null, lastBestMs = null;   // lastBestMs: session best (PB flash + best row)
+let lbFlashUntil = 0;                          // flash the driver's best row until this time (new PB)
 let lbLastOrder = '', lbLastRender = 0;        // render throttle: on order change or ~5 Hz
-let lbLiveUntil = 0;                           // me row shows the live dot while now() < this
-let lbProvisional = false;                     // me row's time is a live estimate, not a completed lap
+let lbLiveUntil = 0;                           // live row + dot shown while now() < this
+let liveLapMs = null;                          // current driver's live lap (projected/current); null = none
+
+// Combine the settled best laps (LEADERBOARD) with the current driver's live in-progress
+// row, re-sort by time, and take the top N. The live row is a second entry for the same
+// driver — ranked by its own (projected/current) time — shown only while telemetry is fresh.
+function buildRows() {
+  const rows = LEADERBOARD.map(r => ({ name: r.name, ms: r.ms, live: false }));
+  if (now() < lbLiveUntil && liveLapMs != null) rows.push({ name: driverName, ms: liveLapMs, live: true });
+  rows.sort((a, b) => a.ms - b.ms);
+  return rows.slice(0, TOP_N);
+}
+
+// Gap as a signed seconds string, e.g. "+0.420". Gaps off the sorted board are always ≥ 0.
+const fmtGap = (ms) => '+' + (ms / 1000).toFixed(3);
 
 function renderLeaderboard(flashName) {
   const me = (driverName || '').toLowerCase();
-  // Explicit name wins; otherwise flash the driver's own row during the post-PB window.
+  // Explicit name wins; otherwise flash the driver's own best row during the post-PB window.
   const flash = flashName ? flashName.toLowerCase() : (now() < lbFlashUntil ? me : null);
-  // The current driver is "live" while telemetry is flowing; their time is "provisional"
-  // when it's a live lap estimate rather than a completed lap.
-  const live = now() < lbLiveUntil;
-  lbBody.innerHTML = LEADERBOARD.slice(0, TOP_N).map((r, i) => {
+  const rows = buildRows();
+  const leaderMs = rows.length ? rows[0].ms : 0;
+  lbBody.innerHTML = rows.map((r, i) => {
     const isMe = r.name.toLowerCase() === me;
-    const isLive = isMe && live;
-    const provisional = isLive && lbProvisional;
+    // Live in-progress row: green blink dot + amber "~" time. Best/other rows render
+    // as settled times; only a settled best row can flash on a new PB.
+    const timeCls = 'lb-time' + (r.live ? ' live-lap' : (flash && r.name.toLowerCase() === flash ? ' flash' : ''));
+    // Stacked under the time (smaller): gap to leader + interval to the car ahead.
+    // P1 is the reference, so it gets no gap line.
+    const deltas = i === 0 ? '' :
+      '<div class="lb-deltas">' +
+        '<span class="lb-gap-leader">' + fmtGap(r.ms - leaderMs) + '</span>' +
+        '<span class="lb-gap-ahead">' + fmtGap(r.ms - rows[i - 1].ms) + '</span>' +
+      '</div>';
     return '<div class="lb-row' + (isMe ? ' me' : '') + '">' +
       '<div class="lb-pos">' + (i + 1) + '</div>' +
       '<div class="lb-name">' + r.name + '</div>' +
-      '<div class="lb-time' + (flash && r.name.toLowerCase() === flash ? ' flash' : '') +
-        (provisional ? ' provisional' : '') + '">' +
-        (isLive ? '<span class="lb-live"></span>' : '') +
-        (provisional ? '~' : '') + fmtLap(r.ms) +
+      '<div class="lb-timewrap">' +
+        '<div class="' + timeCls + '">' +
+          (r.live ? '<span class="lb-live"></span>~' : '') + fmtLap(r.ms) +
+        '</div>' + deltas +
       '</div>' +
     '</div>';
   }).join('');
@@ -631,35 +664,37 @@ renderLeaderboard();
 function updateDriverPosition(d) {
   if (d.session_id !== posSessionId) { posSessionId = d.session_id; lastBestMs = null; lbFlashUntil = 0; }
 
-  // Track the session-best lap — drives the new-PB flash and is the fallback time.
+  // Track the session-best lap — drives the new-PB flash and the driver's settled best row.
   const best = (typeof d.iBestTime === 'number' && d.iBestTime > 0 && d.iBestTime < INT_MAX) ? d.iBestTime : null;
   if (best !== null && (lastBestMs === null || best < lastBestMs)) {
     if (lastBestMs !== null) lbFlashUntil = now() + 4000;   // genuine improvement → flash ~4 s
     lastBestMs = best;
   }
 
-  // Projected time: estimated lap (best + live delta) while the lap is valid, else best.
-  const est = (typeof d.iEstimatedLapTime === 'number' && d.iEstimatedLapTime > 0 && d.iEstimatedLapTime < INT_MAX) ? d.iEstimatedLapTime : null;
-  const lapValid = d.isValidLap !== 0;        // 0 = invalidated; 1 or missing = valid
-  let projected;
-  if (lapValid && est !== null) projected = est;
-  else if (lastBestMs !== null) projected = lastBestMs;
-  else return;                                 // no estimate and no best yet — leave board as-is
-
-  // Live telemetry is flowing → show the blinking dot for ~2s; the time is provisional
-  // whenever it's the live estimate rather than a settled best lap.
-  lbLiveUntil = now() + 2000;
-  lbProvisional = (lapValid && est !== null);
-
   const name = (driverName || '').trim();
-  let row = LEADERBOARD.find(r => r.name.toLowerCase() === name.toLowerCase());
-  if (row) row.ms = projected;
-  else LEADERBOARD.push({ name, ms: projected });
-  LEADERBOARD.sort((a, b) => a.ms - b.ms);
 
-  // Render immediately on a position change; otherwise throttle to ~5 Hz so the ms
-  // digits stay readable and the PB flash animation can play.
-  const order = LEADERBOARD.slice(0, TOP_N).map(r => r.name).join('|');
+  // Entry #1 — the driver's settled best lap row.
+  if (lastBestMs !== null) {
+    const row = LEADERBOARD.find(r => r.name.toLowerCase() === name.toLowerCase());
+    if (row) { if (lastBestMs < row.ms) row.ms = lastBestMs; }
+    else LEADERBOARD.push({ name, ms: lastBestMs });
+  }
+
+  // Entry #2 — the live in-progress lap: projected (best + live delta) when the current lap
+  // is valid and AC provides it, else the running current-lap time. null on an invalid lap.
+  const lapValid = d.isValidLap !== 0;        // 0 = invalidated; 1 or missing = valid
+  const est = (typeof d.iEstimatedLapTime === 'number' && d.iEstimatedLapTime > 0 && d.iEstimatedLapTime < INT_MAX) ? d.iEstimatedLapTime : null;
+  const cur = (typeof d.iCurrentTime === 'number' && d.iCurrentTime > 0 && d.iCurrentTime < INT_MAX) ? d.iCurrentTime : null;
+  if (lapValid && est !== null) liveLapMs = est;
+  else if (lapValid && cur !== null) liveLapMs = cur;
+  else liveLapMs = null;
+
+  lbLiveUntil = now() + 2000;   // live row + blink dot shown while telemetry is fresh
+
+  // Render immediately on a position/order change; otherwise throttle to ~5 Hz so the ms
+  // digits stay readable and the PB flash animation can play. '*' tags the live row so a
+  // change in its time alone (same names/order) still refreshes.
+  const order = buildRows().map(r => (r.live ? '*' : '') + r.name).join('|');
   const tn = now();
   if (order !== lbLastOrder || tn - lbLastRender > 200) {
     lbLastOrder = order;
@@ -752,9 +787,13 @@ const ldLast = document.getElementById('ld-last');
 const ldCur = document.getElementById('ld-cur');
 const ldEst = document.getElementById('ld-est');
 const ldDelta = document.getElementById('ld-delta');
+const lapInvalid = document.getElementById('lap-invalid');
 const fmtLapOrDash = (v) => (typeof v === 'number' && v > 0 && v < INT_MAX) ? fmtLap(v) : '--:--.---';
 
 function updateLapDelta(d) {
+  // AC invalidates the in-progress lap (off-track, cut corner) → isValidLap == 0.
+  lapInvalid.classList.toggle('show', d.isValidLap === 0);
+
   ldLast.textContent = fmtLapOrDash(d.iLastTime);
   ldCur.textContent = fmtLapOrDash(d.iCurrentTime);
   ldEst.textContent = fmtLapOrDash(d.iEstimatedLapTime);
@@ -927,6 +966,13 @@ function loop() {
     if (waitingEl) waitingEl.style.display = state === 'waiting' ? 'flex' : 'none';
     hzEl.textContent = paused ? '· paused' : '· ' + hz + ' Hz';
   }
+
+  // Blink the leaderboard live dot off the shared clock so it pulses at the same 1.1s
+  // rate as the top-right status LED. Cosine between 1.0 and 0.2 matches the `blink`
+  // keyframes' range and ease-in-out feel; period 1100ms = the LED's 1.1s.
+  const liveDot = lbBody.querySelector('.lb-live');
+  if (liveDot) liveDot.style.opacity = (0.6 + 0.4 * Math.cos((tn / 1100) * 2 * Math.PI)).toFixed(3);
+
   requestAnimationFrame(loop);
 }
 
