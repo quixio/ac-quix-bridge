@@ -109,9 +109,15 @@
   .card-title b { color: var(--text); }
   .chart { flex: 1; width: 100%; min-height: 0; position: relative; }
 
-  /* ---------- G-Force meter (friction-circle / g-ball) ---------- */
-  .gmeter { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: .4vh 0; }
+  /* SciChart legend swatches → small squares instead of wide (30×13) rectangles.
+     The swatch is a <label> with inline background-color/width/height, so override needs !important. */
+  .scichart__legend label { width: 13px !important; height: 13px !important; flex-shrink: 0; }
+
+  /* ---------- G-Force meter (friction-circle / g-ball) + trace ---------- */
+  .gforce-body { flex: 1; min-height: 0; display: flex; gap: 1vw; }
+  .gmeter { flex-shrink: 0; min-height: 0; display: flex; align-items: center; justify-content: center; padding: .4vh 0; }
   .gmeter svg { height: 100%; width: auto; max-width: 100%; display: block; }
+  .gchart { flex: 1; min-width: 0; min-height: 0; position: relative; }
   .g-ring { fill: none; stroke: var(--border); stroke-width: 1; }
   .g-ring.outer { stroke: #33335a; }
   .g-cross { stroke: var(--border); stroke-width: 1; }
@@ -123,9 +129,10 @@
   .g-readout b { color: var(--text); font-variant-numeric: tabular-nums; }
 
   /* ---------- Lap delta / current-lap readout ---------- */
-  .ld-body { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .8vh; }
-  .ld-val { font-size: 6vh; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text); }
-  .ld-sub { font-size: 1.3vh; text-transform: uppercase; letter-spacing: .15vw; color: var(--dim); }
+  .ld-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 1.2vh; padding: 0 .6vw; }
+  .ld-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1vw; }
+  .ld-label { font-size: 1.5vh; text-transform: uppercase; letter-spacing: .12vw; color: var(--dim); }
+  .ld-time { font-size: 3vh; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text); }
 
   .hint { font-size: 1.2vh; color: var(--dim); }
   .hint b { color: var(--cyan); }
@@ -217,7 +224,7 @@
     <div class="chart" id="chart-sr"></div>
   </div>
   <div class="card">
-    <div class="card-title">Pedals &amp; Aids <b>%</b> &nbsp;·&nbsp; throttle / brake · bias <b id="bias-val">--%</b> · TC / ABS</div>
+    <div class="card-title">Pedals &amp; Aids &nbsp;·&nbsp; throttle / brake <b>%</b> · steer <b>°</b> · bias <b id="bias-val">--%</b> · TC / ABS</div>
     <div class="chart" id="chart-in"></div>
   </div>
   <div class="card">
@@ -234,21 +241,24 @@
   </div>
   <div class="card">
     <div class="card-title">G-Force <b>g</b> &nbsp;·&nbsp; lateral / longitudinal</div>
-    <div class="gmeter">
-      <svg viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet">
-        <circle class="g-ring" cx="0" cy="0" r="30"></circle>
-        <circle class="g-ring" cx="0" cy="0" r="60"></circle>
-        <circle class="g-ring outer" cx="0" cy="0" r="90"></circle>
-        <line class="g-cross" x1="-90" y1="0" x2="90" y2="0"></line>
-        <line class="g-cross" x1="0" y1="-90" x2="0" y2="90"></line>
-        <text class="g-axis-label" x="0" y="-93" text-anchor="middle">ACCEL</text>
-        <text class="g-axis-label" x="0" y="99" text-anchor="middle">BRAKE</text>
-        <text class="g-ring-label" x="30" y="-3" text-anchor="middle">1</text>
-        <text class="g-ring-label" x="60" y="-3" text-anchor="middle">2</text>
-        <text class="g-ring-label" x="90" y="-3" text-anchor="middle">3</text>
-        <line id="g-vector" class="g-vector" x1="0" y1="0" x2="0" y2="0"></line>
-        <circle id="g-dot" class="g-dot" cx="0" cy="0" r="6.5" fill="#00d4ff"></circle>
-      </svg>
+    <div class="gforce-body">
+      <div class="gmeter">
+        <svg viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet">
+          <circle class="g-ring" cx="0" cy="0" r="30"></circle>
+          <circle class="g-ring" cx="0" cy="0" r="60"></circle>
+          <circle class="g-ring outer" cx="0" cy="0" r="90"></circle>
+          <line class="g-cross" x1="-90" y1="0" x2="90" y2="0"></line>
+          <line class="g-cross" x1="0" y1="-90" x2="0" y2="90"></line>
+          <text class="g-axis-label" x="0" y="-93" text-anchor="middle">ACCEL</text>
+          <text class="g-axis-label" x="0" y="99" text-anchor="middle">BRAKE</text>
+          <text class="g-ring-label" x="30" y="-3" text-anchor="middle">1</text>
+          <text class="g-ring-label" x="60" y="-3" text-anchor="middle">2</text>
+          <text class="g-ring-label" x="90" y="-3" text-anchor="middle">3</text>
+          <line id="g-vector" class="g-vector" x1="0" y1="0" x2="0" y2="0"></line>
+          <circle id="g-dot" class="g-dot" cx="0" cy="0" r="6.5" fill="#00d4ff"></circle>
+        </svg>
+      </div>
+      <div class="gchart" id="chart-g"></div>
     </div>
     <div class="g-readout">
       <span>LAT <b id="g-lat">0.0</b></span>
@@ -261,10 +271,12 @@
     <div class="chart" id="chart-eng"></div>
   </div>
   <div class="card">
-    <div class="card-title" id="ld-title">Lap Delta</div>
+    <div class="card-title">Lap Times</div>
     <div class="ld-body">
-      <div class="ld-val" id="ld-val">--:--.---</div>
-      <div class="ld-sub" id="ld-sub">waiting for telemetry</div>
+      <div class="ld-row"><span class="ld-label">Last</span><span class="ld-time" id="ld-last">--:--.---</span></div>
+      <div class="ld-row"><span class="ld-label">Current</span><span class="ld-time" id="ld-cur">--:--.---</span></div>
+      <div class="ld-row"><span class="ld-label">Estimated</span><span class="ld-time" id="ld-est">--:--.---</span></div>
+      <div class="ld-row"><span class="ld-label">Delta</span><span class="ld-time" id="ld-delta">--</span></div>
     </div>
   </div>
 </div>
@@ -459,6 +471,9 @@ async function buildChart(divId, yAxes, series, markers = []) {
       new XyScatterRenderableSeries(wasmContext, {
         dataSeries: d,
         yAxisId: m.yAxisId,
+        // The legend swatch reads the series `stroke` — without it the key shows grey
+        // even though the square's fill is coloured. Set it to the marker colour.
+        stroke: m.color,
         pointMarker: new SquarePointMarker(wasmContext, {
           width: m.size || 5, height: m.size || 5,
           fill: m.color, stroke: m.color, strokeThickness: 0,
@@ -557,9 +572,19 @@ function fmtLap(ms) {
   return m + ':' + String(s).padStart(2, '0') + '.' + String(mm).padStart(3, '0');
 }
 
+// --- Live leaderboard position from the estimated lap time --------------------
+// The current driver's row is placed by their ESTIMATED lap time (best lap projected
+// by the live delta) while the current lap is valid, falling back to their best lap on
+// out-laps / invalid laps. The board re-sorts as the estimate evolves, so they climb on
+// a hot lap and slide back on a slow one. Other drivers keep their best-lap times.
+let posSessionId = null, lastBestMs = null;   // lastBestMs: session best (PB flash + fallback)
+let lbFlashUntil = 0;                          // flash the driver's row until this time (new PB)
+let lbLastOrder = '', lbLastRender = 0;        // render throttle: on order change or ~5 Hz
+
 function renderLeaderboard(flashName) {
   const me = (driverName || '').toLowerCase();
-  const flash = flashName ? flashName.toLowerCase() : null;
+  // Explicit name wins; otherwise flash the driver's own row during the post-PB window.
+  const flash = flashName ? flashName.toLowerCase() : (now() < lbFlashUntil ? me : null);
   lbBody.innerHTML = LEADERBOARD.slice(0, TOP_N).map((r, i) =>
     '<div class="lb-row' + (r.name.toLowerCase() === me ? ' me' : '') + '">' +
       '<div class="lb-pos">' + (i + 1) + '</div>' +
@@ -570,21 +595,39 @@ function renderLeaderboard(flashName) {
 }
 renderLeaderboard();
 
-// Reflect the current driver's session-best lap on the board (re-sorts + blinks on improvement).
-let bestSessionId = null, lastBestMs = null;
-function updateDriverBest(d) {
-  if (d.session_id !== bestSessionId) { bestSessionId = d.session_id; lastBestMs = null; }
-  const best = d.iBestTime;
-  if (!best || best <= 0) return;
-  if (lastBestMs !== null && best >= lastBestMs) return;   // no improvement
-  const improved = lastBestMs !== null;
-  lastBestMs = best;
+function updateDriverPosition(d) {
+  if (d.session_id !== posSessionId) { posSessionId = d.session_id; lastBestMs = null; lbFlashUntil = 0; }
+
+  // Track the session-best lap — drives the new-PB flash and is the fallback time.
+  const best = (typeof d.iBestTime === 'number' && d.iBestTime > 0 && d.iBestTime < INT_MAX) ? d.iBestTime : null;
+  if (best !== null && (lastBestMs === null || best < lastBestMs)) {
+    if (lastBestMs !== null) lbFlashUntil = now() + 4000;   // genuine improvement → flash ~4 s
+    lastBestMs = best;
+  }
+
+  // Projected time: estimated lap (best + live delta) while the lap is valid, else best.
+  const est = (typeof d.iEstimatedLapTime === 'number' && d.iEstimatedLapTime > 0 && d.iEstimatedLapTime < INT_MAX) ? d.iEstimatedLapTime : null;
+  const lapValid = d.isValidLap !== 0;        // 0 = invalidated; 1 or missing = valid
+  let projected;
+  if (lapValid && est !== null) projected = est;
+  else if (lastBestMs !== null) projected = lastBestMs;
+  else return;                                 // no estimate and no best yet — leave board as-is
+
   const name = (driverName || '').trim();
   let row = LEADERBOARD.find(r => r.name.toLowerCase() === name.toLowerCase());
-  if (row) row.ms = best;
-  else LEADERBOARD.push({ name, ms: best });
+  if (row) row.ms = projected;
+  else LEADERBOARD.push({ name, ms: projected });
   LEADERBOARD.sort((a, b) => a.ms - b.ms);
-  renderLeaderboard(improved ? name : null);
+
+  // Render immediately on a position change; otherwise throttle to ~5 Hz so the ms
+  // digits stay readable and the PB flash animation can play.
+  const order = LEADERBOARD.slice(0, TOP_N).map(r => r.name).join('|');
+  const tn = now();
+  if (order !== lbLastOrder || tn - lbLastRender > 200) {
+    lbLastOrder = order;
+    lbLastRender = tn;
+    renderLeaderboard();
+  }
 }
 
 // Poll the backend /leaderboard proxy (Data Lake-backed). Falls back silently to the
@@ -625,7 +668,7 @@ function updateSidebar(d) {
   sbSteerVal.textContent = (steerDeg > 0 ? '+' : '') + Math.round(steerDeg) + '°';
 
   if (d.driverName || d.playerName) setDriver(d.driverName || d.playerName);
-  updateDriverBest(d);
+  updateDriverPosition(d);
 }
 
 // --- G-Force friction-circle meter ---------------------------------------
@@ -662,31 +705,32 @@ function updateGMeter(d) {
   gTot.textContent = mag.toFixed(1);
 }
 
-// --- Lap delta / current-lap readout -------------------------------------
-// iDeltaLapTime is only meaningful once a reference lap exists; until then AC
-// reports iBestTime as the int-max sentinel and the delta reads 0. So show the
-// running current-lap time until there's a valid best lap, then switch to the
-// delta (− ahead / + behind), coloured green/red.
-const INT_MAX = 2147483647;     // AC's "no time set" sentinel for iBestTime/iLastTime
-const ldTitle = document.getElementById('ld-title');
-const ldVal = document.getElementById('ld-val');
-const ldSub = document.getElementById('ld-sub');
+// --- Lap times readout: last / current / estimated / delta ----------------
+// Times are formatted from their ms fields; AC's int-max sentinel (no time set,
+// e.g. before a lap completes) renders as a dash. The delta (− ahead / + behind)
+// is only meaningful once a reference lap exists, so it shows '--' until then.
+const INT_MAX = 2147483647;     // AC's "no time set" sentinel for lap-time fields
+const ldLast = document.getElementById('ld-last');
+const ldCur = document.getElementById('ld-cur');
+const ldEst = document.getElementById('ld-est');
+const ldDelta = document.getElementById('ld-delta');
+const fmtLapOrDash = (v) => (typeof v === 'number' && v > 0 && v < INT_MAX) ? fmtLap(v) : '--:--.---';
 
 function updateLapDelta(d) {
+  ldLast.textContent = fmtLapOrDash(d.iLastTime);
+  ldCur.textContent = fmtLapOrDash(d.iCurrentTime);
+  ldEst.textContent = fmtLapOrDash(d.iEstimatedLapTime);
+
+  // Delta needs a valid reference (best) lap; otherwise iDeltaLapTime is meaningless.
   const best = d.iBestTime;
   const hasRef = typeof best === 'number' && best > 0 && best < INT_MAX;
   if (hasRef && typeof d.iDeltaLapTime === 'number') {
     const s = d.iDeltaLapTime / 1000;                // seconds: − ahead, + behind
-    ldTitle.textContent = 'Lap Delta';
-    ldSub.textContent = 'vs best lap';
-    ldVal.textContent = (s > 0 ? '+' : '') + s.toFixed(3);
-    ldVal.style.color = s > 0 ? '#ff3355' : s < 0 ? '#00ff88' : 'var(--text)';
+    ldDelta.textContent = (s > 0 ? '+' : '') + s.toFixed(3);
+    ldDelta.style.color = s > 0 ? '#ff3355' : s < 0 ? '#00ff88' : 'var(--text)';
   } else {
-    const cur = d.iCurrentTime;                      // running current-lap time (ms)
-    ldTitle.textContent = 'Current Lap';
-    ldSub.textContent = 'no reference lap yet';
-    ldVal.textContent = (typeof cur === 'number' && cur > 0 && cur < INT_MAX) ? fmtLap(cur) : '--:--.---';
-    ldVal.style.color = 'var(--text)';
+    ldDelta.textContent = '--';
+    ldDelta.style.color = 'var(--dim)';
   }
 }
 
@@ -708,6 +752,7 @@ function onFrame(d) {
   C.sr.ds.rpm.append(t, fin(d.rpms));
   C.in.ds.gas.append(t, pct(d.gas));
   C.in.ds.brake.append(t, pct(d.brake));
+  C.in.ds.steer.append(t, fin(d.steerAngle) * 180 / Math.PI);   // steering angle in degrees
   // TC / ABS: a square in the bottom lane while active, nothing (NaN) when off.
   C.in.ds.tc.append(t, fin(d.tc) > 0.01 ? AID_TC_Y : NaN);
   C.in.ds.abs.append(t, fin(d.abs) > 0.01 ? AID_ABS_Y : NaN);
@@ -726,6 +771,8 @@ function onFrame(d) {
   C.bt.ds.fr.append(t, fin(d.brakeTempFR));
   C.bt.ds.rl.append(t, fin(d.brakeTempRL));
   C.bt.ds.rr.append(t, fin(d.brakeTempRR));
+  C.g.ds.lat.append(t, cl(d.accG_x, -4, 4));   // crash spikes hit ±40 — clamp
+  C.g.ds.lon.append(t, cl(d.accG_y, -4, 4));
   C.eng.ds.water.append(t, fin(d.waterTemp));
   C.eng.ds.exh.append(t, fin(d.exhaustTemperature));
   C.eng.ds.fuel.append(t, fin(d.fuel));
@@ -747,6 +794,7 @@ function demoFrame(t) {
   const load = Math.sin(phase);              // outer/loaded tyres run hotter in corners
   return {
     speedKmh: speed, rpms: rpm, gas, brake,
+    steerAngle: -load * 0.4,            // ± ~23° steering, correlated with cornering load
     tyreTempFL: base + load * 9 + 4,
     tyreTempFR: base + load * 12,
     tyreTempRL: base + load * 6 + 2,
@@ -766,8 +814,12 @@ function demoFrame(t) {
     fuel: Math.max(0, 60 - t * 0.04),
     fuelEstimatedLaps: Math.max(0, 18 - t * 0.015),
     iCurrentTime: Math.round((t % 95) * 1000),                 // running lap clock (ms)
+    iLastTime: t > 18 ? 89000 : 2147483647,                    // a 1:29 last lap once we're rolling
     iBestTime: t > 18 ? 88000 : 2147483647,                    // no reference for the first ~18 s, then a 1:28 best
     iDeltaLapTime: Math.round(Math.sin(t * 0.3) * 1800),
+    // Estimated lap = best + delta; drives the live leaderboard position (oscillates ±1.8 s).
+    iEstimatedLapTime: t > 18 ? 88000 + Math.round(Math.sin(t * 0.3) * 1800) : 2147483647,
+    isValidLap: 1,
     brakeBias: 0.62,
     tc: (gas > 0.9 && corner < 0.35) ? 1 : 0,
     abs: brake > 0.55 ? 1 : 0,
@@ -873,10 +925,14 @@ function connect() {
       ),
       in: await buildChart(
         'chart-in',
-        [{ axisId: 'pct', align: EAxisAlignment.Left, title: '%', range: [0, 105] }],
+        [
+          { axisId: 'pct', align: EAxisAlignment.Left, title: '%', range: [0, 105] },
+          { axisId: 'steer', align: EAxisAlignment.Right, title: '°', color: '#00d4ff', range: [-50, 50] },
+        ],
         [
           { key: 'gas', name: 'Throttle', color: '#00ff88', yAxisId: 'pct' },
           { key: 'brake', name: 'Brake', color: '#ff3355', yAxisId: 'pct' },
+          { key: 'steer', name: 'Steering', color: '#00d4ff', yAxisId: 'steer' },
         ],
         // TC / ABS as on/off squares in a lane at the bottom (y = AID_TC_Y / AID_ABS_Y).
         [
@@ -914,7 +970,16 @@ function connect() {
           { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'btemp' },
         ],
       ),
-      // G-Force is a friction-circle meter (DOM/SVG), not a SciChart surface — see updateGMeter().
+      // G-Force: the friction-circle meter (SVG, updateGMeter) sits left in the card;
+      // this trace of lateral / longitudinal g over time sits to its right (#chart-g).
+      g: await buildChart(
+        'chart-g',
+        [{ axisId: 'g', align: EAxisAlignment.Left, title: 'g', range: [-3.5, 3.5] }],
+        [
+          { key: 'lat', name: 'Lat', color: '#00d4ff', yAxisId: 'g' },
+          { key: 'lon', name: 'Lon', color: '#ffaa00', yAxisId: 'g' },
+        ],
+      ),
       // Engine & Fuel — temps share a °C axis (left); fuel litres + est. laps share
       // an "L / laps" axis (right). Four slow-moving powertrain channels in one card.
       eng: await buildChart(
