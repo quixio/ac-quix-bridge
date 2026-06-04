@@ -23,9 +23,10 @@ const PARENT_TIMEOUT_MS = 5000;
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
 // Only accept AUTH_TOKEN messages from parents on a Quix-owned domain. Same
-// origin is always allowed (covers local dev + tests). Tighten further if
-// the deployment locks the parent to a single subdomain.
-const _TRUSTED_ORIGIN_PATTERN = /\.quix\.io$/;
+// origin is always allowed (covers local dev + tests). `.quix.io` is the
+// classic Quix Cloud host; `.byox.demo` covers BYOX-deployed workspaces
+// (e.g. *.edge.byox.demo) where the Test Manager parent is served.
+const _TRUSTED_ORIGIN_PATTERN = /\.(quix\.io|byox\.demo)$/;
 
 let _token = null;
 let _initialPromise = null;

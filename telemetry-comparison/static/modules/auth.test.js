@@ -79,7 +79,7 @@ describe('authFetch', () => {
 });
 
 describe('origin guard', () => {
-  it('_isTrustedOrigin accepts same-origin and .quix.io hosts, rejects others', async () => {
+  it('_isTrustedOrigin accepts same-origin, .quix.io + .byox.demo hosts, rejects others', async () => {
     // Re-import to get a fresh module; we exercise the exported behavior
     // indirectly by checking what the helper would accept.
     const { _isTrustedOrigin } = await import('./auth.js');
