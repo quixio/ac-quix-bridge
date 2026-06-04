@@ -17,7 +17,7 @@ import logging
 from quixstreams import Application
 from quixstreams.dataframe.joins.lookups import QuixConfigurationService
 from quixstreams.sinks.core.quix_ts_datalake_sink import QuixTSDataLakeSink
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Configure logging
 logging.basicConfig(
