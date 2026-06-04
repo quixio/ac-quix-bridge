@@ -497,6 +497,10 @@ function connect() {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg && msg.type === 'status') { applyStatus(msg.status, msg.detail); return; }
+    if (msg && msg.type === 'driver') {
+      if (msg.name) { driverEl.textContent = msg.name; renderLeaderboard(); }
+      return;
+    }
     latest = msg;
   };
   ws.onclose = () => {

@@ -17,9 +17,10 @@
   No build step: the library is loaded from CDN as a UMD bundle that exposes a
   global `SciChart` and auto-loads its .wasm/.data from the same CDN.
 
-  Licensing: this runs in unlicensed TRIAL mode, so SciChart paints a small
-  watermark bottom-right. That's expected for a preview; a shipped product needs
-  a purchased license key via SciChartSurface.setRuntimeLicenseKey(...).
+  Licensing: with no key set, SciChart auto-selects its free Community Edition
+  (valid ~6 months per release) and paints a small "SciCHART" watermark on each
+  chart. Fine for a preview; production needs Community attribution or a purchased
+  key applied via SciChartSurface.setRuntimeLicenseKey(...).
 -->
 <script src="https://cdn.jsdelivr.net/npm/scichart@5/index.min.js" crossorigin="anonymous"></script>
 
@@ -127,7 +128,7 @@
 
   <div class="spacer"></div>
 
-  <span class="hint">Hover to inspect · scroll to zoom · double-click to reset</span>
+  <span class="hint">Rolling 60&thinsp;s window · pause to zoom &amp; inspect</span>
 
   <button class="ctrl" id="pause-btn">⏸ Pause</button>
   <label class="toggle"><input type="checkbox" id="force-demo"> Force demo data</label>
@@ -180,48 +181,48 @@ const {
   SciChartSurface, NumericAxis, FastLineRenderableSeries, XyDataSeries,
   NumberRange, EAutoRange, EAxisAlignment, SciChartJsNavyTheme,
   LegendModifier, RolloverModifier, MouseWheelZoomModifier, ZoomExtentsModifier,
-  Point, translateFromSeriesViewRectToCanvas,
+  Point,
 } = SciChart;
 
 // --- RolloverModifier that "auto-hovers" the live edge ---------------------
 // The value popups are the head-turning bit, but SciChart only draws them on a
-// real mouse hover. This subclass injects a synthetic hover at a pinned X (the
-// latest sample) on every render, so the tooltips sit at the right-hand edge and
-// track the live values with no cursor. When the real mouse IS over the chart we
-// stand down and let normal hover take over — see modifierMouseMove/Leave.
+// real mouse hover. Internally RolloverModifier.update() (called by the base
+// onParentSurfaceRendered every frame) draws ONLY when two fields are set: a
+// `mousePoint` (canvas space) AND `mousePosition === "SeriesArea"` — otherwise it
+// hides the line + tooltips and returns. So each render we set both, aiming at the
+// far-right of the plot (the latest sample), and the popups park on the right edge
+// tracking live values with no cursor. A real cursor takes over while it's over
+// the chart (modifierMouseMove); we re-pin once it leaves (modifierMouseLeave).
+const SERIES_AREA =
+  (SciChart.EMousePosition && SciChart.EMousePosition.SeriesArea) || 'SeriesArea';
+
 class PinnedRollover extends RolloverModifier {
   constructor(options) {
     super(options);
-    this.pinnedX = null;
-    this.hovering = false;
+    this.pinned = true;
   }
-  setPinnedX(x) { this.pinnedX = x; }
-
-  modifierMouseMove(args) { this.hovering = true; super.modifierMouseMove(args); }
-  modifierMouseLeave(args) { this.hovering = false; super.modifierMouseLeave(args); }
+  modifierMouseMove(args) { this.pinned = false; super.modifierMouseMove(args); }
+  modifierMouseLeave(args) { super.modifierMouseLeave(args); this.pinned = true; }
 
   onParentSurfaceRendered() {
-    const surface = this.parentSurface;
-    if (!this.hovering && this.pinnedX != null && surface && surface.seriesViewRect) {
-      const xAxis = surface.xAxes.getById(this.xAxisId);
-      if (xAxis) {
-        const xCoord = xAxis.getCurrentCoordinateCalculator().getCoordinate(this.pinnedX);
-        const rect = surface.seriesViewRect;
-        const mousePoint =
-          typeof translateFromSeriesViewRectToCanvas === 'function'
-            ? translateFromSeriesViewRectToCanvas(new Point(xCoord, 0), rect)
-            : new Point((rect.x != null ? rect.x : rect.left) + xCoord, (rect.y != null ? rect.y : rect.top) + 1);
-        // Bypass our own override so this synthetic move doesn't flip `hovering`.
-        super.modifierMouseMove({ mousePoint });
-      }
+    const r = this.parentSurface && this.parentSurface.seriesViewRect;
+    if (this.pinned && r && r.width > 0) {
+      this.mousePoint = new Point(r.right - 2, r.y + r.height / 2);
+      this.mousePosition = SERIES_AREA;
     }
     super.onParentSurfaceRendered();
   }
 }
 
-// FIFO capacity per series. At ~60 Hz this is a rolling ~33 s window that
-// scrolls as new points push old ones out — no full redraw, no array growth.
-const FIFO = 2000;
+// Fixed 60-second time window. The x-axis maps by timestamp (seconds since page
+// load), and every frame we pin its visibleRange to exactly [now-60s, now] off the
+// wall clock. Consequences: each pixel is always the same time slice (constant
+// ms/pixel) regardless of sample rate; the trace scrolls left at a constant rate;
+// and if data stalls you get a growing gap on the right rather than a stretched line.
+const WINDOW_S = 60;
+// FIFO only bounds memory — the visible 60 s is enforced by visibleRange. Sized to
+// comfortably hold > 1 minute even at high sample rates (100 Hz here).
+const FIFO = WINDOW_S * 100;
 
 const theme = new SciChartJsNavyTheme();
 theme.sciChartBackground = '#12121f';
@@ -232,7 +233,7 @@ const t0 = now();
 
 function makeYAxis(wasm, s) {
   return new NumericAxis(wasm, {
-    axisId: s.axisId,
+    id: s.axisId,
     axisAlignment: s.align,
     autoRange: s.range ? EAutoRange.Never : EAutoRange.Always,
     visibleRange: s.range ? new NumberRange(s.range[0], s.range[1]) : undefined,
@@ -248,11 +249,11 @@ async function buildChart(divId, yAxes, series) {
   const { sciChartSurface, wasmContext } = await SciChartSurface.create(divId, { theme });
 
   const xAxis = new NumericAxis(wasmContext, {
-    autoRange: EAutoRange.Always,
+    autoRange: EAutoRange.Never,                  // visibleRange is driven manually
+    visibleRange: new NumberRange(-WINDOW_S, 0),
     drawLabels: false,
     drawMajorTickLines: false,
     drawMinorGridLines: false,
-    growBy: new NumberRange(0, 0),
   });
   sciChartSurface.xAxes.add(xAxis);
   yAxes.forEach((ys) => sciChartSurface.yAxes.add(makeYAxis(wasmContext, ys)));
@@ -300,11 +301,6 @@ function onFrame(d) {
   C.tt.ds.rl.append(t, fin(d.tyreTempRL));
   C.tt.ds.rr.append(t, fin(d.tyreTempRR));
   sampleCount++;
-
-  // Park the value popups on the live edge so they're always on screen.
-  C.sr.rollover.setPinnedX(t);
-  C.in.rollover.setPinnedX(t);
-  C.tt.rollover.setPinnedX(t);
 }
 
 // --- Synthetic telemetry: a believable lap-like oscillation so the preview is
@@ -345,9 +341,9 @@ forceChk.onchange = () => { forceDemo = forceChk.checked; };
 
 function setPaused(p) {
   paused = p;
-  // Frozen → let the user pan/zoom freely; live → resume auto-scroll.
-  const mode = p ? EAutoRange.Never : EAutoRange.Always;
-  if (C) Object.values(C).forEach((c) => { c.xAxis.autoRange = mode; });
+  // Live → the loop keeps snapping the window to the last 60 s (a locked scroll).
+  // Paused → we stop touching visibleRange, freeing scroll-zoom + hover on the
+  // frozen trace.
   pauseBtn.textContent = p ? '▶ Resume' : '⏸ Pause';
   pauseBtn.classList.toggle('active', p);
 }
@@ -366,6 +362,16 @@ function loop() {
   const liveRecent = tn - lastLive < 2500;
   const usingLive = liveRecent && !forceDemo;
   if (!paused && !usingLive) onFrame(demoFrame((tn - t0) / 1000));
+
+  // Slide the fixed 60 s window with wall-clock time. Same NumberRange width every
+  // frame ⇒ constant ms/pixel; right edge = now ⇒ a stall leaves a gap, not a stretch.
+  if (!paused && C) {
+    const right = (tn - t0) / 1000;
+    const win = new NumberRange(right - WINDOW_S, right);
+    C.sr.xAxis.visibleRange = win;
+    C.in.xAxis.visibleRange = win;
+    C.tt.xAxis.visibleRange = win;
+  }
 
   if (tn - hzT > 500) {
     const hz = Math.round(((sampleCount - hzCount) * 1000) / (tn - hzT));

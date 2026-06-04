@@ -29,10 +29,14 @@ logger = logging.getLogger(__name__)
 clients: set[WebSocket] = set()
 loop: asyncio.AbstractEventLoop | None = None
 kafka_thread: threading.Thread | None = None
+config_thread: threading.Thread | None = None
 
 # Consumer health, surfaced to the UI and /health. One of:
 # "starting" | "connecting" | "connected" | "reconnecting".
 consumer_state: dict[str, str | None] = {"status": "starting", "detail": None}
+
+# Current driver name, resolved from ac-telemetry-config events via the DCM.
+current_driver: dict[str, str | None] = {"name": None}
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -56,6 +60,18 @@ def set_consumer_status(status: str, detail: str | None = None):
     if loop is None or not clients:
         return
     msg = json.dumps({"type": "status", "status": status, "detail": detail})
+    asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
+
+
+def set_current_driver(name: str | None):
+    """Update the current driver and push it to connected browsers."""
+    if not name or name == current_driver["name"]:
+        return
+    current_driver["name"] = name
+    logger.info("Current driver: %s", name)
+    if loop is None or not clients:
+        return
+    msg = json.dumps({"type": "driver", "name": name})
     asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
 
 
@@ -126,12 +142,96 @@ def run_kafka():
         backoff = min(backoff * 2, max_backoff)
 
 
+def _fetch_config_driver(config_id, content_url, version):
+    """GET the DCM config content and return its `driver`. Prefers a configured
+    CONFIG_MANAGER_URL base; otherwise uses the contentUrl carried in the event.
+    Auth is the injected Quix__Sdk__Token (same as session-config-bridge)."""
+    base = os.environ.get("CONFIG_MANAGER_URL", "").rstrip("/")
+    if base and config_id and version is not None:
+        url = f"{base}/api/v1/configurations/{config_id}/versions/{version}/content"
+    else:
+        url = content_url
+    if not url:
+        return None
+    token = os.environ.get("Quix__Sdk__Token", "")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        r = httpx.get(url, headers=headers, timeout=10, verify=_datalake_verify())
+        r.raise_for_status()
+        return r.json().get("driver")
+    except Exception:
+        logger.exception("Driver lookup failed (config=%s v=%s)", config_id, version)
+        return None
+
+
+def _handle_config_event(data: dict):
+    """Resolve + broadcast the driver from an ac-telemetry-config event."""
+    meta = data.get("metadata") or {}
+    if meta.get("type") != "experiment" or data.get("event") == "deleted":
+        return
+    driver = _fetch_config_driver(data.get("id"), data.get("contentUrl"), meta.get("version"))
+    set_current_driver(driver)
+
+
+def run_config_consumer():
+    """Consume ac-telemetry-config; on each experiment config event resolve the
+    current driver from the DCM and broadcast it. Reads from earliest with
+    auto-commit off, so the current driver is recovered on every startup
+    (latest event wins). Reconnect loop mirrors run_kafka.
+    """
+    from quixstreams import Application as QuixApp
+
+    backoff = 1.0
+    max_backoff = 30.0
+
+    while True:
+        consumer = None
+        try:
+            qx = QuixApp(
+                consumer_group="telemetry-dashboard-config",
+                auto_offset_reset="earliest",
+                consumer_extra_config={"enable.auto.commit": False},
+            )
+            topic_name = os.environ.get("config_input", "ac-telemetry-config")
+            topic = qx.topic(topic_name)
+            consumer = qx.get_consumer()
+            consumer.subscribe([topic.name])
+            logger.info("Config consumer on '%s' (real: '%s')", topic_name, topic.name)
+            backoff = 1.0
+
+            while True:
+                msg = consumer.poll(1.0)
+                if msg is None:
+                    continue
+                if msg.error():
+                    logger.error("Config consumer error: %s", msg.error())
+                    continue
+                try:
+                    _handle_config_event(json.loads(msg.value()))
+                except Exception:
+                    logger.exception("Failed handling config event")
+
+        except Exception:
+            logger.exception("Config consumer failed — retrying in %.0fs", backoff)
+        finally:
+            if consumer is not None:
+                try:
+                    consumer.close()
+                except Exception:
+                    pass
+
+        time.sleep(backoff)
+        backoff = min(backoff * 2, max_backoff)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global loop, kafka_thread
+    global loop, kafka_thread, config_thread
     loop = asyncio.get_event_loop()
     kafka_thread = threading.Thread(target=run_kafka, daemon=True)
     kafka_thread.start()
+    config_thread = threading.Thread(target=run_config_consumer, daemon=True)
+    config_thread.start()
     logger.info("Dashboard started — open http://localhost:8000")
     yield
     logger.info("Shutting down dashboard")
@@ -261,6 +361,8 @@ async def ws_endpoint(websocket: WebSocket):
     await websocket.send_text(
         json.dumps({"type": "status", "status": consumer_state["status"], "detail": consumer_state["detail"]})
     )
+    if current_driver["name"]:
+        await websocket.send_text(json.dumps({"type": "driver", "name": current_driver["name"]}))
     try:
         while True:
             await websocket.receive_text()

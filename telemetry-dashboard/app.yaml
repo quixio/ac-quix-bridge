@@ -6,6 +6,16 @@ variables:
     description: Kafka topic to consume telemetry from
     defaultValue: ac-telemetry-raw
     required: true
+  - name: config_input
+    inputType: InputTopic
+    description: Config topic to resolve the current driver from (DCM change events)
+    defaultValue: ac-telemetry-config
+    required: true
+  - name: CONFIG_MANAGER_URL
+    inputType: FreeText
+    description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
+    defaultValue: ""
+    required: false
   - name: LEADERBOARD_SQL
     inputType: FreeText
     multiline: true

@@ -189,6 +189,8 @@ async def leaderboard():
 async def ws(websocket: WebSocket):
     await websocket.accept()
     await websocket.send_text(json.dumps({"type": "status", "status": "connected", "detail": "preview"}))
+    # Simulate a driver resolved from ac-telemetry-config (override via PREVIEW_DRIVER).
+    await websocket.send_text(json.dumps({"type": "driver", "name": os.environ.get("PREVIEW_DRIVER", "steve")}))
     sim = Sim()
     try:
         while True:
