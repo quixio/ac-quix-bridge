@@ -17,6 +17,12 @@ variables:
     description: Server-side cache TTL for the leaderboard query (seconds)
     defaultValue: "15"
     required: false
+  - name: DATALAKE_API_URL
+    inputType: FreeText
+    multiline: true
+    description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Defaults to all-time fastest lap per driver from ac_telemetry.
+    defaultValue: "https://quixlake-api-demo-quixlake-prod.edge.byox.demo"
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py
