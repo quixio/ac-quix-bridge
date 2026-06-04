@@ -17,6 +17,7 @@ import logging
 from quixstreams import Application
 from quixstreams.dataframe.joins.lookups import QuixConfigurationService
 from quixstreams.sinks.core.quix_ts_datalake_sink import QuixTSDataLakeSink
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -171,4 +172,8 @@ logger.info(f"  Storage path: {storage_path}/{table_name}")
 logger.info(f"  Partitioning: {hive_columns if hive_columns else 'none'}")
 
 if __name__ == "__main__":
-    app.run()
+    with app.get_producer() as producer:
+        # Assign to module-level reference so _on_stream_timeout (called from
+        # a background StreamTimeoutTracker thread) can use it safely.
+        _event_producer = producer
+        app.run()
