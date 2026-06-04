@@ -188,6 +188,14 @@ deployments:
         inputType: FreeText
         description: How many files can be written in parallel to storage at once (based on partitioning + batch size)
         value: 10
+      - name: STREAM_TIMEOUT_MS
+        inputType: FreeText
+        description: Per-key silence threshold in milliseconds. When a Kafka message key has not published for this duration, a warning is logged (sensor drop-out detection). Leave empty to disable.
+        value: 10000
+      - name: TEST_COMPLETED_TOPIC
+        inputType: OutputTopic
+        description: Topic to publish test-completed events when a stream key goes silent
+        value: test-completed
     blobStorage:
       bind: true
   - name: Test Manager - Backend
