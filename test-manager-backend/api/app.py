@@ -5,24 +5,20 @@ import socket
 from collections.abc import Sequence
 from typing import Any, AsyncGenerator
 
-import secrets
-
 import httpx
-from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from . import mongo
-from shared.post_race_ai.runner import BatchAnalysisAI
-from .routes import mcp as mcp_router
-from .routes.analyses import router as analyses_router
+from . import live_stream, live_telemetry, mongo
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
 from .routes.integrations import router as integrations_router
 from .routes.leaderboard import router as leaderboard_router
+from .routes.leaderboard_dropdowns import router as leaderboard_dropdowns_router
+from .routes.leaderboard_stream import router as leaderboard_stream_router
 from .routes.logbook import router as logbook_router
 from .routes.portal import router as portal_router
 from .routes.tests import router as tests_router
@@ -50,37 +46,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("✓ Using local MongoDB and Config API")
         logger.info("✓ Using mock authentication (all requests allowed)")
         logger.info(
-            "✓ API authentication: %s",
-            "DISABLED" if not settings.api_auth_active else "ENABLED",
+            f"✓ API authentication: {'DISABLED' if not settings.api_auth_active else 'ENABLED'}"
         )
-        logger.info("✓ Config API: %s", settings.config_api_url)
+        logger.info(f"✓ Config API: {settings.config_api_url}")
         logger.info("=" * 60)
     else:
         logger.info("=" * 60)
         logger.info("☁️  STARTING IN PRODUCTION MODE (Quix Cloud)")
         logger.info("=" * 60)
-        logger.info("✓ Workspace ID: %s", settings.workspace_id)
+        logger.info(f"✓ Workspace ID: {settings.workspace_id}")
         logger.info(
-            "✓ API authentication: %s",
-            "ENABLED" if settings.api_auth_active else "DISABLED",
+            f"✓ API authentication: {'ENABLED' if settings.api_auth_active else 'DISABLED'}"
         )
-        logger.info("✓ Config API: %s", settings.config_api_url)
+        logger.info(f"✓ Config API: {settings.config_api_url}")
         logger.info("=" * 60)
+
+    # Confirm which lake table the leaderboard SQL builders will hit.
+    # Default is `ac_telemetry`; operators can flip via `LAKE_TABLE`.
+    logger.info("✓ Lake table (LAKE_TABLE): %s", settings.lake_table)
 
     _probe_config_api(settings.config_api_url, settings.sdk_token)
 
     mongo.connect(settings.mongo)
-    mcp = mcp_router.install(app, mongo=mongo.get_mongo())
 
-    # Mark stuck non-terminal analyses as orphaned on every restart.
-    BatchAnalysisAI(mongo.get_mongo()).cleanup_orphans()
+    # Start the WebSocket broadcaster BEFORE the Kafka consumer so the
+    # consumer thread sees a live event loop on its very first
+    # `publish_snapshot` call (no dropped first-tick).
+    await live_stream.start_broadcaster()
 
-    # FastMCP's streamable_http transport needs its session manager active
-    # for the lifetime of the app. Without this, requests hit
-    # "Task group is not initialized. Make sure to use run()." (mcp>=1.27).
-    async with mcp.session_manager.run():
-        yield
+    # Ghost-lap live consumer. No-op in LOCAL_DEV_MODE or when
+    # LIVE_TELEMETRY_ENABLED!=true. Failure inside `start()` is contained
+    # (the consumer thread logs+exits) so the API stays up.
+    live_telemetry.start()
 
+    yield
+    live_telemetry.stop()
+    await live_stream.stop_broadcaster()
     mongo.disconnect()
 
 
@@ -96,12 +97,17 @@ def _probe_config_api(url: str, sdk_token: str) -> None:
 
     try:
         with httpx.Client() as client:
-            client.get(
+            resp = client.get(
                 f"{url}/api/v1/configurations",
                 headers={"Authorization": f"Bearer {sdk_token}"} if sdk_token else {},
                 timeout=5.0,
             )
-        # httpx auto-logs the request + status; no bespoke success log needed.
+        logger.info(
+            "[probe] GET %s/api/v1/configurations → %d %s",
+            url,
+            resp.status_code,
+            resp.text[:200],
+        )
     except Exception as e:
         logger.error("[probe] /api/v1/configurations FAILED — %s", e)
 
@@ -226,19 +232,18 @@ def create_app() -> FastAPI:
     application.include_router(
         leaderboard_router, tags=["leaderboard"], prefix="/api/v1"
     )
-    application.include_router(analyses_router, tags=["analyses"], prefix="/api/v1")
+    application.include_router(
+        leaderboard_dropdowns_router, tags=["leaderboard"], prefix="/api/v1"
+    )
+    application.include_router(
+        leaderboard_stream_router, tags=["leaderboard"], prefix="/api/v1"
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-    )
-    # Added last so it wraps outermost: every other middleware + handler sees
-    # the correlation_id contextvar set, and our log filter picks it up.
-    application.add_middleware(
-        CorrelationIdMiddleware,
-        generator=lambda: secrets.token_hex(6),
     )
 
     @application.get("/health")

@@ -1,7 +1,7 @@
 """Central config: env vars, paths, rendering constants.
 
 Loaded by every sibling module; tests that need to simulate missing env vars
-should `monkeypatch.setattr(config, "QUIXLAKE_URL", None)` etc. — consumers
+should `monkeypatch.setattr(config, "LAKEHOUSE_QUERY_URL", None)` etc. — consumers
 read attributes off this module rather than capturing values at import time.
 """
 
@@ -23,12 +23,12 @@ CHANNELS_FILE = BASE_DIR / "channels.json"
 DEFAULT_TRACK_CSV = "tracks/ks_nurburgring/layout_sprint_a.csv"
 
 TABLE_NAME = os.getenv("TABLE_NAME", "ac_telemetry")
-# Prefer byox-injected Quix__Lakehouse__* vars; fall back to legacy
-# QUIXLAKE_URL / QUIX_LAKE_TOKEN / CATALOG_URL / CATALOG_TOKEN for local dev.
-QUIXLAKE_URL = os.getenv("Quix__Lakehouse__Query__Url") or os.getenv("QUIXLAKE_URL")  # noqa: SIM112
-QUIX_LAKE_TOKEN = os.getenv("Quix__Lakehouse__Query__AuthToken") or os.getenv("QUIX_LAKE_TOKEN")  # noqa: SIM112
-CATALOG_URL = os.getenv("Quix__Lakehouse__Catalog__Url") or os.getenv("CATALOG_URL")  # noqa: SIM112
-CATALOG_TOKEN = os.getenv("Quix__Lakehouse__Catalog__AuthToken") or os.getenv("CATALOG_TOKEN")  # noqa: SIM112
+LAKEHOUSE_QUERY_URL    = os.getenv("Quix__Lakehouse__Query__Url")        # noqa: SIM112
+LAKEHOUSE_QUERY_TOKEN  = os.getenv("Quix__Lakehouse__Query__AuthToken")  # noqa: SIM112
+LAKEHOUSE_CATALOG_URL  = os.getenv("Quix__Lakehouse__Catalog__Url")      # noqa: SIM112
+LAKEHOUSE_CATALOG_TOKEN = os.getenv("Quix__Lakehouse__Catalog__AuthToken")  # noqa: SIM112
+# BLOB_STORAGE_CONNECTION_JSON = os.getenv("Quix__BlobStorage__Connection__Json")
+# Not consumed by this service today — present for future use.
 BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
 
 # Quix Portal API base. `Quix__Portal__Api` is the canonical name — Quix Cloud
@@ -42,7 +42,7 @@ WORKSPACE_ID = os.getenv("Quix__Workspace__Id", "")  # noqa: SIM112
 API_AUTH_ACTIVE = os.getenv("API_AUTH_ACTIVE", "true").lower() == "true"
 LOCAL_DEV_MODE = os.getenv("LOCAL_DEV_MODE", "").lower() == "true"
 
-# QuixLake Querier agent (system prompt + KBs + MCP tools live on it).
+# Lakehouse Querier agent (system prompt + KBs + MCP tools live on it).
 # Override via env if you need to point at a fork of the agent.
 _DEFAULT_AGENT_ID = "d578e2f5-c2b7-461a-90d2-70dfac450fb0"
 AGENT_CONFIGURATION_ID = os.getenv("QUIX_AI_AGENT_ID", _DEFAULT_AGENT_ID)
@@ -65,10 +65,10 @@ def validate_env() -> None:
     still surface clean errors to the caller.
     """
     required = {
-        "QUIXLAKE_URL": QUIXLAKE_URL,
-        "QUIX_LAKE_TOKEN": QUIX_LAKE_TOKEN,
-        "CATALOG_URL": CATALOG_URL,
-        "CATALOG_TOKEN": CATALOG_TOKEN,
+        "Quix__Lakehouse__Query__Url": LAKEHOUSE_QUERY_URL,
+        "Quix__Lakehouse__Query__AuthToken": LAKEHOUSE_QUERY_TOKEN,
+        "Quix__Lakehouse__Catalog__Url": LAKEHOUSE_CATALOG_URL,
+        "Quix__Lakehouse__Catalog__AuthToken": LAKEHOUSE_CATALOG_TOKEN,
         "Quix__Portal__Api": PORTAL,
         "QUIX_TOKEN": QUIX_TOKEN,
     }
@@ -85,7 +85,7 @@ def validate_env() -> None:
 
     if AGENT_CONFIGURATION_ID == _DEFAULT_AGENT_ID and not os.getenv("QUIX_AI_AGENT_ID"):
         logger.warning(
-            "QUIX_AI_AGENT_ID not set — using default QuixLake Querier agent %s",
+            "QUIX_AI_AGENT_ID not set — using default Lakehouse Querier agent %s",
             _DEFAULT_AGENT_ID,
         )
 

@@ -1,6 +1,6 @@
 """POST /api/chat — JSONL stream forwarding Quix AI agent output.
 
-The Quix AI agent (QuixLake Querier) returns three flavours of reply:
+The Quix AI agent (Lakehouse Querier) returns three flavours of reply:
 
     Mode 1 (Viz plan): prose + ```json {type: "plot" | "clarify"} ```
     Mode 2 (Analysis): prose only, may include MCP tool_call_start frames
@@ -99,7 +99,7 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
     )
 
     # Upfront guard — catch missing config before httpx rejects an empty
-    # Bearer header with a cryptic message. Same shape as main.py's QuixLake
+    # Bearer header with a cryptic message. Same shape as main.py's Lakehouse
     # guard but emitted as a JSONL error event instead of a 500.
     missing = [
         name

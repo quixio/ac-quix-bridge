@@ -1,10 +1,10 @@
 """Test fixtures for telemetry-comparison.
 
-We do NOT hit a real QuixLake. Tests use `stub_lake` to swap `main._lake_http`
+We do NOT hit a real Lakehouse. Tests use `stub_lake` to swap `main._lake_http`
 with an httpx.AsyncClient backed by a MockTransport that returns a canned
-CSV body for every POST to /query. That keeps tests fast and deterministic.
+CSV body for every POST to /api/query. That keeps tests fast and deterministic.
 
-`config_env` ensures `config.QUIXLAKE_URL` / `QUIX_LAKE_TOKEN` look set so the
+`config_env` ensures `config.LAKEHOUSE_QUERY_URL` / `LAKEHOUSE_QUERY_TOKEN` look set so the
 env-var guard inside `_lake_query` doesn't short-circuit before the mock fires.
 """
 
@@ -45,10 +45,10 @@ def client() -> TestClient:
 
 @pytest.fixture
 def config_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pretend QUIXLAKE_URL + QUIX_LAKE_TOKEN are configured. The values
+    """Pretend LAKEHOUSE_QUERY_URL + LAKEHOUSE_QUERY_TOKEN are configured. The values
     don't matter — the mock transport intercepts the outbound request."""
-    monkeypatch.setattr(config, "QUIXLAKE_URL", "https://test-lake.example.com")
-    monkeypatch.setattr(config, "QUIX_LAKE_TOKEN", "test-token")
+    monkeypatch.setattr(config, "LAKEHOUSE_QUERY_URL", "https://test-lake.example.com")
+    monkeypatch.setattr(config, "LAKEHOUSE_QUERY_TOKEN", "test-token")
     monkeypatch.setattr(config, "TABLE_NAME", "ac_telemetry")
 
 
@@ -72,7 +72,7 @@ class _LakeStub:
 
 @pytest.fixture
 def stub_lake(monkeypatch: pytest.MonkeyPatch, config_env: None) -> _LakeStub:
-    """Patch main._lake_http so any POST to /query returns the queued CSV."""
+    """Patch main._lake_http so any POST to /api/query returns the queued CSV."""
     stub = _LakeStub()
 
     def transport(request: httpx.Request) -> httpx.Response:

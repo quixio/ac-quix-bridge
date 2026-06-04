@@ -55,8 +55,8 @@ def stub_catalog(monkeypatch: pytest.MonkeyPatch):
     def transport(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(state["status"], text=state["body"])
 
-    monkeypatch.setattr(config, "CATALOG_URL", "https://catalog.example.com")
-    monkeypatch.setattr(config, "CATALOG_TOKEN", "test-token")
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_URL", "https://catalog.example.com")
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_TOKEN", "test-token")
     monkeypatch.setattr(config, "TABLE_NAME", "ac_telemetry")
     monkeypatch.setattr(
         partition_walker,
@@ -78,12 +78,12 @@ def stub_catalog(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def _require_catalog_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Set CATALOG_URL + CATALOG_TOKEN so the env-var guard inside
+    """Set LAKEHOUSE_CATALOG_URL + LAKEHOUSE_CATALOG_TOKEN so the env-var guard inside
     `_list_session_combinations` doesn't short-circuit before the mock
     transport fires. Used by error-path tests that only mock the transport.
     """
-    monkeypatch.setattr(config, "CATALOG_URL", "https://catalog.example.com")
-    monkeypatch.setattr(config, "CATALOG_TOKEN", "test-token")
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_URL", "https://catalog.example.com")
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_TOKEN", "test-token")
 
 
 def _full_entry(values: dict[str, str], lap: int | None = None) -> dict:
@@ -336,37 +336,37 @@ def test_catalog_403_surfaces_as_502_with_forbidden_detail(
 def test_missing_catalog_url_surfaces_clear_error(
     monkeypatch: pytest.MonkeyPatch, client, caplog
 ) -> None:
-    """If CATALOG_URL isn't configured, the error message must name the
+    """If LAKEHOUSE_CATALOG_URL isn't configured, the error message must name the
     missing var (not leak a confusing httpx.InvalidURL stack trace)."""
-    monkeypatch.setattr(config, "CATALOG_URL", None)
-    monkeypatch.setattr(config, "CATALOG_TOKEN", "test-token")
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_URL", None)
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_TOKEN", "test-token")
     with caplog.at_level(logging.ERROR, logger="main"):
         response = client.get("/api/sessions")
     assert response.status_code == 500
-    assert "CATALOG_URL" in response.json()["detail"]
-    assert "CATALOG_URL" in caplog.text
+    assert "LAKEHOUSE_CATALOG_URL" in response.json()["detail"]
+    assert "LAKEHOUSE_CATALOG_URL" in caplog.text
 
 
 def test_missing_catalog_token_surfaces_clear_error(
     monkeypatch: pytest.MonkeyPatch, client
 ) -> None:
-    monkeypatch.setattr(config, "CATALOG_URL", "https://catalog.example.com")
-    monkeypatch.setattr(config, "CATALOG_TOKEN", None)
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_URL", "https://catalog.example.com")
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_TOKEN", None)
     response = client.get("/api/sessions")
     assert response.status_code == 500
-    assert "CATALOG_TOKEN" in response.json()["detail"]
+    assert "LAKEHOUSE_CATALOG_TOKEN" in response.json()["detail"]
 
 
 def test_both_catalog_vars_missing_names_both_in_error(
     monkeypatch: pytest.MonkeyPatch, client
 ) -> None:
-    monkeypatch.setattr(config, "CATALOG_URL", None)
-    monkeypatch.setattr(config, "CATALOG_TOKEN", None)
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_URL", None)
+    monkeypatch.setattr(config, "LAKEHOUSE_CATALOG_TOKEN", None)
     response = client.get("/api/sessions")
     assert response.status_code == 500
     detail = response.json()["detail"]
-    assert "CATALOG_URL" in detail
-    assert "CATALOG_TOKEN" in detail
+    assert "LAKEHOUSE_CATALOG_URL" in detail
+    assert "LAKEHOUSE_CATALOG_TOKEN" in detail
 
 
 def test_catalog_timeout_surfaces_as_504(

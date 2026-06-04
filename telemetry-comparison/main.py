@@ -65,7 +65,7 @@ with open(config.CHANNELS_FILE) as f:
 CHANNELS = {k: v for k, v in _raw.items() if not k.startswith("_")}
 
 
-# Shared async client for QuixLake /query calls. Same rationale as
+# Shared async client for Lakehouse Query API calls. Same rationale as
 # partition_walker._http_client: amortise TLS + connection pool across all
 # requests, and use an async transport so concurrent /api/telemetry calls
 # (the Plot-button fan-out) actually overlap on the lake instead of
@@ -82,18 +82,18 @@ def sanitize_df(df):
 
 
 async def _lake_query(sql: str) -> pd.DataFrame:
-    """POST a SQL string to QuixLake's /query endpoint, parse the CSV reply.
+    """POST a SQL string to the Lakehouse Query API, parse the CSV reply.
 
     Raises HTTPException(502) on non-200 lake responses. The caller MUST
     catch HTTPException explicitly and re-raise (see /api/telemetry) — the
     generic `except Exception` would otherwise reframe it as a 500.
     """
-    if not config.QUIXLAKE_URL or not config.QUIX_LAKE_TOKEN:
+    if not config.LAKEHOUSE_QUERY_URL or not config.LAKEHOUSE_QUERY_TOKEN:
         missing = [
             name
             for name, val in (
-                ("QUIXLAKE_URL", config.QUIXLAKE_URL),
-                ("QUIX_LAKE_TOKEN", config.QUIX_LAKE_TOKEN),
+                ("LAKEHOUSE_QUERY_URL", config.LAKEHOUSE_QUERY_URL),
+                ("LAKEHOUSE_QUERY_TOKEN", config.LAKEHOUSE_QUERY_TOKEN),
             )
             if not val
         ]
@@ -102,10 +102,10 @@ async def _lake_query(sql: str) -> pd.DataFrame:
             "Set them in .env or the environment before starting the service."
         )
     r = await _lake_http.post(
-        f"{config.QUIXLAKE_URL}/query",
+        f"{config.LAKEHOUSE_QUERY_URL}/query",
         content=sql,
         headers={
-            "Authorization": f"Bearer {config.QUIX_LAKE_TOKEN}",
+            "Authorization": f"Bearer {config.LAKEHOUSE_QUERY_TOKEN}",
             "Content-Type": "text/plain",
         },
     )
