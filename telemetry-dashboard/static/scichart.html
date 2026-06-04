@@ -68,6 +68,8 @@
   .title small { color: var(--dim); font-weight: 600; font-size: 1.4vh; }
   .spacer { flex: 1; }
   .driver { font-size: 2.8vh; font-weight: 800; line-height: 1; white-space: nowrap; text-transform: capitalize; }
+  .toggle { display: flex; align-items: center; gap: .5vw; font-size: 1.4vh; color: var(--dim); cursor: pointer; user-select: none; white-space: nowrap; }
+  .toggle input { width: 1.5vh; height: 1.5vh; accent-color: var(--cyan); cursor: pointer; }
 
   .src {
     display: flex; align-items: center; gap: .6vw;
@@ -107,6 +109,19 @@
   .card-title b { color: var(--text); }
   .chart { flex: 1; width: 100%; min-height: 0; position: relative; }
 
+  /* ---------- G-Force meter (friction-circle / g-ball) ---------- */
+  .gmeter { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: .4vh 0; }
+  .gmeter svg { height: 100%; width: auto; max-width: 100%; display: block; }
+  .g-ring { fill: none; stroke: var(--border); stroke-width: 1; }
+  .g-ring.outer { stroke: #33335a; }
+  .g-cross { stroke: var(--border); stroke-width: 1; }
+  .g-axis-label { fill: var(--dim); font-size: 8px; font-weight: 700; letter-spacing: .5px; }
+  .g-ring-label { fill: var(--dim); font-size: 8px; font-weight: 600; }
+  .g-vector { stroke: var(--cyan); stroke-width: 2; opacity: .45; }
+  .g-dot { filter: drop-shadow(0 0 4px rgba(0,212,255,.65)); transition: fill .1s; }
+  .g-readout { flex-shrink: 0; display: flex; justify-content: space-around; font-size: 1.3vh; font-weight: 800; color: var(--dim); letter-spacing: .08vw; padding-top: .3vh; }
+  .g-readout b { color: var(--text); font-variant-numeric: tabular-nums; }
+
   .hint { font-size: 1.2vh; color: var(--dim); }
   .hint b { color: var(--cyan); }
 
@@ -123,8 +138,8 @@
     width: 22vw; flex-shrink: 0;
     display: flex; flex-direction: column; gap: 1vh 1vw; min-height: 0;
   }
-  .sidebar .lb-card { flex: 3; }     /* leaderboard — top 3/4 of the column */
-  .sidebar .wheel-card { flex: 1; }  /* steering wheel — bottom 1/4 */
+  .sidebar .lb-card { flex: 3; }        /* leaderboard — top of the column */
+  .sidebar .wheel-card { flex: 1.15; }  /* steering wheel — bottom (~10% taller than a 3:1 split) */
 
   /* ---------- Steering wheel (ported from index.html) ---------- */
   .wheel-card { align-items: center; justify-content: space-between; }
@@ -176,6 +191,8 @@
 
   <span class="hint">Rolling 60&thinsp;s window</span>
 
+  <label class="toggle"><input type="checkbox" id="pin-toggle"> Pin values</label>
+
   <div class="src" id="src">
     <span class="dot"></span><span id="src-label">starting…</span><span class="hz" id="hz"></span>
   </div>
@@ -195,7 +212,7 @@
     <div class="chart" id="chart-sr"></div>
   </div>
   <div class="card">
-    <div class="card-title">Throttle &amp; Brake <b>%</b></div>
+    <div class="card-title">Pedals &amp; Aids <b>%</b> &nbsp;·&nbsp; throttle / brake / bias · TC / ABS</div>
     <div class="chart" id="chart-in"></div>
   </div>
   <div class="card">
@@ -211,24 +228,36 @@
     <div class="chart" id="chart-bt"></div>
   </div>
   <div class="card">
-    <div class="card-title">G-Force <b>g</b> &nbsp;·&nbsp; Lateral / Longitudinal</div>
-    <div class="chart" id="chart-g"></div>
+    <div class="card-title">G-Force <b>g</b> &nbsp;·&nbsp; lateral / longitudinal</div>
+    <div class="gmeter">
+      <svg viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet">
+        <circle class="g-ring" cx="0" cy="0" r="30"></circle>
+        <circle class="g-ring" cx="0" cy="0" r="60"></circle>
+        <circle class="g-ring outer" cx="0" cy="0" r="90"></circle>
+        <line class="g-cross" x1="-90" y1="0" x2="90" y2="0"></line>
+        <line class="g-cross" x1="0" y1="-90" x2="0" y2="90"></line>
+        <text class="g-axis-label" x="0" y="-93" text-anchor="middle">ACCEL</text>
+        <text class="g-axis-label" x="0" y="99" text-anchor="middle">BRAKE</text>
+        <text class="g-ring-label" x="30" y="-3" text-anchor="middle">1</text>
+        <text class="g-ring-label" x="60" y="-3" text-anchor="middle">2</text>
+        <text class="g-ring-label" x="90" y="-3" text-anchor="middle">3</text>
+        <line id="g-vector" class="g-vector" x1="0" y1="0" x2="0" y2="0"></line>
+        <circle id="g-dot" class="g-dot" cx="0" cy="0" r="6.5" fill="#00d4ff"></circle>
+      </svg>
+    </div>
+    <div class="g-readout">
+      <span>LAT <b id="g-lat">0.0</b></span>
+      <span>G <b id="g-tot">0.0</b></span>
+      <span>LON <b id="g-lon">0.0</b></span>
+    </div>
   </div>
   <div class="card">
-    <div class="card-title">Engine Temps <b>°C</b> &nbsp;·&nbsp; Water / Exhaust</div>
+    <div class="card-title">Engine &amp; Fuel &nbsp;·&nbsp; water / exhaust <b>°C</b> · fuel <b>L</b> / est. laps</div>
     <div class="chart" id="chart-eng"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Fuel <b>L</b> &nbsp;·&nbsp; load &amp; est. laps remaining</div>
-    <div class="chart" id="chart-fuel"></div>
   </div>
   <div class="card">
     <div class="card-title">Lap Delta <b>s</b> &nbsp;·&nbsp; iDeltaLapTime (− ahead / + behind)</div>
     <div class="chart" id="chart-delta"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Brake Bias &amp; Aids <b>%</b> &nbsp;·&nbsp; bias / TC / ABS</div>
-    <div class="chart" id="chart-bias"></div>
   </div>
 </div>
 
@@ -292,6 +321,13 @@ const {
 const SERIES_AREA =
   (SciChart.EMousePosition && SciChart.EMousePosition.SeriesArea) || 'SeriesArea';
 
+// Pinned tooltips are ON by default — the value popups park on the live edge even
+// with no cursor. Optional: the "Pin values" topbar toggle (or ?pin=0 / ?pin=false)
+// turns it off, falling back to standard hover-only tooltips. Read live each frame
+// in onParentSurfaceRendered, so flipping the toggle takes effect immediately.
+const pinParam = new URLSearchParams(location.search).get('pin');
+let pinTooltips = !(pinParam === '0' || (pinParam || '').toLowerCase() === 'false');
+
 class PinnedRollover extends RolloverModifier {
   constructor(options) {
     super(options);
@@ -302,9 +338,17 @@ class PinnedRollover extends RolloverModifier {
 
   onParentSurfaceRendered() {
     const r = this.parentSurface && this.parentSurface.seriesViewRect;
-    if (this.pinned && r && r.width > 0) {
+    if (pinTooltips && this.pinned && r && r.width > 0) {
+      // Auto-park the popups on the live edge (latest sample) — no cursor needed.
       this.mousePoint = new Point(r.right - 2, r.y + r.height / 2);
       this.mousePosition = SERIES_AREA;
+    } else if (!pinTooltips && this.pinned) {
+      // Pinning off and no cursor over this chart (pinned===true): clear the parked
+      // position so the base class hides the tooltip instead of freezing it on the
+      // edge. While a real cursor IS over the chart, pinned===false and we leave the
+      // base class to manage hover tooltips normally.
+      this.mousePoint = undefined;
+      this.mousePosition = undefined;
     }
     super.onParentSurfaceRendered();
   }
@@ -517,14 +561,52 @@ function updateSidebar(d) {
   updateDriverBest(d);
 }
 
+// --- G-Force friction-circle meter ---------------------------------------
+// The dot moves out from centre: x = lateral g (accG_x), y = longitudinal g
+// (accG_y, accel pushes UP). Position is clamped to the outer 3 g ring; the dot
+// + vector are coloured by total g magnitude. SVG viewBox is -100..100, so a g
+// maps to G_PX px and the rings sit at 1/2/3 g (30/60/90).
+const G_MAX = 3;            // outer ring
+const G_PX = 30;           // px (viewBox units) per g
+const gDot = document.getElementById('g-dot');
+const gVec = document.getElementById('g-vector');
+const gLat = document.getElementById('g-lat');
+const gLon = document.getElementById('g-lon');
+const gTot = document.getElementById('g-tot');
+const gColor = (m) => (m < 1 ? '#00d4ff' : m < 2 ? '#ffaa00' : '#ff3355');
+
+function updateGMeter(d) {
+  const lat = cl(d.accG_x, -4, 4);   // crash spikes hit ±40 — clamp like the old chart did
+  const lon = cl(d.accG_y, -4, 4);
+  let x = lat * G_PX;
+  let y = -lon * G_PX;                // SVG y grows downward; accel (lon > 0) should go up
+  const r = Math.hypot(x, y), max = G_MAX * G_PX;
+  if (r > max) { const s = max / r; x *= s; y *= s; }   // keep the dot inside the outer ring
+  const mag = Math.hypot(lat, lon);
+  const col = gColor(mag);
+  gDot.setAttribute('cx', x.toFixed(1));
+  gDot.setAttribute('cy', y.toFixed(1));
+  gDot.setAttribute('fill', col);
+  gVec.setAttribute('x2', x.toFixed(1));
+  gVec.setAttribute('y2', y.toFixed(1));
+  gVec.setAttribute('stroke', col);
+  gLat.textContent = lat.toFixed(1);
+  gLon.textContent = lon.toFixed(1);
+  gTot.textContent = mag.toFixed(1);
+}
+
 function onFrame(d) {
   updateSidebar(d);          // wheel + leaderboard — independent of the chart surfaces
+  updateGMeter(d);           // friction-circle g-meter — also independent of the chart surfaces
   if (paused || !C) return;
   const t = (now() - t0) / 1000;
   C.sr.ds.speed.append(t, fin(d.speedKmh));
   C.sr.ds.rpm.append(t, fin(d.rpms));
   C.in.ds.gas.append(t, pct(d.gas));
   C.in.ds.brake.append(t, pct(d.brake));
+  C.in.ds.bias.append(t, pct(d.brakeBias));
+  C.in.ds.tc.append(t, fin(d.tc) > 0.01 ? 100 : 0);
+  C.in.ds.abs.append(t, fin(d.abs) > 0.01 ? 100 : 0);
   C.tt.ds.fl.append(t, fin(d.tyreTempFL));
   C.tt.ds.fr.append(t, fin(d.tyreTempFR));
   C.tt.ds.rl.append(t, fin(d.tyreTempRL));
@@ -538,17 +620,12 @@ function onFrame(d) {
   C.bt.ds.fr.append(t, fin(d.brakeTempFR));
   C.bt.ds.rl.append(t, fin(d.brakeTempRL));
   C.bt.ds.rr.append(t, fin(d.brakeTempRR));
-  C.g.ds.lat.append(t, cl(d.accG_x, -4, 4));        // crash spikes hit ±40 — clamp
-  C.g.ds.lon.append(t, cl(d.accG_y, -4, 4));
   C.eng.ds.water.append(t, fin(d.waterTemp));
   C.eng.ds.exh.append(t, fin(d.exhaustTemperature));
-  C.fuel.ds.fuel.append(t, fin(d.fuel));
-  C.fuel.ds.laps.append(t, fin(d.fuelEstimatedLaps));
+  C.eng.ds.fuel.append(t, fin(d.fuel));
+  C.eng.ds.laps.append(t, fin(d.fuelEstimatedLaps));
   // iDeltaLapTime: ms ahead(−)/behind(+) the reference lap; clamp out-lap sentinels.
   C.delta.ds.delta.append(t, cl((typeof d.iDeltaLapTime === 'number' ? d.iDeltaLapTime : 0) / 1000, -5, 5));
-  C.bias.ds.bias.append(t, pct(d.brakeBias));
-  C.bias.ds.tc.append(t, fin(d.tc) > 0.01 ? 100 : 0);
-  C.bias.ds.abs.append(t, fin(d.abs) > 0.01 ? 100 : 0);
   sampleCount++;
 }
 
@@ -605,6 +682,11 @@ const waitingEl = document.getElementById('waiting');
 const srcEl = document.getElementById('src');
 const srcLabel = document.getElementById('src-label');
 const hzEl = document.getElementById('hz');
+
+// "Pin values" toggle — flip the live flag the rollover modifiers read each frame.
+const pinChk = document.getElementById('pin-toggle');
+pinChk.checked = pinTooltips;
+pinChk.onchange = () => { pinTooltips = pinChk.checked; };
 
 function setSource(state) {
   // state: 'live' | 'demo' | 'waiting'
@@ -682,6 +764,9 @@ function connect() {
         [
           { key: 'gas', name: 'Throttle', color: '#00ff88', yAxisId: 'pct' },
           { key: 'brake', name: 'Brake', color: '#ff3355', yAxisId: 'pct' },
+          { key: 'bias', name: 'Brake bias', color: '#00d4ff', yAxisId: 'pct' },
+          { key: 'tc', name: 'TC', color: '#ffaa00', yAxisId: 'pct' },
+          { key: 'abs', name: 'ABS', color: '#c14bff', yAxisId: 'pct' },
         ],
       ),
       tt: await buildChart(
@@ -714,49 +799,26 @@ function connect() {
           { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'btemp' },
         ],
       ),
-      g: await buildChart(
-        'chart-g',
-        [{ axisId: 'g', align: EAxisAlignment.Left, title: 'g', range: [-3.5, 3.5] }],
-        [
-          { key: 'lat', name: 'Lateral', color: '#00d4ff', yAxisId: 'g' },
-          { key: 'lon', name: 'Longitudinal', color: '#ffaa00', yAxisId: 'g' },
-        ],
-      ),
+      // G-Force is a friction-circle meter (DOM/SVG), not a SciChart surface — see updateGMeter().
+      // Engine & Fuel — temps share a °C axis (left); fuel litres + est. laps share
+      // an "L / laps" axis (right). Four slow-moving powertrain channels in one card.
       eng: await buildChart(
         'chart-eng',
         [
-          { axisId: 'water', align: EAxisAlignment.Left, title: '°C water', color: '#00d4ff' },
-          { axisId: 'exh', align: EAxisAlignment.Right, title: '°C exh', color: '#ff3355', grow: [0.1, 0.3] },
+          { axisId: 'degC', align: EAxisAlignment.Left, title: '°C', color: '#9a9ab5' },
+          { axisId: 'fl', align: EAxisAlignment.Right, title: 'L / laps', color: '#9a9ab5', grow: [0.1, 0.3] },
         ],
         [
-          { key: 'water', name: 'Water', color: '#00d4ff', yAxisId: 'water' },
-          { key: 'exh', name: 'Exhaust', color: '#ff3355', yAxisId: 'exh' },
-        ],
-      ),
-      fuel: await buildChart(
-        'chart-fuel',
-        [
-          { axisId: 'L', align: EAxisAlignment.Left, title: 'L', color: '#00ff88' },
-          { axisId: 'laps', align: EAxisAlignment.Right, title: 'laps', color: '#ffaa00', grow: [0.1, 0.3] },
-        ],
-        [
-          { key: 'fuel', name: 'Fuel L', color: '#00ff88', yAxisId: 'L' },
-          { key: 'laps', name: 'Est. laps', color: '#ffaa00', yAxisId: 'laps' },
+          { key: 'water', name: 'Water °C', color: '#00d4ff', yAxisId: 'degC' },
+          { key: 'exh', name: 'Exhaust °C', color: '#ff3355', yAxisId: 'degC' },
+          { key: 'fuel', name: 'Fuel L', color: '#00ff88', yAxisId: 'fl' },
+          { key: 'laps', name: 'Est. laps', color: '#ffaa00', yAxisId: 'fl' },
         ],
       ),
       delta: await buildChart(
         'chart-delta',
         [{ axisId: 's', align: EAxisAlignment.Left, title: 's', range: [-5, 5] }],
         [{ key: 'delta', name: 'Δ to best (s)', color: '#c14bff', yAxisId: 's' }],
-      ),
-      bias: await buildChart(
-        'chart-bias',
-        [{ axisId: 'pct', align: EAxisAlignment.Left, title: '% / on', range: [0, 105] }],
-        [
-          { key: 'bias', name: 'Brake bias %', color: '#00d4ff', yAxisId: 'pct' },
-          { key: 'tc', name: 'TC', color: '#ffaa00', yAxisId: 'pct' },
-          { key: 'abs', name: 'ABS', color: '#ff3355', yAxisId: 'pct' },
-        ],
       ),
     };
   } catch (err) {
