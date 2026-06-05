@@ -33,7 +33,13 @@ class Settings(BaseSettings):
     api_workers: int = Field(1, description="Number of workers")
 
     api_auth_active: bool = Field(
-        True, description="Whether API authentication is active"
+        False,
+        description=(
+            "Whether API authentication is active. Default off so the "
+            "leaderboard demo works without portal-side variable wiring; "
+            "set `API_AUTH_ACTIVE=true` in the deployment env to re-enable "
+            "the validate_permissions / shared-secret gate in auth.py."
+        ),
     )
 
     # Quix settings
