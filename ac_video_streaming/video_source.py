@@ -251,7 +251,16 @@ class ACVideoSource:
         """Upload a finalized MP4 + its sidecar JSON to blob storage, then
         delete the local files. Sidecar is best-effort: a missing sidecar
         does not block the MP4 upload."""
-        if not self._blob_fs or not local_path:
+        if not local_path:
+            return
+        if not self._blob_fs:
+            # Log per-attempt so a one-time startup `Blob storage not
+            # available` warning isn't the only trace — silent skips here
+            # make it look like uploads are succeeding when they aren't.
+            logger.warning(
+                "blob_fs unavailable — skipping upload of %s (will stay local)",
+                os.path.basename(local_path),
+            )
             return
         safe_session = session_id.replace(":", "-")
         folder = f"{self._blob_prefix}/session_id={safe_session}"
@@ -345,7 +354,14 @@ class ACVideoSource:
                 # in. With `auto_commit_enable=False` + `auto_offset_reset
                 # ="earliest"`, every restart still reads from the topic
                 # head since no offset is ever committed.
-                _ws = os.environ.get("Quix__Workspace__Id", "").strip()
+                # `Quix__Workspace__Id` is the canonical source; fall back to
+                # `Quix__Broker__Username` which on this workspace happens to
+                # equal the workspace id, so the ACL-compatible prefix works
+                # without requiring the canonical var to be set.
+                _ws = (
+                    os.environ.get("Quix__Workspace__Id", "").strip()
+                    or os.environ.get("Quix__Broker__Username", "").strip()
+                )
                 _group_suffix = "ac-video-streaming-session-tracker"
                 _consumer_group = f"{_ws}-{_group_suffix}" if _ws else _group_suffix
                 mini_app = _App(
@@ -552,11 +568,15 @@ class ACVideoSource:
                     # loop isn't blocked by the S3 transfer.
                     recorder.start_lap(session_id, completed_laps + 1, *display_size)
                     upload_sid = session_id
-                    threading.Thread(
-                        target=self._upload_to_blob,
-                        args=(path, upload_sid),
-                        daemon=True,
-                    ).start()
+                    # Wrap so exceptions in the upload thread aren't
+                    # silently swallowed (daemons don't surface their
+                    # errors to the main loop).
+                    def _bg_upload(p=path, sid=upload_sid):
+                        try:
+                            self._upload_to_blob(p, sid)
+                        except Exception:  # noqa: BLE001
+                            logger.exception("Background upload failed for %s", p)
+                    threading.Thread(target=_bg_upload, daemon=True).start()
                 prev_completed_laps = completed_laps
 
             # Detect start/finish line crossing to begin recording.
@@ -603,37 +623,39 @@ class ACVideoSource:
                             curr_norm,
                         )
 
-            # Adopt telemetry session_id as soon as it arrives
-            if not session_id_confirmed and self._session_tracker is not None:
-                resolved = self._session_tracker.try_get_fresh_session_id(session_detect_ms)
-                if resolved:
+            # Continuous reconciliation — every tick, check whether the
+            # SessionTracker holds a session_id different from the one we're
+            # currently recording under, and adopt it if so. This handles
+            # both (a) the initial post-detect / pre-start-line gap where
+            # Kafka hadn't delivered yet, AND (b) mid-session session_id
+            # rotation (e.g. acc-telemetry-source detected an in-game
+            # restart and published a fresh id while we were already
+            # recording). Previously this was gated on
+            # `session_id_confirmed` and stopped after first adoption.
+            if self._session_tracker is not None:
+                tracker_sid = self._session_tracker.current_session_id
+                if tracker_sid and tracker_sid != session_id:
                     logger.info(
-                        "Adopted telemetry session_id: %s (was temporary %s)",
-                        resolved, session_id,
+                        "Adopted telemetry session_id: %s (was %s)",
+                        tracker_sid, session_id,
                     )
-                    session_id = resolved
+                    session_id = tracker_sid
                     session_id_confirmed = True
                     if recorder:
-                        recorder.update_session_id(resolved)
-                elif int(time.time() * 1000) - session_detect_ms > 15_000:
-                    # Timeout: accept any id the tracker holds (cold-start
-                    # where telemetry is already running, no new session msg).
-                    stale = self._session_tracker.current_session_id
-                    if stale:
-                        logger.info(
-                            "Accepted existing telemetry session_id: %s "
-                            "(was temporary %s)",
-                            stale, session_id,
-                        )
-                        session_id = stale
-                        if recorder:
-                            recorder.update_session_id(stale)
-                    else:
-                        logger.warning(
-                            "No telemetry session_id received — "
-                            "this recording will not be syncable"
-                        )
-                    session_id_confirmed = True  # stop polling
+                        recorder.update_session_id(tracker_sid)
+                elif (
+                    not session_id_confirmed
+                    and int(time.time() * 1000) - session_detect_ms > 15_000
+                ):
+                    # 15s timeout fallback — recording remains with the
+                    # fallback id; the finish_lap rename + upload will use
+                    # whatever id we have at that point.
+                    logger.warning(
+                        "No telemetry session_id received within 15s — "
+                        "recording with temp id %s will not be syncable",
+                        session_id,
+                    )
+                    session_id_confirmed = True  # stop warning
 
             # Capture frame
             frame = camera.grab()
