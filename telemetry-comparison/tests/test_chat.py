@@ -222,14 +222,42 @@ def test_session_id_validation() -> None:
         assert r.status_code == 422
 
 
-def test_missing_quix_token_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Empty QUIX_TOKEN must surface a clean JSONL error before any HTTP call."""
+@respx.mock
+def test_forwards_user_bearer_to_portal() -> None:
+    """The logged-in user's Bearer is forwarded to the AI API so the session
+    is owned by them — not the static QUIX_TOKEN fallback."""
+    create = respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(
+        200, content=_sse([{"type": "text_delta", "text": "hi"}])
+    )
+    with TestClient(app) as client:
+        client.post(
+            "/api/chat",
+            json={"message": "hello"},
+            headers={"Authorization": "Bearer user-xyz"},
+        )
+    assert create.calls.last.request.headers["authorization"] == "Bearer user-xyz"
+
+
+@respx.mock
+def test_falls_back_to_static_token_without_bearer() -> None:
+    """No request Bearer (e.g. local dev) → use the optional QUIX_TOKEN."""
+    create = respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s2"})
+    respx.post("https://portal.test/ai/api/sessions/s2/messages").respond(
+        200, content=_sse([{"type": "text_delta", "text": "hi"}])
+    )
+    with TestClient(app) as client:
+        client.post("/api/chat", json={"message": "hello"})
+    assert create.calls.last.request.headers["authorization"] == "Bearer test-token"
+
+
+def test_no_token_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No request Bearer and no QUIX_TOKEN fallback → clean 401 before any HTTP call."""
     monkeypatch.setattr(config, "QUIX_TOKEN", "")
     with TestClient(app) as client:
         events = _read_jsonl(client.post("/api/chat", json={"message": "x"}).content)
     err = next(e for e in events if e["event"] == "error")
-    assert "QUIX_TOKEN" in err["detail"]
-    assert err["status"] == 503
+    assert err["status"] == 401
 
 
 def test_missing_portal_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:

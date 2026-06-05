@@ -24,14 +24,15 @@ import config
 logger = logging.getLogger(__name__)
 
 
-async def create_session(client: httpx.AsyncClient) -> str:
+async def create_session(client: httpx.AsyncClient, token: str) -> str:
     """Open a Quix AI session bound to the QuixLake Querier agent.
 
-    Returns the session UUID.
+    Authenticates as `token` (the logged-in user's Bearer) so the session is
+    owned by that user. Returns the session UUID.
     """
     r = await client.post(
         f"{config.PORTAL}/ai/api/sessions",
-        headers=config.portal_headers(),
+        headers=config.portal_headers(token),
         json={"agentConfigurationId": config.AGENT_CONFIGURATION_ID},
     )
     r.raise_for_status()
@@ -48,10 +49,11 @@ async def create_session(client: httpx.AsyncClient) -> str:
 
 
 async def stream_message(
-    client: httpx.AsyncClient, session_id: str, message: str
+    client: httpx.AsyncClient, session_id: str, message: str, token: str
 ) -> AsyncIterator[dict]:
     """POST a user message, yield parsed SSE event dicts.
 
+    Authenticates as `token` (the same user Bearer used to open the session).
     Filters out `data: [DONE]` sentinels and non-JSON keep-alive lines.
     Yields raw event dicts so the caller decides which to forward, buffer,
     or ignore (e.g. `text_delta` for streaming back, `usage` for logging).
@@ -60,7 +62,7 @@ async def stream_message(
     body = {"message": message, "context": {}}
     logger.debug("quix_ai: POST %s (%d chars message)", url, len(message))
     async with client.stream(
-        "POST", url, headers=config.portal_headers(streaming=True), json=body
+        "POST", url, headers=config.portal_headers(token, streaming=True), json=body
     ) as r:
         if r.status_code != 200:
             err_body = await r.aread()

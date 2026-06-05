@@ -476,16 +476,10 @@ deployments:
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
-      - name: QUIX_TOKEN
-        inputType: ProjectVariable
-        description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
-        required: true
-        secret: true
-        variableKey: quix_ai_token
       - name: QUIX_AI_AGENT_ID
         inputType: FreeText
-        description: Quix AI agent ID for the QuixLake Querier (system prompt + KBs + MCP tools). Leave empty to use the built-in default.
-        value: d578e2f5-c2b7-461a-90d2-70dfac450fb0
+        description: Quix AI agent ID for the Lakehouse Querier (system prompt + KBs + MCP tools). Must exist in the target environment's portal.
+        value: a04cfe48-e816-4a66-87af-ac547b7b8137
     plugin:
       embeddedView:
         enabled: true

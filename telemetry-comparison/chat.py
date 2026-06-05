@@ -30,7 +30,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, field_validator
 
@@ -62,13 +62,24 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat(req: ChatRequest) -> StreamingResponse:
+async def chat(req: ChatRequest, request: Request) -> StreamingResponse:
+    # Forward the logged-in user's Bearer (already validated by the auth
+    # middleware) to the AI API so the session is owned by that user. Fall back
+    # to the optional static QUIX_TOKEN for local dev (API_AUTH_ACTIVE=false).
+    token = _bearer_from_request(request) or config.QUIX_TOKEN
     return StreamingResponse(
-        _chat_events(req),
+        _chat_events(req, token),
         media_type="application/x-ndjson",
         # Disable proxy/nginx buffering so the browser sees events live.
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _bearer_from_request(request: Request) -> str:
+    auth = request.headers.get("authorization", "")
+    if auth.startswith(("Bearer ", "bearer ")):
+        return auth[7:].strip()
+    return ""
 
 
 _PLAN_ADAPTER: TypeAdapter[AgentPlan] = TypeAdapter(AgentPlan)
@@ -90,7 +101,7 @@ def _error_event(session_id: str | None, detail: str, status: int = 502) -> byte
     )
 
 
-async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
+async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
     t_start = time.monotonic()
     logger.info(
         "chat start: msg=%r session=%s",
@@ -101,19 +112,18 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
     # Upfront guard — catch missing config before httpx rejects an empty
     # Bearer header with a cryptic message. Same shape as main.py's QuixLake
     # guard but emitted as a JSONL error event instead of a 500.
-    missing = [
-        name
-        for name, value in (
-            ("Quix__Portal__Api", config.PORTAL),
-            ("QUIX_TOKEN", config.QUIX_TOKEN),
-        )
-        if not value
-    ]
-    if missing:
+    if not config.PORTAL:
         yield _error_event(
             None,
-            f"Missing required env var(s): {', '.join(missing)}. Set them in .env before chatting.",
+            "Missing required env var: Quix__Portal__Api.",
             status=503,
+        )
+        return
+    if not token:
+        yield _error_event(
+            None,
+            "No auth token: not signed in, and no QUIX_TOKEN fallback set.",
+            status=401,
         )
         return
 
@@ -121,7 +131,7 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
         session_id = req.session_id
         if session_id is None:
             try:
-                session_id = await create_session(client)
+                session_id = await create_session(client, token)
             except httpx.HTTPError as e:
                 yield _error_event(None, f"Could not open Quix AI session: {e}")
                 return
@@ -141,7 +151,7 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
         streamed = 0
         json_seen = False
 
-        async for evt in stream_message(client, session_id, req.message):
+        async for evt in stream_message(client, session_id, req.message, token):
             t = evt.get("type")
             if t == "error":
                 yield _error_event(session_id, f"upstream {evt.get('status')}")
