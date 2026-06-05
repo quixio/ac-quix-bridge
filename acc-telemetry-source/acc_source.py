@@ -19,15 +19,26 @@ Session detection rules:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
+import tempfile
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from quixstreams.sources import Source
 
 from acc_reader import ACCReader
+
+
+_SESSION_ID_FILE = Path(
+    os.environ.get(
+        "AC_SESSION_ID_FILE",
+        Path(tempfile.gettempdir()) / "ac_quix_session_id.json",
+    )
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +96,19 @@ class AssettoCorsaCompetizioneSource(Source):
             value=msg.value,
             headers=msg.headers,
         )
+        # Parallel disk handshake — write the same payload to a local file so
+        # same-host consumers (notably `ac_video_streaming` on the AC bridge
+        # PC) can pick up the canonical session_id without depending on Kafka
+        # ACLs, consumer-group authorization, or subscribe-vs-publish race
+        # conditions. Atomic write via tmp + os.replace. Best-effort: a
+        # failure here does NOT block the Kafka publish.
+        try:
+            _SESSION_ID_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = _SESSION_ID_FILE.with_suffix(_SESSION_ID_FILE.suffix + ".tmp")
+            tmp.write_text(json.dumps(static_data))
+            os.replace(tmp, _SESSION_ID_FILE)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to write session_id file at %s: %s", _SESSION_ID_FILE, e)
 
     def _check_session(
         self,

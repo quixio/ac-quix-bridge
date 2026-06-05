@@ -8,11 +8,23 @@ SAME session_id as the telemetry pipeline (required for the Telemetry
 Explorer to find the matching video).
 """
 
+import json
 import logging
+import os
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+_SESSION_ID_FILE = Path(
+    os.environ.get(
+        "AC_SESSION_ID_FILE",
+        Path(tempfile.gettempdir()) / "ac_quix_session_id.json",
+    )
+)
 
 
 class SessionTracker:
@@ -96,6 +108,15 @@ class SessionTracker:
                 ts = self._timestamp_ms
             if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
                 return sid
+            # Parallel disk handshake — if Kafka tracker is still empty, try
+            # the local file written by `acc-telemetry-source._publish_session_metadata`.
+            # Lets us recover when Kafka is broken (ACL, broker, etc.).
+            if sid is None and self._load_from_file_if_empty():
+                with self._lock:
+                    sid = self._session_id
+                    ts = self._timestamp_ms
+                if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+                    return sid
             if time.time() >= deadline:
                 return sid
             time.sleep(0.05)
@@ -111,4 +132,33 @@ class SessionTracker:
             ts = self._timestamp_ms
         if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
             return sid
+        # File fallback for the non-blocking variant too.
+        if sid is None and self._load_from_file_if_empty():
+            with self._lock:
+                sid = self._session_id
+                ts = self._timestamp_ms
+            if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+                return sid
         return None
+
+    def _load_from_file_if_empty(self) -> bool:
+        """Best-effort load of session metadata from the parallel-path file
+        written by `acc-telemetry-source`. Returns True if state was updated.
+
+        Only loads when the tracker has nothing yet — never overwrites a
+        Kafka-sourced session_id (Kafka is authoritative when reachable)."""
+        with self._lock:
+            if self._session_id is not None:
+                return False
+        if not _SESSION_ID_FILE.exists():
+            return False
+        try:
+            data = json.loads(_SESSION_ID_FILE.read_text())
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to read session_id file %s: %s", _SESSION_ID_FILE, e)
+            return False
+        if not isinstance(data, dict) or not data.get("session_id"):
+            return False
+        self.update_from_message(data)
+        logger.info("Adopted session_id via disk handshake (file=%s)", _SESSION_ID_FILE)
+        return True

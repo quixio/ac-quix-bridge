@@ -334,10 +334,16 @@ class ACVideoSource:
                     enable_ssl_certificate_verification=False,
                     ssl_endpoint_identification_algorithm="none",
                 )
+                # Stable consumer group name — a per-PID+timestamp name
+                # changed on every process restart and Kafka ACLs on the
+                # workspace rejected it with GROUP_AUTHORIZATION_FAILED, so
+                # the SDF never fired and SessionTracker stayed empty (→
+                # video locked in the fallback session_id). With
+                # `auto_commit_enable=False` (set on get_consumer below) +
+                # `auto_offset_reset="earliest"`, every restart still reads
+                # from the topic head since no offset is ever committed.
                 mini_app = _App(
-                    consumer_group=(
-                        f"ac_video_session_tracker_{os.getpid()}_{int(time.time() * 1000)}"
-                    ),
+                    consumer_group="ac-video-streaming-session-tracker",
                     auto_offset_reset="earliest",
                     auto_create_topics=False,
                     broker_address=conn,
