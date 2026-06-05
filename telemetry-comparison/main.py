@@ -20,6 +20,7 @@ import io
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 
 import httpx
 import pandas as pd
@@ -30,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 import auth
 import chat
 import config
+import mcp_server
 import track_loader
 import video_proxy
 from partition_filter import _build_partition_filter
@@ -50,7 +52,18 @@ logger = logging.getLogger(__name__)
 
 config.validate_env()
 
-app = FastAPI(title="Telemetry Comparison")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Mount the /mcp server and drive its session manager for the app's life.
+    # session_manager.run() is required (mcp>=1.27) or tool calls fail with
+    # "Task group is not initialized".
+    mcp = mcp_server.install(app)
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="Telemetry Comparison", lifespan=lifespan)
 # Bearer-token gate covering every /api/* route. Mounted as ASGI middleware
 # so static + SPA shell can serve unauthenticated and the frontend can run
 # its token handshake before making any /api call.

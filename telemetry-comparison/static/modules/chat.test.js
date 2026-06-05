@@ -129,6 +129,99 @@ describe('chat.js JSONL handling', () => {
     expect(chips[1].textContent).toBe('b');
   });
 
+  it('renders a tool card with name, args, and result', async () => {
+    _stubFetch([
+      {
+        event: 'tool_start',
+        session_id: 's',
+        tool_call_id: 't1',
+        tool_name: 'run_query',
+        display_name: 'Run Query',
+      },
+      { event: 'tool_args', session_id: 's', tool_call_id: 't1', delta: '{"sql":' },
+      { event: 'tool_args', session_id: 's', tool_call_id: 't1', delta: ' "SELECT 1"}' },
+      { event: 'tool_end', session_id: 's', tool_call_id: 't1' },
+      {
+        event: 'tool_result',
+        session_id: 's',
+        tool_call_id: 't1',
+        result: '1 row',
+        is_error: false,
+      },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('go');
+    await _flush();
+
+    const card = document.querySelector('.chat-tool-card');
+    expect(card).not.toBeNull();
+    expect(card.querySelector('.chat-tool-head').textContent).toBe('Run Query');
+    expect(card.querySelector('.chat-tool-args').textContent).toContain('SELECT 1');
+    expect(card.querySelector('.chat-tool-result').textContent).toBe('1 row');
+    expect(card.classList.contains('chat-tool-done')).toBe(true);
+  });
+
+  it('tool_result with is_error marks the card as errored', async () => {
+    _stubFetch([
+      { event: 'tool_start', session_id: 's', tool_call_id: 't1', tool_name: 'run_query' },
+      {
+        event: 'tool_result',
+        session_id: 's',
+        tool_call_id: 't1',
+        result: 'bad sql',
+        is_error: true,
+      },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('go');
+    await _flush();
+
+    const card = document.querySelector('.chat-tool-card');
+    expect(card.classList.contains('chat-tool-error')).toBe(true);
+    expect(card.querySelector('.chat-tool-result').textContent).toBe('bad sql');
+  });
+
+  it('plot_data tool call drives applyPlotPlan from its args', async () => {
+    const trace = {
+      session_id: 's1',
+      lap: 1,
+      driver: 'ludvik',
+      carModel: 'lambo',
+      track: 'spa',
+      experiment: 'E',
+      environment: 'byox',
+      test_rig: 'g29',
+    };
+    _stubFetch([
+      {
+        event: 'tool_start',
+        session_id: 's',
+        tool_call_id: 'p1',
+        tool_name: 'mcp__telemetry-comparison__plot_data',
+        display_name: 'Plot data',
+      },
+      {
+        event: 'tool_args',
+        session_id: 's',
+        tool_call_id: 'p1',
+        delta: JSON.stringify({ signals: ['speedKmh'], traces: [trace] }),
+      },
+      { event: 'tool_end', session_id: 's', tool_call_id: 'p1' },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('plot lap 1');
+    await _flush();
+
+    expect(applyPlotPlanSpy).toHaveBeenCalledWith({
+      type: 'plot',
+      signals: ['speedKmh'],
+      traces: [trace],
+    });
+  });
+
   it('error event renders red bubble', async () => {
     _stubFetch([{ event: 'error', session_id: 's', detail: 'boom', status: 502 }]);
     const { initChat } = await import('./chat.js');

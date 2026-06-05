@@ -11,9 +11,16 @@ We forward all of it to the browser as ndjson with these event shapes:
     {event: "status",       message: str, session_id?: str}
     {event: "answer_delta", session_id: str, text: str}
     {event: "answer_break", session_id: str}
+    {event: "tool_start",   session_id: str, tool_call_id: str, tool_name: str, display_name?: str}
+    {event: "tool_args",    session_id: str, tool_call_id: str, delta: str}
+    {event: "tool_end",     session_id: str, tool_call_id: str}
+    {event: "tool_result",  session_id: str, tool_call_id: str, result: str, is_error: bool}
     {event: "clarify",      session_id: str, question: str, options: list[str]}
     {event: "plot",         session_id: str, plan: dict}
     {event: "error",        session_id?: str, detail: str, status: int}
+
+Tool-call frames (start/args/end/result, correlated by tool_call_id) let the
+UI render tool cards like the native Quix AI chat instead of hiding them.
 
 No backend lake fan-out — Explorer's existing /api/telemetry path renders
 charts. We pass the raw plot plan through; the frontend's applyPlotPlan
@@ -30,7 +37,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, field_validator
 
@@ -62,13 +69,24 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat(req: ChatRequest) -> StreamingResponse:
+async def chat(req: ChatRequest, request: Request) -> StreamingResponse:
+    # Forward the logged-in user's Bearer (already validated by the auth
+    # middleware) to the AI API so the session is owned by that user. Fall back
+    # to the optional static QUIX_TOKEN for local dev (API_AUTH_ACTIVE=false).
+    token = _bearer_from_request(request) or config.QUIX_TOKEN
     return StreamingResponse(
-        _chat_events(req),
+        _chat_events(req, token),
         media_type="application/x-ndjson",
         # Disable proxy/nginx buffering so the browser sees events live.
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _bearer_from_request(request: Request) -> str:
+    auth = request.headers.get("authorization", "")
+    if auth.startswith(("Bearer ", "bearer ")):
+        return auth[7:].strip()
+    return ""
 
 
 _PLAN_ADAPTER: TypeAdapter[AgentPlan] = TypeAdapter(AgentPlan)
@@ -90,7 +108,7 @@ def _error_event(session_id: str | None, detail: str, status: int = 502) -> byte
     )
 
 
-async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
+async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
     t_start = time.monotonic()
     logger.info(
         "chat start: msg=%r session=%s",
@@ -101,19 +119,18 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
     # Upfront guard — catch missing config before httpx rejects an empty
     # Bearer header with a cryptic message. Same shape as main.py's QuixLake
     # guard but emitted as a JSONL error event instead of a 500.
-    missing = [
-        name
-        for name, value in (
-            ("Quix__Portal__Api", config.PORTAL),
-            ("QUIX_TOKEN", config.QUIX_TOKEN),
-        )
-        if not value
-    ]
-    if missing:
+    if not config.PORTAL:
         yield _error_event(
             None,
-            f"Missing required env var(s): {', '.join(missing)}. Set them in .env before chatting.",
+            "Missing required env var: Quix__Portal__Api.",
             status=503,
+        )
+        return
+    if not token:
+        yield _error_event(
+            None,
+            "No auth token: not signed in, and no QUIX_TOKEN fallback set.",
+            status=401,
         )
         return
 
@@ -121,7 +138,7 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
         session_id = req.session_id
         if session_id is None:
             try:
-                session_id = await create_session(client)
+                session_id = await create_session(client, token)
             except httpx.HTTPError as e:
                 yield _error_event(None, f"Could not open Quix AI session: {e}")
                 return
@@ -140,16 +157,18 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
         accum = ""
         streamed = 0
         json_seen = False
+        tool_seen = False
 
-        async for evt in stream_message(client, session_id, req.message):
+        async for evt in stream_message(client, session_id, req.message, token):
             t = evt.get("type")
             if t == "error":
                 yield _error_event(session_id, f"upstream {evt.get('status')}")
                 return
-            if t == "tool_call_start" and not json_seen:
-                # Flush any held tail of pre-tool prose, then break the bubble
-                # so post-tool prose lands in a fresh assistant message.
-                if streamed < len(accum):
+            if t == "tool_call_start":
+                tool_seen = True
+                # Flush held pre-tool prose + break the text bubble so post-tool
+                # prose starts fresh, then surface the tool card to the browser.
+                if not json_seen and streamed < len(accum):
                     yield _event(
                         {
                             "event": "answer_delta",
@@ -158,7 +177,66 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
                         }
                     )
                     streamed = len(accum)
-                yield _event({"event": "answer_break", "session_id": session_id})
+                if not json_seen:
+                    yield _event({"event": "answer_break", "session_id": session_id})
+                yield _event(
+                    {
+                        "event": "tool_start",
+                        "session_id": session_id,
+                        "tool_call_id": evt.get("toolCallId"),
+                        "tool_name": evt.get("toolName"),
+                        "display_name": evt.get("displayName"),
+                    }
+                )
+                continue
+            if t == "tool_call_delta":
+                yield _event(
+                    {
+                        "event": "tool_args",
+                        "session_id": session_id,
+                        "tool_call_id": evt.get("toolCallId"),
+                        "delta": evt.get("argumentsDelta", ""),
+                    }
+                )
+                continue
+            if t == "tool_call_end":
+                yield _event(
+                    {
+                        "event": "tool_end",
+                        "session_id": session_id,
+                        "tool_call_id": evt.get("toolCallId"),
+                    }
+                )
+                continue
+            if t == "tool_result":
+                yield _event(
+                    {
+                        "event": "tool_result",
+                        "session_id": session_id,
+                        "tool_call_id": evt.get("toolCallId"),
+                        "result": evt.get("userSummary") or evt.get("result"),
+                        "is_error": evt.get("isError", False),
+                    }
+                )
+                continue
+            if t == "status":
+                yield _event(
+                    {
+                        "event": "status",
+                        "session_id": session_id,
+                        "message": evt.get("status", "Working…"),
+                    }
+                )
+                continue
+            if t == "ask_user":
+                yield _event(
+                    {
+                        "event": "clarify",
+                        "session_id": session_id,
+                        "question": evt.get("question", ""),
+                        "options": evt.get("options", []),
+                    }
+                )
                 continue
             if t != "text_delta":
                 continue
@@ -194,7 +272,8 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[bytes]:
             )
 
     reply = accum
-    if not reply.strip():
+    # A tool-only turn (tool cards, no prose) is a valid success — don't flag it.
+    if not reply.strip() and not tool_seen:
         yield _error_event(session_id, "Agent returned an empty reply")
         return
 

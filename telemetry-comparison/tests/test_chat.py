@@ -222,14 +222,83 @@ def test_session_id_validation() -> None:
         assert r.status_code == 422
 
 
-def test_missing_quix_token_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Empty QUIX_TOKEN must surface a clean JSONL error before any HTTP call."""
+def _sse_named(events: list[tuple[str, dict[str, Any]]]) -> bytes:
+    """Format named SSE frames (`event: <name>\\ndata: <json>`)."""
+    out: list[bytes] = []
+    for name, obj in events:
+        out.append(f"event: {name}".encode())
+        out.append(f"data: {json.dumps(obj)}".encode())
+    out.append(b"event: done")
+    out.append(b"data: [DONE]")
+    return b"\n".join(out) + b"\n"
+
+
+@respx.mock
+def test_tool_events_forwarded_to_browser() -> None:
+    """Tool-call frames stream through as tool_start/args/end/result so the UI
+    can render tool cards — not dropped like before."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    body = _sse_named(
+        [
+            ("text_delta", {"text": "Checking. "}),
+            (
+                "tool_call_start",
+                {"toolCallId": "t1", "toolName": "run_query", "displayName": "Run Query"},
+            ),
+            ("tool_call_delta", {"toolCallId": "t1", "argumentsDelta": '{"sql":'}),
+            ("tool_call_delta", {"toolCallId": "t1", "argumentsDelta": ' "SELECT 1"}'}),
+            ("tool_call_end", {"toolCallId": "t1"}),
+            ("tool_result", {"toolCallId": "t1", "result": "1 row", "isError": False}),
+            ("text_delta", {"text": "Done."}),
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(200, content=body)
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "go"}).content)
+
+    kinds = [e["event"] for e in events]
+    for k in ("tool_start", "tool_args", "tool_end", "tool_result"):
+        assert k in kinds, f"missing {k} in {kinds}"
+    assert next(e for e in events if e["event"] == "tool_start")["tool_name"] == "run_query"
+    assert next(e for e in events if e["event"] == "tool_result")["result"] == "1 row"
+
+
+@respx.mock
+def test_forwards_user_bearer_to_portal() -> None:
+    """The logged-in user's Bearer is forwarded to the AI API so the session
+    is owned by them — not the static QUIX_TOKEN fallback."""
+    create = respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(
+        200, content=_sse([{"type": "text_delta", "text": "hi"}])
+    )
+    with TestClient(app) as client:
+        client.post(
+            "/api/chat",
+            json={"message": "hello"},
+            headers={"Authorization": "Bearer user-xyz"},
+        )
+    assert create.calls.last.request.headers["authorization"] == "Bearer user-xyz"
+
+
+@respx.mock
+def test_falls_back_to_static_token_without_bearer() -> None:
+    """No request Bearer (e.g. local dev) → use the optional QUIX_TOKEN."""
+    create = respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s2"})
+    respx.post("https://portal.test/ai/api/sessions/s2/messages").respond(
+        200, content=_sse([{"type": "text_delta", "text": "hi"}])
+    )
+    with TestClient(app) as client:
+        client.post("/api/chat", json={"message": "hello"})
+    assert create.calls.last.request.headers["authorization"] == "Bearer test-token"
+
+
+def test_no_token_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No request Bearer and no QUIX_TOKEN fallback → clean 401 before any HTTP call."""
     monkeypatch.setattr(config, "QUIX_TOKEN", "")
     with TestClient(app) as client:
         events = _read_jsonl(client.post("/api/chat", json={"message": "x"}).content)
     err = next(e for e in events if e["event"] == "error")
-    assert "QUIX_TOKEN" in err["detail"]
-    assert err["status"] == 503
+    assert err["status"] == 401
 
 
 def test_missing_portal_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:

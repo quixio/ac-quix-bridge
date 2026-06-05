@@ -34,7 +34,13 @@ BLOB_VIDEO_PREFIX = os.getenv("BLOB_VIDEO_PREFIX", "ac_video")
 # Quix Portal API base. `Quix__Portal__Api` is the canonical name — Quix Cloud
 # auto-injects it on every deployment, and we use the same name in local .env.
 PORTAL = os.getenv("Quix__Portal__Api", "").rstrip("/")  # noqa: SIM112
+# Optional fallback only — in deployment the AI chat forwards the logged-in
+# user's Bearer (so sessions are attributed to them). QUIX_TOKEN is used solely
+# when no request token is present (e.g. local dev with API_AUTH_ACTIVE=false).
 QUIX_TOKEN = os.getenv("QUIX_TOKEN", "")
+
+# Shared X-API-Key secret gating the mounted /mcp endpoint (the plot_data tool).
+MCP_API_KEY = os.getenv("TELEMETRY_COMPARISON_MCP_API_KEY", "")
 
 # Bearer-token auth gate. Tokens are validated against Quix Portal via the
 # `quixportal` SDK, scoped to this workspace.
@@ -48,9 +54,10 @@ _DEFAULT_AGENT_ID = "d578e2f5-c2b7-461a-90d2-70dfac450fb0"
 AGENT_CONFIGURATION_ID = os.getenv("QUIX_AI_AGENT_ID", _DEFAULT_AGENT_ID)
 
 
-def portal_headers(*, streaming: bool = False) -> dict[str, str]:
+def portal_headers(token: str, *, streaming: bool = False) -> dict[str, str]:
+    """Headers for Quix Portal AI calls, authed as the given Bearer token."""
     headers = {
-        "Authorization": f"Bearer {QUIX_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
     if streaming:
@@ -70,11 +77,22 @@ def validate_env() -> None:
         "CATALOG_URL": CATALOG_URL,
         "CATALOG_TOKEN": CATALOG_TOKEN,
         "Quix__Portal__Api": PORTAL,
-        "QUIX_TOKEN": QUIX_TOKEN,
     }
     for name, value in required.items():
         if not value:
             logger.error("Required env var %s is not set", name)
+
+    # QUIX_TOKEN is now an optional fallback only — the AI chat forwards the
+    # logged-in user's Bearer. Warn (don't error) when it's unset.
+    if not QUIX_TOKEN:
+        logger.info("QUIX_TOKEN not set — AI chat will use the request's Bearer token")
+
+    # MCP_API_KEY gates /mcp; if unset the endpoint fail-closes with 500 at
+    # request time, so warn here to make the misconfig visible up front.
+    if not MCP_API_KEY:
+        logger.warning(
+            "TELEMETRY_COMPARISON_MCP_API_KEY not set — /mcp will reject all requests (500)"
+        )
 
     if API_AUTH_ACTIVE and not LOCAL_DEV_MODE and not WORKSPACE_ID:
         logger.error("Quix__Workspace__Id is not set — Bearer-token auth will reject every request")

@@ -24,4 +24,4 @@ async def test_create_session_raises_on_malformed_response() -> None:
     respx.post("https://portal.test/ai/api/sessions").respond(200, json={})
     async with httpx.AsyncClient() as client:
         with pytest.raises(httpx.HTTPError):
-            await create_session(client)
+            await create_session(client, "user-token")
