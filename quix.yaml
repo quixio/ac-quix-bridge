@@ -480,6 +480,12 @@ deployments:
         inputType: FreeText
         description: Quix AI agent ID for the Lakehouse Querier (system prompt + KBs + MCP tools). Must exist in the target environment's portal.
         value: a04cfe48-e816-4a66-87af-ac547b7b8137
+      - name: TELEMETRY_COMPARISON_MCP_API_KEY
+        inputType: ProjectVariable
+        description: Shared X-API-Key secret gating the /mcp endpoint (the plot_data tool). Must match the key registered for this MCP server on the Lakehouse Querier agent.
+        required: true
+        secret: true
+        variableKey: TELEMETRY_COMPARISON_MCP_API_KEY
     plugin:
       embeddedView:
         enabled: true

@@ -16,6 +16,7 @@ dependencies = [
 	"quixportal[all]==2.0.1",
 	"python-dotenv",
 	"pydantic>=2.13.2",
+	"mcp>=1.26",
 ]
 
 [dependency-groups]

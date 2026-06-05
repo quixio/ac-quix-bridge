@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 # already-recorded laps; treat as low-sensitivity. Tighten with a query-
 # param token if the videos become sensitive.
 _PUBLIC_PATHS: tuple[str, ...] = ("/", "/health", "/favicon.ico")
-_PUBLIC_PREFIXES: tuple[str, ...] = ("/static/", "/api/video/")
+# `/mcp` is exempt from the Bearer gate — the mounted MCP sub-app enforces its
+# own X-API-Key (see mcp_server._ApiKeyMiddleware); the agent has no Bearer.
+_PUBLIC_PREFIXES: tuple[str, ...] = ("/static/", "/api/video/", "/mcp")
 
 
 def _token_preview(token: str) -> str:

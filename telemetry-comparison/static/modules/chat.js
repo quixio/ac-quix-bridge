@@ -97,31 +97,49 @@ function _addClarifyChips(options, messageEl) {
   messageEl.appendChild(wrap);
 }
 
-function _addToolCard(toolCallId, name) {
+// The agent's plot tool. Quix may surface it bare or MCP-prefixed
+// (`mcp__telemetry-comparison__plot_data`), so match the suffix.
+function _isPlotTool(name) {
+  return typeof name === 'string' && /(?:^|_)plot_data$/.test(name);
+}
+
+function _addToolCard(toolCallId, label, toolName) {
   const list = document.getElementById('chat-messages');
   if (!list) return;
   const card = document.createElement('div');
   card.className = 'chat-tool-card chat-tool-running';
   const head = document.createElement('div');
   head.className = 'chat-tool-head';
-  head.textContent = name || 'tool';
+  head.textContent = label || 'tool';
   const args = document.createElement('pre');
   args.className = 'chat-tool-args';
   const result = document.createElement('div');
   result.className = 'chat-tool-result';
   card.append(head, args, result);
   list.appendChild(card);
-  _toolCards.set(toolCallId, { argsBuf: '', argsEl: args, resultEl: result, cardEl: card });
+  _toolCards.set(toolCallId, {
+    argsBuf: '',
+    argsEl: args,
+    resultEl: result,
+    cardEl: card,
+    name: toolName || '',
+  });
   _scrollBottom(list);
 }
 
 function _finalizeToolArgs(toolCallId) {
   const c = _toolCards.get(toolCallId);
   if (!c) return;
+  let parsed = null;
   try {
-    c.argsEl.textContent = JSON.stringify(JSON.parse(c.argsBuf), null, 2);
+    parsed = JSON.parse(c.argsBuf);
+    c.argsEl.textContent = JSON.stringify(parsed, null, 2);
   } catch {
     c.argsEl.textContent = c.argsBuf;
+  }
+  // A plot_data call IS the plot directive — drive the chart from its args.
+  if (parsed && _isPlotTool(c.name)) {
+    applyPlotPlan({ type: 'plot', ...parsed });
   }
 }
 
@@ -184,7 +202,7 @@ function _handleEvent(evt) {
     case 'tool_start':
       _hideProgress();
       _activeAnswer = null;
-      _addToolCard(evt.tool_call_id, evt.display_name || evt.tool_name);
+      _addToolCard(evt.tool_call_id, evt.display_name || evt.tool_name, evt.tool_name);
       break;
     case 'tool_args': {
       const c = _toolCards.get(evt.tool_call_id);

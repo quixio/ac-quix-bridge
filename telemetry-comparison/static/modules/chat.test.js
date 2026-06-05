@@ -183,6 +183,45 @@ describe('chat.js JSONL handling', () => {
     expect(card.querySelector('.chat-tool-result').textContent).toBe('bad sql');
   });
 
+  it('plot_data tool call drives applyPlotPlan from its args', async () => {
+    const trace = {
+      session_id: 's1',
+      lap: 1,
+      driver: 'ludvik',
+      carModel: 'lambo',
+      track: 'spa',
+      experiment: 'E',
+      environment: 'byox',
+      test_rig: 'g29',
+    };
+    _stubFetch([
+      {
+        event: 'tool_start',
+        session_id: 's',
+        tool_call_id: 'p1',
+        tool_name: 'mcp__telemetry-comparison__plot_data',
+        display_name: 'Plot data',
+      },
+      {
+        event: 'tool_args',
+        session_id: 's',
+        tool_call_id: 'p1',
+        delta: JSON.stringify({ signals: ['speedKmh'], traces: [trace] }),
+      },
+      { event: 'tool_end', session_id: 's', tool_call_id: 'p1' },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('plot lap 1');
+    await _flush();
+
+    expect(applyPlotPlanSpy).toHaveBeenCalledWith({
+      type: 'plot',
+      signals: ['speedKmh'],
+      traces: [trace],
+    });
+  });
+
   it('error event renders red bubble', async () => {
     _stubFetch([{ event: 'error', session_id: 's', detail: 'boom', status: 502 }]);
     const { initChat } = await import('./chat.js');

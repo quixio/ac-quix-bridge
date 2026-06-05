@@ -39,6 +39,9 @@ PORTAL = os.getenv("Quix__Portal__Api", "").rstrip("/")  # noqa: SIM112
 # when no request token is present (e.g. local dev with API_AUTH_ACTIVE=false).
 QUIX_TOKEN = os.getenv("QUIX_TOKEN", "")
 
+# Shared X-API-Key secret gating the mounted /mcp endpoint (the plot_data tool).
+MCP_API_KEY = os.getenv("TELEMETRY_COMPARISON_MCP_API_KEY", "")
+
 # Bearer-token auth gate. Tokens are validated against Quix Portal via the
 # `quixportal` SDK, scoped to this workspace.
 WORKSPACE_ID = os.getenv("Quix__Workspace__Id", "")  # noqa: SIM112
