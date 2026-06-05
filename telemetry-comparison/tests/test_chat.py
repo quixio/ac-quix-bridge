@@ -222,6 +222,47 @@ def test_session_id_validation() -> None:
         assert r.status_code == 422
 
 
+def _sse_named(events: list[tuple[str, dict[str, Any]]]) -> bytes:
+    """Format named SSE frames (`event: <name>\\ndata: <json>`)."""
+    out: list[bytes] = []
+    for name, obj in events:
+        out.append(f"event: {name}".encode())
+        out.append(f"data: {json.dumps(obj)}".encode())
+    out.append(b"event: done")
+    out.append(b"data: [DONE]")
+    return b"\n".join(out) + b"\n"
+
+
+@respx.mock
+def test_tool_events_forwarded_to_browser() -> None:
+    """Tool-call frames stream through as tool_start/args/end/result so the UI
+    can render tool cards — not dropped like before."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    body = _sse_named(
+        [
+            ("text_delta", {"text": "Checking. "}),
+            (
+                "tool_call_start",
+                {"toolCallId": "t1", "toolName": "run_query", "displayName": "Run Query"},
+            ),
+            ("tool_call_delta", {"toolCallId": "t1", "argumentsDelta": '{"sql":'}),
+            ("tool_call_delta", {"toolCallId": "t1", "argumentsDelta": ' "SELECT 1"}'}),
+            ("tool_call_end", {"toolCallId": "t1"}),
+            ("tool_result", {"toolCallId": "t1", "result": "1 row", "isError": False}),
+            ("text_delta", {"text": "Done."}),
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(200, content=body)
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "go"}).content)
+
+    kinds = [e["event"] for e in events]
+    for k in ("tool_start", "tool_args", "tool_end", "tool_result"):
+        assert k in kinds, f"missing {k} in {kinds}"
+    assert next(e for e in events if e["event"] == "tool_start")["tool_name"] == "run_query"
+    assert next(e for e in events if e["event"] == "tool_result")["result"] == "1 row"
+
+
 @respx.mock
 def test_forwards_user_bearer_to_portal() -> None:
     """The logged-in user's Bearer is forwarded to the AI API so the session

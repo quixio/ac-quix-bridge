@@ -11,9 +11,16 @@ We forward all of it to the browser as ndjson with these event shapes:
     {event: "status",       message: str, session_id?: str}
     {event: "answer_delta", session_id: str, text: str}
     {event: "answer_break", session_id: str}
+    {event: "tool_start",   session_id: str, tool_call_id: str, tool_name: str, display_name?: str}
+    {event: "tool_args",    session_id: str, tool_call_id: str, delta: str}
+    {event: "tool_end",     session_id: str, tool_call_id: str}
+    {event: "tool_result",  session_id: str, tool_call_id: str, result: str, is_error: bool}
     {event: "clarify",      session_id: str, question: str, options: list[str]}
     {event: "plot",         session_id: str, plan: dict}
     {event: "error",        session_id?: str, detail: str, status: int}
+
+Tool-call frames (start/args/end/result, correlated by tool_call_id) let the
+UI render tool cards like the native Quix AI chat instead of hiding them.
 
 No backend lake fan-out — Explorer's existing /api/telemetry path renders
 charts. We pass the raw plot plan through; the frontend's applyPlotPlan
@@ -150,16 +157,18 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
         accum = ""
         streamed = 0
         json_seen = False
+        tool_seen = False
 
         async for evt in stream_message(client, session_id, req.message, token):
             t = evt.get("type")
             if t == "error":
                 yield _error_event(session_id, f"upstream {evt.get('status')}")
                 return
-            if t == "tool_call_start" and not json_seen:
-                # Flush any held tail of pre-tool prose, then break the bubble
-                # so post-tool prose lands in a fresh assistant message.
-                if streamed < len(accum):
+            if t == "tool_call_start":
+                tool_seen = True
+                # Flush held pre-tool prose + break the text bubble so post-tool
+                # prose starts fresh, then surface the tool card to the browser.
+                if not json_seen and streamed < len(accum):
                     yield _event(
                         {
                             "event": "answer_delta",
@@ -168,7 +177,66 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                         }
                     )
                     streamed = len(accum)
-                yield _event({"event": "answer_break", "session_id": session_id})
+                if not json_seen:
+                    yield _event({"event": "answer_break", "session_id": session_id})
+                yield _event(
+                    {
+                        "event": "tool_start",
+                        "session_id": session_id,
+                        "tool_call_id": evt.get("toolCallId"),
+                        "tool_name": evt.get("toolName"),
+                        "display_name": evt.get("displayName"),
+                    }
+                )
+                continue
+            if t == "tool_call_delta":
+                yield _event(
+                    {
+                        "event": "tool_args",
+                        "session_id": session_id,
+                        "tool_call_id": evt.get("toolCallId"),
+                        "delta": evt.get("argumentsDelta", ""),
+                    }
+                )
+                continue
+            if t == "tool_call_end":
+                yield _event(
+                    {
+                        "event": "tool_end",
+                        "session_id": session_id,
+                        "tool_call_id": evt.get("toolCallId"),
+                    }
+                )
+                continue
+            if t == "tool_result":
+                yield _event(
+                    {
+                        "event": "tool_result",
+                        "session_id": session_id,
+                        "tool_call_id": evt.get("toolCallId"),
+                        "result": evt.get("userSummary") or evt.get("result"),
+                        "is_error": evt.get("isError", False),
+                    }
+                )
+                continue
+            if t == "status":
+                yield _event(
+                    {
+                        "event": "status",
+                        "session_id": session_id,
+                        "message": evt.get("status", "Working…"),
+                    }
+                )
+                continue
+            if t == "ask_user":
+                yield _event(
+                    {
+                        "event": "clarify",
+                        "session_id": session_id,
+                        "question": evt.get("question", ""),
+                        "options": evt.get("options", []),
+                    }
+                )
                 continue
             if t != "text_delta":
                 continue
@@ -204,7 +272,8 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
             )
 
     reply = accum
-    if not reply.strip():
+    # A tool-only turn (tool cards, no prose) is a valid success — don't flag it.
+    if not reply.strip() and not tool_seen:
         yield _error_event(session_id, "Agent returned an empty reply")
         return
 

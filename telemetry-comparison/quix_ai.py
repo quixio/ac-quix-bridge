@@ -73,19 +73,30 @@ async def stream_message(
             )
             yield {"type": "error", "status": r.status_code}
             return
+        # Named SSE frames: `event: <type>\ndata: <json>\n\n`. The event name is
+        # authoritative (the JSON body may omit/differ on `type`), so we track
+        # the latest `event:` line and stamp it onto the parsed dict — mirroring
+        # the Quix AI reference consumer. `: heartbeat` comment lines are ignored.
+        current_type = ""
         async for line in r.aiter_lines():
+            if line.startswith("event: "):
+                current_type = line[7:].strip()
+                continue
             if not line.startswith("data: "):
                 continue
             payload = line[6:]
-            if payload == "[DONE]":
+            if payload == "[DONE]" or current_type == "done":
                 logger.debug("quix_ai: stream [DONE]")
                 return
             try:
                 evt = json.loads(payload)
             except json.JSONDecodeError:
                 continue
+            if current_type:
+                evt["type"] = current_type
             logger.debug("quix_ai event: %s", _short(evt))
             yield evt
+            current_type = ""  # one event per frame; don't leak type to a bare data: line
 
 
 def _short(evt: dict, limit: int = 200) -> str:

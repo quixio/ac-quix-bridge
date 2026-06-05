@@ -1402,6 +1402,64 @@ body[data-chat-mode="docked"] #chat-float-slot {
   color: var(--color-accent, #0064ff);
 }
 
+/* Tool-call card — shows which tool the agent ran, its args, and result,
+ * mirroring the native Quix AI chat. Left border colour tracks state. */
+.chat-tool-card {
+  align-self: flex-start;
+  max-width: 85%;
+  border: 1px solid var(--color-brd, #3e3e46);
+  border-left: 3px solid var(--color-muted, #94a3b8);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+.chat-tool-head {
+  font-weight: 600;
+  color: var(--color-muted, #94a3b8);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-tool-head::before {
+  content: "⚙";
+}
+.chat-tool-running {
+  border-left-color: var(--color-accent, #0064ff);
+}
+.chat-tool-running .chat-tool-head {
+  color: var(--color-accent, #0064ff);
+}
+.chat-tool-done {
+  border-left-color: #34d399;
+}
+.chat-tool-error {
+  border-left-color: #ff3f41;
+}
+.chat-tool-args {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-muted, #94a3b8);
+  font-size: 0.72rem;
+  max-height: 9rem;
+  overflow: auto;
+}
+.chat-tool-args:empty {
+  display: none;
+}
+.chat-tool-result {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-tool-result:empty {
+  display: none;
+}
+
 /* Error bubble — red, pinned-left, no markdown rendering. */
 .chat-msg-error {
   background: rgba(255, 63, 65, 0.12);
