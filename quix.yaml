@@ -677,14 +677,6 @@ deployments:
         inputType: FreeText
         required: true
         value: http://dynamic-configuration-manager
-      - name: Quix__Lakehouse__Query__Url
-        inputType: ProjectVariable
-        required: true
-        variableKey: LAKE_API_URL
-      - name: Quix__Lakehouse__Query__AuthToken
-        inputType: ProjectVariable
-        required: true
-        variableKey: quix_lake_pat
       - name: output
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
@@ -719,6 +711,8 @@ deployments:
       - name: Quix__Portal__Api
         inputType: FreeText
         value: https://portal-api.dev.quix.io
+    blobStorage:
+      bind: true
   - name: leaderboard-ui
     application: leaderboard-ui
     version: latest
