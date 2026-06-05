@@ -706,7 +706,7 @@ deployments:
         value: normalizedCarPosition
       - name: GATE_COUNT
         inputType: FreeText
-        value: 50
+        value: 10
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false
