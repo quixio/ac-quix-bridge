@@ -1,0 +1,59 @@
+name: leaderboard-service
+language: python
+variables:
+  - name: MONGO_USER
+    inputType: Secret
+    required: true
+    defaultValue: MONGO_USER
+  - name: MONGO_PASSWORD
+    inputType: Secret
+    required: true
+    defaultValue: MONGO_PASSWORD
+  - name: MONGO_HOST
+    inputType: FreeText
+    required: true
+    defaultValue: mongodb
+  - name: CONFIG_API_URL
+    inputType: FreeText
+    required: true
+  - name: Quix__Lakehouse__Query__Url
+    inputType: FreeText
+    required: true
+  - name: Quix__Lakehouse__Query__AuthToken
+    inputType: Secret
+    required: true
+  - name: output
+    inputType: InputTopic
+    description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+    required: true
+  - name: session_output
+    inputType: InputTopic
+    description: Kafka topic for AC session events (ac-telemetry-session)
+    required: true
+  - name: LAKE_TABLE
+    inputType: FreeText
+    defaultValue: ac_telemetry
+  - name: LAKE_COL_CURRENT_TIME
+    inputType: FreeText
+    defaultValue: iCurrentTime
+  - name: LAKE_COL_BEST_TIME
+    inputType: FreeText
+    defaultValue: iBestTime
+  - name: LAKE_COL_NORMALIZED_POSITION
+    inputType: FreeText
+    defaultValue: normalizedCarPosition
+  - name: GATE_COUNT
+    inputType: FreeText
+    defaultValue: "650"
+  - name: LOCAL_DEV_MODE
+    inputType: FreeText
+    defaultValue: "false"
+  - name: LIVE_TELEMETRY_ENABLED
+    inputType: FreeText
+    defaultValue: "true"
+  - name: Quix__Portal__Api
+    inputType: FreeText
+    defaultValue: https://portal-api.dev.quix.io
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
