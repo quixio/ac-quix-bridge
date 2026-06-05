@@ -180,8 +180,9 @@ setDriver(driverName);
 // --- Demo standings: a full 88-driver board so the page reads as a wall display
 // even with no lake configured. ?demo=1 forces it; otherwise real rows replace it.
 const DEMO_NAMES = [
-  'Tomas','Mika','Sergio','Elena','Dan','Yuki','Carlos','Lena','Omar','Priya',
-  'Nora','Hugo','Ivan','Sara','Leo','Mei','Kai','Ana','Theo','Iris',
+  // Current (demo) driver 'Tomas' sits at index 17 -> P18, matching the dashboard page.
+  'Ana','Mika','Sergio','Elena','Dan','Yuki','Carlos','Lena','Omar','Priya',
+  'Nora','Hugo','Ivan','Sara','Leo','Mei','Kai','Tomas','Theo','Iris',
   'Noah','Vera','Finn','Zara','Otto','Lina','Marco','Tessa','Ravi','Gita',
   'Bram','Sofia','Nils','Aria','Pavel','Maya','Lukas','Nina','Dario','Emma',
   'Ricky','Lola','Sven','Kira','Diego','Anya','Felix','Suki','Joel','Romy',
@@ -206,6 +207,9 @@ const forceDemo = demoParam !== null && demoParam !== '0' && demoParam.toLowerCa
 if (forceDemo && !driverName) { driverName = 'Tomas'; driverEl.textContent = 'Tomas'; }
 
 let LEADERBOARD = makeDemo();        // seeded so the board is never blank
+// The current driver's settled pace = their board row (P18). One source of truth so the
+// synthetic hot lap below weaves around P18 instead of drifting off to the pole.
+const DEMO_DRIVER_LAP_MS = (LEADERBOARD.find(r => r.name === 'Tomas') || {}).ms || 82418;
 let usingDemo = true;
 let lastBestMs = null;               // current driver's session-best (from /ws)
 let liveLapMs = null;                // current driver's live projected/current lap (null = none)
@@ -341,8 +345,8 @@ const t0 = now();
 function demoFrame(t) {
   return {
     session_id: 'demo',
-    iBestTime: 82418,                                   // their settled best (= board pole)
-    iEstimatedLapTime: 82418 + Math.round(Math.sin(t * 0.3) * 2400),  // projected, swings ±2.4 s
+    iBestTime: DEMO_DRIVER_LAP_MS,                      // their settled best (= board P18)
+    iEstimatedLapTime: DEMO_DRIVER_LAP_MS + Math.round(Math.sin(t * 0.3) * 1200),  // projected, swings +/-1.2 s around P18
     isValidLap: 1,
   };
 }
