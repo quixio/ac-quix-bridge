@@ -11,7 +11,6 @@ from api.app import create_app
 from api.settings import get_settings
 
 
-
 _LOG_FORMAT = (
     "%(asctime)s %(levelname)-7s %(name)s [req=%(correlation_id)s] %(message)s"
 )
