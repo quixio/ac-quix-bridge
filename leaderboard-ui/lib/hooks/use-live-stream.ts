@@ -330,7 +330,15 @@ export function useLiveStream(): UseLiveStreamResult {
         }
       }
     }
-  }, [token, isLoading])
+    // Deps INTENTIONALLY exclude `token`. The hook reads the latest
+    // token from `tokenRef.current` inside `connect()`, so token rotation
+    // is picked up by the next reconnect without tearing down the
+    // current connection. Including `token` here caused the effect to
+    // re-run on every auth-context update (null → resolved PAT → refresh),
+    // closing each WebSocket within seconds of opening it and starving
+    // the snapshot delivery to the UI.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading])
 
   const tracks = useMemo(() => distinctSorted(rows.map((r) => r.track)), [rows])
   const cars = useMemo(() => distinctSorted(rows.map((r) => r.car)), [rows])
