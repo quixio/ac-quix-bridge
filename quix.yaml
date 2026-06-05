@@ -742,7 +742,7 @@ deployments:
         value: http://leaderboard-service
       - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
         inputType: FreeText
-        description: Public HTTPS URL of leaderboard-service (NOT the UI itself). Used client-side for WS + HTTP fetch.
+        description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
         required: true
         value: https://leaderboard-service-9cb716a-demo-acquixbridge-dev.edge.byox.demo
       - name: NEXT_PUBLIC_FREEZE_MS
