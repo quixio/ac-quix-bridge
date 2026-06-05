@@ -53,6 +53,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info("Lake table (LAKE_TABLE): %s", settings.lake_table)
     logger.info("LIVE_TELEMETRY_ENABLED: %s", live_telemetry_enabled)
+    # Diagnostic — verify the Lake URL alias resolution under whatever env-var
+    # name Quix Cloud injected. Print the resolved value (or NOT SET) plus the
+    # raw env-var candidates so a wrong/empty value is obvious in the deploy log.
+    logger.info(
+        "Lake URL (settings.lakehouse_query_url): %r",
+        settings.lakehouse_query_url or "NOT SET",
+    )
+    logger.info(
+        "Lake URL env candidates: Quix__Lakehouse__Query__Url=%r LAKE_API_URL=%r QUIXLAKE_URL=%r",
+        os.environ.get("Quix__Lakehouse__Query__Url"),
+        os.environ.get("LAKE_API_URL"),
+        os.environ.get("QUIXLAKE_URL"),
+    )
 
     _probe_config_api(settings.config_api_url, settings.sdk_token)
 

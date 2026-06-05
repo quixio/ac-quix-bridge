@@ -54,14 +54,18 @@ class LakehouseClient:
         Raises :class:`httpx.HTTPStatusError` for non-200 HTTP responses
         (transport-level failures).
         """
-        url = f"{self._base_url}/api/query"
+        # Endpoint shape matches the production QuixLake API on box Cloud
+        # (`https://quixlake-api-…edge.byox.demo/query`). The new-format
+        # Lakehouse Query API at `/api/query?union_by_name=true` was the
+        # original migration target, but the deployed value of `LAKE_API_URL`
+        # still points at QuixLake, so we use the QuixLake path here.
+        url = f"{self._base_url}/query"
         # TODO(ssl): verify=False — demo Box Cloud uses a self-signed cert;
         # remove when production TLS certificates are provisioned on this
         # deployment.
         with httpx.Client(verify=False) as client:
             r = client.post(
                 url,
-                params={"union_by_name": "true"},
                 content=sql,
                 headers={
                     "Authorization": f"Bearer {self._token}",
