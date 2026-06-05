@@ -107,34 +107,35 @@ class SessionTracker:
 
         The caller falls back to a locally-generated id only on None.
         """
+        # Phase 1 — poll the Kafka tracker for up to `timeout_s`. Kafka is
+        # authoritative when reachable, so we give it the full wait window
+        # before falling back to the disk file. Returns immediately if a
+        # fresh id is already held.
         deadline = time.time() + timeout_s
-        while True:
+        while time.time() < deadline:
             with self._lock:
                 sid = self._session_id
                 ts = self._timestamp_ms
             if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
                 return sid
-            # Parallel disk handshake — read the file written by
-            # `acc-telemetry-source._publish_session_metadata`. Newest-wins
-            # via timestamp_ms means the file refreshes a stale in-memory
-            # entry (Kafka delivered an OLD session_id before this one), not
-            # just an empty one. Lets us recover when Kafka is broken (ACL,
-            # broker, etc.) AND when a previous session is still cached.
-            if self._refresh_from_file():
-                with self._lock:
-                    sid = self._session_id
-                    ts = self._timestamp_ms
-                if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
-                    return sid
-            if time.time() >= deadline:
-                # On timeout, only surface a sid that passes freshness.
-                # Returning a stale id (from a long-ended session) would
-                # make the caller record under that old session's name and
-                # overwrite its prior blob recordings.
-                if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
-                    return sid
-                return None
             time.sleep(0.05)
+
+        # Phase 2 — Kafka path didn't deliver a fresh id within the window;
+        # fall back to the disk handshake file written by
+        # `acc-telemetry-source._publish_session_metadata`. Reads the file
+        # ONCE; the staleness check inside `_refresh_from_file` rejects
+        # files older than `MAX_FILE_AGE_MS`.
+        if self._refresh_from_file():
+            with self._lock:
+                sid = self._session_id
+                ts = self._timestamp_ms
+            if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+                return sid
+
+        # Neither path produced a fresh id. Return None so the caller falls
+        # back to its own locally-generated id (preferable to adopting a
+        # stale one that would overwrite prior recordings).
+        return None
 
     def try_get_fresh_session_id(self, our_detect_ms: int) -> str | None:
         """Non-blocking check for a fresh telemetry session_id.
