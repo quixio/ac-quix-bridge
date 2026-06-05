@@ -657,14 +657,14 @@ deployments:
     publicAccess:
       enabled: true
       urlPrefix: leaderboard-service-9cb716a
+    state:
+      enabled: true
+      size: 1
     network:
       serviceName: leaderboard-service
       ports:
         - port: 80
           targetPort: 8080
-    state:
-      enabled: true
-      size: 1
     variables:
       - name: MONGO_USER
         inputType: ProjectVariable
@@ -739,7 +739,7 @@ deployments:
       - name: API_URL
         inputType: FreeText
         description: Internal k8s service URL for server-side Next.js requests (unused — no rewrites; kept for parity)
-        value: https://leaderboard-service-9cb716a-demo-acquixbridge-dev.edge.byox.demo
+        value: http://leaderboard-service
       - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
         inputType: FreeText
         description: Public HTTPS URL of leaderboard-service (NOT the UI itself). Used client-side for WS + HTTP fetch.
