@@ -557,6 +557,31 @@ class ACVideoSource:
                     already_there = (prev_norm_pos is not None and prev_norm_pos < 0.1)
                     first_read = (prev_norm_pos is None)
                     if crossed or already_there or first_read:
+                        # Gate recording on confirmed telemetry session_id.
+                        # The outlap from pits to start-line is several
+                        # seconds — the Kafka session message has had plenty
+                        # of time to arrive. Refusing to start with a
+                        # fallback id prevents the ms drift from being
+                        # committed to blob.
+                        if not session_id_confirmed and self._session_tracker is not None:
+                            resolved = self._session_tracker.session_id_for_new_session(
+                                session_detect_ms, timeout_s=5.0
+                            )
+                            if resolved and resolved != session_id:
+                                logger.info(
+                                    "Adopting telemetry session_id at start-line: "
+                                    "%s (was temp %s)",
+                                    resolved, session_id,
+                                )
+                                session_id = resolved
+                                session_id_confirmed = True
+                            elif not resolved:
+                                logger.warning(
+                                    "Start-line crossed but no telemetry session_id "
+                                    "within 5s — recording with temp id %s; lap may "
+                                    "not be syncable in Explorer",
+                                    session_id,
+                                )
                         recorder.start_lap(
                             session_id, completed_laps + 1, *display_size
                         )
