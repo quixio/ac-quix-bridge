@@ -117,6 +117,10 @@ class SessionTracker:
                 sid = self._session_id
                 ts = self._timestamp_ms
             if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+                logger.info(
+                    "Start-line handshake: adopted session_id via Kafka topic — %s",
+                    sid,
+                )
                 return sid
             time.sleep(0.05)
 
@@ -130,11 +134,20 @@ class SessionTracker:
                 sid = self._session_id
                 ts = self._timestamp_ms
             if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+                logger.info(
+                    "Start-line handshake: adopted session_id via disk file — %s",
+                    sid,
+                )
                 return sid
 
         # Neither path produced a fresh id. Return None so the caller falls
         # back to its own locally-generated id (preferable to adopting a
         # stale one that would overwrite prior recordings).
+        logger.warning(
+            "Start-line handshake: no fresh session_id from Kafka or disk after %.1fs "
+            "— caller will use fallback id (recording will not be syncable in Explorer)",
+            timeout_s,
+        )
         return None
 
     def try_get_fresh_session_id(self, our_detect_ms: int) -> str | None:
