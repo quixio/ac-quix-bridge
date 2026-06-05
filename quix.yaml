@@ -651,8 +651,8 @@ deployments:
     deploymentType: Service
     resources:
       limits:
-        cpu: 200
-        memory: 500
+        cpu: 1000
+        memory: 2000
       replicas: 1
     publicAccess:
       enabled: true
