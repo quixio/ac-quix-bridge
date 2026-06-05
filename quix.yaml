@@ -657,14 +657,14 @@ deployments:
     publicAccess:
       enabled: true
       urlPrefix: leaderboard-service-9cb716a
+    state:
+      enabled: true
+      size: 1
     network:
       serviceName: leaderboard-service
       ports:
         - port: 80
           targetPort: 8080
-    state:
-      enabled: true
-      size: 1
     variables:
       - name: MONGO_USER
         inputType: ProjectVariable
@@ -744,7 +744,7 @@ deployments:
         inputType: FreeText
         description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
         required: true
-        value: https://leaderboard-demo-acquixbridge-dev.edge.byox.demo
+        value: https://leaderboard-service-9cb716a-demo-acquixbridge-dev.edge.byox.demo
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: Blue-freeze window duration in ms after a gate crossing.
