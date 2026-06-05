@@ -192,19 +192,21 @@ class AssettoCorsaCompetizioneSource(Source):
                 self._session_id, prev_id, reason,
             )
 
-        # Session-end cleanup of the disk-handshake file. When status leaves
-        # "live" (live → off/replay/pause), the session is no longer active;
-        # delete the file so a consumer that boots later doesn't pick up a
-        # stale id from a session that's already ended. The file is
-        # re-created on the next session-start in `_publish_session_metadata`.
+        # Session-end cleanup of the disk-handshake file. Only delete on
+        # TERMINAL transitions (live → off/replay), NOT on pause —
+        # `pause → live` is documented above as a "resume same session"
+        # path that does NOT regenerate the session_id or call
+        # `_publish_session_metadata`. Deleting on pause would leave the
+        # file missing for the entire resumed-driving period.
         if (
             self._prev_status == "live"
-            and status != "live"
+            and status in ("off", "replay")
             and _SESSION_ID_FILE.exists()
         ):
             try:
                 _SESSION_ID_FILE.unlink()
-                logger.info("Session ended — cleared handshake file %s", _SESSION_ID_FILE)
+                logger.info("Session ended (live → %s) — cleared handshake file %s",
+                            status, _SESSION_ID_FILE)
             except Exception as e:  # noqa: BLE001
                 logger.warning("Failed to clear session_id file %s: %s", _SESSION_ID_FILE, e)
 
