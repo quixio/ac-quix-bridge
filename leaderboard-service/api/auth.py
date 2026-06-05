@@ -68,6 +68,20 @@ def validate_token(
             token = authorization
             scheme = "raw"
 
+        # Shared-secret short-circuit. Quix Cloud auto-injects the
+        # workspace's Lakehouse query PAT as `Quix__Lakehouse__Query__AuthToken`
+        # (because this deployment has `blobStorage: bind: true`). If the
+        # incoming Bearer matches that value, accept without round-tripping
+        # to the Quix portal. Same workspace PAT either way; this just
+        # skips the portal latency + dependency for the common case.
+        shared_secret = os.environ.get("Quix__Lakehouse__Query__AuthToken", "")
+        if shared_secret and token == shared_secret:
+            logger.debug(
+                "[auth] %s %s — OK via shared-secret match (scheme=%s, token=%s)",
+                permission, path, scheme, _token_preview(token),
+            )
+            return None
+
         ok = auth_instance.validate_permissions(
             token, "Workspace", settings.workspace_id, permission
         )
