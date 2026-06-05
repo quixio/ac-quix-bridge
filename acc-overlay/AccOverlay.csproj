@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Transparent, click-through always-on-top overlay for Assetto Corsa Competizione.
+    Reads ACC's shared memory directly (no Kafka/Quix dependency) and shows a
+    G-force meter + the player's predicted leaderboard position, centred top.
+    See README.md for build / run / publish commands.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>AccOverlay</AssemblyName>
+    <RootNamespace>AccOverlay</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Force a 64-bit process so the Win32 window-style interop behaves. -->
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
