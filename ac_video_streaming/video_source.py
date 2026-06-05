@@ -334,16 +334,22 @@ class ACVideoSource:
                     enable_ssl_certificate_verification=False,
                     ssl_endpoint_identification_algorithm="none",
                 )
-                # Stable consumer group name — a per-PID+timestamp name
-                # changed on every process restart and Kafka ACLs on the
-                # workspace rejected it with GROUP_AUTHORIZATION_FAILED, so
-                # the SDF never fired and SessionTracker stayed empty (→
-                # video locked in the fallback session_id). With
-                # `auto_commit_enable=False` (set on get_consumer below) +
-                # `auto_offset_reset="earliest"`, every restart still reads
-                # from the topic head since no offset is ever committed.
+                # Stable, workspace-prefixed consumer group name. Kafka ACLs
+                # on this workspace authorize groups whose name starts with
+                # the workspace id (same prefix QuixStreams auto-applies to
+                # topics), so we mirror that pattern manually here — the
+                # `Application(consumer_group=...)` kwarg does NOT auto-
+                # prefix. Earlier code used a per-PID+timestamp suffix that
+                # ACLs rejected with GROUP_AUTHORIZATION_FAILED, leaving
+                # SessionTracker empty and the fallback session_id locked
+                # in. With `auto_commit_enable=False` + `auto_offset_reset
+                # ="earliest"`, every restart still reads from the topic
+                # head since no offset is ever committed.
+                _ws = os.environ.get("Quix__Workspace__Id", "").strip()
+                _group_suffix = "ac-video-streaming-session-tracker"
+                _consumer_group = f"{_ws}-{_group_suffix}" if _ws else _group_suffix
                 mini_app = _App(
-                    consumer_group="ac-video-streaming-session-tracker",
+                    consumer_group=_consumer_group,
                     auto_offset_reset="earliest",
                     auto_create_topics=False,
                     broker_address=conn,
