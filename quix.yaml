@@ -682,6 +682,14 @@ deployments:
         inputType: FreeText
         required: true
         value: http://dynamic-configuration-manager
+      - name: Quix__Lakehouse__Query__Url
+        inputType: ProjectVariable
+        required: true
+        variableKey: LAKE_API_URL
+      - name: Quix__Lakehouse__Query__AuthToken
+        inputType: ProjectVariable
+        required: true
+        variableKey: quix_lake_pat
       - name: output
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
@@ -706,7 +714,7 @@ deployments:
         value: normalizedCarPosition
       - name: GATE_COUNT
         inputType: FreeText
-        value: 650
+        value: 50
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false
