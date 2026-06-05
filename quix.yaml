@@ -678,9 +678,9 @@ deployments:
         required: true
         value: http://dynamic-configuration-manager
       - name: Quix__Lakehouse__Query__Url
-        inputType: FreeText
+        inputType: ProjectVariable
         required: true
-        value: LAKE_API_URL
+        variableKey: LAKE_API_URL
       - name: Quix__Lakehouse__Query__AuthToken
         inputType: ProjectVariable
         required: true
