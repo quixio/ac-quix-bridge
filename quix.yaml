@@ -739,12 +739,12 @@ deployments:
       - name: API_URL
         inputType: FreeText
         description: Internal k8s service URL for server-side Next.js requests (unused — no rewrites; kept for parity)
-        value: http://leaderboard-service
+        value: https://leaderboard-service-9cb716a-demo-acquixbridge-dev.edge.byox.demo
       - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
         inputType: FreeText
         description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
         required: true
-        value: https://leaderboard-service-9cb716a-demo-acquixbridge-dev.edge.byox.demo
+        value: https://leaderboard-demo-acquixbridge-dev.edge.byox.demo
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: Blue-freeze window duration in ms after a gate crossing.
