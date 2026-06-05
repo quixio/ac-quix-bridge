@@ -106,16 +106,35 @@ function _isPlotTool(name) {
 function _addToolCard(toolCallId, label, toolName) {
   const list = document.getElementById('chat-messages');
   if (!list) return;
+  // Collapsed by default — header (caret + name) toggles the body; input is
+  // hidden behind its own "Show input" toggle. Mirrors the native Quix AI card
+  // so tool runs don't dump args + results into the conversation by default.
   const card = document.createElement('div');
-  card.className = 'chat-tool-card chat-tool-running';
+  card.className = 'chat-tool-card chat-tool-running chat-tool-collapsed';
+
   const head = document.createElement('div');
   head.className = 'chat-tool-head';
   head.textContent = label || 'tool';
+  head.addEventListener('click', () => card.classList.toggle('chat-tool-collapsed'));
+
+  const body = document.createElement('div');
+  body.className = 'chat-tool-body';
+
+  const inputToggle = document.createElement('div');
+  inputToggle.className = 'chat-tool-subtoggle';
+  inputToggle.textContent = 'Show input';
   const args = document.createElement('pre');
   args.className = 'chat-tool-args';
+  inputToggle.addEventListener('click', () => {
+    const shown = args.classList.toggle('chat-tool-args-shown');
+    inputToggle.textContent = shown ? 'Hide input' : 'Show input';
+  });
+
   const result = document.createElement('div');
   result.className = 'chat-tool-result';
-  card.append(head, args, result);
+
+  body.append(inputToggle, args, result);
+  card.append(head, body);
   list.appendChild(card);
   _toolCards.set(toolCallId, {
     argsBuf: '',

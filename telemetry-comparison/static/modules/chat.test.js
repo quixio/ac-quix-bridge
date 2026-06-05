@@ -160,6 +160,10 @@ describe('chat.js JSONL handling', () => {
     expect(card.querySelector('.chat-tool-args').textContent).toContain('SELECT 1');
     expect(card.querySelector('.chat-tool-result').textContent).toBe('1 row');
     expect(card.classList.contains('chat-tool-done')).toBe(true);
+    // Collapsed by default; clicking the header expands it.
+    expect(card.classList.contains('chat-tool-collapsed')).toBe(true);
+    card.querySelector('.chat-tool-head').click();
+    expect(card.classList.contains('chat-tool-collapsed')).toBe(false);
   });
 
   it('tool_result with is_error marks the card as errored', async () => {
