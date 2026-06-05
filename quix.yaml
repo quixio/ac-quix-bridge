@@ -657,6 +657,11 @@ deployments:
     publicAccess:
       enabled: true
       urlPrefix: leaderboard-service-9cb716a
+    network:
+      serviceName: leaderboard-service
+      ports:
+        - port: 80
+          targetPort: 8080
     state:
       enabled: true
       size: 1
