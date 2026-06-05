@@ -108,10 +108,13 @@ class SessionTracker:
                 ts = self._timestamp_ms
             if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
                 return sid
-            # Parallel disk handshake — if Kafka tracker is still empty, try
-            # the local file written by `acc-telemetry-source._publish_session_metadata`.
-            # Lets us recover when Kafka is broken (ACL, broker, etc.).
-            if sid is None and self._load_from_file_if_empty():
+            # Parallel disk handshake — read the file written by
+            # `acc-telemetry-source._publish_session_metadata`. Newest-wins
+            # via timestamp_ms means the file refreshes a stale in-memory
+            # entry (Kafka delivered an OLD session_id before this one), not
+            # just an empty one. Lets us recover when Kafka is broken (ACL,
+            # broker, etc.) AND when a previous session is still cached.
+            if self._refresh_from_file():
                 with self._lock:
                     sid = self._session_id
                     ts = self._timestamp_ms
@@ -133,7 +136,7 @@ class SessionTracker:
         if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
             return sid
         # File fallback for the non-blocking variant too.
-        if sid is None and self._load_from_file_if_empty():
+        if self._refresh_from_file():
             with self._lock:
                 sid = self._session_id
                 ts = self._timestamp_ms
@@ -141,15 +144,15 @@ class SessionTracker:
                 return sid
         return None
 
-    def _load_from_file_if_empty(self) -> bool:
+    def _refresh_from_file(self) -> bool:
         """Best-effort load of session metadata from the parallel-path file
         written by `acc-telemetry-source`. Returns True if state was updated.
 
-        Only loads when the tracker has nothing yet — never overwrites a
-        Kafka-sourced session_id (Kafka is authoritative when reachable)."""
-        with self._lock:
-            if self._session_id is not None:
-                return False
+        Newest-wins: adopts the file's id only when its `timestamp_ms` is
+        strictly newer than what the tracker currently holds. That keeps
+        Kafka authoritative when both sources agree, AND lets the file
+        upgrade a STALE in-memory entry (e.g. a session_id from a previous
+        session that Kafka delivered before the new one started)."""
         if not _SESSION_ID_FILE.exists():
             return False
         try:
@@ -159,6 +162,15 @@ class SessionTracker:
             return False
         if not isinstance(data, dict) or not data.get("session_id"):
             return False
+        file_ts = int(data.get("timestamp_ms", 0))
+        with self._lock:
+            current_ts = self._timestamp_ms
+            current_sid = self._session_id
+        if file_ts <= current_ts and current_sid is not None:
+            return False  # in-memory is already as-new or newer
         self.update_from_message(data)
-        logger.info("Adopted session_id via disk handshake (file=%s)", _SESSION_ID_FILE)
+        logger.info(
+            "Adopted session_id via disk handshake (file=%s, file_ts=%d, prev_ts=%d)",
+            _SESSION_ID_FILE, file_ts, current_ts,
+        )
         return True
