@@ -719,6 +719,46 @@ deployments:
       - name: Quix__Portal__Api
         inputType: FreeText
         value: https://portal-api.dev.quix.io
+  - name: leaderboard-ui
+    application: leaderboard-ui
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 500
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: leaderboard
+    network:
+      serviceName: leaderboard-ui
+      ports:
+        - port: 80
+          targetPort: 3000
+    variables:
+      - name: API_URL
+        inputType: FreeText
+        description: Backend API URL for server-side requests (in-cluster service name)
+        required: true
+        value: http://leaderboard-service
+      - name: NODE_ENV
+        inputType: FreeText
+        description: Node environment
+        required: true
+        value: production
+      - name: NEXT_TELEMETRY_DISABLED
+        inputType: FreeText
+        description: Disable Next.js telemetry
+        value: 1
+      - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
+        inputType: FreeText
+        description: Public URL of the leaderboard-service deployment (used by the browser for WebSocket + REST calls).
+        required: true
+      - name: NEXT_PUBLIC_FREEZE_MS
+        inputType: FreeText
+        description: Live-positions blue-freeze window duration in ms after a gate crossing.
+        value: 200
 
 # This section describes the Topics of the data pipeline
 topics:

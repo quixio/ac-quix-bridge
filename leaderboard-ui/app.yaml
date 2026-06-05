@@ -1,0 +1,26 @@
+name: leaderboard-ui
+language: node
+variables:
+  - name: API_URL
+    inputType: FreeText
+    description: Internal k8s service URL for server-side Next.js requests (unused — no rewrites; kept for parity)
+    required: false
+    defaultValue: http://leaderboard-service
+  - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
+    inputType: FreeText
+    description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
+    required: true
+  - name: NEXT_PUBLIC_FREEZE_MS
+    inputType: FreeText
+    description: Blue-freeze window duration in ms after a gate crossing.
+    defaultValue: "200"
+  - name: NODE_ENV
+    inputType: FreeText
+    required: true
+    defaultValue: production
+  - name: NEXT_TELEMETRY_DISABLED
+    inputType: FreeText
+    defaultValue: "1"
+dockerfile: dockerfile
+runEntryPoint: npm start
+defaultFile: app/page.tsx

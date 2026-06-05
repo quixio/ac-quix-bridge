@@ -1,0 +1,29 @@
+# Development Dockerfile for Leaderboard UI Next.js Frontend
+FROM node:20-bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    git \
+    bash \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN npm install -g \
+    npm@latest \
+    typescript \
+    @types/node
+
+RUN groupadd -g 1001 nodejs && \
+    useradd -u 1001 -g nodejs -s /bin/bash -m nextjs
+
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
+
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]
