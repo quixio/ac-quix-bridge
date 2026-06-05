@@ -16,12 +16,13 @@ variables:
   - name: CONFIG_API_URL
     inputType: FreeText
     required: true
-  - name: Quix__Lakehouse__Query__Url
-    inputType: ProjectVariable
-    required: true
-  - name: Quix__Lakehouse__Query__AuthToken
-    inputType: Secret
-    required: true
+  # Quix__Lakehouse__Query__Url and Quix__Lakehouse__Query__AuthToken are
+  # intentionally NOT declared here. They are auto-injected by Quix Cloud at
+  # runtime because the deployment has `blobStorage: bind: true` in
+  # `quix.yaml`. Declaring them here forces the portal to prompt for a
+  # value at deploy time, and a wrong manual value (e.g. the old dead
+  # QuixLake URL) silently overrides the auto-injection. Mirror the
+  # telemetry-comparison pattern (its app.yaml also doesn't declare these).
   - name: output
     inputType: InputTopic
     description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
