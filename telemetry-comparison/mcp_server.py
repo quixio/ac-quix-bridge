@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import hmac
 import logging
+from typing import Any
 
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 import config
 from plans import PlotPlan, Trace
@@ -30,7 +31,7 @@ from plans import PlotPlan, Trace
 logger = logging.getLogger(__name__)
 
 
-def plot_data(*, signals: list[str], traces: list[Trace], title: str = "") -> dict:
+def plot_data(*, signals: list[str], traces: list[Trace], title: str = "") -> dict[str, Any]:
     """Draw a telemetry chart in the Telemetry Explorer for the user.
 
     Call this to PLOT data instead of describing it in prose. The chart is
@@ -59,7 +60,7 @@ class _ApiKeyMiddleware(BaseHTTPMiddleware):
     Fail-closed: 500 if the key env var is unset, 401 on missing/mismatch.
     """
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def]
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         expected = config.MCP_API_KEY
         if not expected:
             logger.error("MCP_API_KEY (TELEMETRY_COMPARISON_MCP_API_KEY) is not set")
@@ -91,4 +92,5 @@ def install(app: FastAPI) -> FastMCP:
     sub_app.add_middleware(_ApiKeyMiddleware)
     app.routes[:] = [r for r in app.routes if getattr(r, "path", None) != "/mcp"]
     app.mount("/mcp", sub_app)
+    logger.info("MCP mounted at /mcp (api key configured: %s)", bool(config.MCP_API_KEY))
     return mcp

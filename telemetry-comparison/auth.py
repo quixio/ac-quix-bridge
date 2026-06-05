@@ -31,10 +31,12 @@ logger = logging.getLogger(__name__)
 # range requests, so a gated route would 401. The data is replay footage of
 # already-recorded laps; treat as low-sensitivity. Tighten with a query-
 # param token if the videos become sensitive.
-_PUBLIC_PATHS: tuple[str, ...] = ("/", "/health", "/favicon.ico")
-# `/mcp` is exempt from the Bearer gate — the mounted MCP sub-app enforces its
+_PUBLIC_PATHS: tuple[str, ...] = ("/", "/health", "/favicon.ico", "/mcp")
+# `/mcp/` is exempt from the Bearer gate — the mounted MCP sub-app enforces its
 # own X-API-Key (see mcp_server._ApiKeyMiddleware); the agent has no Bearer.
-_PUBLIC_PREFIXES: tuple[str, ...] = ("/static/", "/api/video/", "/mcp")
+# Use the trailing-slash prefix (+ exact `/mcp` above) so an unrelated future
+# route like `/mcpanything` does NOT inherit the exemption.
+_PUBLIC_PREFIXES: tuple[str, ...] = ("/static/", "/api/video/", "/mcp/")
 
 
 def _token_preview(token: str) -> str:

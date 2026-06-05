@@ -14,12 +14,17 @@ variables:
     defaultValue: ac_video
   - name: QUIX_TOKEN
     inputType: Secret
-    description: PAT for Quix Portal API (powers the QuixLake Querier AI chat). Same value as QUIX_LAKE_TOKEN works.
-    required: true
+    description: Optional fallback PAT for the Quix AI chat. Normally unset — the chat forwards the logged-in user's Bearer; used only in local dev without auth.
+    required: false
     secretKey: pat
   - name: QUIX_AI_AGENT_ID
     inputType: FreeText
-    description: Quix AI agent ID for the QuixLake Querier (system prompt + KBs + MCP tools). Leave empty to use the built-in default.
-    defaultValue: d578e2f5-c2b7-461a-90d2-70dfac450fb0
+    description: Quix AI agent ID for the Lakehouse Querier. Must exist in the target environment's portal.
+    defaultValue: a04cfe48-e816-4a66-87af-ac547b7b8137
+  - name: TELEMETRY_COMPARISON_MCP_API_KEY
+    inputType: Secret
+    description: X-API-Key gating the /mcp endpoint (plot_data tool). Must match the key registered for this MCP server on the Lakehouse Querier agent.
+    required: true
+    secretKey: mcp_api_key
 dockerfile: dockerfile
 defaultFile: main.py

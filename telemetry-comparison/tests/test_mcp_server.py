@@ -75,7 +75,7 @@ def test_mcp_accepts_correct_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "MCP_API_KEY", "secret")
     with TestClient(app) as client:
         r = client.post("/mcp/", json=_INIT_BODY, headers={**_SSE_ACCEPT, "X-API-Key": "secret"})
-    assert r.status_code != 401  # auth passed (MCP transport handles the rest)
+    assert r.status_code == 200  # auth passed + MCP initialize handshake succeeded
 
 
 def test_mcp_500_when_key_unset(monkeypatch: pytest.MonkeyPatch) -> None:

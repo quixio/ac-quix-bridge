@@ -87,6 +87,13 @@ def validate_env() -> None:
     if not QUIX_TOKEN:
         logger.info("QUIX_TOKEN not set — AI chat will use the request's Bearer token")
 
+    # MCP_API_KEY gates /mcp; if unset the endpoint fail-closes with 500 at
+    # request time, so warn here to make the misconfig visible up front.
+    if not MCP_API_KEY:
+        logger.warning(
+            "TELEMETRY_COMPARISON_MCP_API_KEY not set — /mcp will reject all requests (500)"
+        )
+
     if API_AUTH_ACTIVE and not LOCAL_DEV_MODE and not WORKSPACE_ID:
         logger.error("Quix__Workspace__Id is not set — Bearer-token auth will reject every request")
     if not API_AUTH_ACTIVE:
