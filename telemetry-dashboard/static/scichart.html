@@ -206,6 +206,8 @@
   /* New personal-best lap: time goes purple and blinks for ~4s, then stays purple. */
   .lb-time.flash { color: var(--purple); animation: lbflash .5s ease-in-out 8; }
   @keyframes lbflash { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
+  /* Separator between the pinned leader and the window around the current driver. */
+  .lb-gaprow { text-align: center; color: var(--dim); font-size: 1.4vh; font-weight: 800; letter-spacing: .35vw; line-height: 1; padding: .15vh 0; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -556,7 +558,11 @@ let sampleCount = 0;   // total appended frames (for the Hz readout)
 // ============================================================
 const STEER_VISUAL_GAIN = 3;   // exaggerate the visual rim rotation; readout shows true angle
 const LED_COUNT = 15;          // shift lights: 9 green / 3 amber / 3 red
-const TOP_N = 10;
+// Leaderboard sizing: with up to LB_WINDOW_MIN entries the whole board is shown.
+// Past that it switches to "pin the leader + a window around the current driver",
+// capping the visible rows at LB_VISIBLE.
+const LB_WINDOW_MIN = 12;      // show everyone until there are MORE than this many
+const LB_VISIBLE = 12;         // rows shown at once once windowing kicks in
 const INT_MAX = 2147483647;    // AC's "no time set" sentinel for lap-time fields
 let sbRpmMax = 8000;           // auto-calibrated per session
 let driverName = new URLSearchParams(location.search).get('driver') || 'Tomas';
@@ -601,6 +607,8 @@ const leds = [];
 })();
 
 // Placeholder standings until the /leaderboard proxy answers. ms = lap time in ms.
+// A full grid (> LB_WINDOW_MIN) so the pin-leader + window behaviour is visible in
+// demo: the current driver's live "hot lap" weaves through the mid-field.
 let LEADERBOARD = [
   { name: 'Tomas',  ms: 82418 },
   { name: 'Mika',   ms: 82673 },
@@ -612,6 +620,18 @@ let LEADERBOARD = [
   { name: 'Lena',   ms: 84560 },
   { name: 'Omar',   ms: 84988 },
   { name: 'Priya',  ms: 85402 },
+  { name: 'Nora',   ms: 85781 },
+  { name: 'Hugo',   ms: 86090 },
+  { name: 'Ivan',   ms: 86433 },
+  { name: 'Sara',   ms: 86702 },
+  { name: 'Leo',    ms: 87044 },
+  { name: 'Mei',    ms: 87388 },
+  { name: 'Kai',    ms: 87715 },
+  { name: 'Ana',    ms: 88061 },
+  { name: 'Theo',   ms: 88420 },
+  { name: 'Iris',   ms: 88799 },
+  { name: 'Finn',   ms: 89154 },
+  { name: 'Zara',   ms: 89530 },
 ];
 
 // A lap is valid (has a real time) when it isn't AC's "no time set" sentinel. Single
@@ -637,13 +657,45 @@ let lbLiveUntil = 0;                           // live row + dot shown while now
 let liveLapMs = null;                          // current driver's live lap (projected/current); null = none
 
 // Combine the settled best laps (LEADERBOARD) with the current driver's live in-progress
-// row, re-sort by time, and take the top N. The live row is a second entry for the same
-// driver — ranked by its own (projected/current) time — shown only while telemetry is fresh.
+// row and re-sort by time — the FULL field, not yet trimmed. The live row is a second
+// entry for the same driver, ranked by its own (projected/current) time, shown only while
+// telemetry is fresh. computeVisible() decides which of these rows actually get rendered.
 function buildRows() {
   const rows = LEADERBOARD.map(r => ({ name: r.name, ms: r.ms, live: false }));
   if (now() < lbLiveUntil && liveLapMs != null) rows.push({ name: driverName, ms: liveLapMs, live: true });
   rows.sort((a, b) => a.ms - b.ms);
-  return rows.slice(0, TOP_N);
+  return rows;
+}
+
+// Decide which rows to show. Small field (≤ LB_WINDOW_MIN): show everyone. Large field:
+// pin the leader (P1) and show a window of rows centred on the current driver, so you
+// always see who's winning plus your own neighbourhood of the order. Returns display
+// items carrying each row's TRUE rank; {gap:true} marks a discontinuity (rendered as ⋯).
+function computeVisible(full) {
+  const n = full.length;
+  if (n <= LB_WINDOW_MIN) return full.map((row, rank) => ({ row, rank }));
+
+  const me = (driverName || '').toLowerCase();
+  // Centre on the current driver's live (hot-lap) row if present, else their best row.
+  let meIdx = full.findIndex(r => r.live && r.name.toLowerCase() === me);
+  if (meIdx < 0) meIdx = full.findIndex(r => r.name.toLowerCase() === me);
+  if (meIdx < 0) meIdx = Math.floor(LB_VISIBLE / 2);   // no current driver → window near the top
+
+  // Budget: LB_VISIBLE rows. Reserve one for the pinned leader and one for the gap
+  // marker, then size the window from what's left and centre it on me over ranks
+  // [1 … n-1]. Clamping keeps meIdx inside the window, so it's never trimmed.
+  const winSize = LB_VISIBLE - 2;
+  let start = meIdx - Math.floor(winSize / 2);
+  start = Math.max(1, Math.min(start, n - winSize));
+  let end = start + winSize - 1;
+  // If the window butts up against the leader there's no gap — spend that freed slot
+  // on one more row at the bottom instead.
+  if (start === 1 && end < n - 1) end += 1;
+
+  const items = [{ row: full[0], rank: 0 }];     // pinned leader (P1)
+  if (start > 1) items.push({ gap: true });      // discontinuity between P1 and the window
+  for (let i = start; i <= end; i++) items.push({ row: full[i], rank: i });
+  return items;
 }
 
 // Gap as a signed seconds string, e.g. "+0.420". Gaps off the sorted board are always ≥ 0.
@@ -653,25 +705,27 @@ function renderLeaderboard(flashName) {
   const me = (driverName || '').toLowerCase();
   // Explicit name wins; otherwise flash the driver's own best row during the post-PB window.
   const flash = flashName ? flashName.toLowerCase() : (now() < lbFlashUntil ? me : null);
-  const rows = buildRows();
-  const leaderMs = rows.length ? rows[0].ms : 0;
-  lbBody.innerHTML = rows.map((r, i) => {
+  const full = buildRows();
+  const leaderMs = full.length ? full[0].ms : 0;
+  lbBody.innerHTML = computeVisible(full).map((it) => {
+    if (it.gap) return '<div class="lb-gaprow">···</div>';
+    const r = it.row, rank = it.rank;
     const isMe = r.name.toLowerCase() === me;
     // No valid lap yet (AC sentinel) → first lap in progress. Sorts last, so it's never P1.
     const noLap = !hasLap(r.ms);
     // Live in-progress row: green blink dot + amber "~" time. Best/other rows render
     // as settled times; only a settled best row can flash on a new PB.
     const timeCls = 'lb-time' + (r.live ? ' live-lap' : (flash && r.name.toLowerCase() === flash ? ' flash' : ''));
-    // Stacked under the time (smaller): gap to leader + interval to the car ahead.
-    // P1 is the reference, so it gets no gap line. A driver still on their first lap has
-    // no time to diff against, so show dashes instead of nonsense from the sentinel.
-    const deltas = i === 0 ? '' :
+    // Stacked under the time (smaller): gap to leader + interval to the car ahead. Both
+    // use the TRUE rank into the full field, so they stay correct across the pinned gap.
+    // A driver still on their first lap has no time to diff against, so show dashes instead of nonsense from the sentinel.
+    const deltas = rank === 0 ? '' :
       '<div class="lb-deltas">' +
         '<span class="lb-gap-leader">' + (noLap ? '—' : fmtGap(r.ms - leaderMs)) + '</span>' +
-        '<span class="lb-gap-ahead">' + (noLap ? '—' : fmtGap(r.ms - rows[i - 1].ms)) + '</span>' +
+        '<span class="lb-gap-ahead">' + (noLap ? '—' : fmtGap(r.ms - full[rank - 1].ms)) + '</span>' +
       '</div>';
     return '<div class="lb-row' + (isMe ? ' me' : '') + '">' +
-      '<div class="lb-pos">' + (i + 1) + '</div>' +
+      '<div class="lb-pos">' + (rank + 1) + '</div>' +
       '<div class="lb-namewrap">' +
         '<div class="lb-name">' + r.name + '</div>' +
         (r.live ? '<div class="lb-hot">Hot Lap</div>' : (noLap ? '<div class="lb-hot">First Lap</div>' : '')) +

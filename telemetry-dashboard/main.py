@@ -258,7 +258,7 @@ DEFAULT_LEADERBOARD_SQL = (
     'SELECT driver AS name, MIN("iBestTime") AS ms '
     'FROM ac_telemetry '
     "WHERE \"iBestTime\" > 0 AND driver IS NOT NULL AND driver <> '' "
-    "GROUP BY driver ORDER BY ms ASC LIMIT 10"
+    "GROUP BY driver ORDER BY ms ASC LIMIT 100"
 )
 _lb_cache: dict = {"ts": 0.0, "rows": []}
 
