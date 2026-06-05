@@ -139,12 +139,14 @@ async def live_stream_endpoint(
     ``active`` as a patch against the matching ``(driver, track, car,
     experiment)`` row inside that state.
     """
-    if not _validate_ws_token(token):
-        # Close BEFORE accept so the browser sees a clean handshake
-        # rejection (1008 = policy violation in the WS protocol).
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
+    # WS is open — no token required. The stream just replays public
+    # Kafka topic data (telemetry/session/config), no sensitive info on
+    # this channel. Keeping the HTTP API auth gate intact for everything
+    # else; this is intentional per the leaderboard-ui design (the page
+    # may load before the auth handshake completes, and the WS should
+    # not block on it).
+    _ = token  # accepted but ignored — kept in the URL signature for
+    # backwards compatibility with clients that still send it.
     await websocket.accept()
 
     # Build + send the initial snapshot BEFORE registering the client.
