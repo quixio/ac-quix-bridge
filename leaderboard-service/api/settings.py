@@ -1,7 +1,7 @@
 import re
 from functools import lru_cache
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Lake table names are inlined into SQL (QuixLake doesn't expose
@@ -45,15 +45,28 @@ class Settings(BaseSettings):
     # Configuration API settings
     config_api_url: str = Field(..., description="Configuration API URL")
 
-    # Quix Lakehouse Query API
+    # Quix Lakehouse Query API. Accepts either the canonical
+    # `Quix__Lakehouse__Query__*` env-var names OR the project-variable
+    # names (`LAKE_API_URL` / `LAKE_API_TOKEN` / `QUIX_LAKE_TOKEN` /
+    # `quix_lake_pat`) so the deployment works regardless of how the
+    # Quix Cloud portal mapped the project variables to container env vars.
     lakehouse_query_url: str | None = Field(
         None,
-        alias="Quix__Lakehouse__Query__Url",
+        validation_alias=AliasChoices(
+            "Quix__Lakehouse__Query__Url",
+            "LAKE_API_URL",
+            "QUIXLAKE_URL",
+        ),
         description="Base URL of the Quix Lakehouse Query API",
     )
     lakehouse_query_token: str | None = Field(
         None,
-        alias="Quix__Lakehouse__Query__AuthToken",
+        validation_alias=AliasChoices(
+            "Quix__Lakehouse__Query__AuthToken",
+            "LAKE_API_TOKEN",
+            "QUIX_LAKE_TOKEN",
+            "quix_lake_pat",
+        ),
         description="Bearer token for the Lakehouse Query API",
     )
 
