@@ -41,6 +41,12 @@ class SessionTracker:
     # this many ms of the video source's detection time.
     FRESH_TOLERANCE_MS = 2000
 
+    # Max wall-clock age of the disk-handshake file we'll trust. Files older
+    # than this are assumed to be from a previous session that ended; adopting
+    # them would re-use old blob filenames and overwrite the prior session's
+    # recordings. 1 hour is generous enough for any realistic AC session run.
+    MAX_FILE_AGE_MS = 3_600_000
+
     def __init__(self):
         self._lock = threading.Lock()
         self._session_id: str | None = None
@@ -121,7 +127,13 @@ class SessionTracker:
                 if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
                     return sid
             if time.time() >= deadline:
-                return sid
+                # On timeout, only surface a sid that passes freshness.
+                # Returning a stale id (from a long-ended session) would
+                # make the caller record under that old session's name and
+                # overwrite its prior blob recordings.
+                if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+                    return sid
+                return None
             time.sleep(0.05)
 
     def try_get_fresh_session_id(self, our_detect_ms: int) -> str | None:
@@ -163,6 +175,13 @@ class SessionTracker:
         if not isinstance(data, dict) or not data.get("session_id"):
             return False
         file_ts = int(data.get("timestamp_ms", 0))
+        now_ms = int(time.time() * 1000)
+        if now_ms - file_ts > self.MAX_FILE_AGE_MS:
+            # File is from a long-ended session; ignore it. Without this
+            # guard the consumer would adopt the old session's id and
+            # overwrite the prior session's blob recordings (same-id files
+            # collide on upload).
+            return False
         with self._lock:
             current_ts = self._timestamp_ms
             current_sid = self._session_id
