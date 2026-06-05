@@ -682,6 +682,14 @@ deployments:
         inputType: FreeText
         required: true
         value: http://dynamic-configuration-manager
+      - name: Quix__Lakehouse__Query__Url
+        inputType: ProjectVariable
+        required: true
+        variableKey: LAKE_API_URL
+      - name: Quix__Lakehouse__Query__AuthToken
+        inputType: ProjectVariable
+        required: true
+        variableKey: quix_lake_pat
       - name: output
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
@@ -745,6 +753,12 @@ deployments:
         description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
         required: true
         value: https://leaderboard-service-9cb716a-demo-acquixbridge-dev.edge.byox.demo
+      - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
+        inputType: ProjectVariable
+        description: PAT baked into the JS bundle so the standalone leaderboard UI can authenticate against leaderboard-service's `validate_permissions` gate. Same workspace PAT used elsewhere (Quix__Lakehouse__Query__AuthToken / Catalog__AuthToken).
+        required: true
+        secret: true
+        variableKey: quix_lake_pat
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: Blue-freeze window duration in ms after a gate crossing.

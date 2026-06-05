@@ -11,6 +11,14 @@ ENV NEXT_PUBLIC_LEADERBOARD_SERVICE_URL=$NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
 ARG NEXT_PUBLIC_FREEZE_MS
 ENV NEXT_PUBLIC_FREEZE_MS=$NEXT_PUBLIC_FREEZE_MS
 
+# Bake the workspace PAT into the bundle so the standalone UI can
+# authenticate against leaderboard-service's `validate_permissions` gate.
+# Same value as `Quix__Lakehouse__Query__AuthToken` /
+# `Quix__Lakehouse__Catalog__AuthToken` — they all resolve to the
+# workspace's PAT in this BYOX setup.
+ARG NEXT_PUBLIC_QUIX_AUTH_TOKEN
+ENV NEXT_PUBLIC_QUIX_AUTH_TOKEN=$NEXT_PUBLIC_QUIX_AUTH_TOKEN
+
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 COPY . .
