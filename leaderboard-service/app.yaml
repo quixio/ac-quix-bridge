@@ -17,7 +17,7 @@ variables:
     inputType: FreeText
     required: true
   - name: Quix__Lakehouse__Query__Url
-    inputType: FreeText
+    inputType: ProjectVariable
     required: true
   - name: Quix__Lakehouse__Query__AuthToken
     inputType: Secret
