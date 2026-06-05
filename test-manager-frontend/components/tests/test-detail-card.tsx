@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useIntegrationsApi, useTestsApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
-import type { Test } from "@/types/test";
+import type { SessionInfo, Test } from "@/types/test";
 import { ExternalLink, TrendingUp, Sparkles } from "lucide-react";
 
 interface TestDetailCardProps {
@@ -68,6 +68,18 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
     params.set("tab", "ai-summary");
     params.set("test_id", test.test_id);
     if (sessionId) params.set("session_id", sessionId);
+    router.push(`/analysis?${params.toString()}`);
+  };
+
+  const handleAnalyzeSession = (session: SessionInfo) => {
+    const params = new URLSearchParams();
+    params.set("tab", "compare");
+    params.set("test_id", test.test_id);
+    params.set("session_id", session.session_id);
+    // Pass the session's OWN track/car (a test can hold sessions on different
+    // tracks/cars) so the Explorer deep-links to the exact partition path.
+    if (session.track) params.set("track", session.track);
+    if (session.car_model) params.set("carModel", session.car_model);
     router.push(`/analysis?${params.toString()}`);
   };
 
@@ -151,6 +163,15 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
                   <div className="flex items-center gap-3 text-muted-foreground text-xs">
                     <span>{session.track}</span>
                     <span>{session.car_model}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => handleAnalyzeSession(session)}
+                    >
+                      <TrendingUp className="mr-1 h-3 w-3" />
+                      Analyze
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

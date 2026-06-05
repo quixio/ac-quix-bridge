@@ -51,7 +51,17 @@ const ANALYSIS_TABS = [
   },
 ] as const;
 
-function CompareTab({ testId }: { testId: string | null }) {
+function CompareTab({
+  testId,
+  sessionId,
+  sessionTrack,
+  sessionCarModel,
+}: {
+  testId: string | null;
+  sessionId: string | null;
+  sessionTrack: string | null;
+  sessionCarModel: string | null;
+}) {
   const testsApi = useTestsApi();
   const { token } = useQuixAuth();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -61,9 +71,16 @@ function CompareTab({ testId }: { testId: string | null }) {
 
   useEffect(() => {
     if (!testId) {
-      // No test selected — show explorer without filters
+      // No test selected — show explorer, optionally deep-linked to a session
       if (EXPLORER_BASE_URL) {
-        setIframeUrl(EXPLORER_BASE_URL);
+        const qs = new URLSearchParams();
+        if (sessionTrack) qs.set("track", sessionTrack);
+        if (sessionCarModel) qs.set("carModel", sessionCarModel);
+        if (sessionId) qs.set("session_id", sessionId);
+        const suffix = qs.toString();
+        setIframeUrl(
+          suffix ? `${EXPLORER_BASE_URL}?${suffix}` : EXPLORER_BASE_URL,
+        );
       }
       return;
     }
@@ -78,8 +95,13 @@ function CompareTab({ testId }: { testId: string | null }) {
         if (params.test_rig) qs.set("test_rig", params.test_rig);
         if (params.experiment) qs.set("experiment", params.experiment);
         if (params.driver) qs.set("driver", params.driver);
-        if (params.track) qs.set("track", params.track);
-        if (params.carModel) qs.set("carModel", params.carModel);
+        // Prefer the clicked session's own track/car (a test can span several);
+        // fall back to the test-level values when Analyzing the whole test.
+        const track = sessionTrack || params.track;
+        const carModel = sessionCarModel || params.carModel;
+        if (track) qs.set("track", track);
+        if (carModel) qs.set("carModel", carModel);
+        if (sessionId) qs.set("session_id", sessionId);
         setIframeUrl(`${EXPLORER_BASE_URL}?${qs.toString()}`);
       } catch (err) {
         setError(
@@ -87,9 +109,16 @@ function CompareTab({ testId }: { testId: string | null }) {
             ? err.message
             : "Failed to load telemetry parameters",
         );
-        // Fall back to unfiltered explorer
+        // Test-level params failed; still deep-link by what we got from the URL.
         if (EXPLORER_BASE_URL) {
-          setIframeUrl(EXPLORER_BASE_URL);
+          const qs = new URLSearchParams();
+          if (sessionTrack) qs.set("track", sessionTrack);
+          if (sessionCarModel) qs.set("carModel", sessionCarModel);
+          if (sessionId) qs.set("session_id", sessionId);
+          const suffix = qs.toString();
+          setIframeUrl(
+            suffix ? `${EXPLORER_BASE_URL}?${suffix}` : EXPLORER_BASE_URL,
+          );
         }
       } finally {
         setLoading(false);
@@ -97,7 +126,7 @@ function CompareTab({ testId }: { testId: string | null }) {
     };
 
     fetchParams();
-  }, [testId]);
+  }, [testId, sessionId, sessionTrack, sessionCarModel]);
 
   // Forward the auth token to the Telemetry Explorer iframe on request.
   // TE's frontend posts `REQUEST_AUTH_TOKEN` after load; we reply with the
@@ -173,6 +202,9 @@ function AnalysisPageContent() {
 
   const activeTab = searchParams.get("tab") || "compare";
   const testId = searchParams.get("test_id") || null;
+  const sessionId = searchParams.get("session_id") || null;
+  const sessionTrack = searchParams.get("track") || null;
+  const sessionCarModel = searchParams.get("carModel") || null;
 
   const handleTabChange = (value: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -204,7 +236,12 @@ function AnalysisPageContent() {
           </div>
 
           <TabsContent value="compare">
-            <CompareTab testId={testId} />
+            <CompareTab
+              testId={testId}
+              sessionId={sessionId}
+              sessionTrack={sessionTrack}
+              sessionCarModel={sessionCarModel}
+            />
           </TabsContent>
 
           <TabsContent value="leaderboard">
