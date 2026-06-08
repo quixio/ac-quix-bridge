@@ -465,13 +465,17 @@ deployments:
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
+      - name: QUIX_TOKEN
+        inputType: ProjectVariable
+        description: Optional fallback PAT for the Quix AI chat. Normally unset — the chat forwards the logged-in user's Bearer; used only in local dev without auth.
+        secret: true
       - name: QUIX_AI_AGENT_ID
         inputType: FreeText
-        description: Quix AI agent ID for the Lakehouse Querier (system prompt + KBs + MCP tools). Must exist in the target environment's portal.
-        value: a04cfe48-e816-4a66-87af-ac547b7b8137
+        description: Quix AI agent ID for the Lakehouse Querier. Must exist in the target environment's portal.
+        value: 246e159a-10bb-4909-98f8-42730c7e538c
       - name: TELEMETRY_COMPARISON_MCP_API_KEY
         inputType: ProjectVariable
-        description: Shared X-API-Key secret gating the /mcp endpoint (the plot_data tool). Must match the key registered for this MCP server on the Lakehouse Querier agent.
+        description: X-API-Key gating the /mcp endpoint (plot_data tool). Must match the key registered for this MCP server on the Lakehouse Querier agent.
         required: true
         secret: true
         variableKey: TELEMETRY_COMPARISON_MCP_API_KEY
