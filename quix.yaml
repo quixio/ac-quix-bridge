@@ -776,3 +776,4 @@ topics:
   - name: test-completed
   - name: ac-telemetry-raw-replay
   - name: demo-acquixbridge-dev-ac-telemetry-raw
+  - name: demo-acquixbridge-dev-ac-telemetry-session
