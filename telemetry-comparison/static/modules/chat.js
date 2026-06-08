@@ -125,21 +125,26 @@ function _addToolCard(toolCallId, label, toolName) {
   inputToggle.textContent = 'Show input';
   const args = document.createElement('pre');
   args.className = 'chat-tool-args';
+  args.textContent = '{}'; // default for no-arg tools; overwritten once args arrive
   inputToggle.addEventListener('click', () => {
     const shown = args.classList.toggle('chat-tool-args-shown');
     inputToggle.textContent = shown ? 'Hide input' : 'Show input';
   });
 
+  const resultLabel = document.createElement('div');
+  resultLabel.className = 'chat-tool-result-label';
+  resultLabel.textContent = 'RESULT';
   const result = document.createElement('div');
   result.className = 'chat-tool-result';
 
-  body.append(inputToggle, args, result);
+  body.append(inputToggle, args, resultLabel, result);
   card.append(head, body);
   list.appendChild(card);
   _toolCards.set(toolCallId, {
     argsBuf: '',
     argsEl: args,
     resultEl: result,
+    resultLabelEl: resultLabel,
     cardEl: card,
     name: toolName || '',
   });
@@ -150,6 +155,10 @@ function _finalizeToolArgs(toolCallId) {
   const c = _toolCards.get(toolCallId);
   if (!c) return;
   let parsed = null;
+  if (!c.argsBuf.trim()) {
+    c.argsEl.textContent = '{}'; // no-arg tool — keep the placeholder
+    return;
+  }
   try {
     parsed = JSON.parse(c.argsBuf);
     c.argsEl.textContent = JSON.stringify(parsed, null, 2);
@@ -168,6 +177,7 @@ function _fillToolResult(toolCallId, text, isError) {
   c.cardEl.classList.remove('chat-tool-running');
   c.cardEl.classList.add(isError ? 'chat-tool-error' : 'chat-tool-done');
   c.resultEl.textContent = typeof text === 'string' ? text : JSON.stringify(text);
+  if (c.resultLabelEl) c.resultLabelEl.style.display = c.resultEl.textContent ? 'block' : 'none';
   const list = document.getElementById('chat-messages');
   if (list) _scrollBottom(list);
 }

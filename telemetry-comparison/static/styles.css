@@ -1474,10 +1474,22 @@ body[data-chat-mode="docked"] #chat-float-slot {
 .chat-tool-args.chat-tool-args-shown {
   display: block;
 }
+.chat-tool-result-label {
+  display: none;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-brd, #3e3e46);
+  color: var(--color-muted, #94a3b8);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .chat-tool-result {
-  margin-top: 6px;
+  margin-top: 4px;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--color-muted, #94a3b8);
   max-height: 14rem;
   overflow: auto;
 }
