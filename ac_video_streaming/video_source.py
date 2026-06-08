@@ -41,11 +41,16 @@ def _get_blob_fs():
         return None
     try:
         cfg = json.loads(raw)
+        provider = (cfg.get("Provider") or cfg.get("provider") or "").lower()
         s3 = cfg.get("S3Compatible") or cfg.get("s3_compatible") or {}
         bucket = s3.get("BucketName") or s3.get("bucket_name")
         endpoint = s3.get("ServiceUrl") or s3.get("service_url")
         access = s3.get("AccessKeyId") or s3.get("access_key_id")
         secret = s3.get("SecretAccessKey") or s3.get("secret_access_key")
+        # GCS (quixdev) ships no ServiceUrl — it uses a fixed S3-compatible
+        # endpoint. MinIO (byox) ships an explicit, self-signed one.
+        if not endpoint and provider == "gcp":
+            endpoint = "https://storage.googleapis.com"
         if not all([bucket, endpoint, access, secret]):
             raise ValueError("missing one of bucket/endpoint/access/secret")
         import fsspec
