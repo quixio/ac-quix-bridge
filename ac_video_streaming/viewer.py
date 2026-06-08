@@ -56,22 +56,12 @@ def run_kafka():
     """Consume video frames from Kafka in a background thread."""
     try:
         from quixstreams import Application as QuixApp
-        from quixstreams.kafka import ConnectionConfig
 
-        connection = ConnectionConfig(
-            bootstrap_servers=os.environ["Quix__Broker__Address"],
-            security_protocol="sasl_ssl",
-            sasl_mechanism="SCRAM-SHA-512",
-            sasl_username=os.environ["Quix__Broker__Username"],
-            sasl_password=os.environ["Quix__Broker__Password"],
-            enable_ssl_certificate_verification=False,
-            ssl_endpoint_identification_algorithm="none",
-        )
-
+        # Mode A: SDK-token Application auto-resolves the broker + auto-prefixes
+        # the consumer group and topic from Quix__Sdk__Token / Quix__Portal__Api.
         qx = QuixApp(
             consumer_group="video-viewer",
             auto_create_topics=False,
-            broker_address=connection,
         )
         topic_name = os.environ.get("VIDEO_OUTPUT_TOPIC", "ac-video-frames")
         topic = qx.topic(topic_name)

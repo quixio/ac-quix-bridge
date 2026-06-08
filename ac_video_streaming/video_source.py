@@ -333,48 +333,20 @@ class ACVideoSource:
             consumer = None
             try:
                 from quixstreams import Application as _App
-                from quixstreams.kafka import ConnectionConfig as _CC
-                conn = _CC(
-                    bootstrap_servers=os.environ["Quix__Broker__Address"],
-                    security_protocol="sasl_ssl",
-                    sasl_mechanism="SCRAM-SHA-512",
-                    sasl_username=os.environ["Quix__Broker__Username"],
-                    sasl_password=os.environ["Quix__Broker__Password"],
-                    enable_ssl_certificate_verification=False,
-                    ssl_endpoint_identification_algorithm="none",
-                )
-                # Stable, workspace-prefixed consumer group name. Kafka ACLs
-                # on this workspace authorize groups whose name starts with
-                # the workspace id (same prefix QuixStreams auto-applies to
-                # topics), so we mirror that pattern manually here — the
-                # `Application(consumer_group=...)` kwarg does NOT auto-
-                # prefix. Earlier code used a per-PID+timestamp suffix that
-                # ACLs rejected with GROUP_AUTHORIZATION_FAILED, leaving
-                # SessionTracker empty and the fallback session_id locked
-                # in. With `auto_commit_enable=False` + `auto_offset_reset
-                # ="earliest"`, every restart still reads from the topic
-                # head since no offset is ever committed.
-                # `Quix__Workspace__Id` is the canonical source; fall back to
-                # `Quix__Broker__Username` which on this workspace happens to
-                # equal the workspace id, so the ACL-compatible prefix works
-                # without requiring the canonical var to be set.
-                _ws = (
-                    os.environ.get("Quix__Workspace__Id", "").strip()
-                    or os.environ.get("Quix__Broker__Username", "").strip()
-                )
-                _group_suffix = "ac-video-streaming-session-tracker"
-                _consumer_group = f"{_ws}-{_group_suffix}" if _ws else _group_suffix
+                # Mode A: the SDK-token Application auto-resolves the broker and
+                # auto-prefixes BOTH the consumer group and the topic with the
+                # workspace id — so no manual ACL-prefix is needed (the former
+                # direct-broker path did that by hand). auto_commit_enable=False
+                # + auto_offset_reset="earliest" → every restart reads the
+                # (compacted) session topic from the head.
                 mini_app = _App(
-                    consumer_group=_consumer_group,
+                    consumer_group="ac-video-streaming-session-tracker",
                     auto_offset_reset="earliest",
                     auto_create_topics=False,
-                    broker_address=conn,
                 )
-                # Use Application.topic() so the resolved name is workspace-
-                # prefixed (e.g. "quixers-acquixbridge-videostreaming-ac-telemetry-session").
-                # consumer.subscribe() takes raw Kafka topic names with no
-                # auto-prefixing, so the bare name silently subscribes to a
-                # topic that doesn't exist.
+                # Application.topic() resolves the workspace-prefixed name;
+                # consumer.subscribe() needs that resolved name (it doesn't
+                # auto-prefix).
                 session_topic = mini_app.topic(name=session_topic_name)
                 resolved_name = session_topic.name
                 consumer = mini_app.get_consumer(auto_commit_enable=False)
