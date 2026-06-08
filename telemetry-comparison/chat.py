@@ -143,10 +143,13 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                 yield _error_event(None, f"Could not open Quix AI session: {e}")
                 return
 
+        # Emit the raw status key; the browser maps it to a friendly label
+        # (mirrors Quix AI native chat). Keep it consistent with the upstream
+        # frames below so the label doesn't swap mid-wait.
         yield _event(
             {
                 "event": "status",
-                "message": "Thinking…",
+                "message": "generating",
                 "session_id": session_id,
             }
         )
@@ -224,7 +227,7 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                     {
                         "event": "status",
                         "session_id": session_id,
-                        "message": evt.get("status", "Working…"),
+                        "message": evt.get("status", "generating"),
                     }
                 )
                 continue
