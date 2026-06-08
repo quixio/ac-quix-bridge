@@ -15,10 +15,13 @@
 
 import { applyPlotPlan } from './ai-plot-glue.js';
 import { renderMarkdown } from './markdown.js';
+import { formatStatus } from './thinking-messages.js';
 
 let _sessionId = null;
 let _activeAnswer = null; // current accumulating assistant bubble
 let _sending = false;
+let _statusKey = null; // raw status key currently shown; re-roll label only when it changes
+let _statusLabel = ''; // friendly label picked for the current status key
 const _toolCards = new Map(); // tool_call_id -> { argsBuf, argsEl, resultEl }
 
 const _pendingRender = new Set();
@@ -214,7 +217,13 @@ function _handleEvent(evt) {
   switch (evt.event) {
     case 'status':
       _activeAnswer = null;
-      _showProgress(evt.message);
+      // Map the raw key ("generating", "rate_limited", …) to a friendly label,
+      // re-rolling only when the key changes so repeated frames don't flicker.
+      if (evt.message !== _statusKey) {
+        _statusKey = evt.message;
+        _statusLabel = formatStatus(evt.message);
+      }
+      _showProgress(_statusLabel);
       break;
     case 'answer_delta': {
       _hideProgress();
@@ -283,7 +292,9 @@ async function _submit() {
   _activeAnswer = null;
   _toolCards.clear();
   _addMessage('user', text);
-  _showProgress('Thinking…');
+  _statusKey = 'generating';
+  _statusLabel = formatStatus('generating');
+  _showProgress(_statusLabel);
 
   try {
     const res = await fetch('/api/chat', {
