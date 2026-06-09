@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live Speed Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0d0d0d; color: #e0e0e0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+    h1 { margin-bottom: 1rem; font-size: 1.4rem; letter-spacing: 0.1em; color: #e8ff00; }
+    #chart-container { width: 90vw; max-width: 1200px; height: 60vh; }
+    #status { margin-top: 0.75rem; font-size: 0.8rem; color: #888; }
+  </style>
+</head>
+<body>
+  <h1>⚡ Live Speed — 30 s Window</h1>
+  <div id="chart-container">
+    <canvas id="chart"></canvas>
+  </div>
+  <div id="status">Connecting…</div>
+
+  <script>
+    const MAX_POINTS = 30 * 60;
+    const labels = [];
+    const values = [];
+
+    const ctx = document.getElementById("chart").getContext("2d");
+    const chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "Speed (km/h)",
+          data: values,
+          borderColor: "#e8ff00",
+          backgroundColor: "rgba(232,255,0,0.08)",
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.2,
+          fill: true,
+        }]
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#e0e0e0" } } },
+        scales: {
+          x: {
+            ticks: { color: "#888", maxTicksLimit: 10, maxRotation: 0 },
+            grid: { color: "#222" }
+          },
+          y: {
+            min: 0,
+            max: 320,
+            title: { display: true, text: "km/h", color: "#888" },
+            ticks: { color: "#888" },
+            grid: { color: "#222" }
+          }
+        }
+      }
+    });
+
+    function fmt(ts) {
+      const d = new Date(ts);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      const ms = String(Math.floor(d.getMilliseconds() / 100));
+      return `${hh}:${mm}:${ss}.${ms}`;
+    }
+
+    function addPoint(t, v) {
+      labels.push(fmt(t));
+      values.push(v);
+      if (labels.length > MAX_POINTS) {
+        labels.shift();
+        values.shift();
+      }
+      chart.update("none");
+    }
+
+    function connect() {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${proto}://${location.host}/ws`);
+      document.getElementById("status").textContent = "Connecting…";
+
+      ws.onopen = () => {
+        document.getElementById("status").textContent = "Connected ✓";
+      };
+
+      ws.onmessage = (evt) => {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === "snapshot") {
+          labels.length = 0;
+          values.length = 0;
+          msg.data.forEach(p => addPoint(p.t, p.v));
+        } else if (msg.type === "point") {
+          addPoint(msg.data.t, msg.data.v);
+        }
+      };
+
+      ws.onclose = () => {
+        document.getElementById("status").textContent = "Disconnected — reconnecting…";
+        setTimeout(connect, 2000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connect();
+  </script>
+</body>
+</html>
