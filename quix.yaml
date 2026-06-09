@@ -621,20 +621,6 @@ deployments:
         memory: 1500
     configuration:
       topic: ac-telemetry-raw
-  - name: ac-telemetry-raw replay
-    application: DataLake.Replay
-    version: latest
-    deploymentType: Managed
-    resources:
-      limits:
-        cpu: 300
-        memory: 500
-    configuration:
-      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
-      sourceTopic: ac-telemetry-raw
-      sourceKeys: QUIX-GAMING
-      destinationTopic: ac-telemetry-raw-replay
-      timestampsType: Original
   - name: leaderboard-service
     application: leaderboard-service
     version: latest
@@ -756,6 +742,20 @@ deployments:
       topic: ac-telemetry-raw
       consumerGroup: v1
       autoOffsetReset: earliest
+  - name: ac-telemetry-raw replay2
+    application: DataLake.Replay
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 300
+        memory: 500
+    configuration:
+      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
+      sourceTopic: ac-telemetry-raw
+      sourceKeys: QUIX-GAMING
+      destinationTopic: ac-telemetry-raw-replay2
+      timestampsType: Original
 
 # This section describes the Topics of the data pipeline
 topics:
