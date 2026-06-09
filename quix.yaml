@@ -777,18 +777,11 @@ topics:
       replicationFactor: 1
       retentionInMinutes: 60
       retentionInBytes: 536870912
-  - name: tsbs_data_transformed
-    configuration:
-      partitions: 1
-      replicationFactor: 2
-      retentionInMinutes: -1
-      retentionInBytes: 52428800
   - name: ac-telemetry-config
     configuration:
       partitions: 1
       replicationFactor: 2
       retentionInMinutes: -1
       retentionInBytes: 52428800
-  - name: transform
   - name: test-completed
   - name: ac-telemetry-raw-replay
