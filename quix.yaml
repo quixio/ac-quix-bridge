@@ -634,6 +634,7 @@ deployments:
       sourceTopic: ac-telemetry-raw
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw-replay
+      timestampsType: Original
   - name: leaderboard-service
     application: leaderboard-service
     version: latest
