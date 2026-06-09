@@ -754,6 +754,7 @@ deployments:
         memory: 1500
     configuration:
       topic: ac-telemetry-raw
+      consumerGroup: v1
       autoOffsetReset: earliest
 
 # This section describes the Topics of the data pipeline
