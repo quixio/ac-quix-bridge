@@ -772,16 +772,6 @@ topics:
       retentionInMinutes: -1
       cleanupPolicy: Compact
   - name: ac-video-frames
-    configuration:
-      partitions: 1
-      replicationFactor: 1
-      retentionInMinutes: 60
-      retentionInBytes: 536870912
   - name: ac-telemetry-config
-    configuration:
-      partitions: 1
-      replicationFactor: 2
-      retentionInMinutes: -1
-      retentionInBytes: 52428800
   - name: test-completed
   - name: ac-telemetry-raw-replay
