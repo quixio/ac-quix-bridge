@@ -630,7 +630,7 @@ deployments:
         cpu: 300
         memory: 500
     configuration:
-      sourceWorkspaceId: demo-acquixbridge-dev
+      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
       sourceTopic: ac-telemetry-raw
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw-replay
