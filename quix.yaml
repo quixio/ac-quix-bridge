@@ -757,7 +757,7 @@ deployments:
     resources:
       limits:
         cpu: 500
-        memory: 1000
+        memory: 500
     configuration:
       sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
       sourceTopic: ac-telemetry-raw
