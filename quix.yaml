@@ -26,12 +26,16 @@ deployments:
         inputType: InputTopic
         description: Kafka topic to consume telemetry from
         required: true
-        value: ac-telemetry-raw
+        value: ac-telemetry-raw-replay2
       - name: config_input
         inputType: InputTopic
         description: Config topic to resolve the current driver from (DCM change events)
         required: true
         value: ac-telemetry-config
+      - name: CONFIG_MANAGER_URL
+        inputType: FreeText
+        description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
+        value: ''
       - name: LEADERBOARD_SQL
         inputType: FreeText
         multiline: true
@@ -41,6 +45,10 @@ deployments:
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
         value: 15
+      - name: DATALAKE_INSECURE_SSL
+        inputType: FreeText
+        description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
+        value: ''
     blobStorage:
       bind: true
   - name: MongoDB
