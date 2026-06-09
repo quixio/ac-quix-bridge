@@ -763,7 +763,7 @@ deployments:
       sourceTopic: ac-telemetry-raw
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw-replay2
-      fromTimestamp: 2026-06-08T15:33:30.338Z
+      fromTimestamp: 2026-06-08T15:36:45.161Z
       toTimestamp: 2026-06-08T16:01:59.848Z
 
 # This section describes the Topics of the data pipeline
