@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Live Speed Dashboard</title>
+  <title>Live Speed &amp; G-Force Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -14,7 +14,7 @@
   </style>
 </head>
 <body>
-  <h1>⚡ Live Speed — 30 s Window</h1>
+  <h1>&#x26a1; Live Speed &amp; G-Force &#x2014; 30 s Window</h1>
   <div id="chart-container">
     <canvas id="chart"></canvas>
   </div>
@@ -23,23 +23,38 @@
   <script>
     const MAX_POINTS = 30 * 60;
     const labels = [];
-    const values = [];
+    const speedValues = [];
+    const accGxValues = [];
 
     const ctx = document.getElementById("chart").getContext("2d");
     const chart = new Chart(ctx, {
       type: "line",
       data: {
         labels,
-        datasets: [{
-          label: "Speed (km/h)",
-          data: values,
-          borderColor: "#e8ff00",
-          backgroundColor: "rgba(232,255,0,0.08)",
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.2,
-          fill: true,
-        }]
+        datasets: [
+          {
+            label: "Speed (km/h)",
+            data: speedValues,
+            borderColor: "#e8ff00",
+            backgroundColor: "rgba(232,255,0,0.08)",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: true,
+            yAxisID: "ySpeed",
+          },
+          {
+            label: "accG_x (g)",
+            data: accGxValues,
+            borderColor: "#00d4ff",
+            backgroundColor: "rgba(0,212,255,0.05)",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: false,
+            yAxisID: "yAcc",
+          }
+        ]
       },
       options: {
         animation: false,
@@ -51,12 +66,23 @@
             ticks: { color: "#888", maxTicksLimit: 10, maxRotation: 0 },
             grid: { color: "#222" }
           },
-          y: {
+          ySpeed: {
+            type: "linear",
+            position: "left",
             min: 0,
             max: 320,
-            title: { display: true, text: "km/h", color: "#888" },
-            ticks: { color: "#888" },
+            title: { display: true, text: "km/h", color: "#e8ff00" },
+            ticks: { color: "#e8ff00" },
             grid: { color: "#222" }
+          },
+          yAcc: {
+            type: "linear",
+            position: "right",
+            min: -4,
+            max: 4,
+            title: { display: true, text: "g (accG_x)", color: "#00d4ff" },
+            ticks: { color: "#00d4ff" },
+            grid: { drawOnChartArea: false }
           }
         }
       }
@@ -71,12 +97,14 @@
       return `${hh}:${mm}:${ss}.${ms}`;
     }
 
-    function addPoint(t, v) {
+    function addPoint(t, v, a) {
       labels.push(fmt(t));
-      values.push(v);
+      speedValues.push(v);
+      accGxValues.push(a !== undefined ? a : null);
       if (labels.length > MAX_POINTS) {
         labels.shift();
-        values.shift();
+        speedValues.shift();
+        accGxValues.shift();
       }
       chart.update("none");
     }
@@ -84,25 +112,26 @@
     function connect() {
       const proto = location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(`${proto}://${location.host}/ws`);
-      document.getElementById("status").textContent = "Connecting…";
+      document.getElementById("status").textContent = "Connecting\u2026";
 
       ws.onopen = () => {
-        document.getElementById("status").textContent = "Connected ✓";
+        document.getElementById("status").textContent = "Connected \u2713";
       };
 
       ws.onmessage = (evt) => {
         const msg = JSON.parse(evt.data);
         if (msg.type === "snapshot") {
           labels.length = 0;
-          values.length = 0;
-          msg.data.forEach(p => addPoint(p.t, p.v));
+          speedValues.length = 0;
+          accGxValues.length = 0;
+          msg.data.forEach(p => addPoint(p.t, p.v, p.a));
         } else if (msg.type === "point") {
-          addPoint(msg.data.t, msg.data.v);
+          addPoint(msg.data.t, msg.data.v, msg.data.a);
         }
       };
 
       ws.onclose = () => {
-        document.getElementById("status").textContent = "Disconnected — reconnecting…";
+        document.getElementById("status").textContent = "Disconnected \u2014 reconnecting\u2026";
         setTimeout(connect, 2000);
       };
 

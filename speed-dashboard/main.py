@@ -51,6 +51,25 @@ async def websocket_endpoint(websocket: WebSocket):
             subscribers.remove(queue)
 
 
+# ── Data processing ───────────────────────────────────────────────────────────
+def build_point(row: dict) -> dict | None:
+    """Extract a dashboard point from a telemetry row.
+
+    Returns None (and the point is dropped) when speed is absent.
+    accG_x is included as ``None`` when the channel is not present in the row.
+    """
+    ts = row.get("timestamp_ms") or row.get("Timestamp") or (time.time() * 1000)
+    speed = row.get("speedKmh") or row.get("SpeedKmh")
+    if speed is None:
+        return None
+    acc_x = row.get("accG_x")
+    return {
+        "t": float(ts),
+        "v": float(speed),
+        "a": float(acc_x) if acc_x is not None else None,
+    }
+
+
 # ── Quix Streams consumer (runs in background thread) ─────────────────────────
 def run_consumer():
     quix_app = Application(
@@ -61,11 +80,9 @@ def run_consumer():
     sdf = quix_app.dataframe(topic)
 
     def process(row: dict):
-        ts = row.get("timestamp_ms") or row.get("Timestamp") or (time.time() * 1000)
-        speed = row.get("speedKmh") or row.get("SpeedKmh")
-        if speed is None:
+        point = build_point(row)
+        if point is None:
             return
-        point = {"t": float(ts), "v": float(speed)}
         buffer.append(point)
         if main_loop is not None:
             with subscribers_lock:
