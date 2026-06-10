@@ -18,6 +18,7 @@ MAX_POINTS = WINDOW_SECONDS * 60  # assume up to 60 Hz
 buffer: deque = deque(maxlen=MAX_POINTS)
 subscribers: list[asyncio.Queue] = []
 subscribers_lock = threading.Lock()
+main_loop: asyncio.AbstractEventLoop | None = None  # set before thread starts
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
 app = FastAPI()
@@ -38,10 +39,8 @@ async def websocket_endpoint(websocket: WebSocket):
     with subscribers_lock:
         subscribers.append(queue)
     try:
-        # Send current buffer snapshot
         snapshot = list(buffer)
         await websocket.send_json({"type": "snapshot", "data": snapshot})
-        # Stream new points
         while True:
             point = await queue.get()
             await websocket.send_json({"type": "point", "data": point})
@@ -54,8 +53,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # ── Quix Streams consumer (runs in background thread) ─────────────────────────
 def run_consumer():
-    loop = asyncio.new_event_loop()
-
     quix_app = Application(
         consumer_group="speed-dashboard",
         auto_offset_reset="latest",
@@ -70,16 +67,27 @@ def run_consumer():
             return
         point = {"t": float(ts), "v": float(speed)}
         buffer.append(point)
-        with subscribers_lock:
-            for q in subscribers:
-                loop.call_soon_threadsafe(q.put_nowait, point)
+        if main_loop is not None:
+            with subscribers_lock:
+                for q in list(subscribers):
+                    main_loop.call_soon_threadsafe(q.put_nowait, point)
 
     sdf = sdf.update(process)
     quix_app._setup_signal_handlers = lambda: None
     quix_app.run()
 
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    t = threading.Thread(target=run_consumer, daemon=True)
-    t.start()
-    uvicorn.run(app, host="0.0.0.0", port=80)
+    import asyncio
+
+    async def start():
+        global main_loop
+        main_loop = asyncio.get_event_loop()
+        t = threading.Thread(target=run_consumer, daemon=True)
+        t.start()
+        config = uvicorn.Config(app, host="0.0.0.0", port=80)
+        server = uvicorn.Server(config)
+        await server.serve()
+
+    asyncio.run(start())
