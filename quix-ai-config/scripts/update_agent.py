@@ -109,6 +109,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print the request body and skip the POST/PUT call",
     )
+    parser.add_argument(
+        "--agent-id",
+        default=None,
+        help=(
+            "Target this agent id directly instead of matching by display name. "
+            "Preserves the target's own name + existing KB rules and pushes only "
+            "the prompt — bind KBs separately with bind_kb_to_agent.py."
+        ),
+    )
     args = parser.parse_args(argv)
 
     config = AGENTS[args.agent]
@@ -122,18 +131,26 @@ def main(argv: list[str] | None = None) -> int:
         base_url=portal(), headers=_agent_headers(), timeout=60.0
     ) as client:
         existing = client.get("/ai/api/org/agents").json()
-        match = next(
-            (a for a in existing if a.get("displayName") == display_name), None
-        )
-
-        body: dict = {"displayName": display_name, "systemPrompt": system_prompt}
-
-        kb_rules = _build_kb_rules(config)
-        if kb_rules is not None:
-            body["kbAccessRules"] = kb_rules
-        elif match:
-            # preserve_existing_kb_rules=True path: carry over what's deployed.
+        if args.agent_id:
+            match = next((a for a in existing if a.get("id") == args.agent_id), None)
+            if not match:
+                raise SystemExit(f"agent id {args.agent_id} not found")
+            # Target by id: preserve the agent's own name + existing KB rules,
+            # push only the prompt. Bind KBs separately (bind_kb_to_agent.py).
+            display_name = match["displayName"]
+            body: dict = {"displayName": display_name, "systemPrompt": system_prompt}
             body["kbAccessRules"] = match.get("kbAccessRules", [])
+        else:
+            match = next(
+                (a for a in existing if a.get("displayName") == display_name), None
+            )
+            body = {"displayName": display_name, "systemPrompt": system_prompt}
+            kb_rules = _build_kb_rules(config)
+            if kb_rules is not None:
+                body["kbAccessRules"] = kb_rules
+            elif match:
+                # preserve_existing_kb_rules=True path: carry over what's deployed.
+                body["kbAccessRules"] = match.get("kbAccessRules", [])
 
         if args.dry_run:
             print("[dry-run] would POST/PUT body:")

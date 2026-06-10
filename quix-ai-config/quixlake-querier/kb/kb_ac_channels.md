@@ -1,6 +1,15 @@
 # AC Telemetry Channels
 
-Columns available in the `ac_telemetry` table in QuixLake, grouped by category.
+Columns available in the `ac_telemetry` table in Quix Lakehouse, grouped by category.
+
+> **Data source: Assetto Corsa Competizione (ACC).** ACC's channel set is a
+> *superset* of the original Assetto Corsa channels listed below — every name
+> here is present and valid. ACC adds extras not enumerated here, e.g. weather
+> (`rainIntensity`, `rainIntensityIn10min`, `rainTyres`), tyre-set MFD
+> (`mfdTyrePressureLF`, `currentTyreSet`, `strategyTyreSet`), brake compounds
+> (`frontBrakeCompound`, `rearBrakeCompound`), ERS/DRS (`ersPowerLevel`,
+> `drsAvailable`), and gaps (`gapAhead`, `gapBehind`). If a column you need
+> isn't listed below, call `get_schema` to confirm it exists.
 
 Column naming conventions:
 

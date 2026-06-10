@@ -1,6 +1,6 @@
-# AC Telemetry — QuixLake Patterns
+# AC/ACC Telemetry — Lakehouse Patterns
 
-AC-specific reference for the `ac_telemetry` table in QuixLake. Covers partition layout, AC semantic quirks, and canonical SQL patterns. Use together with `kb_quixlake_api.md` (generic API) and `kb_ac_sessions.md` (live session list).
+Reference for the `ac_telemetry` table in Quix Lakehouse. Covers partition layout, telemetry semantic quirks, and canonical SQL patterns. Tool usage, the table-fallback flow, and the hard query rules live in the system prompt — this KB is the SQL/semantic reference.
 
 ## Table summary
 
@@ -57,7 +57,7 @@ ORDER BY session_id, lap
 
 ## Filter rules
 
-- **Sentinel zeros** — `iLastTime = 0` and `iBestTime = 0` mean "no lap completed in this session yet." Always filter `iLastTime > 0` (or `iBestTime > 0`) before aggregating, or the minimum will report 0 for any aborted session.
+- **"No lap" sentinels** — these mean "no lap completed in this session yet" and must be filtered before aggregating `iLastTime`/`iBestTime`. **The data is now Assetto Corsa Competizione (ACC), whose sentinel is `2147483647` (INT32_MAX), not `0`** (original Assetto Corsa used `0`). So filter `iBestTime > 0 AND iBestTime < 2147483647` (same for `iLastTime`) to be safe across both — otherwise an aborted ACC session injects a huge value that survives a bare `> 0` filter. (Note: the preferred `timestamp_ms` lap-duration method below is immune — this only matters for the `iBestTime` shortcut.)
 - **`NA`/`NA` hybrid rows** — some rows have `track = 'NA'` AND `carModel = 'NA'`; these are AC's mid-transition state (loading, menu). Filter `WHERE track <> 'NA' AND carModel <> 'NA'` unless the user specifically wants transitions.
 
 ## Clean-lap filter (default for any lap-time aggregate)
@@ -168,7 +168,7 @@ Always `GROUP BY` includes `session_id` whenever the query may touch more than o
 
 ### 2. Lap-time consistency (stddev across clean laps)
 
-QuixLake rejects WITH/CTE — use subqueries.
+The Lakehouse rejects WITH/CTE — use subqueries.
 
 ```sql
 SELECT driver,
