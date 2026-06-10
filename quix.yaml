@@ -763,27 +763,28 @@ deployments:
       sourceTopic: ac-telemetry-raw
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw-replay2
-      fromTimestamp: 2026-06-08T15:53:11.846Z
-      toTimestamp: 2026-06-08T16:05:58.664Z
+      fromTimestamp: 2026-06-08T15:51:18.723Z
+      toTimestamp: 2026-06-08T16:01:15.856Z
+      removeGaps: true
   - name: Speed Dashboard
     application: speed-dashboard
-    deploymentType: Service
     version: latest
-    desiredStatus: Running
+    deploymentType: Service
     resources:
-      cpu: 200
-      memory: 300
-      replicas: 1
+      limits:
+        cpu: 200
+        memory: 300
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
+    desiredStatus: Running
     variables:
       - name: input
         inputType: InputTopic
         value: ac-telemetry-raw-replay2
       - name: WINDOW_SECONDS
         inputType: FreeText
-        value: "30"
+        value: 30
 
 # This section describes the Topics of the data pipeline
 topics:
