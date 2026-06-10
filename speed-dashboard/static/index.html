@@ -11,10 +11,54 @@
     h1 { margin-bottom: 1rem; font-size: 1.4rem; letter-spacing: 0.1em; color: #e8ff00; }
     #chart-container { width: 90vw; max-width: 1200px; height: 60vh; }
     #status { margin-top: 0.75rem; font-size: 0.8rem; color: #888; }
+
+    /* ── Warning light ─────────────────────────────────────────────────────── */
+    #warning-light {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      border: 2px solid #333;
+      background: #1a1a1a;
+      color: #555;
+      transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+      user-select: none;
+    }
+    #warning-light .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    #warning-light.active {
+      background: rgba(220, 20, 20, 0.15);
+      border-color: #ff2222;
+      color: #ff4444;
+      box-shadow: 0 0 12px 3px rgba(255, 30, 30, 0.55);
+      animation: pulse-glow 0.8s ease-in-out infinite alternate;
+    }
+    #warning-light.active .dot {
+      background: #ff2222;
+      box-shadow: 0 0 8px 3px rgba(255, 30, 30, 0.8);
+    }
+    @keyframes pulse-glow {
+      from { box-shadow: 0 0 8px 2px rgba(255, 30, 30, 0.45); }
+      to   { box-shadow: 0 0 18px 6px rgba(255, 30, 30, 0.75); }
+    }
   </style>
 </head>
 <body>
   <h1>&#x26a1; Live Speed &amp; G-Force &#x2014; 30 s Window</h1>
+  <div id="warning-light" title="Speed exceeds 200 km/h">
+    <span class="dot"></span>
+    <span class="label">200+ km/h</span>
+  </div>
   <div id="chart-container">
     <canvas id="chart"></canvas>
   </div>
@@ -97,6 +141,17 @@
       return `${hh}:${mm}:${ss}.${ms}`;
     }
 
+    const warningLight = document.getElementById("warning-light");
+    const SPEED_THRESHOLD = 200;
+
+    function updateWarningLight(speed) {
+      if (speed > SPEED_THRESHOLD) {
+        warningLight.classList.add("active");
+      } else {
+        warningLight.classList.remove("active");
+      }
+    }
+
     function addPoint(t, v, a) {
       labels.push(fmt(t));
       speedValues.push(v);
@@ -106,6 +161,7 @@
         speedValues.shift();
         accGxValues.shift();
       }
+      updateWarningLight(v);
       chart.update("none");
     }
 
