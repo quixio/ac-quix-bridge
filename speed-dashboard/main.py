@@ -75,7 +75,8 @@ def run_consumer():
                 loop.call_soon_threadsafe(q.put_nowait, point)
 
     sdf = sdf.update(process)
-    quix_app.run(setup_signal_handlers=False)
+    quix_app._setup_signal_handlers = lambda: None
+    quix_app.run()
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
