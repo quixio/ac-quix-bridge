@@ -26,7 +26,7 @@ deployments:
         inputType: InputTopic
         description: Kafka topic to consume telemetry from
         required: true
-        value: ac-telemetry-raw-replay2
+        value: ac-telemetry-raw
       - name: config_input
         inputType: InputTopic
         description: Config topic to resolve the current driver from (DCM change events)
