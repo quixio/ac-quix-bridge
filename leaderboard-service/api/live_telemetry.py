@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -131,86 +130,66 @@ def _update_gate_times(
 _state_lock = threading.RLock()
 _state: dict[tuple[str, str, str], dict[str, Any]] = {}
 
-# Per-hostname enrichment caches, guarded by `_state_lock` (the same lock as
+# Metadata enrichment caches, guarded by `_state_lock` (the same lock as
 # `_state` — keeps the locking story trivial; sessions update is rare enough
 # that contention with the hot raw-tick path is negligible).
 #
-# `_session_cache[hostname]` = {"track": ..., "carModel": ..., "playerName": ...,
-#                                "updated_epoch": float}
-# populated on every session message (one per AC session). `updated_epoch`
-# lets the tolerant raw-tick resolver (`_resolve_cached_entry`) pick the
-# most-recently-updated entry when several cached hostnames share the same
-# base (e.g. replayed sessions `QUIX-GAMING_<epochA>` / `QUIX-GAMING_<epochB>`).
+# `_session_cache[key]` = {"track": ..., "carModel": ..., "playerName": ...,
+#                          "updated_epoch": float}
+# populated on every session message (one per AC session). Keys are the
+# session topic's Kafka keys (e.g. `QUIX-GAMING_<epoch>`) or DCM session
+# `target_key`s.
 #
-# `_experiment_cache[hostname]` = {"experiment": str, "driver": str,
-#                                  "environment": str, "fetched_epoch": float}
+# `_experiment_cache[key]` = {"experiment": str, "driver": str,
+#                             "environment": str, "fetched_epoch": float,
+#                             "updated_epoch": float}
 # populated synchronously when a session message arrives (one DCM HTTP call
-# per session change); refreshed if older than EXPERIMENT_CACHE_TTL_S. All
-# three of `experiment` (content.experiment_id), `driver` (content.driver,
-# the canonical "who is driving this test" set by Test Manager), and
-# `environment` (content.environment, the lake's `environment` Hive
-# partition) come from the same DCM experiment-config fetch — no extra HTTP
-# calls vs the prior two-field cache. The environment value is required by
-# the best-laps lake query (`environment` partitions the lake and missing
-# it from the WHERE clause caused the previous "scans-too-wide / only-2-rows"
-# bug).
+# per session change) and on DCM experiment config events; refreshed if older
+# than EXPERIMENT_CACHE_TTL_S. All three of `experiment`
+# (content.experiment_id), `driver` (content.driver, the canonical "who is
+# driving this test" set by Test Manager), and `environment`
+# (content.environment, the lake's `environment` Hive partition) come from
+# the same DCM experiment-config fetch. Keys are DCM `target_key`s — for
+# experiment configs the target_key is the DRIVER NAME (e.g. `"Walter"`),
+# NOT a hostname.
+#
+# IMPORTANT — the three topics use UNRELATED key namespaces: raw ticks are
+# keyed `QUIX-GAMING_<epochA>`, session messages `QUIX-GAMING_<epochB>` (a
+# different epoch under replay), and experiment configs by driver name. So
+# raw-tick enrichment cannot pair caches by hostname; it takes the
+# MOST-RECENT entry of each cache instead (max `updated_epoch` — correct
+# for the single-sim deployment, where exactly one session and one
+# experiment config are active at a time). See `_handle_raw_message`.
 _session_cache: dict[str, dict[str, Any]] = {}
 _experiment_cache: dict[str, dict[str, Any]] = {}
 
-# Raw-tick hostnames that failed every session-cache resolution step (exact,
-# base-prefix, single-entry fallback). Guarded by `_state_lock`. Used to
-# rate-limit the "raw ticks arriving but no session cached" INFO line to once
-# per distinct hostname — visible to operators without per-tick log spam.
-_unmatched_raw_hostnames: set[str] = set()
+# One-shot flag: INFO-log "raw ticks arriving but nothing cached" only once
+# per process instead of at 50 Hz. Guarded by `_state_lock`.
+_no_metadata_logged = False
 
-# Non-exact (hostname → resolved cache key) adoptions already announced.
-# Guarded by `_state_lock`; INFO-logged once per pair so operators can see
-# the tolerant join in action without 60 Hz spam.
-_announced_raw_resolutions: set[tuple[str, str]] = set()
-
-
-def _hostname_base(hostname: str) -> str:
-    """Strip one trailing `_<digits>` group from a hostname.
-
-    `QUIX-GAMING_1781287919884` → `QUIX-GAMING`; a hostname without such a
-    suffix is returned unchanged. Used to match raw-topic and session-topic
-    keys that share a machine base but carry different recorded-session
-    epoch suffixes (replay scenario).
-    """
-    match = re.fullmatch(r"(.*)_\d+", hostname)
-    return match.group(1) if match else hostname
+# Rate limiter for the "active enriched" INFO line: maps the resulting
+# (track, car, driver, experiment) tuple → last log epoch. Guarded by
+# `_state_lock`. Gives operators an end-to-end heartbeat that the
+# latest-session+config enrichment path is feeding `_record_message`
+# without per-tick spam.
+_enriched_log_epochs: dict[tuple[str, str, str, str], float] = {}
+ENRICHED_LOG_INTERVAL_S = 5.0
 
 
-def _resolve_cached_entry(
-    hostname: str, cache: dict[str, dict[str, Any]]
+def _latest_entry(
+    cache: dict[str, dict[str, Any]],
 ) -> tuple[str, dict[str, Any]] | None:
-    """Tolerantly resolve a per-hostname cache entry for a raw-tick hostname.
+    """Return the most-recently-updated `(key, entry)` of a metadata cache.
 
-    Caller must hold `_state_lock`. Resolution order, first hit wins:
-      1. Exact key match (unchanged fast path).
-      2. Base-prefix match: entries whose `_hostname_base` equals the raw
-         hostname's base. Several matches → most-recently-updated entry
-         (`updated_epoch` / `fetched_epoch`); ties broken by sorted-last
-         key, so the pick is deterministic.
-      3. Single-entry fallback: exactly ONE entry cached total (single-sim
-         demo case) → use it regardless of base.
-
-    Multi-sim safety: step 2 never crosses distinct bases, and step 3 only
-    fires when the whole cache holds one entry.
+    "Most recent" = max `updated_epoch` (falling back to `fetched_epoch`
+    for entries written before `updated_epoch` existed); ties broken by
+    sorted-last key so the pick is deterministic. Caller must hold
+    `_state_lock`.
     """
-    entry = cache.get(hostname)
-    if entry is not None:
-        return hostname, entry
-    base = _hostname_base(hostname)
-    candidates = [
-        (key, value) for key, value in cache.items() if _hostname_base(key) == base
-    ]
-    if not candidates and len(cache) == 1:
-        candidates = list(cache.items())
-    if not candidates:
+    if not cache:
         return None
     return max(
-        candidates,
+        cache.items(),
         key=lambda kv: (
             float(kv[1].get("updated_epoch") or kv[1].get("fetched_epoch") or 0.0),
             kv[0],
@@ -218,11 +197,14 @@ def _resolve_cached_entry(
     )
 
 
-def _resolve_cached_session(hostname: str) -> tuple[str, dict[str, Any]] | None:
-    """Resolve `(cache_key, session)` for a raw-tick hostname — see
-    `_resolve_cached_entry` for the order. Caller must hold `_state_lock`.
-    """
-    return _resolve_cached_entry(hostname, _session_cache)
+def _latest_session() -> tuple[str, dict[str, Any]] | None:
+    """Most-recent session-cache `(key, entry)`. Caller holds `_state_lock`."""
+    return _latest_entry(_session_cache)
+
+
+def _latest_experiment() -> tuple[str, dict[str, Any]] | None:
+    """Most-recent experiment-cache `(key, entry)`. Caller holds `_state_lock`."""
+    return _latest_entry(_experiment_cache)
 
 _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
@@ -1493,12 +1475,14 @@ def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
     experiment = str(config.get("experiment_id") or "")
     driver = str(config.get("driver") or "")
     environment = str(config.get("environment") or "")
+    now = time.time()
     with _state_lock:
         _experiment_cache[hostname] = {
             "experiment": experiment,
             "driver": driver,
             "environment": environment,
-            "fetched_epoch": time.time(),
+            "fetched_epoch": now,
+            "updated_epoch": now,
         }
     return experiment
 
@@ -1715,12 +1699,14 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             experiment = str(content.get("experiment_id") or "")
             driver = str(content.get("driver") or "")
             environment = str(content.get("environment") or "")
+            now = time.time()
             with _state_lock:
                 _experiment_cache[target_key] = {
                     "experiment": experiment,
                     "driver": driver,
                     "environment": environment,
-                    "fetched_epoch": time.time(),
+                    "fetched_epoch": now,
+                    "updated_epoch": now,
                 }
             logger.info(
                 "config event applied: type=experiment hostname=%s "
@@ -2393,59 +2379,79 @@ def _maybe_refresh_on_ttl() -> None:
         _refresh_best_laps_from_settings()
 
 
-def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
-    """Enrich a raw-topic payload with cached (track, car, driver, experiment)
-    and delegate to `_record_message`.
-
-    Lookup is tolerant (`_resolve_cached_entry`): exact hostname first, then
-    same-base match (`QUIX-GAMING_<epochA>` raw vs `QUIX-GAMING_<epochB>`
-    session — replay scenario), then single-cached-session fallback. A miss
-    on all three means no session announcement has reached us at all (e.g.
-    backend started mid-session with an empty DCM): we log INFO once per
-    distinct hostname and skip — the next AC session populates the cache.
-
-    Experiment precedence: payload value, then the DCM experiment cache,
-    then `_resolve_session_experiment` (lake partition enumeration) keyed
-    by the RESOLVED session key — so an empty DCM no longer leaves the
-    active row with `experiment=""` (which `build_live_positions` drops).
+def _log_enriched_rate_limited(enriched: dict[str, Any]) -> None:
+    """INFO-log the active enrichment result at most once per
+    `ENRICHED_LOG_INTERVAL_S` per distinct (track, car, driver, experiment)
+    — an end-to-end heartbeat in deployment logs proving the
+    latest-session+config path is feeding `_record_message`, without
+    50 Hz spam. A combo change (new driver/experiment) logs immediately.
     """
+    key = (
+        str(enriched.get("track") or ""),
+        str(enriched.get("carModel") or ""),
+        str(enriched.get("driver") or ""),
+        str(enriched.get("experiment") or ""),
+    )
+    now = time.time()
     with _state_lock:
-        resolved = _resolve_cached_session(hostname)
-        if resolved is None:
-            if hostname not in _unmatched_raw_hostnames:
-                _unmatched_raw_hostnames.add(hostname)
+        if now - _enriched_log_epochs.get(key, 0.0) < ENRICHED_LOG_INTERVAL_S:
+            return
+        _enriched_log_epochs[key] = now
+    logger.info(
+        "active enriched: driver=%s track=%s car=%s exp=%s env=%s "
+        "(latest session+config)",
+        key[2],
+        key[0],
+        key[1],
+        key[3],
+        enriched.get("environment"),
+    )
+
+
+def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
+    """Enrich a raw-topic payload with the MOST-RECENT cached session +
+    experiment metadata (hostname-agnostic) and delegate to
+    `_record_message`.
+
+    Why latest-of-each instead of hostname pairing: the three topics use
+    unrelated key namespaces — raw ticks `QUIX-GAMING_<epochA>`, session
+    messages `QUIX-GAMING_<epochB>` (different epoch under replay), and
+    DCM experiment configs are keyed by DRIVER NAME (target_key, e.g.
+    `"Walter"`). No hostname join can connect a session to its experiment
+    config. Single-sim deployment: exactly one session and one experiment
+    config are active at a time, so most-recent-wins (max `updated_epoch`
+    per cache) is the correct pairing.
+
+    * track / carModel ← latest session-cache entry. No session cached at
+      all → drop the tick (INFO once per process).
+    * driver ← latest experiment-cache `driver` (canonical DCM/Test
+      Manager name, drives the lake's `driver` Hive partition); falls back
+      to the latest session's `playerName` when no DCM config exists.
+    * experiment / environment ← latest experiment-cache entry; empty →
+      `_resolve_session_experiment` (lake partition enumeration matched on
+      (track, car)) so an empty DCM doesn't leave `experiment=""`, which
+      `build_live_positions` drops.
+    """
+    global _no_metadata_logged
+    with _state_lock:
+        latest_session = _latest_session()
+        if latest_session is None:
+            if not _no_metadata_logged:
+                _no_metadata_logged = True
                 logger.info(
-                    "raw ticks arriving for hostname=%s but no session cached; "
-                    "dropping until a session message arrives",
-                    hostname,
+                    "raw ticks arriving but no session/config cached yet; "
+                    "dropping until a session message or DCM config event arrives"
                 )
             return
-        resolved_key, session = resolved
-        # Reuse the resolved session key for the experiment cache (the two
-        # caches are written in pairs per hostname), falling back to the
-        # same tolerant resolution for entries written by experiment-type
-        # config events under a key that has no session sibling.
-        experiment_entry = _experiment_cache.get(resolved_key)
-        if experiment_entry is None:
-            exp_resolved = _resolve_cached_entry(hostname, _experiment_cache)
-            if exp_resolved is not None:
-                experiment_entry = exp_resolved[1]
-        if resolved_key != hostname:
-            pair = (hostname, resolved_key)
-            if pair not in _announced_raw_resolutions:
-                _announced_raw_resolutions.add(pair)
-                logger.info(
-                    "raw hostname=%s resolved to cached session key=%s "
-                    "(base/single-entry match)",
-                    hostname,
-                    resolved_key,
-                )
+        session_key, session = latest_session
+        latest_experiment = _latest_experiment()
+        experiment_entry = latest_experiment[1] if latest_experiment else None
 
     # Raw ticks keep the adopted live session fresh — cheap lock + dict
-    # write, no broadcast. Touch under the RESOLVED key: the live session
-    # is always adopted under a session-cache key, so a tolerant match
-    # must refresh that entry, not the (possibly suffix-shifted) raw key.
-    _touch_live_session(resolved_key)
+    # write, no broadcast. Touch under the latest SESSION key: the live
+    # session is always adopted under a session-cache key; raw Kafka keys
+    # never match it.
+    _touch_live_session(session_key)
 
     enriched = dict(payload)
     enriched["track"] = session["track"]
@@ -2455,10 +2461,10 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     #      current source doesn't set one, but leave a hook for it),
     #   2. the DCM experiment-config `driver` (canonical "who is driving this
     #      test", same value that drives the lake's `driver` Hive partition),
-    #   3. the AC `playerName` from the session topic — fallback for
-    #      hostnames that don't yet have a Test Manager experiment config
-    #      assigned (e.g. a sim PC running standalone). Keeping this fallback
-    #      means a solo lap still produces a leaderboard row instead of being
+    #   3. the AC `playerName` from the session topic — fallback for setups
+    #      that don't yet have a Test Manager experiment config assigned
+    #      (e.g. a sim PC running standalone). Keeping this fallback means a
+    #      solo lap still produces a leaderboard row instead of being
     #      dropped by `_record_message`'s `(track, car, driver)` guard.
     if not enriched.get("driver"):
         dcm_driver = (
@@ -2467,8 +2473,12 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
         enriched["driver"] = dcm_driver or session["playerName"]
     if not enriched.get("experiment"):
         enriched["experiment"] = (
-            str(experiment_entry["experiment"]) if experiment_entry else ""
+            str(experiment_entry.get("experiment") or "") if experiment_entry else ""
         )
+    if not enriched.get("environment"):
+        env = str(experiment_entry.get("environment") or "") if experiment_entry else ""
+        if env:
+            enriched["environment"] = env
     if not enriched.get("experiment"):
         # DCM gave us no experiment (empty workspace). Without one, the
         # active row fails `build_live_positions`'s non-empty guard and the
@@ -2485,12 +2495,12 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
             cached_group = session.get("lake_resolved_group")
         if cached_group is None:
             lake_experiment, lake_environment = _resolve_session_experiment(
-                resolved_key, session["track"], session["carModel"]
+                session_key, session["track"], session["carModel"]
             )
             if lake_experiment:
                 cached_group = (lake_experiment, lake_environment or "")
                 with _state_lock:
-                    live_entry = _session_cache.get(resolved_key)
+                    live_entry = _session_cache.get(session_key)
                     # Only annotate if the entry is still the one we
                     # resolved against — a concurrent session replacement
                     # may point at a different (track, car).
@@ -2500,6 +2510,7 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
             enriched["experiment"] = cached_group[0]
             if not enriched.get("environment"):
                 enriched["environment"] = cached_group[1]
+    _log_enriched_rate_limited(enriched)
     _record_message(enriched)
 
 
