@@ -44,3 +44,5 @@ docs/architecture-leaderboard-*.md
 
 # Local backend Docker artifacts
 test-manager-backend/.dockerignore
+
+docker-compose.leaderboard.yml
