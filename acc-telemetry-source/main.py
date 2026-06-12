@@ -6,7 +6,17 @@ from quixstreams import Application
 from acc_source import AssettoCorsaCompetizioneSource, configure_logging
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
+
+# ENV_FILE is mandatory: it selects the target environment (env/.env.byox or
+# env/.env.quixdev). override=True so a stale shell env can't shadow the file.
+_env_file = os.environ.get("ENV_FILE")
+if not _env_file or not Path(_env_file).is_file():
+    raise SystemExit(
+        "ENV_FILE is not set or points to a missing file. "
+        "Launch via startUpScript-acc.bat (environment selector) or set ENV_FILE "
+        r"to e.g. C:\repos\ac-quix-bridge\env\.env.quixdev"
+    )
+load_dotenv(_env_file, override=True)
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 configure_logging()

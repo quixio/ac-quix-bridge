@@ -15,7 +15,16 @@ from pathlib import Path
 import cv2
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# ENV_FILE is mandatory: it selects the target environment (env/.env.byox or
+# env/.env.quixdev).
+_env_file = os.environ.get("ENV_FILE")
+if not _env_file or not Path(_env_file).is_file():
+    raise SystemExit(
+        "ENV_FILE is not set or points to a missing file. "
+        "Launch via startUpScript-acc.bat (environment selector) or set ENV_FILE "
+        r"to e.g. C:\repos\ac-quix-bridge\env\.env.quixdev"
+    )
+load_dotenv(_env_file)
 
 # Reuse the resolution logic from the production source so the preview
 # matches exactly what recording will see.
