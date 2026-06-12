@@ -487,6 +487,7 @@ deployments:
     blobStorage:
       bind: true
   - name: MongoDB Backup Manager
+    group: Test Manager
     application: mongodb-backup-manager
     version: latest
     deploymentType: Service
