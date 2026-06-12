@@ -1,0 +1,16 @@
+name: Speed Dashboard
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: Kafka topic to consume AC telemetry from
+    defaultValue: ac-telemetry-raw-replay2
+    required: true
+  - name: WINDOW_SECONDS
+    inputType: FreeText
+    description: Rolling window size in seconds to display on the chart
+    defaultValue: "30"
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

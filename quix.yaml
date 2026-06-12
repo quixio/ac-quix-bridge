@@ -14,7 +14,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetrydashboard
@@ -27,12 +26,16 @@ deployments:
         inputType: InputTopic
         description: Kafka topic to consume telemetry from
         required: true
-        value: ac-telemetry-raw
+        value: ac-telemetry-raw-replay2
       - name: config_input
         inputType: InputTopic
         description: Config topic to resolve the current driver from (DCM change events)
         required: true
         value: ac-telemetry-config
+      - name: CONFIG_MANAGER_URL
+        inputType: FreeText
+        description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
+        value: ''
       - name: LEADERBOARD_SQL
         inputType: FreeText
         multiline: true
@@ -42,6 +45,10 @@ deployments:
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
         value: 15
+      - name: DATALAKE_INSECURE_SSL
+        inputType: FreeText
+        description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
+        value: ''
     blobStorage:
       bind: true
   - name: MongoDB
@@ -52,7 +59,6 @@ deployments:
       limits:
         cpu: 200
         memory: 800
-      replicas: 1
     state:
       enabled: true
       size: 3
@@ -81,7 +87,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -110,7 +115,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     network:
       serviceName: dynamic-configuration-manager
     configuration:
@@ -129,7 +133,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 4000
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -211,7 +214,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager-api
@@ -303,7 +305,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager
@@ -358,7 +359,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     variables:
       - name: output
         inputType: OutputTopic
@@ -413,7 +413,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: acvideoviewer
@@ -436,7 +435,6 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: acvideobrowser
@@ -459,7 +457,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetryexplorer
@@ -476,13 +473,17 @@ deployments:
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
+      - name: QUIX_TOKEN
+        inputType: ProjectVariable
+        description: Optional fallback PAT for the Quix AI chat. Normally unset — the chat forwards the logged-in user's Bearer; used only in local dev without auth.
+        secret: true
       - name: QUIX_AI_AGENT_ID
         inputType: FreeText
-        description: Quix AI agent ID for the Lakehouse Querier (system prompt + KBs + MCP tools). Must exist in the target environment's portal.
-        value: a04cfe48-e816-4a66-87af-ac547b7b8137
+        description: Quix AI agent ID for the Lakehouse Querier. Must exist in the target environment's portal.
+        value: 246e159a-10bb-4909-98f8-42730c7e538c
       - name: TELEMETRY_COMPARISON_MCP_API_KEY
         inputType: ProjectVariable
-        description: Shared X-API-Key secret gating the /mcp endpoint (the plot_data tool). Must match the key registered for this MCP server on the Lakehouse Querier agent.
+        description: X-API-Key gating the /mcp endpoint (plot_data tool). Must match the key registered for this MCP server on the Lakehouse Querier agent.
         required: true
         secret: true
         variableKey: TELEMETRY_COMPARISON_MCP_API_KEY
@@ -506,7 +507,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: backup-manager
@@ -575,7 +575,6 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: quixlab
@@ -628,23 +627,8 @@ deployments:
       limits:
         cpu: 500
         memory: 1500
-      replicas: 1
     configuration:
       topic: ac-telemetry-raw
-  - name: ac-telemetry-raw replay
-    application: DataLake.Replay
-    version: latest
-    deploymentType: Managed
-    resources:
-      limits:
-        cpu: 300
-        memory: 500
-      replicas: 1
-    configuration:
-      sourceWorkspaceId: demo-acquixbridge-dev
-      sourceTopic: ac-telemetry-raw
-      sourceKeys: QUIX-GAMING
-      destinationTopic: ac-telemetry-raw-replay
   - name: leaderboard-service
     application: leaderboard-service
     version: latest
@@ -653,7 +637,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: leaderboard-service-9cb716a
@@ -686,7 +669,7 @@ deployments:
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
         required: true
-        value: ac-telemetry-raw
+        value: ac-telemetry-raw-replay2
       - name: session_output
         inputType: InputTopic
         description: Kafka topic for AC session events (ac-telemetry-session)
@@ -726,7 +709,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: leaderboard
@@ -756,6 +738,52 @@ deployments:
       - name: NEXT_TELEMETRY_DISABLED
         inputType: FreeText
         value: 1
+  - name: Quix DataLake Raw Sink 2
+    application: DataLake.Sink
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 500
+        memory: 1500
+    configuration:
+      topic: ac-telemetry-raw
+      consumerGroup: v1
+      autoOffsetReset: earliest
+  - name: ac-telemetry-raw replay2
+    application: DataLake.Replay
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 500
+        memory: 500
+    configuration:
+      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
+      sourceTopic: ac-telemetry-raw
+      sourceKeys: QUIX-GAMING
+      destinationTopic: ac-telemetry-raw-replay2
+      fromTimestamp: 2026-06-08T15:52:21.569Z
+      toTimestamp: 2026-06-08T16:01:15.856Z
+  - name: Speed Dashboard
+    application: speed-dashboard
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 300
+    publicAccess:
+      enabled: true
+      urlPrefix: speed-dashboard
+    desiredStatus: Running
+    variables:
+      - name: input
+        inputType: InputTopic
+        value: ac-telemetry-raw-replay2
+      - name: WINDOW_SECONDS
+        inputType: FreeText
+        value: 30
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -775,3 +803,8 @@ topics:
   - name: ac-telemetry-config
   - name: test-completed
   - name: ac-telemetry-raw-replay
+  - name: demo-acquixbridge-dev-ac-telemetry-raw
+  - name: demo-acquixbridge-dev-ac-telemetry-session
+  - name: ac-telemetry-raw-replay2
+    configuration:
+      retentionInBytes: 524288000
