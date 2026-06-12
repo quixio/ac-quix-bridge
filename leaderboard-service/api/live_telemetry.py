@@ -706,13 +706,22 @@ def _resolve_session_experiment(
 ) -> tuple[str | None, str | None]:
     """Resolve (experiment, environment) for a live session's (track, car).
 
-    Preference order:
-      1. DCM `_experiment_cache[hostname]` when it carries an experiment.
-      2. Lake partition enumeration (`partition_index.enumerate_groups`):
+    Preference order — align with lake data so the live row joins (and the
+    Best Laps panel queries) a group that actually has historical laps:
+      1. DCM `_experiment_cache[hostname]`, but ONLY when its experiment
+         also appears among the lake partition candidates for this
+         (track, carModel) — i.e. the live experiment has recorded laps
+         of its own.
+      2. Otherwise the lake candidates (`partition_index.enumerate_groups`,
          distinct (experiment, environment) pairs whose (track, carModel)
-         match. Exactly one → use it; several → deterministic sorted-first
-         pick + WARNING listing the candidates; none → (None, None) and
-         the UI shows its "no historical laps" state.
+         match): exactly one → use it; several → deterministic sorted-first
+         pick + WARNING listing the candidates. This overrides a DCM
+         experiment with no lake data (e.g. a freshly created test) with
+         the experiment that actually has best laps for the combo.
+      3. No lake candidates at all → the DCM pair when it carries an
+         experiment (fresh combo: the live row still surfaces as its own
+         group), else (None, None) and the UI shows its "no historical
+         laps" state.
 
     May block on a lake round-trip when the partition enumeration is cold
     — callers must be off the event loop (consumer thread, or
@@ -720,11 +729,8 @@ def _resolve_session_experiment(
     """
     with _state_lock:
         entry = _experiment_cache.get(hostname)
-    if entry:
-        experiment = str(entry.get("experiment") or "").strip()
-        environment = str(entry.get("environment") or "").strip()
-        if experiment:
-            return experiment, environment or None
+    dcm_experiment = str(entry.get("experiment") or "").strip() if entry else ""
+    dcm_environment = str(entry.get("environment") or "").strip() if entry else ""
 
     from . import partition_index
 
@@ -735,8 +741,21 @@ def _resolve_session_experiment(
             if g_track == track and g_car == car
         }
     )
+    if dcm_experiment and any(exp == dcm_experiment for exp, _env in candidates):
+        return dcm_experiment, dcm_environment or None
     if not candidates:
+        if dcm_experiment:
+            return dcm_experiment, dcm_environment or None
         return None, None
+    if dcm_experiment:
+        logger.warning(
+            "DCM experiment %r has no lake data for track=%s car=%s; "
+            "aligning to lake candidates=%s",
+            dcm_experiment,
+            track,
+            car,
+            candidates,
+        )
     if len(candidates) > 1:
         logger.warning(
             "live-session experiment ambiguous for track=%s car=%s: "
@@ -2433,9 +2452,11 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     * driver ← latest experiment-cache `driver` (canonical DCM/Test
       Manager name, drives the lake's `driver` Hive partition); falls back
       to the latest session's `playerName` when no DCM config exists.
-    * experiment / environment ← latest experiment-cache entry; empty →
-      `_resolve_session_experiment` (lake partition enumeration matched on
-      (track, car)) so an empty DCM doesn't leave `experiment=""`, which
+    * experiment / environment ← `_resolve_session_experiment`: the DCM
+      experiment is used only when it has lake data for (track, car);
+      otherwise the lake experiment that does (so the active row overlays
+      the historical best-laps group instead of forming a solo group).
+      Empty resolution would leave `experiment=""`, which
       `build_live_positions` drops.
     """
     global _no_metadata_logged
@@ -2478,25 +2499,18 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
         )
         enriched["driver"] = dcm_driver or session["playerName"]
     if not enriched.get("experiment"):
-        enriched["experiment"] = (
-            str(experiment_entry.get("experiment") or "") if experiment_entry else ""
-        )
-    if not enriched.get("environment"):
-        env = str(experiment_entry.get("environment") or "") if experiment_entry else ""
-        if env:
-            enriched["environment"] = env
-    if not enriched.get("experiment"):
-        # DCM gave us no experiment (empty workspace). Without one, the
-        # active row fails `build_live_positions`'s non-empty guard and the
-        # Live Sector Comparison table never shows the live driver. Fall
-        # back to the same lake-based resolver the `live_session` envelope
-        # uses (DCM-first internally, then partition enumeration matched on
-        # (track, car)). Successful resolutions are cached on the session-
-        # cache entry so steady-state ticks skip the call; misses are NOT
-        # cached — the next tick retries against the TTL-cached
-        # `enumerate_groups()` (cheap), so a late-warming partition index
-        # still gets picked up. A fresh session message replaces the cache
-        # entry wholesale, which invalidates the cached resolution.
+        # Resolve experiment/environment via the same lake-aligned resolver
+        # the `live_session` envelope uses (DCM only when its experiment has
+        # lake data for (track, car), else the lake experiment that does).
+        # This keeps the active row in the SAME group the Best Laps panel
+        # queries — a DCM experiment with no recorded laps no longer strands
+        # the live driver in a solo group. Successful resolutions are cached
+        # on the session-cache entry so steady-state ticks skip the call;
+        # misses are NOT cached — the next tick retries against the
+        # TTL-cached `enumerate_groups()` (cheap), so a late-warming
+        # partition index still gets picked up. A fresh session message
+        # replaces the cache entry wholesale, which invalidates the cached
+        # resolution.
         with _state_lock:
             cached_group = session.get("lake_resolved_group")
         if cached_group is None:
