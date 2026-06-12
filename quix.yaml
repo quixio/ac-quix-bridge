@@ -533,6 +533,7 @@ deployments:
     blobStorage:
       bind: true
   - name: Quix DataLake Raw Sink
+    group: Ingestion
     application: DataLake.Sink
     version: latest
     deploymentType: Managed
