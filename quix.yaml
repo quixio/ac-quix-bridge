@@ -339,6 +339,7 @@ deployments:
         label: Test Manager
         order: 0
   - name: AC Video Browser
+    group: Analysis
     application: ac-video-browser
     version: latest
     deploymentType: Service
