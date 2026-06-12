@@ -19,9 +19,11 @@ while ($choice -ne "1" -and $choice -ne "2") {
 if ($choice -eq "1") {
     $envName = "Byox"
     $envFile = Join-Path $root "env\.env.byox"
+    $isByox = $true
 } else {
     $envName = "Quix Dev"
     $envFile = Join-Path $root "env\.env.quixdev"
+    $isByox = $false
 }
 if (-not (Test-Path $envFile)) {
     Write-Host "Env file not found: $envFile" -ForegroundColor Red
@@ -49,6 +51,26 @@ if ($needsInstall) {
     & "$venv\Scripts\pip.exe" install -r "$sourceDir\requirements.txt" -r "$videoDir\requirements.txt"
 } else {
     Write-Host "Dependencies up to date." -ForegroundColor Gray
+}
+
+# --- byox self-signed TLS: feed httpx the byox CA chain via SSL_CERT_FILE ---
+# Mode A's portal API call (httpx) fails verification against byox's self-signed
+# chain otherwise. Auto-capture it once via fetch_byox_cert.py; child windows
+# inherit SSL_CERT_FILE. Quix Dev uses public certs, so leave it unset there.
+if ($isByox) {
+    $certFile = Join-Path $root "certificates\byox-chain.pem"
+    if (-not (Test-Path $certFile)) {
+        Write-Host "Fetching byox TLS chain..." -ForegroundColor Yellow
+        & "$venv\Scripts\python.exe" (Join-Path $root "fetch_byox_cert.py")
+        if (-not (Test-Path $certFile)) {
+            Write-Host "Failed to fetch byox cert chain ($certFile)." -ForegroundColor Red
+            exit 1
+        }
+    }
+    $env:SSL_CERT_FILE = $certFile
+    Write-Host "SSL_CERT_FILE = $certFile" -ForegroundColor Gray
+} else {
+    Remove-Item Env:\SSL_CERT_FILE -ErrorAction SilentlyContinue
 }
 
 # --- Add ffmpeg to PATH if not already available ---

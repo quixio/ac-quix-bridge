@@ -8,6 +8,7 @@ dist/
 compose.local.yaml
 .secrets
 certificates/
+*.pem
 .quix.yaml.variables
 ac-machine-secrets/
 recordings/
