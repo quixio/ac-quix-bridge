@@ -361,6 +361,7 @@ deployments:
     blobStorage:
       bind: true
   - name: Telemetry Explorer
+    group: Analysis
     application: telemetry-comparison
     version: latest
     deploymentType: Service
