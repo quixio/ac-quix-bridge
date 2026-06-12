@@ -669,7 +669,7 @@ deployments:
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
         required: true
-        value: ac-telemetry-raw
+        value: ac-telemetry-raw-replay2
       - name: session_output
         inputType: InputTopic
         description: Kafka topic for AC session events (ac-telemetry-session)
