@@ -692,18 +692,6 @@ deployments:
       fromTimestamp: 2026-06-08T15:52:21.569Z
       toTimestamp: 2026-06-08T16:01:15.856Z
     disabled: true
-  - name: Quix DataLake Raw Sink 2
-    application: DataLake.Sink
-    version: latest
-    deploymentType: Managed
-    resources:
-      limits:
-        cpu: 500
-        memory: 1500
-    configuration:
-      topic: ac-telemetry-session
-      consumerGroup: v3
-      autoOffsetReset: earliest
 
 # This section describes the Topics of the data pipeline
 topics:
