@@ -1,4 +1,5 @@
 .env
+env/.env*
 __pycache__/
 *.pyc
 .venv/
@@ -37,3 +38,9 @@ dev-planning/
 
 # quix-ai-config writes script-state to its own .env
 quix-ai-config/.env
+
+# Local-only architecture notes (docs/ is otherwise tracked)
+docs/architecture-leaderboard-*.md
+
+# Local backend Docker artifacts
+test-manager-backend/.dockerignore

@@ -1,11 +1,11 @@
 
 """
-QuixStreams Source that captures Assetto Corsa gameplay video.
+Assetto Corsa gameplay video capture (recording-only).
 
 - Reads AC shared memory (graphics/static) for session and status detection
 - Captures the game display via dxcam (DirectX Desktop Duplication)
 - Records per-lap MP4 files locally via ffmpeg, then uploads to blob storage
-- Publishes JPEG frames to a Kafka topic for live streaming via Quix Cloud
+- Consumes ac-telemetry-session to adopt the canonical session_id
 
 State machine (mirrors ac-telemetry-source/ac_source.py):
   off/None → live:   new session → start recording
@@ -16,15 +16,11 @@ State machine (mirrors ac-telemetry-source/ac_source.py):
   lap change:        finalize current lap MP4, upload, start next lap
 """
 
-import base64
 import logging
 import os
 import threading
 import time
 from datetime import datetime, timezone
-
-import cv2
-from quixstreams.sources import Source
 
 from session_tracker import SessionTracker
 from video_recorder import VideoRecorder
@@ -33,43 +29,169 @@ logger = logging.getLogger(__name__)
 
 
 def _get_blob_fs():
-    """Get quixportal filesystem for blob storage. Returns None if unavailable."""
+    """Build an s3fs filesystem for blob storage straight from
+    Quix__BlobStorage__Connection__Json. We bypass quixportal.get_filesystem()
+    because it doesn't expose an SSL-verify-disable knob, and the MinIO
+    deployment uses a self-signed cert chain. Returns None on any failure
+    (recording continues, MP4s stay local)."""
+    import json
+    raw = os.environ.get("Quix__BlobStorage__Connection__Json", "").strip()
+    if not raw:
+        logger.warning("Quix__BlobStorage__Connection__Json not set — MP4s stay local")
+        return None
     try:
-        from quixportal.storage import get_filesystem
-        fs = get_filesystem()
-        logger.info("Blob storage connected")
-        return fs
+        cfg = json.loads(raw)
+        provider = (cfg.get("Provider") or cfg.get("provider") or "").lower()
+        s3 = cfg.get("S3Compatible") or cfg.get("s3_compatible") or {}
+        bucket = s3.get("BucketName") or s3.get("bucket_name")
+        endpoint = s3.get("ServiceUrl") or s3.get("service_url")
+        access = s3.get("AccessKeyId") or s3.get("access_key_id")
+        secret = s3.get("SecretAccessKey") or s3.get("secret_access_key")
+        # GCS (quixdev) ships no ServiceUrl — it uses a fixed S3-compatible
+        # endpoint. MinIO (byox) ships an explicit, self-signed one.
+        if not endpoint and provider == "gcp":
+            endpoint = "https://storage.googleapis.com"
+        if not all([bucket, endpoint, access, secret]):
+            raise ValueError("missing one of bucket/endpoint/access/secret")
+        # botocore >= 1.36 adds flexible-checksum headers to PutObject by default;
+        # GCS's S3-interop endpoint rejects them with SignatureDoesNotMatch.
+        os.environ.setdefault("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required")
+        os.environ.setdefault("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required")
+        import fsspec
+        fs = fsspec.filesystem(
+            "s3",
+            key=access,
+            secret=secret,
+            endpoint_url=endpoint,
+            use_ssl=endpoint.startswith("https://"),
+            # MinIO is fronted by a self-signed cert — skip verification.
+            client_kwargs={"verify": False},
+        )
+        # Validate by listing the bucket root.
+        fs.ls(f"{bucket}/", refresh=True)
+        wrapped = fsspec.filesystem("dir", fs=fs, path=bucket)
+        logger.info("Blob storage connected (s3://%s @ %s, SSL verify off)", bucket, endpoint)
+        return wrapped
     except Exception as e:
         logger.warning("Blob storage not available, MP4s will remain local only: %s", e)
         return None
 
 
-class ACVideoSource(Source):
-    """Captures AC gameplay, records per-lap MP4s, and streams frames to Kafka."""
+class ACVideoSource:
+    """Captures AC gameplay and records per-lap MP4s."""
 
     def __init__(self, name: str):
-        super().__init__(name=name)
-        self._display_index = int(os.environ.get("VIDEO_DISPLAY_INDEX", "0"))
+        self.name = name
+        # Lifecycle flag — formerly inherited from QuixStreams Source, now
+        # owned outright so run() doesn't depend on the Application/Source
+        # framework (which would otherwise force a Kafka output topic).
+        self.running = True
+        # Display selection: numeric index, "auto" (primary), or a resolution
+        # like "3440x1440" that picks the matching output. Resolved in
+        # _init_camera() after dxcam has enumerated outputs.
+        self._display_selector = os.environ.get("VIDEO_DISPLAY_INDEX", "auto").strip()
+        # Optional sub-rect crop within the chosen display, "left,top,right,bottom"
+        # in display-local pixels. Useful on ultrawide screens to record only
+        # the AC game viewport instead of the whole desktop.
+        self._capture_region = self._parse_region(os.environ.get("VIDEO_CAPTURE_REGION", ""))
         self._fps = int(os.environ.get("VIDEO_FPS", "15"))
-        self._stream_fps = int(os.environ.get("STREAM_FPS", "15"))
         self._output_dir = os.environ.get("VIDEO_OUTPUT_DIR", "./recordings")
         self._blob_prefix = os.environ.get("BLOB_VIDEO_PREFIX", "ac_video")
         self._recording_enabled = os.environ.get("VIDEO_RECORDING_ENABLED", "true").lower() == "true"
-        self._stream_enabled = os.environ.get("VIDEO_STREAM_ENABLED", "true").lower() == "true"
-        self._stream_width = int(os.environ.get("STREAM_WIDTH", "1280"))
-        self._jpeg_quality = int(os.environ.get("JPEG_QUALITY", "75"))
         self._recording_width = int(os.environ.get("RECORDING_WIDTH", "1920"))
         self._mock_mode = os.environ.get("AC_MOCK_MODE", "false").lower() == "true"
         self._blob_fs = _get_blob_fs() if self._recording_enabled else None
-        # SessionTracker is created in run() (the child subprocess) — it holds
-        # a threading.Lock which can't be pickled across processes.
         self._session_tracker: SessionTracker | None = None
+
+    def stop(self):
+        self.running = False
 
     @staticmethod
     def _fallback_session_id() -> str:
         """Used only when the telemetry session topic is unreachable. Video
         recorded with this id won't be syncable in the Telemetry Explorer."""
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+    @staticmethod
+    def _parse_region(value: str) -> tuple[int, int, int, int] | None:
+        """Parse "left,top,right,bottom" into a dxcam region tuple. Returns
+        None when the env var is empty or malformed (caller falls back to
+        full-display capture)."""
+        if not value:
+            return None
+        try:
+            parts = [int(p.strip()) for p in value.split(",")]
+            if len(parts) != 4:
+                raise ValueError("expected 4 comma-separated ints")
+            left, top, right, bottom = parts
+            if right <= left or bottom <= top:
+                raise ValueError("right>left and bottom>top required")
+            return left, top, right, bottom
+        except Exception as e:
+            logger.warning("Invalid VIDEO_CAPTURE_REGION %r (%s) — ignoring", value, e)
+            return None
+
+    def _enumerate_outputs(self, dxcam) -> list[dict]:
+        """Return [{device, output, resolution, primary}, ...] across all GPU/output
+        pairs. Parses dxcam.output_info() — a multi-line human-readable string
+        whose format dxcam doesn't promise; we log it raw too so the user always
+        has a fallback."""
+        outputs: list[dict] = []
+        try:
+            raw = dxcam.output_info()
+        except Exception:
+            logger.exception("dxcam.output_info() failed; cannot enumerate displays")
+            return outputs
+        logger.info("dxcam.output_info():\n%s", raw)
+        # Lines look like: "Device[0] Output[1]: Res:(3440, 1440) Rot:0 Primary:True"
+        import re
+        pattern = re.compile(
+            r"Device\[(\d+)\]\s+Output\[(\d+)\].*?Res:\(\s*(\d+)\s*,\s*(\d+)\s*\).*?Primary:(\w+)",
+            re.IGNORECASE,
+        )
+        for m in pattern.finditer(raw):
+            outputs.append({
+                "device": int(m.group(1)),
+                "output": int(m.group(2)),
+                "resolution": (int(m.group(3)), int(m.group(4))),
+                "primary": m.group(5).strip().lower() == "true",
+            })
+        return outputs
+
+    def _resolve_display(self, outputs: list[dict]) -> tuple[int | None, int | None]:
+        """Map VIDEO_DISPLAY_INDEX to (device_idx, output_idx). Accepts:
+          - "" or "auto"   → primary display
+          - integer        → output_idx on device 0 (legacy behavior)
+          - "WxH"          → first output whose resolution matches
+        Returns (None, None) when no match."""
+        sel = self._display_selector.lower()
+        if not sel or sel == "auto":
+            for o in outputs:
+                if o["primary"]:
+                    logger.info("Display selector 'auto' → primary %s", o)
+                    return o["device"], o["output"]
+            if outputs:
+                logger.info("No primary flag found; using first output %s", outputs[0])
+                return outputs[0]["device"], outputs[0]["output"]
+            return None, None
+        if "x" in sel and sel.replace("x", "").isdigit():
+            try:
+                w, h = (int(p) for p in sel.split("x", 1))
+                for o in outputs:
+                    if o["resolution"] == (w, h):
+                        logger.info("Display selector '%s' matched %s", sel, o)
+                        return o["device"], o["output"]
+                logger.error("No display matches resolution %dx%d", w, h)
+                return None, None
+            except ValueError:
+                pass
+        try:
+            idx = int(sel)
+            logger.info("Display selector legacy index → device=0 output=%d", idx)
+            return 0, idx
+        except ValueError:
+            logger.error("Unrecognized VIDEO_DISPLAY_INDEX value: %r", self._display_selector)
+            return None, None
 
     def _init_camera(self):
         """Initialize dxcam screen capture. Returns (camera, (width, height)) or (None, None)."""
@@ -81,24 +203,47 @@ class ACVideoSource(Source):
             )
             return None, None
 
+        outputs = self._enumerate_outputs(dxcam)
+        if outputs:
+            logger.info(
+                "Available displays:\n%s",
+                "\n".join(
+                    f"  device={o['device']} output={o['output']} "
+                    f"{o['resolution'][0]}x{o['resolution'][1]} "
+                    f"{'(primary)' if o['primary'] else ''}"
+                    for o in outputs
+                ),
+            )
+        device_idx, output_idx = self._resolve_display(outputs)
+        if output_idx is None:
+            return None, None
+
         try:
-            camera = dxcam.create(output_idx=self._display_index)
+            create_kwargs = {"output_idx": output_idx}
+            if device_idx is not None:
+                create_kwargs["device_idx"] = device_idx
+            if self._capture_region is not None:
+                create_kwargs["region"] = self._capture_region
+            camera = dxcam.create(**create_kwargs)
             frame = camera.grab()
             if frame is None:
                 logger.error(
-                    "Failed to grab initial frame from display %d. "
+                    "Failed to grab initial frame from device=%s output=%d region=%s. "
                     "Is the display active and not in an RDP session?",
-                    self._display_index,
+                    device_idx, output_idx, self._capture_region,
                 )
                 return None, None
             h, w = frame.shape[:2]
             logger.info(
-                "Camera initialized: display %d, resolution %dx%d",
-                self._display_index, w, h,
+                "Camera initialized: device=%s output=%d region=%s resolution %dx%d",
+                device_idx, output_idx, self._capture_region, w, h,
             )
             return camera, (w, h)
         except Exception:
-            logger.exception("Failed to initialize dxcam on display %d", self._display_index)
+            logger.exception(
+                "Failed to initialize dxcam (device=%s output=%s region=%s)",
+                device_idx, output_idx, self._capture_region,
+            )
             return None, None
 
     def _is_new_session(self, prev_status, status, prev_current_time, current_time) -> bool:
@@ -115,7 +260,16 @@ class ACVideoSource(Source):
         """Upload a finalized MP4 + its sidecar JSON to blob storage, then
         delete the local files. Sidecar is best-effort: a missing sidecar
         does not block the MP4 upload."""
-        if not self._blob_fs or not local_path:
+        if not local_path:
+            return
+        if not self._blob_fs:
+            # Log per-attempt so a one-time startup `Blob storage not
+            # available` warning isn't the only trace — silent skips here
+            # make it look like uploads are succeeding when they aren't.
+            logger.warning(
+                "blob_fs unavailable — skipping upload of %s (will stay local)",
+                os.path.basename(local_path),
+            )
             return
         safe_session = session_id.replace(":", "-")
         folder = f"{self._blob_prefix}/session_id={safe_session}"
@@ -156,33 +310,6 @@ class ACVideoSource(Source):
             logger.info("Recording finalized (%s): %s", reason, path)
             self._upload_to_blob(path, session_id)
 
-    def _publish_frame(self, frame, session_id: str, timestamp_ms: int, completed_laps: int):
-        """Encode frame as JPEG and publish to Kafka topic."""
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-        # Resize for streaming
-        h, w = frame_bgr.shape[:2]
-        if w > self._stream_width:
-            scale = self._stream_width / w
-            new_h = int(h * scale)
-            frame_bgr = cv2.resize(frame_bgr, (self._stream_width, new_h))
-
-        _, jpeg_buf = cv2.imencode(
-            ".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality]
-        )
-        frame_b64 = base64.b64encode(jpeg_buf.tobytes()).decode("ascii")
-
-        msg = self.serialize(
-            key=session_id,
-            value={
-                "session_id": session_id,
-                "timestamp_ms": timestamp_ms,
-                "completedLaps": completed_laps,
-                "frame": frame_b64,
-            },
-        )
-        self.produce(key=msg.key, value=msg.value)
-
     def _create_reader(self):
         if self._mock_mode:
             from ac_reader_mock import ACGraphicsReaderMock
@@ -202,25 +329,33 @@ class ACVideoSource(Source):
         import json
 
         self._session_tracker = SessionTracker()
-        session_topic_name = os.environ.get("session_input", "ac-telemetry-session")
+        # Single source of truth across producer (ac-telemetry-source) and
+        # consumer (this recorder): both read `session_output` from the
+        # shared root .env.
+        session_topic_name = os.environ.get(
+            "session_output",
+            os.environ.get("session_input", "ac-telemetry-session"),
+        )
         tracker = self._session_tracker
 
         def _run():
             consumer = None
             try:
                 from quixstreams import Application as _App
+                # Mode A: the SDK-token Application auto-resolves the broker and
+                # auto-prefixes BOTH the consumer group and the topic with the
+                # workspace id — so no manual ACL-prefix is needed (the former
+                # direct-broker path did that by hand). auto_commit_enable=False
+                # + auto_offset_reset="earliest" → every restart reads the
+                # (compacted) session topic from the head.
                 mini_app = _App(
-                    consumer_group=(
-                        f"ac_video_session_tracker_{os.getpid()}_{int(time.time() * 1000)}"
-                    ),
+                    consumer_group="ac-video-streaming-session-tracker",
                     auto_offset_reset="earliest",
                     auto_create_topics=False,
                 )
-                # Use Application.topic() so the resolved name is workspace-
-                # prefixed (e.g. "quixers-acquixbridge-videostreaming-ac-telemetry-session").
-                # consumer.subscribe() takes raw Kafka topic names with no
-                # auto-prefixing, so the bare name silently subscribes to a
-                # topic that doesn't exist.
+                # Application.topic() resolves the workspace-prefixed name;
+                # consumer.subscribe() needs that resolved name (it doesn't
+                # auto-prefix).
                 session_topic = mini_app.topic(name=session_topic_name)
                 resolved_name = session_topic.name
                 consumer = mini_app.get_consumer(auto_commit_enable=False)
@@ -287,35 +422,8 @@ class ACVideoSource(Source):
         prev_norm_pos = None          # for start-line crossing detection
         waiting_for_start_line = False
 
-        frame_count = 0
-        stream_interval = max(1, self._fps // self._stream_fps) if self._stream_fps > 0 else 0
-
         interval = 1.0 / self._fps
         next_tick = None
-
-        # Background thread for Kafka streaming (decoupled from capture loop)
-        stream_frame_lock = threading.Lock()
-        stream_frame_data = {"frame": None, "session_id": "", "timestamp_ms": 0, "laps": 0}
-        stream_running = True
-
-        def _stream_thread():
-            """Publishes frames to Kafka in a background thread so it doesn't slow capture."""
-            last_frame_id = None
-            while stream_running and self.running:
-                with stream_frame_lock:
-                    frame = stream_frame_data["frame"]
-                    sid = stream_frame_data["session_id"]
-                    ts = stream_frame_data["timestamp_ms"]
-                    laps = stream_frame_data["laps"]
-                if frame is not None and id(frame) != last_frame_id:
-                    last_frame_id = id(frame)
-                    self._publish_frame(frame, sid, ts, laps)
-                else:
-                    time.sleep(0.01)
-
-        if self._stream_enabled:
-            streamer = threading.Thread(target=_stream_thread, daemon=True)
-            streamer.start()
 
         while self.running:
             # ---- Connect to AC shared memory ----
@@ -441,11 +549,15 @@ class ACVideoSource(Source):
                     # loop isn't blocked by the S3 transfer.
                     recorder.start_lap(session_id, completed_laps + 1, *display_size)
                     upload_sid = session_id
-                    threading.Thread(
-                        target=self._upload_to_blob,
-                        args=(path, upload_sid),
-                        daemon=True,
-                    ).start()
+                    # Wrap so exceptions in the upload thread aren't
+                    # silently swallowed (daemons don't surface their
+                    # errors to the main loop).
+                    def _bg_upload(p=path, sid=upload_sid):
+                        try:
+                            self._upload_to_blob(p, sid)
+                        except Exception:  # noqa: BLE001
+                            logger.exception("Background upload failed for %s", p)
+                    threading.Thread(target=_bg_upload, daemon=True).start()
                 prev_completed_laps = completed_laps
 
             # Detect start/finish line crossing to begin recording.
@@ -458,6 +570,31 @@ class ACVideoSource(Source):
                     already_there = (prev_norm_pos is not None and prev_norm_pos < 0.1)
                     first_read = (prev_norm_pos is None)
                     if crossed or already_there or first_read:
+                        # Gate recording on confirmed telemetry session_id.
+                        # The outlap from pits to start-line is several
+                        # seconds — the Kafka session message has had plenty
+                        # of time to arrive. Refusing to start with a
+                        # fallback id prevents the ms drift from being
+                        # committed to blob.
+                        if not session_id_confirmed and self._session_tracker is not None:
+                            resolved = self._session_tracker.session_id_for_new_session(
+                                session_detect_ms, timeout_s=5.0
+                            )
+                            if resolved and resolved != session_id:
+                                logger.info(
+                                    "Adopting telemetry session_id at start-line: "
+                                    "%s (was temp %s)",
+                                    resolved, session_id,
+                                )
+                                session_id = resolved
+                                session_id_confirmed = True
+                            elif not resolved:
+                                logger.warning(
+                                    "Start-line crossed but no telemetry session_id "
+                                    "within 5s — recording with temp id %s; lap may "
+                                    "not be syncable in Explorer",
+                                    session_id,
+                                )
                         recorder.start_lap(
                             session_id, completed_laps + 1, *display_size
                         )
@@ -467,37 +604,39 @@ class ACVideoSource(Source):
                             curr_norm,
                         )
 
-            # Adopt telemetry session_id as soon as it arrives
-            if not session_id_confirmed and self._session_tracker is not None:
-                resolved = self._session_tracker.try_get_fresh_session_id(session_detect_ms)
-                if resolved:
+            # Continuous reconciliation — every tick, check whether the
+            # SessionTracker holds a session_id different from the one we're
+            # currently recording under, and adopt it if so. This handles
+            # both (a) the initial post-detect / pre-start-line gap where
+            # Kafka hadn't delivered yet, AND (b) mid-session session_id
+            # rotation (e.g. acc-telemetry-source detected an in-game
+            # restart and published a fresh id while we were already
+            # recording). Previously this was gated on
+            # `session_id_confirmed` and stopped after first adoption.
+            if self._session_tracker is not None:
+                tracker_sid = self._session_tracker.current_session_id
+                if tracker_sid and tracker_sid != session_id:
                     logger.info(
-                        "Adopted telemetry session_id: %s (was temporary %s)",
-                        resolved, session_id,
+                        "Adopted telemetry session_id: %s (was %s)",
+                        tracker_sid, session_id,
                     )
-                    session_id = resolved
+                    session_id = tracker_sid
                     session_id_confirmed = True
                     if recorder:
-                        recorder.update_session_id(resolved)
-                elif int(time.time() * 1000) - session_detect_ms > 15_000:
-                    # Timeout: accept any id the tracker holds (cold-start
-                    # where telemetry is already running, no new session msg).
-                    stale = self._session_tracker.current_session_id
-                    if stale:
-                        logger.info(
-                            "Accepted existing telemetry session_id: %s "
-                            "(was temporary %s)",
-                            stale, session_id,
-                        )
-                        session_id = stale
-                        if recorder:
-                            recorder.update_session_id(stale)
-                    else:
-                        logger.warning(
-                            "No telemetry session_id received — "
-                            "this recording will not be syncable"
-                        )
-                    session_id_confirmed = True  # stop polling
+                        recorder.update_session_id(tracker_sid)
+                elif (
+                    not session_id_confirmed
+                    and int(time.time() * 1000) - session_detect_ms > 15_000
+                ):
+                    # 15s timeout fallback — recording remains with the
+                    # fallback id; the finish_lap rename + upload will use
+                    # whatever id we have at that point.
+                    logger.warning(
+                        "No telemetry session_id received within 15s — "
+                        "recording with temp id %s will not be syncable",
+                        session_id,
+                    )
+                    session_id_confirmed = True  # stop warning
 
             # Capture frame
             frame = camera.grab()
@@ -521,17 +660,6 @@ class ACVideoSource(Source):
                         norm_pos = old_norm
                     recorder.log_frame(timestamp_ms, norm_pos)
 
-                # Hand frame to stream thread (non-blocking)
-                if self._stream_enabled and stream_interval > 0:
-                    frame_count += 1
-                    if frame_count >= stream_interval:
-                        frame_count = 0
-                        with stream_frame_lock:
-                            stream_frame_data["frame"] = frame
-                            stream_frame_data["session_id"] = session_id
-                            stream_frame_data["timestamp_ms"] = timestamp_ms
-                            stream_frame_data["laps"] = completed_laps
-
             prev_status = status
             prev_current_time = current_time
             prev_norm_pos = gfx.get("normalizedCarPosition")
@@ -542,7 +670,6 @@ class ACVideoSource(Source):
                 time.sleep(next_tick - now)
 
         # ---- Cleanup on source shutdown ----
-        stream_running = False
         self._finalize_recording(recorder, "source stopped", session_id or "")
         if camera is not None:
             del camera

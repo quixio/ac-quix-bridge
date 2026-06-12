@@ -22,7 +22,17 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from dotenv import load_dotenv
-load_dotenv()
+
+# ENV_FILE is mandatory: it selects the target environment (env/.env.byox or
+# env/.env.quixdev).
+_env_file = os.environ.get("ENV_FILE")
+if not _env_file or not Path(_env_file).is_file():
+    raise SystemExit(
+        "ENV_FILE is not set or points to a missing file. "
+        "Launch via startUpScript-acc.bat (environment selector) or set ENV_FILE "
+        r"to e.g. C:\repos\ac-quix-bridge\env\.env.quixdev"
+    )
+load_dotenv(_env_file)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,8 +67,13 @@ def run_kafka():
     try:
         from quixstreams import Application as QuixApp
 
-        qx = QuixApp(consumer_group="video-viewer")
-        topic_name = os.environ.get("input", "ac-video-frames")
+        # Mode A: SDK-token Application auto-resolves the broker + auto-prefixes
+        # the consumer group and topic from Quix__Sdk__Token / Quix__Portal__Api.
+        qx = QuixApp(
+            consumer_group="video-viewer",
+            auto_create_topics=False,
+        )
+        topic_name = os.environ.get("VIDEO_OUTPUT_TOPIC", "ac-video-frames")
         topic = qx.topic(topic_name)
 
         real_topic_name = topic.name

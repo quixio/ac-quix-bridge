@@ -8,11 +8,23 @@ SAME session_id as the telemetry pipeline (required for the Telemetry
 Explorer to find the matching video).
 """
 
+import json
 import logging
+import os
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+_SESSION_ID_FILE = Path(
+    os.environ.get(
+        "AC_SESSION_ID_FILE",
+        Path(tempfile.gettempdir()) / "ac_quix_session_id.json",
+    )
+)
 
 
 class SessionTracker:
@@ -28,6 +40,12 @@ class SessionTracker:
     # earlier). Accept any session message whose timestamp is within
     # this many ms of the video source's detection time.
     FRESH_TOLERANCE_MS = 2000
+
+    # Max wall-clock age of the disk-handshake file we'll trust. Files older
+    # than this are assumed to be from a previous session that ended; adopting
+    # them would re-use old blob filenames and overwrite the prior session's
+    # recordings. 1 hour is generous enough for any realistic AC session run.
+    MAX_FILE_AGE_MS = 3_600_000
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -89,16 +107,48 @@ class SessionTracker:
 
         The caller falls back to a locally-generated id only on None.
         """
+        # Phase 1 — poll the Kafka tracker for up to `timeout_s`. Kafka is
+        # authoritative when reachable, so we give it the full wait window
+        # before falling back to the disk file. Returns immediately if a
+        # fresh id is already held.
         deadline = time.time() + timeout_s
-        while True:
+        while time.time() < deadline:
             with self._lock:
                 sid = self._session_id
                 ts = self._timestamp_ms
             if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
-                return sid
-            if time.time() >= deadline:
+                logger.info(
+                    "Start-line handshake: adopted session_id via Kafka topic — %s",
+                    sid,
+                )
                 return sid
             time.sleep(0.05)
+
+        # Phase 2 — Kafka path didn't deliver a fresh id within the window;
+        # fall back to the disk handshake file written by
+        # `acc-telemetry-source._publish_session_metadata`. Reads the file
+        # ONCE; the staleness check inside `_refresh_from_file` rejects
+        # files older than `MAX_FILE_AGE_MS`.
+        if self._refresh_from_file():
+            with self._lock:
+                sid = self._session_id
+                ts = self._timestamp_ms
+            if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+                logger.info(
+                    "Start-line handshake: adopted session_id via disk file — %s",
+                    sid,
+                )
+                return sid
+
+        # Neither path produced a fresh id. Return None so the caller falls
+        # back to its own locally-generated id (preferable to adopting a
+        # stale one that would overwrite prior recordings).
+        logger.warning(
+            "Start-line handshake: no fresh session_id from Kafka or disk after %.1fs "
+            "— caller will use fallback id (recording will not be syncable in Explorer)",
+            timeout_s,
+        )
+        return None
 
     def try_get_fresh_session_id(self, our_detect_ms: int) -> str | None:
         """Non-blocking check for a fresh telemetry session_id.
@@ -111,4 +161,49 @@ class SessionTracker:
             ts = self._timestamp_ms
         if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
             return sid
+        # File fallback for the non-blocking variant too.
+        if self._refresh_from_file():
+            with self._lock:
+                sid = self._session_id
+                ts = self._timestamp_ms
+            if sid is not None and ts >= our_detect_ms - self.FRESH_TOLERANCE_MS:
+                return sid
         return None
+
+    def _refresh_from_file(self) -> bool:
+        """Best-effort load of session metadata from the parallel-path file
+        written by `acc-telemetry-source`. Returns True if state was updated.
+
+        Newest-wins: adopts the file's id only when its `timestamp_ms` is
+        strictly newer than what the tracker currently holds. That keeps
+        Kafka authoritative when both sources agree, AND lets the file
+        upgrade a STALE in-memory entry (e.g. a session_id from a previous
+        session that Kafka delivered before the new one started)."""
+        if not _SESSION_ID_FILE.exists():
+            return False
+        try:
+            data = json.loads(_SESSION_ID_FILE.read_text())
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to read session_id file %s: %s", _SESSION_ID_FILE, e)
+            return False
+        if not isinstance(data, dict) or not data.get("session_id"):
+            return False
+        file_ts = int(data.get("timestamp_ms", 0))
+        now_ms = int(time.time() * 1000)
+        if now_ms - file_ts > self.MAX_FILE_AGE_MS:
+            # File is from a long-ended session; ignore it. Without this
+            # guard the consumer would adopt the old session's id and
+            # overwrite the prior session's blob recordings (same-id files
+            # collide on upload).
+            return False
+        with self._lock:
+            current_ts = self._timestamp_ms
+            current_sid = self._session_id
+        if file_ts <= current_ts and current_sid is not None:
+            return False  # in-memory is already as-new or newer
+        self.update_from_message(data)
+        logger.info(
+            "Adopted session_id via disk handshake (file=%s, file_ts=%d, prev_ts=%d)",
+            _SESSION_ID_FILE, file_ts, current_ts,
+        )
+        return True
