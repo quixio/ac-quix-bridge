@@ -52,6 +52,7 @@ deployments:
     blobStorage:
       bind: true
   - name: MongoDB
+    group: Test Manager
     application: mongodb
     version: latest
     deploymentType: Service
