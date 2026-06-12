@@ -481,6 +481,7 @@ deployments:
     blobStorage:
       bind: true
   - name: QuixLab
+    group: Analysis
     application: quixlab
     version: latest
     deploymentType: Service
@@ -507,14 +508,6 @@ deployments:
         inputType: FreeText
         description: "Run mode: 'app' (view only) or 'edit' (full editor)"
         value: edit
-      - name: QUIXLAB_MCP_KEY
-        inputType: ProjectVariable
-        description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent.
-        variableKey: quixlab_mcp_key
-      - name: QUIXLAB_AGENT_ID
-        inputType: ProjectVariable
-        description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent.
-        variableKey: quixlab_agent_id
     plugin:
       embeddedView:
         enabled: true
