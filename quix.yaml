@@ -669,9 +669,12 @@ deployments:
     variables:
       - name: input
         inputType: InputTopic
-        value: ac-telemetry-raw-replay2
+        description: Kafka topic to consume AC telemetry from
+        required: true
+        value: ac-telemetry-raw
       - name: WINDOW_SECONDS
         inputType: FreeText
+        description: Rolling window size in seconds to display on the chart
         value: 30
   - name: ac-telemetry-raw
     application: DataLake.Replay
