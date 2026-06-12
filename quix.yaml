@@ -208,6 +208,7 @@ deployments:
     blobStorage:
       bind: true
   - name: Test Manager - Backend
+    group: Test Manager
     application: test-manager-backend
     version: latest
     deploymentType: Service
@@ -282,22 +283,6 @@ deployments:
       - name: Quix__Portal__Api
         inputType: FreeText
         value: https://portal-api.dev.quix.io
-      - name: TESTMANAGER_MCP_API_KEY
-        inputType: ProjectVariable
-        description: Shared X-API-Key secret for the /mcp endpoint. Stored as a workspace secret.
-        required: true
-        secret: true
-        variableKey: TESTMANAGER_MCP_API_KEY
-      - name: QUIX_AI_POST_RACE_AGENT_ID
-        inputType: FreeText
-        description: Quix.AI Post-Race Analyzer agent ID. Empty disables the AI runner spawn.
-        value: 1f119bcd-ec30-41fc-84a9-9cc5e1540068
-      - name: QUIX_TOKEN
-        inputType: ProjectVariable
-        description: PAT used as Bearer on Quix.AI session API calls (post-race runner).
-        required: true
-        secret: true
-        variableKey: quix_lake_pat
   - name: Test Manager - Frontend
     application: test-manager-frontend
     version: latest
