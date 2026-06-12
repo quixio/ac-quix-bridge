@@ -654,21 +654,6 @@ deployments:
       - name: NEXT_TELEMETRY_DISABLED
         inputType: FreeText
         value: 1
-  - name: ac-telemetry-raw replay2
-    application: DataLake.Replay
-    version: latest
-    deploymentType: Managed
-    resources:
-      limits:
-        cpu: 500
-        memory: 500
-    configuration:
-      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
-      sourceTopic: ac-telemetry-raw
-      sourceKeys: QUIX-GAMING
-      destinationTopic: ac-telemetry-raw-replay2
-      fromTimestamp: 2026-06-08T15:52:21.569Z
-      toTimestamp: 2026-06-08T16:01:15.856Z
   - name: Speed Dashboard
     application: speed-dashboard
     version: latest
@@ -688,6 +673,21 @@ deployments:
       - name: WINDOW_SECONDS
         inputType: FreeText
         value: 30
+  - name: ac-telemetry-raw
+    application: DataLake.Replay
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 500
+        memory: 500
+    configuration:
+      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
+      sourceTopic: ac-telemetry-raw
+      sourceKeys: QUIX-GAMING
+      destinationTopic: ac-telemetry-raw
+      fromTimestamp: 2026-06-08T15:52:21.569Z
+      toTimestamp: 2026-06-08T16:01:15.856Z
 
 # This section describes the Topics of the data pipeline
 topics:
