@@ -744,6 +744,19 @@ deployments:
       - name: WINDOW_SECONDS
         inputType: FreeText
         value: 30
+  - name: ac-telemetry-session-replay
+    application: DataLake.Replay
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 300
+        memory: 500
+    configuration:
+      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
+      sourceTopic: ac-telemetry-session
+      sourceKeys: QUIX-GAMING
+      destinationTopic: ac-telemetry-session-replay
 
 # This section describes the Topics of the data pipeline
 topics:
