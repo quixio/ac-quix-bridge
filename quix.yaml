@@ -338,28 +338,6 @@ deployments:
         show: true
         label: Test Manager
         order: 0
-  - name: AC Video Viewer
-    application: ac-video-viewer
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 200
-        memory: 500
-    publicAccess:
-      enabled: true
-      urlPrefix: acvideoviewer
-    network:
-      ports:
-        - port: 80
-          targetPort: 80
-    variables:
-      - name: input
-        inputType: InputTopic
-        description: Kafka topic to consume video frames from
-        required: true
-        value: ac-video-frames
-    disabled: true
   - name: AC Video Browser
     application: ac-video-browser
     version: latest
