@@ -55,6 +55,11 @@ logger = logging.getLogger(__name__)
 # `ac-telemetry-session` remains the source of truth for track / carModel
 # / playerName (DCM only mirrors those after `session-config-bridge` has
 # run, which may not have happened yet for an unlinked sim PC).
+#
+# NOTE: `ac-telemetry-config` is intentionally consumed here without being
+# declared as an InputTopic on this deployment in app.yaml / quix.yaml —
+# the subscription is code-level only. Keep that in mind when auditing
+# topic ACLs or deployment wiring.
 TOPIC = "ac-telemetry-raw"
 SESSION_TOPIC = "ac-telemetry-session"
 CONFIG_EVENTS_TOPIC = "ac-telemetry-config"
@@ -68,15 +73,16 @@ STALE_AFTER_S = 10.0
 # happening right now" — we don't care about history.
 #
 # We subscribe to BOTH the raw topic (for live ticks) AND the session topic
-# (for track/car/driver enrichment). Session messages are produced once per
-# AC session, so on restart we won't have a cached session yet — until the
-# next session change, raw ticks for an unknown hostname are dropped with a
-# debug log. The session topic uses the source's hostname as Kafka key, so
-# `auto_offset_reset="latest"` is acceptable: as long as the bridge is
-# running when the user starts/restarts AC, the next session message will
-# populate the cache before any noticeable amount of raw data flows. If
-# this proves too lossy in practice we can switch the session subscription
-# to `earliest` independently (different consumer or seek-on-assign).
+# (for track/car/driver enrichment). The raw topic honors
+# `auto_offset_reset="latest"` — it is high-volume (~50 msg/s, 200k+
+# retained) and replaying it would lag the consumer for minutes. The
+# SESSION and CONFIG topics, however, are tiny metadata streams produced
+# once per session / config change, and the caches need the MOST-RECENT
+# message on every (re)start ("take last message"). So the `on_assign`
+# rebalance callback in `_consumer_loop` rewinds exactly those two topics'
+# partitions to `OFFSET_BEGINNING` (overriding any committed offsets) and
+# replays the small backlog into the per-hostname caches; raw partitions
+# keep their committed/latest position.
 CONSUMER_GROUP = "leaderboard-service-ghost-lap"
 
 # Number of equally-sized checkpoint gates the lap is split into for the
@@ -2594,10 +2600,51 @@ def _consumer_loop() -> None:
         session_topic.name,
         CONFIG_EVENTS_TOPIC,
     )
+
+    # Topics whose partitions are rewound to the beginning on every
+    # (re)balance: tiny metadata streams where the cache wants the
+    # most-recent message regardless of when the consumer started.
+    rewind_topics = {session_topic.name, config_events_topic.name}
+
+    def _on_assign(assigned_consumer: Any, partitions: list[Any]) -> None:
+        """Rebalance callback: seek SESSION + CONFIG partitions to
+        `OFFSET_BEGINNING` so the handful of retained metadata messages
+        replay into the caches on every (re)start; RAW partitions are left
+        untouched (committed offset, falling back to
+        `auto_offset_reset="latest"`).
+
+        Mutating each `TopicPartition.offset` and then calling `assign()`
+        is the standard confluent-kafka pattern for overriding start
+        offsets in an eager-rebalance `on_assign` callback. Must NEVER
+        raise: an exception before `assign()` lets confluent-kafka apply
+        the default assignment, but raising out of a rebalance callback
+        can stall the consumer.
+        """
+        try:
+            from confluent_kafka import OFFSET_BEGINNING
+
+            rewound: set[str] = set()
+            for tp in partitions:
+                if tp.topic in rewind_topics:
+                    tp.offset = OFFSET_BEGINNING
+                    rewound.add(tp.topic)
+            assigned_consumer.assign(partitions)
+            if rewound:
+                logger.info(
+                    "rebalance: rewound %s to beginning; raw stays at "
+                    "committed/latest",
+                    sorted(rewound),
+                )
+        except Exception:
+            logger.exception(
+                "on_assign rewind failed; default assignment applies"
+            )
+
     try:
         with app.get_consumer() as consumer:
             consumer.subscribe(
-                [raw_topic.name, session_topic.name, config_events_topic.name]
+                [raw_topic.name, session_topic.name, config_events_topic.name],
+                on_assign=_on_assign,
             )
             while not _stop_event.is_set():
                 msg = consumer.poll(timeout=0.5)
