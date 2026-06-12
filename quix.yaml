@@ -52,6 +52,7 @@ deployments:
     blobStorage:
       bind: true
   - name: MongoDB
+    group: Test Manager
     application: mongodb
     version: latest
     deploymentType: Service
@@ -207,6 +208,7 @@ deployments:
     blobStorage:
       bind: true
   - name: Test Manager - Backend
+    group: Test Manager
     application: test-manager-backend
     version: latest
     deploymentType: Service
@@ -281,23 +283,8 @@ deployments:
       - name: Quix__Portal__Api
         inputType: FreeText
         value: https://portal-api.dev.quix.io
-      - name: TESTMANAGER_MCP_API_KEY
-        inputType: ProjectVariable
-        description: Shared X-API-Key secret for the /mcp endpoint. Stored as a workspace secret.
-        required: true
-        secret: true
-        variableKey: TESTMANAGER_MCP_API_KEY
-      - name: QUIX_AI_POST_RACE_AGENT_ID
-        inputType: FreeText
-        description: Quix.AI Post-Race Analyzer agent ID. Empty disables the AI runner spawn.
-        value: 1f119bcd-ec30-41fc-84a9-9cc5e1540068
-      - name: QUIX_TOKEN
-        inputType: ProjectVariable
-        description: PAT used as Bearer on Quix.AI session API calls (post-race runner).
-        required: true
-        secret: true
-        variableKey: quix_lake_pat
   - name: Test Manager - Frontend
+    group: Test Manager
     application: test-manager-frontend
     version: latest
     deploymentType: Service
@@ -329,10 +316,10 @@ deployments:
         description: Disable Next.js telemetry
         value: 1
       - name: NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
-        inputType: ProjectVariable
+        inputType: FreeText
         description: Public URL of the Telemetry Explorer deployment
         required: true
-        variableKey: TELEMETRY_EXPLORER_URL
+        value: TELEMETRY_EXPLORER_URL
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: Live-positions blue-freeze window duration in ms after a gate crossing.
@@ -500,6 +487,7 @@ deployments:
     blobStorage:
       bind: true
   - name: MongoDB Backup Manager
+    group: Test Manager
     application: mongodb-backup-manager
     version: latest
     deploymentType: Service
@@ -800,24 +788,7 @@ topics:
       retentionInMinutes: -1
       cleanupPolicy: Compact
   - name: ac-video-frames
-    configuration:
-      partitions: 1
-      replicationFactor: 1
-      retentionInMinutes: 60
-      retentionInBytes: 536870912
-  - name: tsbs_data_transformed
-    configuration:
-      partitions: 1
-      replicationFactor: 2
-      retentionInMinutes: -1
-      retentionInBytes: 52428800
   - name: ac-telemetry-config
-    configuration:
-      partitions: 1
-      replicationFactor: 2
-      retentionInMinutes: -1
-      retentionInBytes: 52428800
-  - name: transform
   - name: test-completed
   - name: ac-telemetry-raw-replay
   - name: demo-acquixbridge-dev-ac-telemetry-raw
