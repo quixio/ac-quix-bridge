@@ -662,7 +662,7 @@ deployments:
         inputType: InputTopic
         description: Kafka topic for AC session events (ac-telemetry-session)
         required: true
-        value: ac-telemetry-session
+        value: ac-telemetry-session-replay
       - name: LAKE_TABLE
         inputType: FreeText
         value: ac_telemetry
