@@ -319,6 +319,26 @@ def publish_active_state(envelope: dict[str, Any]) -> None:
         logger.debug("publish_active_state scheduling failed", exc_info=True)
 
 
+def publish_live_session(envelope: dict[str, Any]) -> None:
+    """Broadcast one ``{"type": "live_session", ...}`` envelope.
+
+    Same shape and delivery semantics as ``publish_active_state``:
+    bypasses the throttled queue (transitions are rare — session adopt /
+    change / stale-clear) and the frontend reacts immediately (best-laps
+    panel combo). Called from the Kafka consumer thread by
+    ``live_telemetry._publish_live_session_if_changed``. Failures are
+    swallowed.
+    """
+    if _loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(_broadcast_envelope(envelope), _loop)
+    except RuntimeError:
+        pass
+    except Exception:
+        logger.debug("publish_live_session scheduling failed", exc_info=True)
+
+
 async def _sim_driver_loop() -> None:
     """LOCAL_DEV_MODE: emit periodic active mutations + active_state.
 
@@ -521,6 +541,9 @@ async def _keepalive_loop() -> None:
             from . import live_telemetry
 
             live_telemetry.sweep_stale_active_state()
+            # Same hook clears a live session that outlived its TTL —
+            # cheap (one dict check, at most one envelope on transition).
+            live_telemetry.sweep_stale_live_session()
         except asyncio.CancelledError:
             raise
         except Exception:

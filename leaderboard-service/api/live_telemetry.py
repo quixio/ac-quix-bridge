@@ -599,6 +599,197 @@ def sweep_stale_active_state() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Live-session tracking (session-only liveness — no active driver required)
+# ---------------------------------------------------------------------------
+#
+# `_live_session` records the most-recently-adopted session from the
+# session-topic consumer, the DCM session prewarm, or a DCM session
+# config event — independent of raw telemetry. One sim PC / one replay
+# per deployment, so "current live session" = latest adopted. Freshness
+# is governed by `settings.live_session_stale_after_s` (generous default:
+# a replay-announced session must stay live between telemetry bursts).
+#
+# Wire envelope: `{"type": "live_session", "track", "car", "experiment",
+# "environment"}` — all null when nothing is live. Deliberately separate
+# from `active_state`: active-driver semantics (gate freeze, live row)
+# stay keyed to raw ticks only and are untouched by this path.
+
+_live_session_lock = threading.RLock()
+_live_session: dict[str, Any] | None = None
+# Last envelope actually broadcast — dedupes transitions (a looping
+# replay re-announces the same session every iteration).
+_last_live_session_envelope: dict[str, Any] | None = None
+
+
+def _live_session_ttl_s() -> float:
+    from .settings import get_settings
+
+    return get_settings().live_session_stale_after_s
+
+
+def current_live_session() -> dict[str, Any] | None:
+    """Return the most-recently-adopted session (`{hostname, track, car,
+    last_seen_epoch}`) if still inside the liveness TTL, else `None`.
+    """
+    now = time.time()
+    with _live_session_lock:
+        sess = _live_session
+        if sess is None:
+            return None
+        if now - sess["last_seen_epoch"] >= _live_session_ttl_s():
+            return None
+        return dict(sess)
+
+
+def _resolve_session_experiment(
+    hostname: str, track: str, car: str
+) -> tuple[str | None, str | None]:
+    """Resolve (experiment, environment) for a live session's (track, car).
+
+    Preference order:
+      1. DCM `_experiment_cache[hostname]` when it carries an experiment.
+      2. Lake partition enumeration (`partition_index.enumerate_groups`):
+         distinct (experiment, environment) pairs whose (track, carModel)
+         match. Exactly one → use it; several → deterministic sorted-first
+         pick + WARNING listing the candidates; none → (None, None) and
+         the UI shows its "no historical laps" state.
+
+    May block on a lake round-trip when the partition enumeration is cold
+    — callers must be off the event loop (consumer thread, or
+    `asyncio.to_thread` on the WS connect path).
+    """
+    with _state_lock:
+        entry = _experiment_cache.get(hostname)
+    if entry:
+        experiment = str(entry.get("experiment") or "").strip()
+        environment = str(entry.get("environment") or "").strip()
+        if experiment:
+            return experiment, environment or None
+
+    from . import partition_index
+
+    candidates = sorted(
+        {
+            (exp, env)
+            for (g_track, g_car, exp, env) in partition_index.enumerate_groups()
+            if g_track == track and g_car == car
+        }
+    )
+    if not candidates:
+        return None, None
+    if len(candidates) > 1:
+        logger.warning(
+            "live-session experiment ambiguous for track=%s car=%s: "
+            "candidates=%s — picking sorted-first",
+            track,
+            car,
+            candidates,
+        )
+    experiment, environment = candidates[0]
+    return experiment or None, environment or None
+
+
+def _build_live_session_envelope(
+    session: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Project a live-session record to the wire envelope.
+
+    Resolution happens here (not at adopt time) so a WS connect after the
+    partition index warms up sees the resolved experiment even if it was
+    unknown at the moment of adoption.
+    """
+    if session is None:
+        return {
+            "type": "live_session",
+            "track": None,
+            "car": None,
+            "experiment": None,
+            "environment": None,
+        }
+    experiment, environment = _resolve_session_experiment(
+        session["hostname"], session["track"], session["car"]
+    )
+    return {
+        "type": "live_session",
+        "track": session["track"],
+        "car": session["car"],
+        "experiment": experiment,
+        "environment": environment,
+    }
+
+
+def current_live_session_envelope() -> dict[str, Any]:
+    """Wire envelope for the current live session.
+
+    Sent by the WS endpoint right after the snapshot + `active_state`
+    frames so a client connecting mid-session learns the session combo
+    without waiting for a transition. May hit the lake (cold partition
+    enumeration) — the WS route calls it via `asyncio.to_thread`.
+    """
+    return _build_live_session_envelope(current_live_session())
+
+
+def _publish_live_session_if_changed(envelope: dict[str, Any]) -> None:
+    """Broadcast a `live_session` envelope unless identical to the last one."""
+    global _last_live_session_envelope
+    with _live_session_lock:
+        if _last_live_session_envelope == envelope:
+            return
+        _last_live_session_envelope = dict(envelope)
+    from . import live_stream
+
+    live_stream.publish_live_session(envelope)
+
+
+def _adopt_live_session(hostname: str, track: str, car: str) -> None:
+    """Record (and broadcast) the most-recently-adopted live session.
+
+    Called from the session-topic handler, the DCM session prewarm, and
+    the DCM session config-event path — always AFTER the experiment cache
+    has been force-refreshed for the hostname, so the DCM-preferred
+    resolution path sees fresh data. `last_seen_epoch` refreshes on every
+    call; the broadcast is deduped on the resulting envelope.
+    """
+    global _live_session
+    with _live_session_lock:
+        _live_session = {
+            "hostname": hostname,
+            "track": track,
+            "car": car,
+            "last_seen_epoch": time.time(),
+        }
+        session = dict(_live_session)
+    _publish_live_session_if_changed(_build_live_session_envelope(session))
+
+
+def _touch_live_session(hostname: str) -> None:
+    """Refresh the live session's freshness from a raw tick for the same
+    hostname — an actively-lapping driver keeps the session live without
+    waiting for the next session-topic announcement.
+    """
+    with _live_session_lock:
+        if _live_session is not None and _live_session["hostname"] == hostname:
+            _live_session["last_seen_epoch"] = time.time()
+
+
+def sweep_stale_live_session() -> None:
+    """Clear the live session once it outlives the TTL and broadcast the
+    all-null envelope. Called from the WS keepalive loop, same hook as
+    `sweep_stale_active_state` (the consumer thread can't signal staleness
+    on its own — by definition it has stopped receiving messages).
+    """
+    global _live_session
+    now = time.time()
+    with _live_session_lock:
+        if _live_session is None:
+            return
+        if now - _live_session["last_seen_epoch"] < _live_session_ttl_s():
+            return
+        _live_session = None
+    _publish_live_session_if_changed(_build_live_session_envelope(None))
+
+
+# ---------------------------------------------------------------------------
 # Live-mode state access
 # ---------------------------------------------------------------------------
 
@@ -1181,8 +1372,15 @@ def _prewarm_session_cache_from_dcm() -> None:
         # Warm the experiment cache for each hostname we seeded. Outside the
         # httpx context so each lookup opens its own short-lived client —
         # consistent with `_get_cached_experiment`'s existing behaviour.
+        # Each prewarmed session is also adopted as the live session
+        # (latest wins) so a backend restart mid-session re-arms the
+        # `live_session` envelope without waiting for a new announcement.
         for hostname in prewarmed_hostnames:
             _get_cached_experiment(hostname, force_refresh=True)
+            with _state_lock:
+                session = _session_cache.get(hostname)
+            if session:
+                _adopt_live_session(hostname, session["track"], session["carModel"])
 
         # Refresh best-laps once more so per-driver bests reflect the
         # drivers we just discovered. Cheap, atomic, one extra lake hit at
@@ -1296,6 +1494,10 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     # boundaries are the natural invalidation point — between sessions the
     # operator may have switched the active experiment via Test Manager.
     _get_cached_experiment(hostname, force_refresh=True)
+    # Adopt this session as the current live session (and broadcast the
+    # `live_session` envelope) BEFORE the seconds-long best-laps refresh
+    # below, so connected clients learn the combo promptly.
+    _adopt_live_session(hostname, track, car)
     # Same trigger for the best-laps cache — a new AC session means a
     # driver is about to set new lap times, so we want fresh per-driver
     # best laps in cache before the next `/live-positions` poll.
@@ -1424,6 +1626,9 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             # Keep experiment+driver paired with the new session (same hook
             # `_handle_session_message` runs after a Kafka session message).
             _get_cached_experiment(target_key, force_refresh=True)
+            # A DCM session config event is a session announcement too —
+            # adopt it as the live session (same as the Kafka path).
+            _adopt_live_session(target_key, track, car)
             # And refresh best laps — a session-config change can mean a
             # different driver is about to log laps under this hostname.
             _refresh_best_laps_from_settings(force=True)
@@ -2128,6 +2333,10 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     if session is None:
         logger.debug("no session cache for hostname=%s; raw tick dropped", hostname)
         return
+
+    # Raw ticks keep the adopted live session fresh — cheap lock + dict
+    # write, no broadcast.
+    _touch_live_session(hostname)
 
     enriched = dict(payload)
     enriched["track"] = session["track"]

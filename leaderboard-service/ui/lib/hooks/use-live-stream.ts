@@ -39,6 +39,12 @@ export interface UseLiveStreamResult {
   error: Error | null
   isLive: boolean
   liveCombo: LiveCombo | null
+  /** True while a session (track+car) is announced live, even with no
+   * actively-lapping driver. */
+  hasLiveSession: boolean
+  /** Combo of the announced live session — only set when the backend
+   * resolved all of experiment/track/car. */
+  sessionCombo: LiveCombo | null
   freezeEvent: FreezeEvent | null
 }
 
@@ -83,11 +89,20 @@ interface ActiveStateMessage {
   environment: string | null
 }
 
+interface LiveSessionMessage {
+  type: "live_session"
+  track: string | null
+  car: string | null
+  experiment: string | null
+  environment: string | null
+}
+
 type StreamMessage =
   | SnapshotMessage
   | ActiveMessage
   | PingMessage
   | ActiveStateMessage
+  | LiveSessionMessage
 
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 10000]
 
@@ -181,6 +196,8 @@ export function useLiveStream(): UseLiveStreamResult {
   const [error, setError] = useState<Error | null>(null)
   const [isLive, setIsLive] = useState(false)
   const [liveCombo, setLiveCombo] = useState<LiveCombo | null>(null)
+  const [hasLiveSession, setHasLiveSession] = useState(false)
+  const [sessionCombo, setSessionCombo] = useState<LiveCombo | null>(null)
   const [freezeEvent, setFreezeEvent] = useState<FreezeEvent | null>(null)
   const prevGateIdxRef = useRef<Map<string, number | null>>(new Map())
   const freezeStampRef = useRef(0)
@@ -293,6 +310,18 @@ export function useLiveStream(): UseLiveStreamResult {
           } else {
             setLiveCombo(null)
           }
+        } else if (parsed.type === "live_session") {
+          const next = parsed
+          setHasLiveSession(Boolean(next.track && next.car))
+          if (next.experiment && next.track && next.car) {
+            setSessionCombo({
+              experiment: next.experiment,
+              track: next.track,
+              car: next.car,
+            })
+          } else {
+            setSessionCombo(null)
+          }
         } else if (parsed.type === "ping") {
           // no-op
         } else {
@@ -362,6 +391,8 @@ export function useLiveStream(): UseLiveStreamResult {
     error,
     isLive,
     liveCombo,
+    hasLiveSession,
+    sessionCombo,
     freezeEvent,
   }
 }

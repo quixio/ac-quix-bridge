@@ -144,6 +144,19 @@ class Settings(BaseSettings):
             "is refreshed (also the failure backoff window)"
         ),
     )
+    # Live-session liveness window. A session announced on the session
+    # topic (or via DCM prewarm / session config event) counts as "live"
+    # for this long after the last announcement / raw tick — generous on
+    # purpose so a replay-announced session keeps the leaderboard's
+    # best-laps panel populated between telemetry bursts.
+    live_session_stale_after_s: float = Field(
+        600.0,
+        alias="LIVE_SESSION_STALE_AFTER_S",
+        description=(
+            "Age (seconds) after which the adopted live session (track+car "
+            "from the session topic) is no longer considered live"
+        ),
+    )
     lake_server_aggregation: bool = Field(
         True,
         alias="LAKE_SERVER_AGGREGATION",

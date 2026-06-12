@@ -165,6 +165,15 @@ async def live_stream_endpoint(
         # on connect now also includes one `active_state` message
         # reflecting current state.").
         await websocket.send_json(live_telemetry.current_active_state_envelope())
+        # And the current live-session envelope, so a client connecting
+        # mid-session learns the announced (track, car) combo — and its
+        # resolved experiment — without waiting for the next transition.
+        # Built on a worker thread: resolving the experiment can hit the
+        # lake when the partition enumeration is cold.
+        live_session_envelope = await asyncio.to_thread(
+            live_telemetry.current_live_session_envelope
+        )
+        await websocket.send_json(live_session_envelope)
     except WebSocketDisconnect:
         # Client dropped before we could send anything; nothing to do.
         return
