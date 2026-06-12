@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -134,8 +135,12 @@ _state: dict[tuple[str, str, str], dict[str, Any]] = {}
 # `_state` — keeps the locking story trivial; sessions update is rare enough
 # that contention with the hot raw-tick path is negligible).
 #
-# `_session_cache[hostname]` = {"track": ..., "carModel": ..., "playerName": ...}
-# populated on every session message (one per AC session).
+# `_session_cache[hostname]` = {"track": ..., "carModel": ..., "playerName": ...,
+#                                "updated_epoch": float}
+# populated on every session message (one per AC session). `updated_epoch`
+# lets the tolerant raw-tick resolver (`_resolve_cached_entry`) pick the
+# most-recently-updated entry when several cached hostnames share the same
+# base (e.g. replayed sessions `QUIX-GAMING_<epochA>` / `QUIX-GAMING_<epochB>`).
 #
 # `_experiment_cache[hostname]` = {"experiment": str, "driver": str,
 #                                  "environment": str, "fetched_epoch": float}
@@ -149,8 +154,75 @@ _state: dict[tuple[str, str, str], dict[str, Any]] = {}
 # the best-laps lake query (`environment` partitions the lake and missing
 # it from the WHERE clause caused the previous "scans-too-wide / only-2-rows"
 # bug).
-_session_cache: dict[str, dict[str, str]] = {}
+_session_cache: dict[str, dict[str, Any]] = {}
 _experiment_cache: dict[str, dict[str, Any]] = {}
+
+# Raw-tick hostnames that failed every session-cache resolution step (exact,
+# base-prefix, single-entry fallback). Guarded by `_state_lock`. Used to
+# rate-limit the "raw ticks arriving but no session cached" INFO line to once
+# per distinct hostname — visible to operators without per-tick log spam.
+_unmatched_raw_hostnames: set[str] = set()
+
+# Non-exact (hostname → resolved cache key) adoptions already announced.
+# Guarded by `_state_lock`; INFO-logged once per pair so operators can see
+# the tolerant join in action without 60 Hz spam.
+_announced_raw_resolutions: set[tuple[str, str]] = set()
+
+
+def _hostname_base(hostname: str) -> str:
+    """Strip one trailing `_<digits>` group from a hostname.
+
+    `QUIX-GAMING_1781287919884` → `QUIX-GAMING`; a hostname without such a
+    suffix is returned unchanged. Used to match raw-topic and session-topic
+    keys that share a machine base but carry different recorded-session
+    epoch suffixes (replay scenario).
+    """
+    match = re.fullmatch(r"(.*)_\d+", hostname)
+    return match.group(1) if match else hostname
+
+
+def _resolve_cached_entry(
+    hostname: str, cache: dict[str, dict[str, Any]]
+) -> tuple[str, dict[str, Any]] | None:
+    """Tolerantly resolve a per-hostname cache entry for a raw-tick hostname.
+
+    Caller must hold `_state_lock`. Resolution order, first hit wins:
+      1. Exact key match (unchanged fast path).
+      2. Base-prefix match: entries whose `_hostname_base` equals the raw
+         hostname's base. Several matches → most-recently-updated entry
+         (`updated_epoch` / `fetched_epoch`); ties broken by sorted-last
+         key, so the pick is deterministic.
+      3. Single-entry fallback: exactly ONE entry cached total (single-sim
+         demo case) → use it regardless of base.
+
+    Multi-sim safety: step 2 never crosses distinct bases, and step 3 only
+    fires when the whole cache holds one entry.
+    """
+    entry = cache.get(hostname)
+    if entry is not None:
+        return hostname, entry
+    base = _hostname_base(hostname)
+    candidates = [
+        (key, value) for key, value in cache.items() if _hostname_base(key) == base
+    ]
+    if not candidates and len(cache) == 1:
+        candidates = list(cache.items())
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda kv: (
+            float(kv[1].get("updated_epoch") or kv[1].get("fetched_epoch") or 0.0),
+            kv[0],
+        ),
+    )
+
+
+def _resolve_cached_session(hostname: str) -> tuple[str, dict[str, Any]] | None:
+    """Resolve `(cache_key, session)` for a raw-tick hostname — see
+    `_resolve_cached_entry` for the order. Caller must hold `_state_lock`.
+    """
+    return _resolve_cached_entry(hostname, _session_cache)
 
 _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
@@ -1360,6 +1432,7 @@ def _prewarm_session_cache_from_dcm() -> None:
                         "track": track,
                         "carModel": car,
                         "playerName": player,
+                        "updated_epoch": time.time(),
                     }
                 logger.info(
                     "session cache prewarmed from DCM: hostname=%s track=%s car=%s",
@@ -1482,6 +1555,7 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
             "track": track,
             "carModel": car,
             "playerName": player,
+            "updated_epoch": time.time(),
         }
     logger.info(
         "session cache updated: hostname=%s track=%s car=%s driver=%s",
@@ -1616,6 +1690,7 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
                     "track": track,
                     "carModel": car,
                     "playerName": player,
+                    "updated_epoch": time.time(),
                 }
             logger.info(
                 "config event applied: type=session hostname=%s track=%s car=%s",
@@ -2322,21 +2397,50 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     """Enrich a raw-topic payload with cached (track, car, driver, experiment)
     and delegate to `_record_message`.
 
-    Cache miss for the hostname means we haven't seen a session message yet
-    (e.g. backend started mid-session). We log debug + skip — the next AC
-    session will populate the cache. This is intentionally silent at info
-    level to avoid spamming.
+    Lookup is tolerant (`_resolve_cached_entry`): exact hostname first, then
+    same-base match (`QUIX-GAMING_<epochA>` raw vs `QUIX-GAMING_<epochB>`
+    session — replay scenario), then single-cached-session fallback. A miss
+    on all three means no session announcement has reached us at all (e.g.
+    backend started mid-session with an empty DCM): we log INFO once per
+    distinct hostname and skip — the next AC session populates the cache.
     """
     with _state_lock:
-        session = _session_cache.get(hostname)
-        experiment_entry = _experiment_cache.get(hostname)
-    if session is None:
-        logger.debug("no session cache for hostname=%s; raw tick dropped", hostname)
-        return
+        resolved = _resolve_cached_session(hostname)
+        if resolved is None:
+            if hostname not in _unmatched_raw_hostnames:
+                _unmatched_raw_hostnames.add(hostname)
+                logger.info(
+                    "raw ticks arriving for hostname=%s but no session cached; "
+                    "dropping until a session message arrives",
+                    hostname,
+                )
+            return
+        resolved_key, session = resolved
+        # Reuse the resolved session key for the experiment cache (the two
+        # caches are written in pairs per hostname), falling back to the
+        # same tolerant resolution for entries written by experiment-type
+        # config events under a key that has no session sibling.
+        experiment_entry = _experiment_cache.get(resolved_key)
+        if experiment_entry is None:
+            exp_resolved = _resolve_cached_entry(hostname, _experiment_cache)
+            if exp_resolved is not None:
+                experiment_entry = exp_resolved[1]
+        if resolved_key != hostname:
+            pair = (hostname, resolved_key)
+            if pair not in _announced_raw_resolutions:
+                _announced_raw_resolutions.add(pair)
+                logger.info(
+                    "raw hostname=%s resolved to cached session key=%s "
+                    "(base/single-entry match)",
+                    hostname,
+                    resolved_key,
+                )
 
     # Raw ticks keep the adopted live session fresh — cheap lock + dict
-    # write, no broadcast.
-    _touch_live_session(hostname)
+    # write, no broadcast. Touch under the RESOLVED key: the live session
+    # is always adopted under a session-cache key, so a tolerant match
+    # must refresh that entry, not the (possibly suffix-shifted) raw key.
+    _touch_live_session(resolved_key)
 
     enriched = dict(payload)
     enriched["track"] = session["track"]
