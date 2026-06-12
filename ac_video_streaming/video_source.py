@@ -53,6 +53,10 @@ def _get_blob_fs():
             endpoint = "https://storage.googleapis.com"
         if not all([bucket, endpoint, access, secret]):
             raise ValueError("missing one of bucket/endpoint/access/secret")
+        # botocore >= 1.36 adds flexible-checksum headers to PutObject by default;
+        # GCS's S3-interop endpoint rejects them with SignatureDoesNotMatch.
+        os.environ.setdefault("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required")
+        os.environ.setdefault("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required")
         import fsspec
         fs = fsspec.filesystem(
             "s3",
