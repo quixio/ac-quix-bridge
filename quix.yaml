@@ -627,7 +627,7 @@ deployments:
         memory: 2000
     publicAccess:
       enabled: true
-      urlPrefix: leaderboard-service-9cb716a
+      urlPrefix: leaderboard
     state:
       enabled: true
       size: 1
@@ -687,45 +687,17 @@ deployments:
       - name: Quix__Portal__Api
         inputType: FreeText
         value: https://portal-api.dev.quix.io
-    blobStorage:
-      bind: true
-  - name: leaderboard-ui
-    application: leaderboard-ui
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 200
-        memory: 500
-    publicAccess:
-      enabled: true
-      urlPrefix: leaderboard
-    network:
-      serviceName: leaderboard-ui
-      ports:
-        - port: 80
-          targetPort: 3000
-    variables:
-      - name: API_URL
-        inputType: FreeText
-        description: Internal k8s service URL for server-side Next.js requests (unused — no rewrites; kept for parity)
-        value: http://leaderboard-service
-      - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
-        inputType: FreeText
-        description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
-        required: true
-        value: https://leaderboard-service-9cb716a-demo-acquixbridge-dev.edge.byox.demo
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
-        description: Blue-freeze window duration in ms after a gate crossing.
+        description: "Build-time: blue-freeze window ms (baked into UI bundle)"
         value: 200
-      - name: NODE_ENV
-        inputType: FreeText
-        required: true
-        value: production
-      - name: NEXT_TELEMETRY_DISABLED
-        inputType: FreeText
-        value: 1
+      - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
+        inputType: ProjectVariable
+        description: "Build-time: standalone-mode fallback PAT baked into UI bundle"
+        secret: true
+        variableKey: quix_lake_pat
+    blobStorage:
+      bind: true
   - name: Quix DataLake Raw Sink 2
     application: DataLake.Sink
     version: latest

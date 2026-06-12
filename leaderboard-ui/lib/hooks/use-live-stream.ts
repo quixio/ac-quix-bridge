@@ -3,14 +3,16 @@
 /**
  * Leaderboard live-stream hook.
  * Identical to the test-manager-frontend version except:
- *   1. `buildStreamUrl` reads NEXT_PUBLIC_LEADERBOARD_SERVICE_URL for the
- *      WS host instead of window.location (which would be the leaderboard-ui
- *      origin, not the leaderboard-service origin).
- *   2. The gate-crossing HTTP refetch uses the same env var as base URL.
+ *   1. `buildStreamUrl` derives the WS host from window.location (UI and API
+ *      share one origin — static export served by leaderboard-service).
+ *      In development (`next dev`), NEXT_PUBLIC_LEADERBOARD_SERVICE_URL may
+ *      override the host to point at a locally running FastAPI.
+ *   2. The gate-crossing HTTP refetch uses getApiUrl() (same-origin in prod).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { getApiUrl } from "@/lib/api/client"
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context"
 import type { LivePositionEntry } from "@/types/leaderboard"
 
@@ -90,11 +92,16 @@ type StreamMessage =
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 10000]
 
 function buildStreamUrl(token: string | null): string {
-  // In leaderboard-ui, the WS endpoint is on leaderboard-service (different host).
-  // NEXT_PUBLIC_LEADERBOARD_SERVICE_URL = public HTTPS URL of leaderboard-service.
-  // Fall back to window.location for local dev when the var is unset.
+  // Production: UI and API share one origin, so derive the WS host from
+  // window.location. Development (`next dev`): honor the env var override
+  // pointing at a locally running FastAPI. `window` guard covers the static
+  // export prerender pass (the hook only runs in effects anyway).
+  const devOverride =
+    process.env.NODE_ENV === "development"
+      ? process.env.NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
+      : undefined
   const serviceUrl =
-    process.env.NEXT_PUBLIC_LEADERBOARD_SERVICE_URL ??
+    devOverride ??
     (typeof window !== "undefined"
       ? `${window.location.protocol}//${window.location.host}`
       : "http://localhost:8082")
@@ -255,9 +262,8 @@ export function useLiveStream(): UseLiveStreamResult {
               stamp: freezeStampRef.current,
             })
             // Gate crossing → fire HTTP refetch for updated rank order.
-            // Use NEXT_PUBLIC_LEADERBOARD_SERVICE_URL as base (no rewrites here).
-            const apiBase =
-              process.env.NEXT_PUBLIC_LEADERBOARD_SERVICE_URL ?? ""
+            // Same-origin in production; dev override via getApiUrl().
+            const apiBase = getApiUrl()
             fetch(`${apiBase}/api/v1/leaderboard/live-positions`, {
               credentials: "include",
             })

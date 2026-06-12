@@ -1,0 +1,10 @@
+# Applies to builds with context = repo root (e.g. leaderboard-service/dockerfile).
+# Keeps host-side artifacts out of the image: Windows node_modules must not
+# overlay the Linux `npm ci` output in the UI build stage.
+.git
+.tmp
+**/node_modules
+**/.venv
+**/.next
+**/out
+**/__pycache__

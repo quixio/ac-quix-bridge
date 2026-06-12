@@ -55,6 +55,14 @@ variables:
   - name: Quix__Portal__Api
     inputType: FreeText
     defaultValue: https://portal-api.dev.quix.io
+  - name: NEXT_PUBLIC_FREEZE_MS
+    inputType: FreeText
+    description: "Build-time: blue-freeze window ms (baked into UI bundle)"
+    defaultValue: "200"
+  - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
+    inputType: Secret
+    description: "Build-time: standalone-mode fallback PAT baked into UI bundle"
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py
