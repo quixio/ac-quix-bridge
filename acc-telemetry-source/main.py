@@ -1,11 +1,12 @@
 import logging
 import os
+from pathlib import Path
 
 from quixstreams import Application
 from acc_source import AssettoCorsaCompetizioneSource, configure_logging
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 configure_logging()
