@@ -1484,16 +1484,21 @@ def _known_groups() -> list[tuple[str, str, str, str]]:
     """Enumerate every (track, car, experiment, environment) tuple we have
     enrichment data for.
 
-    Sources:
+    Sources (deduped union, live-derived first):
       * `_session_cache[hostname]` → (track, carModel) — populated by AC
         session messages and DCM session-prewarm.
       * `_experiment_cache[hostname]` → (experiment, environment) — populated
         by `_get_cached_experiment` from the matching DCM experiment config.
+      * `partition_index.enumerate_groups()` — groups enumerated straight
+        from the lake's partition metadata (TTL-cached, never raises).
+        This is the lake-first path: the historical leaderboard populates
+        even with no live AC session and no DCM config; live gate-state
+        layers on top when a session is active.
 
-    A hostname missing either side (e.g. session exists but experiment
-    config has no environment yet) is dropped — the lake query can't run
-    without all four filters. Each tuple appears at most once even if
-    multiple hostnames share the same combo.
+    A hostname missing either enrichment side (e.g. session exists but
+    experiment config has no environment yet) is dropped from the live
+    sources — the lake query can't run without all four filters. Each
+    tuple appears at most once even if multiple sources share the combo.
     """
     with _state_lock:
         # Snapshot under lock so we don't trip over an in-flight write.
@@ -1516,6 +1521,16 @@ def _known_groups() -> list[tuple[str, str, str, str]]:
             continue
         seen.add(key)
         groups.append(key)
+
+    # Lake-first union. Lazy import: `partition_index` is a leaf module,
+    # but keeping the import local matches this module's convention and
+    # spares the simulator/test paths the httpx import cost.
+    from . import partition_index
+
+    for key in partition_index.enumerate_groups():
+        if key not in seen:
+            seen.add(key)
+            groups.append(key)
     return groups
 
 
@@ -1622,9 +1637,17 @@ def _refresh_best_laps_locked(
     ttl = get_settings().best_laps_ttl_seconds
     groups = _known_groups()
     if not groups:
+        # A refresh that finds zero groups is a *successful* refresh of an
+        # empty lake, not a cold start: flip the `None` sentinel to `{}`
+        # so `build_live_positions` serves a historical-only 200 instead
+        # of retrying synchronously and 500ing on "no data".
+        with _best_laps_lock:
+            if _best_laps_cache is None:
+                _best_laps_cache = {}
         logger.info(
-            "best-laps cache refresh: no (track,car,exp,env) groups known yet "
-            "(session + experiment caches still warming) — leaving cache as-is"
+            "best-laps cache refresh: no (track,car,exp,env) groups known "
+            "(no live session/DCM enrichment and lake enumeration empty) — "
+            "cache is empty"
         )
         return {}
 

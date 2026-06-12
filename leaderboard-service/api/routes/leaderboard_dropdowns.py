@@ -16,12 +16,12 @@ Routes:
 * `GET /api/v1/leaderboard/best-laps?experiment={exp}&track={track}&car={car}`
     → `[{"driver": "Ludvík", "best_lap_ms": 119054}, …]`
 
-The tree endpoint replaces the older per-step probe pipeline
-(`/experiments` + `/experiment-options`) with a single lake query whose
-`experiment IN (...)` predicate prunes lake partitions across every
-candidate at once. Mongo `tests` remains the source-of-truth for
-*which* experiments to look up; the lake decides which of those
-actually have telemetry rows (and which tracks/cars).
+The tree endpoint is lake-first: it folds
+`partition_index.enumerate_groups()` (the lake's own partition
+enumeration, TTL-cached) into the nested dict shape. Mongo plays no
+role in the tree anymore — an empty Mongo `tests` collection no longer
+blanks the dropdowns, and only combos that actually have lake data
+appear (the enumeration guarantees it).
 
 Driver-name display-case folding is reused from `leaderboard_real`
 (`_build_driver_name_lookup`, `_fold_driver_name`) so the UI shows the
@@ -43,56 +43,20 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.database import Database
 
-from .. import live_telemetry
+from .. import live_telemetry, partition_index
 from ..auth import read_permission
-from ..lakehouse_client import LakehouseClient
 from ..mongo import get_mongo
 from ..settings import get_settings
 from .leaderboard_real import (
     LeaderboardError,
     _build_driver_name_lookup,
     _fold_driver_name,
-    _format_sql_string,
     _query_best_laps_min,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
-
-
-# Cap the `IN (...)` list to keep statement size bounded. In practice
-# the Mongo `tests.experiment_id` set is single-digit, so this is purely
-# defensive — operators with very large fleets would hit a soft warning,
-# not a hard failure.
-_MAX_EXPERIMENTS_IN_TREE = 200
-
-
-# ---------------------------------------------------------------------------
-# SQL builders — single-level GROUP BY (QuixLake silently returns 0 rows for
-# CTE / WITH queries; see `feedback_quixlake_no_cte`).
-# ---------------------------------------------------------------------------
-
-
-def _build_experiment_tree_sql(experiments: list[str]) -> str:
-    """`(experiment, track, carModel)` triples for every experiment in `experiments`.
-
-    Single SQL with `experiment IN (...)` so QuixLake prunes the lake's
-    `experiment` partitions across every candidate in one shot — same
-    partition-pruning behaviour that worked for the old single-experiment
-    `WHERE experiment = ...` queries, extended to multiple values.
-
-    Each value is single-quote-escaped via `_format_sql_string`.
-    """
-    lake_table = get_settings().lake_table
-    quoted = ", ".join(f"'{_format_sql_string(e)}'" for e in experiments)
-    return (
-        "SELECT experiment, track, carModel "
-        f"FROM {lake_table} "
-        f"WHERE experiment IN ({quoted}) "
-        "GROUP BY experiment, track, carModel "
-        "ORDER BY experiment, track, carModel"
-    )
 
 
 # Module-local TTL cache for combos OUTSIDE `live_telemetry._known_groups()`
@@ -136,53 +100,6 @@ def _query_combo_best_laps(
 
 
 # ---------------------------------------------------------------------------
-# Lake query helpers
-# ---------------------------------------------------------------------------
-
-
-def _get_lake_client() -> LakehouseClient:
-    """Build a `LakehouseClient` from settings, or raise `LeaderboardError`.
-
-    Mirrors the `build_live_positions` precondition check so the route
-    layer keeps a uniform 500-with-detail surface.
-    """
-    settings = get_settings()
-    if not settings.lakehouse_query_url or not settings.lakehouse_query_token:
-        raise LeaderboardError("Lakehouse credentials missing")
-    return LakehouseClient(
-        base_url=settings.lakehouse_query_url, token=settings.lakehouse_query_token
-    )
-
-
-def _candidate_experiments(mongo: Database[dict[str, Any]]) -> list[str]:
-    """Distinct, non-empty `experiment_id` values from Mongo `tests`, sorted."""
-    raw = mongo.tests.distinct("experiment_id")
-    return sorted({str(v).strip() for v in raw if isinstance(v, str) and v.strip()})
-
-
-def _reduce_tree_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, list[str]]]:
-    """Fold `(experiment, track, carModel)` rows into the nested dict shape.
-
-    Skips rows missing any of the three fields. Outer + inner dicts are
-    sorted lexicographically and each leaf `list[car]` is sorted +
-    deduplicated for defensiveness — the lake's `ORDER BY` already
-    delivers sorted rows, but the reduce stage is cheap.
-    """
-    tree: dict[str, dict[str, set[str]]] = {}
-    for row in rows:
-        experiment = str(row.get("experiment") or "").strip()
-        track = str(row.get("track") or "").strip()
-        car = str(row.get("carModel") or "").strip()
-        if not experiment or not track or not car:
-            continue
-        tree.setdefault(experiment, {}).setdefault(track, set()).add(car)
-    return {
-        exp: {trk: sorted(cars) for trk, cars in sorted(by_track.items())}
-        for exp, by_track in sorted(tree.items())
-    }
-
-
-# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -190,84 +107,35 @@ def _reduce_tree_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, list[st
 @router.get("/experiment-tree")
 async def get_experiment_tree(
     _auth: None = Depends(read_permission),
-    mongo: Database[dict[str, Any]] = Depends(get_mongo),
 ) -> dict[str, dict[str, list[str]]]:
-    """Return the `{experiment: {track: [car, ...]}}` tree filtered to
-    experiments that have data in the configured lake table.
+    """Return the `{experiment: {track: [car, ...]}}` tree of combos that
+    have telemetry rows in the configured lake table.
 
-    Two-phase build:
-      1. Mongo `tests` gives the candidate `(experiment, track, car)`
-         combinations — Test Manager writes these on every session-link.
-      2. One probe per experiment against the configured `LAKE_TABLE`
-         (default `ac_telemetry`). Parallel; per-probe timeout 5 s.
-         Experiments whose probe returns no rows are dropped from the
-         result.
+    Lake-first: folds `partition_index.enumerate_groups()` — the lake's
+    own `(track, car, experiment, environment)` enumeration (TTL-cached,
+    metadata-bootstrap + pruned GROUP BY) — into the nested dict shape.
+    `environment` is collapsed: the same (experiment, track, car) under
+    two environments appears once.
 
-    The probe is `SELECT experiment FROM <table> WHERE experiment = '…'
-    GROUP BY experiment` — same form that responds instantly today.
-    Mongo runs once and is fast; the parallel probes typically complete
-    in <2 s total even with a half-dozen experiments.
+    Mongo is not consulted; an empty Test Manager no longer blanks the
+    dropdowns. An empty lake yields `{}` with 200 — never a 500
+    (`enumerate_groups` swallows enumeration failures and serves its
+    last-good or empty result).
     """
     try:
-        # Phase 1: Mongo aggregate.
+        groups = await asyncio.to_thread(partition_index.enumerate_groups)
         tree: dict[str, dict[str, set[str]]] = {}
-        for doc in mongo.tests.find(
-            {}, {"experiment_id": 1, "sessions": 1, "_id": 0}
-        ):
-            experiment = str(doc.get("experiment_id") or "").strip()
-            if not experiment:
-                continue
-            for session in doc.get("sessions") or []:
-                if not isinstance(session, dict):
-                    continue
-                track = str(session.get("track") or "").strip()
-                car = str(session.get("car_model") or "").strip()
-                if not track or not car:
-                    continue
-                tree.setdefault(experiment, {}).setdefault(track, set()).add(car)
-
-        candidates = sorted(tree.keys())
-        if not candidates:
-            logger.info("experiment-tree: mongo=0 experiments")
-            return {}
-
-        # Phase 2: parallel per-experiment lake probes against LAKE_TABLE.
-        client = _get_lake_client()
-        lake_table = get_settings().lake_table
-
-        def _probe(exp: str) -> bool:
-            sql = (
-                f"SELECT experiment FROM {lake_table} "
-                f"WHERE experiment = '{_format_sql_string(exp)}' "
-                "GROUP BY experiment"
-            )
-            try:
-                df = client.query(sql)
-                return not df.empty
-            except Exception:
-                logger.warning("experiment-tree probe failed for %r", exp, exc_info=False)
-                return False
-
-        probe_results = await asyncio.gather(
-            *(asyncio.to_thread(_probe, exp) for exp in candidates),
-            return_exceptions=False,
-        )
-        has_lake_data = {exp for exp, ok in zip(candidates, probe_results) if ok}
-
+        for track, car, experiment, _environment in groups:
+            tree.setdefault(experiment, {}).setdefault(track, set()).add(car)
         result = {
             exp: {trk: sorted(cars) for trk, cars in sorted(by_track.items())}
             for exp, by_track in sorted(tree.items())
-            if exp in has_lake_data
         }
         logger.info(
-            "experiment-tree: mongo=%d → lake(%s)=%d",
-            len(candidates),
-            lake_table,
+            "experiment-tree: %d experiment(s) from lake enumeration",
             len(result),
         )
         return result
-    except LeaderboardError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
     except Exception as e:
         logger.exception("GET /leaderboard/experiment-tree failed")
         raise HTTPException(status_code=500, detail=str(e)) from e

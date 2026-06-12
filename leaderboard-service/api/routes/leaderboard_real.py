@@ -111,13 +111,27 @@ def _fold_driver_name(name: str) -> str:
 
 
 def _build_driver_name_lookup(mongo: Database[dict[str, Any]]) -> dict[str, str]:
-    """`{folded_name: display_name}` map from the Mongo `drivers` collection."""
-    lookup: dict[str, str] = {}
-    for doc in mongo.drivers.find({}, {"name": 1}):
-        name = doc.get("name")
-        if isinstance(name, str) and name:
-            lookup[_fold_driver_name(name)] = name
-    return lookup
+    """`{folded_name: display_name}` map from the Mongo `drivers` collection.
+
+    Mongo is an *optional* display-name prettifier: an unreachable or
+    empty Mongo returns `{}` (logged at WARNING) and callers fall back to
+    folded / title-cased driver keys — it must never fail a leaderboard
+    response.
+    """
+    try:
+        lookup: dict[str, str] = {}
+        for doc in mongo.drivers.find({}, {"name": 1}):
+            name = doc.get("name")
+            if isinstance(name, str) and name:
+                lookup[_fold_driver_name(name)] = name
+        return lookup
+    except Exception:
+        logger.warning(
+            "driver-name lookup failed (Mongo unreachable?); "
+            "serving folded driver names",
+            exc_info=True,
+        )
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -1258,9 +1272,11 @@ def build_live_positions(
 ) -> list[dict[str, object]]:
     """Build the real-mode `/live-positions` payload.
 
-    Raises `LeaderboardError` when QuixLake credentials are missing or
-    the lake query fails. A missing-or-stale live driver is *not* an
-    error — the endpoint serves a historical-only payload (200 OK).
+    Raises `LeaderboardError` only when QuixLake credentials are missing
+    or an actual lake transport/SQL failure leaves the best-laps cache
+    cold (`None`). "No data" is *not* an error: an empty-but-refreshed
+    cache (`{}`) and a missing-or-stale live driver both serve a
+    historical-only payload — possibly `[]` — with 200 OK.
 
     Step 1: reads `live_telemetry.get_best_laps_cache()` (per-driver
     best-lap dict, keyed by `(track, car, experiment, environment)`).
@@ -1289,6 +1305,9 @@ def build_live_positions(
             raise LeaderboardError(str(e)) from e
         best_laps_cache = live_telemetry.get_best_laps_cache()
         if best_laps_cache is None:
+            # Still `None` after a refresh means every group query failed
+            # (genuine lake error) — a refresh that found no groups or no
+            # rows leaves `{}` instead, which serves as 200 below.
             raise LeaderboardError("Lakehouse query failed; see backend logs")
     driver_name_lookup = _build_driver_name_lookup(mongo)
 

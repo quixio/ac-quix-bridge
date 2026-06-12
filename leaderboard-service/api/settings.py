@@ -88,9 +88,12 @@ class Settings(BaseSettings):
         description="Kafka topic for AC session events",
     )
 
-    # Lake table the leaderboard SQL builders read from.
+    # Lake table the leaderboard SQL builders read from. Default matches
+    # the deployed `LAKE_TABLE=ac_telemetry` (the previous
+    # `ac_telemetry_leadboard` default was a typo'd footgun — it only ever
+    # worked because the deployment overrode it).
     lake_table: str = Field(
-        "ac_telemetry_leadboard",
+        "ac_telemetry",
         alias="LAKE_TABLE",
         description="Lake table name used by leaderboard SQL builders",
     )
@@ -127,6 +130,18 @@ class Settings(BaseSettings):
         description=(
             "Max |lap_ms - iBestTime| (ms) for a per-lap scan row to be "
             "identified as the lap the best time was set on"
+        ),
+    )
+    # Lake-first partition enumeration (api/partition_index.py): how long
+    # one enumeration result is served before the lake is re-asked. Keep
+    # this >= best_laps_ttl_seconds — the enumeration feeds `_known_groups`
+    # which the best-laps TTL tick consults every poll iteration.
+    partition_index_ttl_seconds: float = Field(
+        60.0,
+        alias="PARTITION_INDEX_TTL_SECONDS",
+        description=(
+            "Age (seconds) after which the lake partition-group enumeration "
+            "is refreshed (also the failure backoff window)"
         ),
     )
     lake_server_aggregation: bool = Field(
