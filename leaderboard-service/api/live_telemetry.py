@@ -2403,6 +2403,11 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     on all three means no session announcement has reached us at all (e.g.
     backend started mid-session with an empty DCM): we log INFO once per
     distinct hostname and skip — the next AC session populates the cache.
+
+    Experiment precedence: payload value, then the DCM experiment cache,
+    then `_resolve_session_experiment` (lake partition enumeration) keyed
+    by the RESOLVED session key — so an empty DCM no longer leaves the
+    active row with `experiment=""` (which `build_live_positions` drops).
     """
     with _state_lock:
         resolved = _resolve_cached_session(hostname)
@@ -2464,6 +2469,37 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
         enriched["experiment"] = (
             str(experiment_entry["experiment"]) if experiment_entry else ""
         )
+    if not enriched.get("experiment"):
+        # DCM gave us no experiment (empty workspace). Without one, the
+        # active row fails `build_live_positions`'s non-empty guard and the
+        # Live Sector Comparison table never shows the live driver. Fall
+        # back to the same lake-based resolver the `live_session` envelope
+        # uses (DCM-first internally, then partition enumeration matched on
+        # (track, car)). Successful resolutions are cached on the session-
+        # cache entry so steady-state ticks skip the call; misses are NOT
+        # cached — the next tick retries against the TTL-cached
+        # `enumerate_groups()` (cheap), so a late-warming partition index
+        # still gets picked up. A fresh session message replaces the cache
+        # entry wholesale, which invalidates the cached resolution.
+        with _state_lock:
+            cached_group = session.get("lake_resolved_group")
+        if cached_group is None:
+            lake_experiment, lake_environment = _resolve_session_experiment(
+                resolved_key, session["track"], session["carModel"]
+            )
+            if lake_experiment:
+                cached_group = (lake_experiment, lake_environment or "")
+                with _state_lock:
+                    live_entry = _session_cache.get(resolved_key)
+                    # Only annotate if the entry is still the one we
+                    # resolved against — a concurrent session replacement
+                    # may point at a different (track, car).
+                    if live_entry is session:
+                        live_entry["lake_resolved_group"] = cached_group
+        if cached_group is not None:
+            enriched["experiment"] = cached_group[0]
+            if not enriched.get("environment"):
+                enriched["environment"] = cached_group[1]
     _record_message(enriched)
 
 
