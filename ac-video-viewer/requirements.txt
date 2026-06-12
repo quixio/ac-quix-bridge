@@ -1,3 +1,0 @@
-quixstreams
-fastapi
-uvicorn[standard]
