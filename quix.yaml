@@ -134,6 +134,7 @@ deployments:
         enabled: true
         default: true
   - name: AC Telemetry Lake sink
+    group: Ingestion
     application: ac-telemetry-lake
     version: latest
     deploymentType: Service
