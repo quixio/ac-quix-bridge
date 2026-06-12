@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-04-24T11:54:52Z",
-  "newest_source_mtime": "2026-04-24T11:48:28Z",
+  "generated_at": "2026-06-12T13:53:19Z",
+  "newest_source_mtime": "2026-06-12T11:58:28Z",
   "services": {
     "ac-telemetry-lake": {
       "entry": "main.py",
@@ -9,8 +9,26 @@
         {
           "file": "main.py",
           "kind": "function",
-          "line": 32,
+          "line": 34,
+          "name": "_optional_positive_int"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 48,
+          "name": "_positive_int"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 58,
           "name": "parse_hive_columns"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 73,
+          "name": "_on_stream_timeout"
         }
       ],
       "routes": []
@@ -71,31 +89,37 @@
         {
           "file": "main.py",
           "kind": "function",
-          "line": 21,
+          "line": 23,
           "name": "_get_blob_fs"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 37,
+          "line": 76,
+          "name": "_invalidate"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 92,
           "name": "list_sessions"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 58,
+          "line": 113,
           "name": "list_files"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 83,
+          "line": 138,
           "name": "download_file"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 106,
+          "line": 161,
           "name": "root"
         }
       ],
@@ -103,28 +127,28 @@
         {
           "file": "main.py",
           "handler": "list_sessions",
-          "line": 36,
+          "line": 91,
           "method": "GET",
           "path": "/api/sessions"
         },
         {
           "file": "main.py",
           "handler": "list_files",
-          "line": 57,
+          "line": 112,
           "method": "GET",
           "path": "/api/sessions/{session_id}/files"
         },
         {
           "file": "main.py",
           "handler": "download_file",
-          "line": 82,
+          "line": 137,
           "method": "GET",
           "path": "/api/sessions/{session_id}/files/{filename}"
         },
         {
           "file": "main.py",
           "handler": "root",
-          "line": 105,
+          "line": 160,
           "method": "GET",
           "path": "/{full_path:path}"
         }
@@ -206,7 +230,7 @@
         {
           "file": "main.py",
           "kind": "function",
-          "line": 14,
+          "line": 32,
           "name": "main"
         },
         {
@@ -228,9 +252,27 @@
           "name": "ACStatic"
         },
         {
+          "file": "preview_capture.py",
+          "kind": "function",
+          "line": 37,
+          "name": "_save_preview"
+        },
+        {
+          "file": "preview_capture.py",
+          "kind": "function",
+          "line": 48,
+          "name": "preview_current"
+        },
+        {
+          "file": "preview_capture.py",
+          "kind": "function",
+          "line": 66,
+          "name": "preview_all"
+        },
+        {
           "file": "session_tracker.py",
           "kind": "class",
-          "line": 18,
+          "line": 30,
           "name": "SessionTracker"
         },
         {
@@ -290,49 +332,49 @@
         {
           "file": "video_source.py",
           "kind": "function",
-          "line": 35,
+          "line": 31,
           "name": "_get_blob_fs"
         },
         {
           "file": "video_source.py",
           "kind": "class",
-          "line": 47,
+          "line": 80,
           "name": "ACVideoSource"
         },
         {
           "file": "viewer.py",
           "kind": "function",
-          "line": 36,
+          "line": 46,
           "name": "push_to_clients"
         },
         {
           "file": "viewer.py",
           "kind": "async_function",
-          "line": 44,
+          "line": 54,
           "name": "_broadcast"
         },
         {
           "file": "viewer.py",
           "kind": "function",
-          "line": 55,
+          "line": 65,
           "name": "run_kafka"
         },
         {
           "file": "viewer.py",
           "kind": "async_function",
-          "line": 86,
+          "line": 101,
           "name": "lifespan"
         },
         {
           "file": "viewer.py",
           "kind": "async_function",
-          "line": 100,
+          "line": 115,
           "name": "ws_endpoint"
         },
         {
           "file": "viewer.py",
           "kind": "async_function",
-          "line": 116,
+          "line": 131,
           "name": "root"
         }
       ],
@@ -347,7 +389,7 @@
         {
           "file": "viewer.py",
           "handler": "root",
-          "line": 115,
+          "line": 130,
           "method": "GET",
           "path": "/{full_path:path}"
         }
@@ -427,9 +469,28 @@
           "exports": [],
           "imports": [
             {
+              "from": "./modules/auth.js",
+              "names": [
+                "initAuth",
+                "installFetchOverride"
+              ]
+            },
+            {
               "from": "./modules/charts.js",
               "names": [
                 "setStatus"
+              ]
+            },
+            {
+              "from": "./modules/chat-overlay.js",
+              "names": [
+                "initChatOverlay"
+              ]
+            },
+            {
+              "from": "./modules/chat.js",
+              "names": [
+                "initChat"
               ]
             },
             {
@@ -473,6 +534,58 @@
             "toggleTopbarPanel"
           ]
         },
+        "static/modules/ai-plot-glue.js": {
+          "exports": [
+            "applyPlotPlan"
+          ],
+          "imports": [
+            {
+              "from": "./selections.js",
+              "names": [
+                "addRow"
+              ]
+            },
+            {
+              "from": "./state.js",
+              "names": [
+                "appState",
+                "PART_COLS"
+              ]
+            }
+          ],
+          "window_globals": []
+        },
+        "static/modules/auth.js": {
+          "exports": [
+            "authFetch",
+            "getToken",
+            "initAuth",
+            "installFetchOverride",
+            "isEmbedded",
+            "refresh"
+          ],
+          "imports": [],
+          "window_globals": [
+            "fetch"
+          ]
+        },
+        "static/modules/auth.test.js": {
+          "exports": [],
+          "imports": [
+            {
+              "from": "vitest",
+              "names": [
+                "afterEach",
+                "beforeEach",
+                "describe",
+                "expect",
+                "it",
+                "vi"
+              ]
+            }
+          ],
+          "window_globals": []
+        },
         "static/modules/charts.js": {
           "exports": [
             "attachMarkerDrag",
@@ -501,13 +614,22 @@
               "from": "./state.js",
               "names": [
                 "appState",
-                "PLOTLY_LAYOUT"
+                "PLOTLY_LAYOUT",
+                "videoState"
               ]
             },
             {
               "from": "./sync.js",
               "names": [
-                "updateMarker"
+                "updateMarker",
+                "flushPendingSeek"
+              ]
+            },
+            {
+              "from": "./thumb-preview.js",
+              "names": [
+                "showThumbPreviewAt",
+                "hideThumbPreview"
               ]
             }
           ],
@@ -515,6 +637,56 @@
             "plot",
             "toggleCornerOverlay"
           ]
+        },
+        "static/modules/chat-overlay.js": {
+          "exports": [
+            "initChatOverlay"
+          ],
+          "imports": [],
+          "window_globals": []
+        },
+        "static/modules/chat.js": {
+          "exports": [
+            "initChat"
+          ],
+          "imports": [
+            {
+              "from": "./ai-plot-glue.js",
+              "names": [
+                "applyPlotPlan"
+              ]
+            },
+            {
+              "from": "./markdown.js",
+              "names": [
+                "renderMarkdown"
+              ]
+            },
+            {
+              "from": "./thinking-messages.js",
+              "names": [
+                "formatStatus"
+              ]
+            }
+          ],
+          "window_globals": []
+        },
+        "static/modules/chat.test.js": {
+          "exports": [],
+          "imports": [
+            {
+              "from": "vitest",
+              "names": [
+                "afterEach",
+                "beforeEach",
+                "describe",
+                "expect",
+                "it",
+                "vi"
+              ]
+            }
+          ],
+          "window_globals": []
         },
         "static/modules/data.js": {
           "exports": [
@@ -539,10 +711,33 @@
           ],
           "window_globals": []
         },
+        "static/modules/debug-overlay.js": {
+          "exports": [
+            "debugLog",
+            "isDebugOverlayActive"
+          ],
+          "imports": [],
+          "window_globals": []
+        },
+        "static/modules/markdown.js": {
+          "exports": [
+            "renderMarkdown"
+          ],
+          "imports": [
+            {
+              "from": "markdown-it",
+              "names": [
+                "MarkdownIt"
+              ]
+            }
+          ],
+          "window_globals": []
+        },
         "static/modules/selections.js": {
           "exports": [
             "addRow",
             "chartTitle",
+            "filterSignals",
             "getActiveSignals",
             "getPreviousRowFilters",
             "getRowFilters",
@@ -578,6 +773,7 @@
           ],
           "window_globals": [
             "addRow",
+            "filterSignals",
             "onPartChange",
             "removeRow",
             "toggleAllLaps",
@@ -619,6 +815,7 @@
             "_videoRafLoop",
             "buildSyncLookups",
             "clearTraceHighlight",
+            "flushPendingSeek",
             "highlightVideoLapTrace",
             "lookupNormPosForTms",
             "lookupTmsForNormPos",
@@ -636,6 +833,12 @@
               ]
             },
             {
+              "from": "./debug-overlay.js",
+              "names": [
+                "debugLog"
+              ]
+            },
+            {
               "from": "./state.js",
               "names": [
                 "appState",
@@ -650,6 +853,46 @@
           "window_globals": [
             "updateMarker"
           ]
+        },
+        "static/modules/thinking-messages.js": {
+          "exports": [
+            "formatStatus",
+            "pickRandom",
+            "rateLimitedMessages",
+            "reconnectingMessages",
+            "statusMessages",
+            "thinkingMessages"
+          ],
+          "imports": [],
+          "window_globals": []
+        },
+        "static/modules/thumb-preview.js": {
+          "exports": [
+            "hideThumbPreview",
+            "initThumbPreview",
+            "showThumbPreviewAt"
+          ],
+          "imports": [
+            {
+              "from": "./debug-overlay.js",
+              "names": [
+                "debugLog"
+              ]
+            },
+            {
+              "from": "./state.js",
+              "names": [
+                "videoState"
+              ]
+            },
+            {
+              "from": "./sync.js",
+              "names": [
+                "lookupTmsForNormPos"
+              ]
+            }
+          ],
+          "window_globals": []
         },
         "static/modules/toast.js": {
           "exports": [],
@@ -680,6 +923,12 @@
           ],
           "imports": [
             {
+              "from": "./debug-overlay.js",
+              "names": [
+                "debugLog"
+              ]
+            },
+            {
               "from": "./state.js",
               "names": [
                 "videoState"
@@ -690,6 +939,12 @@
               "names": [
                 "buildSyncLookups",
                 "highlightVideoLapTrace"
+              ]
+            },
+            {
+              "from": "./thumb-preview.js",
+              "names": [
+                "initThumbPreview"
               ]
             }
           ],
@@ -702,46 +957,166 @@
       "kind": "fastapi",
       "python_symbols": [
         {
+          "file": "auth.py",
+          "kind": "function",
+          "line": 42,
+          "name": "_token_preview"
+        },
+        {
+          "file": "auth.py",
+          "kind": "function",
+          "line": 51,
+          "name": "_auth_impl"
+        },
+        {
+          "file": "auth.py",
+          "kind": "function",
+          "line": 61,
+          "name": "_extract_bearer"
+        },
+        {
+          "file": "auth.py",
+          "kind": "function",
+          "line": 73,
+          "name": "_is_public"
+        },
+        {
+          "file": "auth.py",
+          "kind": "async_function",
+          "line": 79,
+          "name": "_send_json_error"
+        },
+        {
+          "file": "auth.py",
+          "kind": "class",
+          "line": 95,
+          "name": "AuthMiddleware"
+        },
+        {
+          "file": "chat.py",
+          "kind": "class",
+          "line": 57,
+          "name": "ChatRequest"
+        },
+        {
+          "file": "chat.py",
+          "kind": "async_function",
+          "line": 72,
+          "name": "chat"
+        },
+        {
+          "file": "chat.py",
+          "kind": "function",
+          "line": 85,
+          "name": "_bearer_from_request"
+        },
+        {
+          "file": "chat.py",
+          "kind": "function",
+          "line": 95,
+          "name": "_event"
+        },
+        {
+          "file": "chat.py",
+          "kind": "function",
+          "line": 99,
+          "name": "_error_event"
+        },
+        {
+          "file": "chat.py",
+          "kind": "async_function",
+          "line": 111,
+          "name": "_chat_events"
+        },
+        {
+          "file": "chat.py",
+          "kind": "function",
+          "line": 336,
+          "name": "_extract_json"
+        },
+        {
+          "file": "config.py",
+          "kind": "function",
+          "line": 57,
+          "name": "portal_headers"
+        },
+        {
+          "file": "config.py",
+          "kind": "function",
+          "line": 68,
+          "name": "validate_env"
+        },
+        {
+          "file": "local_auth.py",
+          "kind": "class",
+          "line": 13,
+          "name": "LocalAuth"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 57,
+          "name": "lifespan"
+        },
+        {
           "file": "main.py",
           "kind": "function",
-          "line": 70,
+          "line": 92,
           "name": "sanitize_df"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 75,
+          "line": 97,
           "name": "_lake_query"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 112,
+          "line": 134,
           "name": "list_sessions"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 160,
+          "line": 183,
           "name": "get_telemetry"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 247,
+          "line": 270,
           "name": "list_channels"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 253,
+          "line": 276,
           "name": "health"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 261,
+          "line": 284,
           "name": "index"
+        },
+        {
+          "file": "mcp_server.py",
+          "kind": "function",
+          "line": 34,
+          "name": "plot_data"
+        },
+        {
+          "file": "mcp_server.py",
+          "kind": "class",
+          "line": 57,
+          "name": "_ApiKeyMiddleware"
+        },
+        {
+          "file": "mcp_server.py",
+          "kind": "function",
+          "line": 74,
+          "name": "install"
         },
         {
           "file": "partition_filter.py",
@@ -751,21 +1126,45 @@
         },
         {
           "file": "partition_walker.py",
+          "kind": "async_function",
+          "line": 41,
+          "name": "_list_session_combinations"
+        },
+        {
+          "file": "plans.py",
+          "kind": "class",
+          "line": 14,
+          "name": "Trace"
+        },
+        {
+          "file": "plans.py",
+          "kind": "class",
+          "line": 30,
+          "name": "PlotPlan"
+        },
+        {
+          "file": "plans.py",
+          "kind": "class",
+          "line": 39,
+          "name": "ClarifyPlan"
+        },
+        {
+          "file": "quix_ai.py",
+          "kind": "async_function",
+          "line": 27,
+          "name": "create_session"
+        },
+        {
+          "file": "quix_ai.py",
+          "kind": "async_function",
+          "line": 51,
+          "name": "stream_message"
+        },
+        {
+          "file": "quix_ai.py",
           "kind": "function",
-          "line": 49,
-          "name": "_get_lake_semaphore"
-        },
-        {
-          "file": "partition_walker.py",
-          "kind": "async_function",
-          "line": 59,
-          "name": "_list_partition_children"
-        },
-        {
-          "file": "partition_walker.py",
-          "kind": "async_function",
-          "line": 91,
-          "name": "_walk_partition_tree"
+          "line": 102,
+          "name": "_short"
         },
         {
           "file": "track_loader.py",
@@ -794,73 +1193,140 @@
         {
           "file": "video_proxy.py",
           "kind": "function",
-          "line": 25,
+          "line": 31,
           "name": "_get_blob_fs"
         },
         {
           "file": "video_proxy.py",
           "kind": "function",
-          "line": 42,
+          "line": 87,
           "name": "_safe_session"
         },
         {
           "file": "video_proxy.py",
           "kind": "function",
-          "line": 48,
+          "line": 93,
           "name": "_session_blob_variants"
         },
         {
           "file": "video_proxy.py",
           "kind": "function",
-          "line": 77,
+          "line": 122,
           "name": "_find_video_paths"
         },
         {
           "file": "video_proxy.py",
+          "kind": "function",
+          "line": 166,
+          "name": "_sprite_blob_paths"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 173,
+          "name": "_find_sprite_paths"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 193,
+          "name": "_probe_dimensions"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 223,
+          "name": "_run_sprite_ffmpeg"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 266,
+          "name": "_read_sidecar"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 303,
+          "name": "_ffprobe_local_dims_and_duration"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 340,
+          "name": "_speculative_thumbs_cached"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "function",
+          "line": 424,
+          "name": "_generate_sprite_sync"
+        },
+        {
+          "file": "video_proxy.py",
           "kind": "async_function",
-          "line": 99,
+          "line": 533,
+          "name": "_ensure_sprite"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "async_function",
+          "line": 567,
           "name": "get_video_meta"
         },
         {
           "file": "video_proxy.py",
           "kind": "async_function",
-          "line": 147,
+          "line": 633,
           "name": "stream_video"
+        },
+        {
+          "file": "video_proxy.py",
+          "kind": "async_function",
+          "line": 734,
+          "name": "get_thumbs"
         }
       ],
       "routes": [
         {
+          "file": "chat.py",
+          "handler": "chat",
+          "line": 71,
+          "method": "POST",
+          "path": "/chat"
+        },
+        {
           "file": "main.py",
           "handler": "list_sessions",
-          "line": 111,
+          "line": 133,
           "method": "GET",
           "path": "/api/sessions"
         },
         {
           "file": "main.py",
           "handler": "get_telemetry",
-          "line": 159,
+          "line": 182,
           "method": "GET",
           "path": "/api/telemetry"
         },
         {
           "file": "main.py",
           "handler": "list_channels",
-          "line": 246,
+          "line": 269,
           "method": "GET",
           "path": "/api/channels"
         },
         {
           "file": "main.py",
           "handler": "health",
-          "line": 252,
+          "line": 275,
           "method": "GET",
           "path": "/health"
         },
         {
           "file": "main.py",
           "handler": "index",
-          "line": 260,
+          "line": 283,
           "method": "GET",
           "path": "/"
         },
@@ -881,16 +1347,23 @@
         {
           "file": "video_proxy.py",
           "handler": "get_video_meta",
-          "line": 98,
+          "line": 566,
           "method": "GET",
           "path": "/api/video/{session_id}/{lap}"
         },
         {
           "file": "video_proxy.py",
           "handler": "stream_video",
-          "line": 146,
+          "line": 632,
           "method": "GET",
           "path": "/api/video/{session_id}/{lap}/mp4"
+        },
+        {
+          "file": "video_proxy.py",
+          "handler": "get_thumbs",
+          "line": 733,
+          "method": "GET",
+          "path": "/api/video/{session_id}/{lap}/thumbs.jpg"
         }
       ]
     },
@@ -901,45 +1374,113 @@
         {
           "file": "main.py",
           "kind": "function",
-          "line": 30,
+          "line": 44,
           "name": "push_to_clients"
         },
         {
           "file": "main.py",
+          "kind": "function",
+          "line": 52,
+          "name": "set_consumer_status"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 66,
+          "name": "set_current_driver"
+        },
+        {
+          "file": "main.py",
           "kind": "async_function",
-          "line": 38,
+          "line": 78,
           "name": "_broadcast"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 49,
+          "line": 89,
           "name": "run_kafka"
         },
         {
           "file": "main.py",
+          "kind": "function",
+          "line": 145,
+          "name": "_fetch_config_driver"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 167,
+          "name": "_handle_config_event"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 176,
+          "name": "run_config_consumer"
+        },
+        {
+          "file": "main.py",
           "kind": "async_function",
-          "line": 80,
+          "line": 228,
           "name": "lifespan"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 94,
+          "line": 244,
+          "name": "health"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 266,
+          "name": "_datalake_verify"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 275,
+          "name": "_parse_leaderboard_csv"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 292,
+          "name": "leaderboard"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 328,
           "name": "root"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 111,
+          "line": 355,
           "name": "ws_endpoint"
         }
       ],
       "routes": [
         {
           "file": "main.py",
+          "handler": "health",
+          "line": 243,
+          "method": "GET",
+          "path": "/health"
+        },
+        {
+          "file": "main.py",
+          "handler": "leaderboard",
+          "line": 291,
+          "method": "GET",
+          "path": "/leaderboard"
+        },
+        {
+          "file": "main.py",
           "handler": "root",
-          "line": 93,
+          "line": 327,
           "method": "GET",
           "path": "/{full_path:path}"
         }
@@ -952,31 +1493,31 @@
         {
           "file": "api/app.py",
           "kind": "async_function",
-          "line": 31,
+          "line": 36,
           "name": "lifespan"
         },
         {
           "file": "api/app.py",
           "kind": "function",
-          "line": 70,
+          "line": 100,
           "name": "_probe_config_api"
         },
         {
           "file": "api/app.py",
           "kind": "function",
-          "line": 97,
+          "line": 127,
           "name": "format_validation_error"
         },
         {
           "file": "api/app.py",
           "kind": "async_function",
-          "line": 168,
+          "line": 198,
           "name": "validation_exception_handler"
         },
         {
           "file": "api/app.py",
           "kind": "function",
-          "line": 187,
+          "line": 217,
           "name": "create_app"
         },
         {
@@ -994,13 +1535,13 @@
         {
           "file": "api/auth.py",
           "kind": "function",
-          "line": 37,
+          "line": 39,
           "name": "auth"
         },
         {
           "file": "api/auth.py",
           "kind": "function",
-          "line": 42,
+          "line": 44,
           "name": "validate_token"
         },
         {
@@ -1014,6 +1555,360 @@
           "kind": "function",
           "line": 19,
           "name": "safe_call"
+        },
+        {
+          "file": "api/gate_math.py",
+          "kind": "function",
+          "line": 55,
+          "name": "latest_crossed_gate"
+        },
+        {
+          "file": "api/gate_math.py",
+          "kind": "function",
+          "line": 63,
+          "name": "_median_sorted"
+        },
+        {
+          "file": "api/gate_math.py",
+          "kind": "function",
+          "line": 76,
+          "name": "compute_last_gate_state"
+        },
+        {
+          "file": "api/gate_math.py",
+          "kind": "function",
+          "line": 122,
+          "name": "compute_per_historical_deltas"
+        },
+        {
+          "file": "api/gate_math.py",
+          "kind": "function",
+          "line": 152,
+          "name": "to_display_name"
+        },
+        {
+          "file": "api/lakehouse_client.py",
+          "kind": "class",
+          "line": 30,
+          "name": "LakehouseQueryError"
+        },
+        {
+          "file": "api/lakehouse_client.py",
+          "kind": "class",
+          "line": 38,
+          "name": "LakehouseClient"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 123,
+          "name": "start_broadcaster"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 162,
+          "name": "stop_broadcaster"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 218,
+          "name": "register"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 230,
+          "name": "unregister"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "function",
+          "line": 244,
+          "name": "publish_snapshot"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "function",
+          "line": 271,
+          "name": "publish_full_snapshot"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "function",
+          "line": 301,
+          "name": "publish_active_state"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 322,
+          "name": "_sim_driver_loop"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 396,
+          "name": "_broadcast_envelope"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 415,
+          "name": "_enqueue_snapshot"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 438,
+          "name": "_broadcast_full_snapshot"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 460,
+          "name": "_broadcaster_loop"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 494,
+          "name": "_keepalive_loop"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "function",
+          "line": 538,
+          "name": "_build_wire_payload"
+        },
+        {
+          "file": "api/live_stream.py",
+          "kind": "async_function",
+          "line": 608,
+          "name": "_broadcast"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 98,
+          "name": "_update_gate_times"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "class",
+          "line": 200,
+          "name": "_HistoricalEntry"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 284,
+          "name": "_sim_jitter_for_lap"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 291,
+          "name": "simulated_active_driver"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 361,
+          "name": "_fold_for_lookup"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 379,
+          "name": "_get_driver_name_lookup"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 393,
+          "name": "_refresh_driver_name_lookup"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 422,
+          "name": "_invalidate_driver_name_lookup"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 434,
+          "name": "_resolve_display_name"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 456,
+          "name": "_lookup_gate_vectors_group"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 478,
+          "name": "_update_active_state"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 517,
+          "name": "_build_active_state_envelope"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 536,
+          "name": "current_active_state_envelope"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 547,
+          "name": "sweep_stale_active_state"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 578,
+          "name": "_record_message"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 804,
+          "name": "get_active_driver"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 849,
+          "name": "_dcm_auth_headers"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 860,
+          "name": "_dcm_get_content"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 893,
+          "name": "_fetch_latest_version_content"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 947,
+          "name": "_fetch_experiment_from_dcm"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1045,
+          "name": "_prewarm_session_cache_from_dcm"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1168,
+          "name": "_get_cached_experiment"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1207,
+          "name": "_get_cached_driver"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1225,
+          "name": "_get_cached_environment"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1241,
+          "name": "_handle_session_message"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1280,
+          "name": "_handle_config_event"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1434,
+          "name": "get_best_laps_cache"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1452,
+          "name": "_known_groups"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1491,
+          "name": "refresh_best_laps_cache"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1623,
+          "name": "get_gate_vectors_cache"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1639,
+          "name": "refresh_gate_vectors_cache"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1733,
+          "name": "_broadcast_full_snapshot_safely"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1770,
+          "name": "_refresh_best_laps_from_settings"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1791,
+          "name": "_handle_raw_message"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1837,
+          "name": "_consumer_loop"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 1978,
+          "name": "start"
+        },
+        {
+          "file": "api/live_telemetry.py",
+          "kind": "function",
+          "line": 2004,
+          "name": "stop"
         },
         {
           "file": "api/local_auth.py",
@@ -1090,194 +1985,254 @@
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 148,
+          "line": 149,
           "name": "LogbookEntryCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 154,
+          "line": 156,
           "name": "LogbookEntryUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 166,
+          "line": 169,
           "name": "DeviceStatus"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 173,
+          "line": 176,
           "name": "DeviceCategory"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 180,
+          "line": 183,
           "name": "Device"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 191,
+          "line": 194,
           "name": "DeviceCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 199,
+          "line": 202,
           "name": "DeviceUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 207,
+          "line": 210,
           "name": "DeviceQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 220,
+          "line": 223,
           "name": "SampleType"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 227,
+          "line": 230,
           "name": "Location"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 234,
+          "line": 237,
           "name": "ProductCategory"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 241,
+          "line": 244,
           "name": "Product"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 255,
+          "line": 258,
           "name": "IntegrationSettings"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 275,
+          "line": 278,
           "name": "IntegrationSettingsUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 289,
+          "line": 292,
           "name": "Topic"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 296,
+          "line": 299,
           "name": "Workspace"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 303,
+          "line": 306,
           "name": "TopicInfo"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 314,
+          "line": 317,
           "name": "TopicReference"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 327,
+          "line": 330,
           "name": "Repository"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 336,
+          "line": 339,
           "name": "WorkspaceDetails"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 348,
+          "line": 351,
           "name": "DeploymentInfo"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 367,
+          "line": 370,
           "name": "Driver"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 376,
+          "line": 379,
           "name": "DriverCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 382,
+          "line": 385,
           "name": "DriverUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 388,
+          "line": 391,
           "name": "DriverQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 400,
+          "line": 403,
           "name": "EnvironmentStatus"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 405,
+          "line": 408,
           "name": "Environment"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 416,
+          "line": 419,
           "name": "EnvironmentCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 424,
+          "line": 427,
           "name": "EnvironmentUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 432,
+          "line": 435,
           "name": "EnvironmentQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 441,
+          "line": 444,
           "name": "DeploymentReference"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 457,
-          "name": "BestLapEntry"
+          "line": 460,
+          "name": "LiveDriverState"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 493,
+          "name": "GhostSample"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 504,
+          "name": "GhostReference"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 533,
+          "name": "LivePositionEntry"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 600,
+          "name": "KpiValue"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 610,
+          "name": "RequirementCheck"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 618,
+          "name": "Anomaly"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 630,
+          "name": "Analysis"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 673,
+          "name": "AnalysisCreate"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 683,
+          "name": "AnalysisListQuery"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 692,
+          "name": "SaveAnalysisPayload"
         },
         {
           "file": "api/mongo.py",
@@ -1288,14 +2243,32 @@
         {
           "file": "api/mongo.py",
           "kind": "function",
-          "line": 54,
+          "line": 61,
           "name": "disconnect"
         },
         {
           "file": "api/mongo.py",
           "kind": "function",
-          "line": 58,
+          "line": 65,
           "name": "get_mongo"
+        },
+        {
+          "file": "api/routes/analyses.py",
+          "kind": "async_function",
+          "line": 36,
+          "name": "create_analysis"
+        },
+        {
+          "file": "api/routes/analyses.py",
+          "kind": "function",
+          "line": 97,
+          "name": "get_analysis"
+        },
+        {
+          "file": "api/routes/analyses.py",
+          "kind": "function",
+          "line": 110,
+          "name": "list_analyses"
         },
         {
           "file": "api/routes/devices.py",
@@ -1312,31 +2285,31 @@
         {
           "file": "api/routes/devices.py",
           "kind": "function",
-          "line": 53,
+          "line": 55,
           "name": "list_devices"
         },
         {
           "file": "api/routes/devices.py",
           "kind": "function",
-          "line": 95,
+          "line": 103,
           "name": "get_device"
         },
         {
           "file": "api/routes/devices.py",
           "kind": "function",
-          "line": 108,
+          "line": 118,
           "name": "get_devices_batch"
         },
         {
           "file": "api/routes/devices.py",
           "kind": "function",
-          "line": 121,
+          "line": 133,
           "name": "update_device"
         },
         {
           "file": "api/routes/devices.py",
           "kind": "function",
-          "line": 145,
+          "line": 157,
           "name": "delete_device"
         },
         {
@@ -1354,25 +2327,25 @@
         {
           "file": "api/routes/drivers.py",
           "kind": "function",
-          "line": 51,
+          "line": 53,
           "name": "list_drivers"
         },
         {
           "file": "api/routes/drivers.py",
           "kind": "function",
-          "line": 89,
+          "line": 97,
           "name": "get_driver"
         },
         {
           "file": "api/routes/drivers.py",
           "kind": "function",
-          "line": 102,
+          "line": 112,
           "name": "update_driver"
         },
         {
           "file": "api/routes/drivers.py",
           "kind": "function",
-          "line": 126,
+          "line": 136,
           "name": "delete_driver"
         },
         {
@@ -1390,25 +2363,25 @@
         {
           "file": "api/routes/environments.py",
           "kind": "function",
-          "line": 53,
+          "line": 57,
           "name": "list_environments"
         },
         {
           "file": "api/routes/environments.py",
           "kind": "function",
-          "line": 98,
+          "line": 116,
           "name": "get_environment"
         },
         {
           "file": "api/routes/environments.py",
           "kind": "function",
-          "line": 111,
+          "line": 133,
           "name": "update_environment"
         },
         {
           "file": "api/routes/environments.py",
           "kind": "function",
-          "line": 135,
+          "line": 157,
           "name": "delete_environment"
         },
         {
@@ -1426,86 +2399,488 @@
         {
           "file": "api/routes/integrations.py",
           "kind": "async_function",
-          "line": 122,
+          "line": 128,
           "name": "get_config_manager_frontend_url"
         },
         {
           "file": "api/routes/integrations.py",
           "kind": "function",
-          "line": 228,
+          "line": 244,
           "name": "get_measurements_url_base"
         },
         {
           "file": "api/routes/integrations.py",
           "kind": "async_function",
-          "line": 238,
+          "line": 254,
           "name": "get_measurements_url"
         },
         {
           "file": "api/routes/integrations.py",
           "kind": "function",
-          "line": 293,
+          "line": 311,
           "name": "get_analytics_url_base"
         },
         {
           "file": "api/routes/integrations.py",
           "kind": "async_function",
-          "line": 303,
+          "line": 321,
           "name": "get_analytics_url"
         },
         {
           "file": "api/routes/leaderboard.py",
-          "kind": "function",
-          "line": 78,
-          "name": "_make_local_dev_rows"
+          "kind": "async_function",
+          "line": 40,
+          "name": "get_live_positions"
         },
         {
-          "file": "api/routes/leaderboard.py",
+          "file": "api/routes/leaderboard_dropdowns.py",
           "kind": "function",
-          "line": 138,
+          "line": 70,
+          "name": "_build_experiment_tree_sql"
+        },
+        {
+          "file": "api/routes/leaderboard_dropdowns.py",
+          "kind": "function",
+          "line": 91,
+          "name": "_build_best_laps_for_combo_sql"
+        },
+        {
+          "file": "api/routes/leaderboard_dropdowns.py",
+          "kind": "function",
+          "line": 120,
+          "name": "_get_lake_client"
+        },
+        {
+          "file": "api/routes/leaderboard_dropdowns.py",
+          "kind": "function",
+          "line": 134,
+          "name": "_candidate_experiments"
+        },
+        {
+          "file": "api/routes/leaderboard_dropdowns.py",
+          "kind": "function",
+          "line": 140,
+          "name": "_reduce_tree_rows"
+        },
+        {
+          "file": "api/routes/leaderboard_dropdowns.py",
+          "kind": "async_function",
+          "line": 168,
+          "name": "get_experiment_tree"
+        },
+        {
+          "file": "api/routes/leaderboard_dropdowns.py",
+          "kind": "async_function",
+          "line": 254,
+          "name": "get_best_laps"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 49,
+          "name": "_rank_group"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "class",
+          "line": 79,
+          "name": "LeaderboardError"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 88,
           "name": "_fold_driver_name"
         },
         {
-          "file": "api/routes/leaderboard.py",
+          "file": "api/routes/leaderboard_real.py",
           "kind": "function",
-          "line": 171,
+          "line": 112,
           "name": "_build_driver_name_lookup"
         },
         {
-          "file": "api/routes/leaderboard.py",
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 127,
+          "name": "_format_sql_string"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 139,
+          "name": "_build_best_laps_sql"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 172,
+          "name": "_query_best_laps"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 229,
+          "name": "_build_best_laps_with_lap_sql"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 264,
+          "name": "_query_best_laps_with_lap"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 348,
+          "name": "_build_gate_samples_sql"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 393,
+          "name": "_query_gate_samples"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 420,
+          "name": "_reduce_to_gate_vectors"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 571,
+          "name": "compute_last_gate_state"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 588,
+          "name": "_compute_per_historical_deltas"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 603,
+          "name": "_historical_row"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 651,
+          "name": "_active_row"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 695,
+          "name": "_best_for_active"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 710,
+          "name": "historical_next_gate_value"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 745,
+          "name": "historical_at_crossing_value"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 778,
+          "name": "_build_group_rows"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 960,
+          "name": "_solo_active_group"
+        },
+        {
+          "file": "api/routes/leaderboard_real.py",
+          "kind": "function",
+          "line": 1027,
+          "name": "build_live_positions"
+        },
+        {
+          "file": "api/routes/leaderboard_stream.py",
+          "kind": "function",
+          "line": 50,
+          "name": "_validate_ws_token"
+        },
+        {
+          "file": "api/routes/leaderboard_stream.py",
+          "kind": "function",
+          "line": 81,
+          "name": "_build_initial_rows_sync"
+        },
+        {
+          "file": "api/routes/leaderboard_stream.py",
           "kind": "async_function",
-          "line": 188,
-          "name": "get_best_laps"
+          "line": 113,
+          "name": "live_stream_endpoint"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 62,
+          "name": "_make_historicals"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 89,
+          "name": "_splits_for"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 140,
+          "name": "_sim_gate_vector"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 167,
+          "name": "_fold_driver_name_sim"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 186,
+          "name": "_build_sim_gate_vectors_cache"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 228,
+          "name": "_driver_index"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 232,
+          "name": "_track_index"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 236,
+          "name": "_car_index"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 240,
+          "name": "_base_lap_ms"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 263,
+          "name": "_ludvik_lap_target_ms"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 321,
+          "name": "_sim_gate_vectors_cache"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 331,
+          "name": "_get_or_init_state"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 359,
+          "name": "_advance_state"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 409,
+          "name": "_ludvik_sector_thresholds"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 423,
+          "name": "_completed_sector_count"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 438,
+          "name": "_cumulative_at_boundary_splits"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 448,
+          "name": "_cumulative_at_boundary"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 455,
+          "name": "ghost_time_for_splits"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 486,
+          "name": "_ghost_time_for_driver"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 512,
+          "name": "make_local_dev_live_positions"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 534,
+          "name": "_build_group"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 678,
+          "name": "_latest_crossed_gate_sim"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 688,
+          "name": "_compute_last_gate_state_sim"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 709,
+          "name": "_rank_group"
+        },
+        {
+          "file": "api/routes/live_positions_sim.py",
+          "kind": "function",
+          "line": 730,
+          "name": "rank_group"
         },
         {
           "file": "api/routes/logbook.py",
           "kind": "function",
-          "line": 15,
+          "line": 19,
           "name": "create_logbook_entry"
         },
         {
           "file": "api/routes/logbook.py",
           "kind": "function",
-          "line": 34,
+          "line": 51,
           "name": "get_logbook_entry"
         },
         {
           "file": "api/routes/logbook.py",
           "kind": "function",
-          "line": 46,
+          "line": 67,
           "name": "get_logbook_entries"
         },
         {
           "file": "api/routes/logbook.py",
           "kind": "function",
-          "line": 56,
+          "line": 94,
           "name": "update_logbook_entry"
         },
         {
           "file": "api/routes/logbook.py",
           "kind": "function",
-          "line": 80,
+          "line": 129,
           "name": "delete_logbook_entry"
+        },
+        {
+          "file": "api/routes/mcp/__init__.py",
+          "kind": "function",
+          "line": 33,
+          "name": "_build_tools"
+        },
+        {
+          "file": "api/routes/mcp/__init__.py",
+          "kind": "class",
+          "line": 106,
+          "name": "_ApiKeyMiddleware"
+        },
+        {
+          "file": "api/routes/mcp/__init__.py",
+          "kind": "function",
+          "line": 127,
+          "name": "install"
+        },
+        {
+          "file": "api/routes/mcp/handlers/core.py",
+          "kind": "function",
+          "line": 11,
+          "name": "get_test"
+        },
+        {
+          "file": "api/routes/mcp/handlers/core.py",
+          "kind": "function",
+          "line": 20,
+          "name": "get_session"
+        },
+        {
+          "file": "api/routes/mcp/handlers/core.py",
+          "kind": "function",
+          "line": 33,
+          "name": "list_logbook"
+        },
+        {
+          "file": "api/routes/mcp/handlers/history.py",
+          "kind": "function",
+          "line": 8,
+          "name": "list_sessions_for_test"
+        },
+        {
+          "file": "api/routes/mcp/handlers/history.py",
+          "kind": "function",
+          "line": 19,
+          "name": "list_recent_sessions_for_driver"
+        },
+        {
+          "file": "api/routes/mcp/handlers/lookups.py",
+          "kind": "function",
+          "line": 10,
+          "name": "get_driver"
+        },
+        {
+          "file": "api/routes/mcp/handlers/lookups.py",
+          "kind": "function",
+          "line": 17,
+          "name": "get_device"
+        },
+        {
+          "file": "api/routes/mcp/handlers/lookups.py",
+          "kind": "function",
+          "line": 24,
+          "name": "get_environment"
+        },
+        {
+          "file": "api/routes/mcp/handlers/write.py",
+          "kind": "function",
+          "line": 17,
+          "name": "save_analysis"
+        },
+        {
+          "file": "api/routes/mcp/instrument.py",
+          "kind": "function",
+          "line": 15,
+          "name": "instrument_tool"
         },
         {
           "file": "api/routes/portal.py",
@@ -1528,79 +2903,79 @@
         {
           "file": "api/routes/portal.py",
           "kind": "async_function",
-          "line": 75,
+          "line": 78,
           "name": "get_repositories"
         },
         {
           "file": "api/routes/portal.py",
           "kind": "async_function",
-          "line": 111,
+          "line": 114,
           "name": "get_workspaces_details"
         },
         {
           "file": "api/routes/portal.py",
           "kind": "async_function",
-          "line": 185,
+          "line": 196,
           "name": "get_deployments"
         },
         {
           "file": "api/routes/portal.py",
           "kind": "async_function",
-          "line": 277,
+          "line": 290,
           "name": "get_current_workspace_id"
         },
         {
           "file": "api/routes/portal.py",
           "kind": "async_function",
-          "line": 290,
+          "line": 303,
           "name": "get_fallback_deployment"
         },
         {
           "file": "api/routes/portal.py",
           "kind": "async_function",
-          "line": 334,
+          "line": 347,
           "name": "get_workspace_topics"
         },
         {
           "file": "api/routes/settings.py",
           "kind": "function",
-          "line": 26,
+          "line": 33,
           "name": "get_db_settings"
         },
         {
           "file": "api/routes/settings.py",
           "kind": "function",
-          "line": 36,
+          "line": 43,
           "name": "get_effective_integration_settings"
         },
         {
           "file": "api/routes/settings.py",
           "kind": "async_function",
-          "line": 79,
+          "line": 87,
           "name": "apply_fallback_deployments"
         },
         {
           "file": "api/routes/settings.py",
           "kind": "async_function",
-          "line": 185,
+          "line": 200,
           "name": "get_integration_settings"
         },
         {
           "file": "api/routes/settings.py",
           "kind": "async_function",
-          "line": 207,
+          "line": 222,
           "name": "update_integration_settings"
         },
         {
           "file": "api/routes/settings.py",
           "kind": "async_function",
-          "line": 272,
+          "line": 287,
           "name": "get_topics"
         },
         {
           "file": "api/routes/settings.py",
           "kind": "async_function",
-          "line": 343,
+          "line": 365,
           "name": "get_workspaces"
         },
         {
@@ -1612,103 +2987,103 @@
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 55,
+          "line": 51,
           "name": "sync_to_dcm"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 109,
+          "line": 105,
           "name": "generate_test_id"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 121,
+          "line": 117,
           "name": "resolve_test_names"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 132,
+          "line": 128,
           "name": "resolve_tests_names"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 166,
+          "line": 162,
           "name": "auth_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 171,
+          "line": 167,
           "name": "create_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 216,
+          "line": 212,
           "name": "list_tests"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 264,
+          "line": 260,
           "name": "get_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 277,
+          "line": 273,
           "name": "get_test_full"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 295,
+          "line": 291,
           "name": "update_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 349,
+          "line": 345,
           "name": "get_telemetry_params"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 382,
+          "line": 378,
           "name": "add_session"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 412,
+          "line": 408,
           "name": "activate_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 447,
+          "line": 443,
           "name": "delete_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 503,
+          "line": 499,
           "name": "get_experiment_ids"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 513,
+          "line": 509,
           "name": "get_environment_ids"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 522,
+          "line": 518,
           "name": "get_drivers"
         },
         {
@@ -1726,19 +3101,19 @@
         {
           "file": "api/settings.py",
           "kind": "class",
-          "line": 7,
+          "line": 14,
           "name": "MongoSettings"
         },
         {
           "file": "api/settings.py",
           "kind": "class",
-          "line": 22,
+          "line": 29,
           "name": "Settings"
         },
         {
           "file": "api/settings.py",
           "kind": "function",
-          "line": 71,
+          "line": 147,
           "name": "get_settings"
         },
         {
@@ -1755,12 +3130,45 @@
         },
         {
           "file": "main.py",
+          "kind": "class",
+          "line": 19,
+          "name": "_UtcIsoFormatter"
+        },
+        {
+          "file": "main.py",
           "kind": "function",
-          "line": 11,
+          "line": 30,
+          "name": "_build_log_config"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 78,
           "name": "main"
         }
       ],
       "routes": [
+        {
+          "file": "api/routes/analyses.py",
+          "handler": "create_analysis",
+          "line": 29,
+          "method": "POST",
+          "path": "/analyses"
+        },
+        {
+          "file": "api/routes/analyses.py",
+          "handler": "get_analysis",
+          "line": 94,
+          "method": "GET",
+          "path": "/analyses/{analysis_id}"
+        },
+        {
+          "file": "api/routes/analyses.py",
+          "handler": "list_analyses",
+          "line": 109,
+          "method": "GET",
+          "path": "/analyses"
+        },
         {
           "file": "api/routes/devices.py",
           "handler": "create_device",
@@ -1778,28 +3186,28 @@
         {
           "file": "api/routes/devices.py",
           "handler": "get_device",
-          "line": 94,
+          "line": 100,
           "method": "GET",
           "path": "/devices/{device_id}"
         },
         {
           "file": "api/routes/devices.py",
           "handler": "get_devices_batch",
-          "line": 107,
+          "line": 115,
           "method": "POST",
           "path": "/devices/batch"
         },
         {
           "file": "api/routes/devices.py",
           "handler": "update_device",
-          "line": 120,
+          "line": 130,
           "method": "PUT",
           "path": "/devices/{device_id}"
         },
         {
           "file": "api/routes/devices.py",
           "handler": "delete_device",
-          "line": 144,
+          "line": 156,
           "method": "DELETE",
           "path": "/devices/{device_id}"
         },
@@ -1820,21 +3228,21 @@
         {
           "file": "api/routes/drivers.py",
           "handler": "get_driver",
-          "line": 88,
+          "line": 94,
           "method": "GET",
           "path": "/drivers/{driver_id}"
         },
         {
           "file": "api/routes/drivers.py",
           "handler": "update_driver",
-          "line": 101,
+          "line": 109,
           "method": "PUT",
           "path": "/drivers/{driver_id}"
         },
         {
           "file": "api/routes/drivers.py",
           "handler": "delete_driver",
-          "line": 125,
+          "line": 135,
           "method": "DELETE",
           "path": "/drivers/{driver_id}"
         },
@@ -1855,21 +3263,21 @@
         {
           "file": "api/routes/environments.py",
           "handler": "get_environment",
-          "line": 97,
+          "line": 111,
           "method": "GET",
           "path": "/environments/{environment_id}"
         },
         {
           "file": "api/routes/environments.py",
           "handler": "update_environment",
-          "line": 110,
+          "line": 128,
           "method": "PUT",
           "path": "/environments/{environment_id}"
         },
         {
           "file": "api/routes/environments.py",
           "handler": "delete_environment",
-          "line": 134,
+          "line": 156,
           "method": "DELETE",
           "path": "/environments/{environment_id}"
         },
@@ -1883,28 +3291,42 @@
         {
           "file": "api/routes/integrations.py",
           "handler": "get_config_manager_frontend_url",
-          "line": 121,
+          "line": 127,
           "method": "GET",
           "path": "/config-manager-frontend-url"
         },
         {
           "file": "api/routes/integrations.py",
           "handler": "get_measurements_url",
-          "line": 237,
+          "line": 253,
           "method": "GET",
           "path": "/measurements-url"
         },
         {
           "file": "api/routes/integrations.py",
           "handler": "get_analytics_url",
-          "line": 302,
+          "line": 320,
           "method": "GET",
           "path": "/analytics-url"
         },
         {
           "file": "api/routes/leaderboard.py",
+          "handler": "get_live_positions",
+          "line": 39,
+          "method": "GET",
+          "path": "/live-positions"
+        },
+        {
+          "file": "api/routes/leaderboard_dropdowns.py",
+          "handler": "get_experiment_tree",
+          "line": 167,
+          "method": "GET",
+          "path": "/experiment-tree"
+        },
+        {
+          "file": "api/routes/leaderboard_dropdowns.py",
           "handler": "get_best_laps",
-          "line": 187,
+          "line": 253,
           "method": "GET",
           "path": "/best-laps"
         },
@@ -1918,189 +3340,189 @@
         {
           "file": "api/routes/logbook.py",
           "handler": "get_logbook_entry",
-          "line": 33,
+          "line": 46,
           "method": "GET",
           "path": "/tests/{test_id}/logbook/{entry_id}"
         },
         {
           "file": "api/routes/logbook.py",
           "handler": "get_logbook_entries",
-          "line": 45,
+          "line": 62,
           "method": "GET",
           "path": "/tests/{test_id}/logbook"
         },
         {
           "file": "api/routes/logbook.py",
           "handler": "update_logbook_entry",
-          "line": 55,
+          "line": 89,
           "method": "PUT",
           "path": "/tests/{test_id}/logbook/{entry_id}"
         },
         {
           "file": "api/routes/logbook.py",
           "handler": "delete_logbook_entry",
-          "line": 79,
+          "line": 128,
           "method": "DELETE",
           "path": "/tests/{test_id}/logbook/{entry_id}"
         },
         {
           "file": "api/routes/portal.py",
           "handler": "get_repositories",
-          "line": 74,
+          "line": 77,
           "method": "GET",
           "path": "/repositories"
         },
         {
           "file": "api/routes/portal.py",
           "handler": "get_workspaces_details",
-          "line": 110,
+          "line": 113,
           "method": "GET",
           "path": "/workspaces"
         },
         {
           "file": "api/routes/portal.py",
           "handler": "get_deployments",
-          "line": 184,
+          "line": 193,
           "method": "GET",
           "path": "/workspaces/{workspace_id}/deployments"
         },
         {
           "file": "api/routes/portal.py",
           "handler": "get_current_workspace_id",
-          "line": 276,
+          "line": 289,
           "method": "GET",
           "path": "/current-workspace-id"
         },
         {
           "file": "api/routes/portal.py",
           "handler": "get_fallback_deployment",
-          "line": 289,
+          "line": 302,
           "method": "GET",
           "path": "/fallback-deployment"
         },
         {
           "file": "api/routes/portal.py",
           "handler": "get_workspace_topics",
-          "line": 333,
+          "line": 346,
           "method": "GET",
           "path": "/workspaces/{workspace_id}/topics"
         },
         {
           "file": "api/routes/settings.py",
           "handler": "get_integration_settings",
-          "line": 184,
+          "line": 199,
           "method": "GET",
           "path": ""
         },
         {
           "file": "api/routes/settings.py",
           "handler": "update_integration_settings",
-          "line": 206,
+          "line": 221,
           "method": "PUT",
           "path": ""
         },
         {
           "file": "api/routes/settings.py",
           "handler": "get_topics",
-          "line": 271,
+          "line": 286,
           "method": "GET",
           "path": "/topics"
         },
         {
           "file": "api/routes/settings.py",
           "handler": "get_workspaces",
-          "line": 342,
+          "line": 364,
           "method": "GET",
           "path": "/workspaces"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "auth_test",
-          "line": 165,
+          "line": 161,
           "method": "GET",
           "path": "/_internal/auth-test"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "create_test",
-          "line": 170,
+          "line": 166,
           "method": "POST",
           "path": "/tests"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "list_tests",
-          "line": 213,
+          "line": 209,
           "method": "GET",
           "path": "/tests"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_test",
-          "line": 263,
+          "line": 259,
           "method": "GET",
           "path": "/tests/{test_id}"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_test_full",
-          "line": 274,
+          "line": 270,
           "method": "GET",
           "path": "/tests/{test_id}/full"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "update_test",
-          "line": 294,
+          "line": 290,
           "method": "PUT",
           "path": "/tests/{test_id}"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_telemetry_params",
-          "line": 348,
+          "line": 344,
           "method": "GET",
           "path": "/tests/{test_id}/telemetry-params"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "add_session",
-          "line": 379,
+          "line": 375,
           "method": "POST",
           "path": "/tests/{test_id}/sessions"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "activate_test",
-          "line": 409,
+          "line": 405,
           "method": "POST",
           "path": "/tests/{test_id}/activate"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "delete_test",
-          "line": 446,
+          "line": 442,
           "method": "DELETE",
           "path": "/tests/{test_id}"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_experiment_ids",
-          "line": 502,
+          "line": 498,
           "method": "GET",
           "path": "/tests/filters/experiment-ids"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_environment_ids",
-          "line": 512,
+          "line": 508,
           "method": "GET",
           "path": "/tests/filters/environment-ids"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_drivers",
-          "line": 521,
+          "line": 517,
           "method": "GET",
           "path": "/tests/filters/drivers"
         },

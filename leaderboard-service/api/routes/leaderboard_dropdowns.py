@@ -285,7 +285,7 @@ async def get_best_laps(
 
     Shape: `[{"driver": "Ludvík", "best_lap_ms": 119054}, ...]`, sorted
     ascending by `best_lap_ms` (contract unchanged —
-    `leaderboard-ui/lib/api/leaderboard.ts:79-92`). Driver names are
+    `ui/lib/api/leaderboard.ts:79-92`). Driver names are
     mapped from the lake's folded-lowercase form back to the Mongo
     display case.
 

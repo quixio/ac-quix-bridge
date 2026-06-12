@@ -142,7 +142,7 @@ async def live_stream_endpoint(
     # WS is open — no token required. The stream just replays public
     # Kafka topic data (telemetry/session/config), no sensitive info on
     # this channel. Keeping the HTTP API auth gate intact for everything
-    # else; this is intentional per the leaderboard-ui design (the page
+    # else; this is intentional per the leaderboard UI design (the page
     # may load before the auth handshake completes, and the WS should
     # not block on it).
     _ = token  # accepted but ignored — kept in the URL signature for

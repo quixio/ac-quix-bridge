@@ -1,6 +1,6 @@
-# Applies to builds with context = repo root (e.g. leaderboard-service/dockerfile).
-# Keeps host-side artifacts out of the image: Windows node_modules must not
-# overlay the Linux `npm ci` output in the UI build stage.
+# Applies to builds with context = repo root. (leaderboard-service now builds
+# with its own app-dir context + leaderboard-service/.dockerignore.)
+# Keeps host-side artifacts out of the image.
 .git
 .tmp
 **/node_modules
