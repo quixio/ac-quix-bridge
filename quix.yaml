@@ -109,6 +109,7 @@ deployments:
         description: Test Manager backend URL (in-cluster service name)
         value: http://test-manager-backend
   - name: Dynamic Configuration Manager
+    group: Ingestion
     application: DynamicConfiguration
     version: latest
     deploymentType: Managed
@@ -116,8 +117,9 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-    network:
-      serviceName: dynamic-configuration-manager
+    publicAccess:
+      enabled: true
+      urlPrefix: config-api-svc
     configuration:
       topic: ac-telemetry-config
       mongoHost: mongodb
@@ -126,6 +128,10 @@ deployments:
       mongoPasswordSecret: MONGO_PASSWORD
       mongoDatabase: ac_telemetry
       mongoCollection: experiment_configs
+    plugin:
+      embeddedView:
+        enabled: true
+        default: true
   - name: AC Telemetry Lake sink
     application: ac-telemetry-lake
     version: latest
