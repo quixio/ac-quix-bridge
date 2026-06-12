@@ -1,9 +1,12 @@
 """Leaderboard dropdown + best-laps endpoints.
 
 Two endpoints drive the cascading dropdown UX on the Leaderboard tab.
-Both fire on user navigation only (open tab, pick experiment/track/car)
-— so each call queries QuixLake directly. No caches, no in-process
-state.
+Both fire on user navigation only (open tab, pick experiment/track/car).
+The tree endpoint queries QuixLake directly; `/best-laps` serves from
+`live_telemetry`'s shared best-laps TTL cache when the requested
+(track, car, experiment) is a known group, and otherwise from a small
+module-local keyed TTL cache with stale-on-error (dashboard pattern —
+spec: dev-planning/leaderboard-bestlaps-gates).
 
 Routes:
 
@@ -33,11 +36,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.database import Database
 
+from .. import live_telemetry
 from ..auth import read_permission
 from ..lakehouse_client import LakehouseClient
 from ..mongo import get_mongo
@@ -47,6 +53,7 @@ from .leaderboard_real import (
     _build_driver_name_lookup,
     _fold_driver_name,
     _format_sql_string,
+    _query_best_laps_min,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,28 +95,44 @@ def _build_experiment_tree_sql(experiments: list[str]) -> str:
     )
 
 
-def _build_best_laps_for_combo_sql(experiment: str, track: str, car: str) -> str:
-    """Raw `(driver, iBestTime)` rows for one (experiment, track, car).
+# Module-local TTL cache for combos OUTSIDE `live_telemetry._known_groups()`
+# (a user browsing an arbitrary dropdown combination). Shape:
+# `{(experiment, track, car): (refreshed_monotonic, {folded_driver: ms})}`.
+# Shares `BEST_LAPS_TTL_SECONDS` with the live cache (spec §8 open question
+# resolved as "shared"); per-key stale-on-error mirrors the dashboard
+# pattern (`telemetry-dashboard/main.py:302-324`).
+_combo_cache_lock = threading.Lock()
+_combo_cache: dict[tuple[str, str, str], tuple[float, dict[str, int]]] = {}
 
-    NO server-side aggregation — `GROUP BY driver + MIN(iBestTime)` made
-    the lake stall at the 30 s timeout against `ac_telemetry_leadboard`.
-    Returning raw rows is dramatically faster: the lake just prunes
-    partitions and streams rows; Python folds them into per-driver MIN.
 
-    Filter `iBestTime > 0` stays in the WHERE so we don't ship rows from
-    drivers who haven't completed a flying lap.
+def _query_combo_best_laps(
+    experiment: str, track: str, car: str
+) -> dict[str, int]:
+    """Query A (3-filter variant) for one dropdown combo, folded.
+
+    `environment` is unknown for arbitrary dropdown combos — pre-existing
+    contract, the documented exception to the 4-partition-filter rule.
+    Uses `_query_best_laps_min` (aggregated `MIN(...) GROUP BY driver`
+    with automatic raw-scan fallback) and folds the raw driver keys.
     """
     settings = get_settings()
-    lake_table = settings.lake_table
-    best_col = settings.col_best_time
-    return (
-        f"SELECT driver, {best_col} "
-        f"FROM {lake_table} "
-        f"WHERE experiment = '{_format_sql_string(experiment)}' "
-        f"AND track = '{_format_sql_string(track)}' "
-        f"AND carModel = '{_format_sql_string(car)}' "
-        f"AND {best_col} > 0"
+    if not settings.lakehouse_query_url or not settings.lakehouse_query_token:
+        raise LeaderboardError("Lakehouse credentials missing")
+    per_driver_raw = _query_best_laps_min(
+        settings.lakehouse_query_url,
+        settings.lakehouse_query_token,
+        track=track,
+        car=car,
+        experiment=experiment,
+        environment=None,
     )
+    folded: dict[str, int] = {}
+    for raw_driver, best_ms in per_driver_raw.items():
+        key = _fold_driver_name(raw_driver)
+        prev = folded.get(key)
+        if prev is None or best_ms < prev:
+            folded[key] = best_ms
+    return folded
 
 
 # ---------------------------------------------------------------------------
@@ -261,8 +284,18 @@ async def get_best_laps(
     """Return per-driver best-lap rows for one (experiment, track, car).
 
     Shape: `[{"driver": "Ludvík", "best_lap_ms": 119054}, ...]`, sorted
-    ascending by `best_lap_ms`. Driver names are mapped from the lake's
-    folded-lowercase form back to the Mongo display case.
+    ascending by `best_lap_ms` (contract unchanged —
+    `leaderboard-ui/lib/api/leaderboard.ts:79-92`). Driver names are
+    mapped from the lake's folded-lowercase form back to the Mongo
+    display case.
+
+    Source order (spec §6.5):
+      1. `live_telemetry`'s shared best-laps cache — entries matching
+         (track, car, experiment) across any environment, MIN-merged per
+         folded driver. No lake call.
+      2. Module-local combo cache (fresh within `BEST_LAPS_TTL_SECONDS`).
+      3. Lake (Query A, 3-filter variant); on failure, serve the stale
+         combo-cache entry if one exists.
     """
     logger.info(
         "best-laps request: experiment=%r track=%r car=%r",
@@ -270,41 +303,57 @@ async def get_best_laps(
         track,
         car,
     )
-    try:
-        client = _get_lake_client()
-        sql = _build_best_laps_for_combo_sql(experiment, track, car)
-        df = client.query(sql)
-        df = df.fillna("")
-        rows: list[dict[str, Any]] = df.to_dict("records")
-    except LeaderboardError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    except Exception as e:
-        logger.exception("GET /leaderboard/best-laps failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    best_by_folded: dict[str, int] | None = None
+
+    # 1. Shared cache hit: any known group for this (track, car, exp).
+    shared = live_telemetry.get_best_laps_cache()
+    if shared:
+        merged: dict[str, int] = {}
+        hit = False
+        for (g_track, g_car, g_exp, _env), group_rows in shared.items():
+            if g_track == track and g_car == car and g_exp == experiment:
+                hit = True
+                for folded, best_ms in group_rows.items():
+                    prev = merged.get(folded)
+                    if prev is None or best_ms < prev:
+                        merged[folded] = best_ms
+        if hit:
+            logger.info("best-laps served from shared live cache (no lake call)")
+            best_by_folded = merged
+
+    # 2./3. Module-local keyed TTL cache with stale-on-error.
+    if best_by_folded is None:
+        combo_key = (experiment, track, car)
+        ttl = get_settings().best_laps_ttl_seconds
+        now = time.monotonic()
+        with _combo_cache_lock:
+            entry = _combo_cache.get(combo_key)
+        if entry is not None and now - entry[0] < ttl:
+            logger.info("best-laps served from combo cache (no lake call)")
+            best_by_folded = entry[1]
+        else:
+            try:
+                best_by_folded = await asyncio.to_thread(
+                    _query_combo_best_laps, experiment, track, car
+                )
+                with _combo_cache_lock:
+                    _combo_cache[combo_key] = (now, best_by_folded)
+            except LeaderboardError as e:
+                raise HTTPException(status_code=500, detail=str(e)) from e
+            except Exception as e:
+                if entry is not None:
+                    logger.warning(
+                        "best-laps lake query failed (%s); serving stale combo "
+                        "cache entry",
+                        e,
+                    )
+                    best_by_folded = entry[1]
+                else:
+                    logger.exception("GET /leaderboard/best-laps failed")
+                    raise HTTPException(status_code=500, detail=str(e)) from e
 
     driver_name_lookup = _build_driver_name_lookup(mongo)
-
-    # Per-driver MIN(<best-time-column>) in Python — pushed off the lake
-    # so the query is a simple scan + filter, not an aggregation.
-    best_col = get_settings().col_best_time
-    best_by_folded: dict[str, int] = {}
-    for row in rows:
-        raw_driver = str(row.get("driver") or "").strip()
-        if not raw_driver:
-            continue
-        raw_best = row.get(best_col)
-        if raw_best is None or raw_best == "":
-            continue
-        try:
-            best_ms = int(float(raw_best))
-        except (TypeError, ValueError):
-            continue
-        if best_ms <= 0:
-            continue
-        folded = _fold_driver_name(raw_driver)
-        prev = best_by_folded.get(folded)
-        if prev is None or best_ms < prev:
-            best_by_folded[folded] = best_ms
 
     out: list[dict[str, Any]] = []
     for folded, best_ms in best_by_folded.items():

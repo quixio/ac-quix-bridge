@@ -221,12 +221,40 @@ _gate_vectors_cache: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | N
     None
 )
 
-# Best-laps cache: per-driver best lap in milliseconds, keyed by the full
-# (track, car, experiment, environment) tuple to match the new lake WHERE
-# clause exactly. `None` until the first refresh runs (distinct from
-# empty-but-refreshed). See spec acceptance for the trigger list.
+# Best-laps cache: per-group entries `(refreshed_monotonic, {folded_driver:
+# best_lap_ms})`, keyed by the full (track, car, experiment, environment)
+# tuple to match the lake WHERE clause exactly. The monotonic timestamp
+# drives the TTL refresh (`settings.best_laps_ttl_seconds`); `None` until
+# the first refresh runs (distinct from empty-but-refreshed). Per-key
+# stale-on-error: a failed Query A keeps the previous entry and records a
+# failure timestamp (below) so the TTL tick backs off instead of hammering
+# the lake every poll iteration.
 _best_laps_lock = threading.RLock()
-_best_laps_cache: dict[tuple[str, str, str, str], dict[str, int]] | None = None
+_best_laps_cache: (
+    dict[tuple[str, str, str, str], tuple[float, dict[str, int]]] | None
+) = None
+# Last failed-refresh monotonic time per group (guarded by _best_laps_lock).
+_best_laps_failure_ts: dict[tuple[str, str, str, str], float] = {}
+# Single-flight guard: overlapping refresh triggers queue behind the
+# in-flight one and then no-op (their due-group selection finds fresh
+# entries). Deliberately NOT reentrant — nothing inside a refresh may
+# trigger another refresh.
+_best_laps_refresh_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class _GroupDiff:
+    """Per-group outcome of a best-laps refresh (spec §6.4 step 3).
+
+    * `changed_raw` — `{raw_lake_driver: best_ms}` for drivers that are
+      new or whose best lap changed; raw strings because Query B's
+      `driver IN (...)` clause must match the lake byte-for-byte.
+    * `removed_folded` — folded keys present before but absent now; their
+      gate vectors are dropped during the merge.
+    """
+
+    changed_raw: dict[str, int]
+    removed_folded: frozenset[str]
 
 
 # Fold→display driver-name lookup. Cached at module level so the per-tick
@@ -1160,7 +1188,7 @@ def _prewarm_session_cache_from_dcm() -> None:
         # drivers we just discovered. Cheap, atomic, one extra lake hit at
         # boot. (Step 2 will extend this to gate vectors.)
         if prewarmed_hostnames:
-            _refresh_best_laps_from_settings()
+            _refresh_best_laps_from_settings(force=True)
     except Exception:
         logger.exception("DCM session pre-warm failed; continuing without it")
 
@@ -1274,7 +1302,7 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     # Synchronous is fine: this handler runs on the consumer thread, off
     # the HTTP request path, so the seconds-long lake call doesn't hurt
     # API users. Canonical "once per AC session" refresh trigger.
-    _refresh_best_laps_from_settings()
+    _refresh_best_laps_from_settings(force=True)
 
 
 def _handle_config_event(payload: dict[str, Any]) -> None:
@@ -1398,7 +1426,7 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             _get_cached_experiment(target_key, force_refresh=True)
             # And refresh best laps — a session-config change can mean a
             # different driver is about to log laps under this hostname.
-            _refresh_best_laps_from_settings()
+            _refresh_best_laps_from_settings(force=True)
         else:
             # experiment-type event: update experiment_cache only. We still
             # refresh best-laps below because changing the experiment_id /
@@ -1425,7 +1453,7 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             # Refresh so the new (track, car, experiment, environment)
             # tuple gets queried — see spec acceptance: trigger 3 covers
             # DCM experiment-type events.
-            _refresh_best_laps_from_settings()
+            _refresh_best_laps_from_settings(force=True)
     except Exception:
         # Broad catch on purpose — handler errors must never break the loop.
         logger.exception("config event handler failed: %r", payload)
@@ -1436,17 +1464,20 @@ def get_best_laps_cache() -> dict[tuple[str, str, str, str], dict[str, int]] | N
     has run yet.
 
     Shape: `{(track, car, experiment, environment): {driver_folded:
-    best_lap_ms}}`.
+    best_lap_ms}}` — the internal per-entry refresh timestamps are
+    stripped so `build_live_positions` / `_build_group_rows` keep their
+    pre-TTL shape unchanged.
 
-    Callers must treat the returned dict as read-only — we hand back the
-    live reference (cheap) rather than a deep copy. The cache is only
-    swapped atomically via `refresh_best_laps_cache`, so a caller
-    iterating the dict will see a consistent snapshot for the duration of
-    that iteration even if a refresh races (the swap replaces the binding,
-    not the dict contents in place).
+    Callers must treat the returned dict as read-only. The outer dict is
+    rebuilt per call (cheap — a handful of groups); the inner per-driver
+    dicts are the live references, only ever replaced whole during a
+    refresh swap, never mutated in place.
     """
     with _best_laps_lock:
-        return _best_laps_cache
+        cache = _best_laps_cache
+        if cache is None:
+            return None
+        return {grp: rows for grp, (_ts, rows) in cache.items()}
 
 
 def _known_groups() -> list[tuple[str, str, str, str]]:
@@ -1488,62 +1519,146 @@ def _known_groups() -> list[tuple[str, str, str, str]]:
     return groups
 
 
+def _fold_best_laps(
+    per_driver_raw: dict[str, int],
+) -> tuple[dict[str, int], dict[str, str]]:
+    """Fold raw lake driver names to the cache key shape.
+
+    Returns `(folded_best, folded_to_raw)`. Keeps the MIN best_ms when
+    two raw names fold to the same key (typical case: a driver
+    re-recorded under different casing); `folded_to_raw` then maps to
+    the raw name that holds that MIN — the one Query B must scan.
+    """
+    folded: dict[str, int] = {}
+    folded_to_raw: dict[str, str] = {}
+    for raw_driver, best_ms in per_driver_raw.items():
+        key = _fold_for_lookup(raw_driver) or raw_driver.lower()
+        prev = folded.get(key)
+        if prev is None or best_ms < prev:
+            folded[key] = best_ms
+            folded_to_raw[key] = raw_driver
+    return folded, folded_to_raw
+
+
 def refresh_best_laps_cache(
     quixlake_url: str,
     quix_lake_token: str,
+    *,
+    force: bool = False,
 ) -> None:
-    """Query QuixLake once per known (track, car, experiment, environment)
-    group and atomically swap the result into `_best_laps_cache`.
+    """Refresh the keyed TTL best-laps cache and rebuild gate vectors for
+    drivers whose best lap changed (spec §6.4).
 
-    Discovery uses `_query_best_laps_with_lap` (an `iCurrentTime`-based
-    per-(driver, lap) scan with a 0.95-position-coverage filter), not
-    `_query_best_laps` (which filtered `iBestTime > 0` and silently
-    dropped historicals whose lake rows didn't carry a populated
-    iBestTime — the dominant cause of the round-1 "1 row only" blocker
-    in dev lake replays). Every driver with a real completed lap now
-    surfaces, regardless of whether iBestTime was being written on the
-    tick that produced their fastest lap.
+    Query A per due group: `_query_best_laps_min` — server-side
+    `MIN(iBestTime) GROUP BY driver` (dashboard pattern) with automatic
+    raw-scan fallback. A group is *due* when `force=True`, it has no
+    cache entry, or its entry is older than `BEST_LAPS_TTL_SECONDS`.
+    Failed groups keep their previous entry (per-key stale-on-error) and
+    back off one TTL before the next retry.
 
-    Group discovery: `_known_groups()` enumerates every (track, car,
-    experiment, environment) tuple we have enrichment for. We run one
-    query per group (typically 1–2 groups in practice).
+    Diff-driven follow-up: only when at least one driver's best changed
+    (new driver, different ms, or removed) do we run the targeted
+    gate-vector rebuild, invalidate the driver-name lookup, and broadcast
+    a full WS snapshot. Steady-state TTL ticks with no changes are
+    silent — no scans, no broadcasts.
+
+    Single-flight: overlapping triggers queue on
+    `_best_laps_refresh_lock`; once the in-flight refresh finishes, the
+    queued one finds nothing due and no-ops.
 
     All exceptions are caught and logged; on failure the previous cache
     value (possibly None on first run) stays valid.
-
-    After a successful swap, broadcasts a fresh full snapshot through
-    `live_stream` so every connected WebSocket client re-renders.
     """
-    try:
-        from concurrent.futures import ThreadPoolExecutor
-
-        # Discover drivers via the iCurrentTime-based lap detector so any
-        # driver with a ≥95%-coverage completed lap surfaces in the table.
-        # The earlier `_query_best_laps` (filtering `iBestTime > 0`) silently
-        # dropped historicals whose AC session never wrote a populated
-        # iBestTime — which appears to be the common case in the dev lake
-        # for older replays and was the dominant cause of round-1 blocker
-        # #1 ("only 1 row shows in Live Sector Comparison").
-        from .routes.leaderboard_real import _query_best_laps_with_lap
-
-        new_cache: dict[tuple[str, str, str, str], dict[str, int]] = {}
-        groups = _known_groups()
-        if not groups:
-            logger.info(
-                "best-laps cache refresh: no (track,car,exp,env) groups known yet "
-                "(session + experiment caches still warming) — leaving cache as-is"
+    with _best_laps_refresh_lock:
+        try:
+            changed = _refresh_best_laps_locked(
+                quixlake_url, quix_lake_token, force=force
             )
+        except Exception:
+            logger.exception("best-laps cache refresh failed; keeping previous cache")
+            return
 
-        def _run_one(
-            grp: tuple[str, str, str, str],
-        ) -> tuple[
-            tuple[str, str, str, str],
-            dict[str, tuple[int, int]],
-        ]:
-            track, car, experiment, environment = grp
-            # Returns `{raw_lake_driver: (best_ms, lap_num)}` for every
-            # driver with a completed (≥0.95-coverage) lap in the group.
-            per_driver_raw = _query_best_laps_with_lap(
+    if not changed:
+        return
+
+    # Targeted gate-vector rebuild for exactly the changed drivers, then
+    # the standard "something material changed" follow-ups. Run OUTSIDE
+    # the single-flight lock: `_broadcast_full_snapshot_safely` →
+    # `build_live_positions` may itself call `refresh_best_laps_cache`
+    # on a cold cache, and the flight lock is not reentrant.
+    refresh_gate_vectors_cache(quixlake_url, quix_lake_token, changed=changed)
+
+    # Best-laps changed → drop the driver-name lookup so a newly added
+    # driver flows to the wire envelope on the next publish without
+    # waiting for a process restart.
+    _invalidate_driver_name_lookup()
+
+    # Historicals changed → broadcast a fresh full snapshot to every WS
+    # client so the leaderboard tab updates without waiting for the next
+    # connect. Best-effort: any failure inside the broadcast helpers is
+    # logged and swallowed so the consumer thread stays alive.
+    _broadcast_full_snapshot_safely()
+
+
+def _refresh_best_laps_locked(
+    quixlake_url: str,
+    quix_lake_token: str,
+    *,
+    force: bool,
+) -> dict[tuple[str, str, str, str], _GroupDiff]:
+    """Run Query A for every due group, swap updated entries into
+    `_best_laps_cache`, and return the per-group diffs.
+
+    Caller holds `_best_laps_refresh_lock`. Returns an empty dict when
+    nothing was due or nothing changed.
+    """
+    global _best_laps_cache
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .routes.leaderboard_real import _query_best_laps_min
+    from .settings import get_settings
+
+    ttl = get_settings().best_laps_ttl_seconds
+    groups = _known_groups()
+    if not groups:
+        logger.info(
+            "best-laps cache refresh: no (track,car,exp,env) groups known yet "
+            "(session + experiment caches still warming) — leaving cache as-is"
+        )
+        return {}
+
+    now = time.monotonic()
+    with _best_laps_lock:
+        cache_snapshot = dict(_best_laps_cache) if _best_laps_cache is not None else None
+        failure_snapshot = dict(_best_laps_failure_ts)
+
+    due: list[tuple[str, str, str, str]] = []
+    for grp in groups:
+        if not force:
+            entry = cache_snapshot.get(grp) if cache_snapshot else None
+            if entry is not None and now - entry[0] < ttl:
+                continue
+            last_failure = failure_snapshot.get(grp)
+            if last_failure is not None and now - last_failure < ttl:
+                continue
+        due.append(grp)
+
+    # Groups that left `_known_groups()` (e.g. DCM config deleted) are
+    # pruned; their drivers become removals so the gate-vector merge
+    # drops them too.
+    known = set(groups)
+    pruned = [g for g in (cache_snapshot or {}) if g not in known]
+
+    if not due and not pruned:
+        return {}
+
+    def _run_one(
+        grp: tuple[str, str, str, str],
+    ) -> tuple[tuple[str, str, str, str], dict[str, int] | None]:
+        track, car, experiment, environment = grp
+        try:
+            per_driver_raw = _query_best_laps_min(
                 quixlake_url,
                 quix_lake_token,
                 track=track,
@@ -1551,73 +1666,94 @@ def refresh_best_laps_cache(
                 experiment=experiment,
                 environment=environment,
             )
-            logger.info(
-                "best-laps query: track=%s car=%s exp=%s env=%s -> %d drivers",
+        except Exception:
+            logger.exception(
+                "best-laps query failed for track=%s car=%s exp=%s env=%s; "
+                "keeping previous entry (stale-on-error)",
                 track,
                 car,
                 experiment,
                 environment,
-                len(per_driver_raw),
             )
-            return grp, per_driver_raw
+            return grp, None
+        logger.info(
+            "best-laps query: track=%s car=%s exp=%s env=%s -> %d drivers",
+            track,
+            car,
+            experiment,
+            environment,
+            len(per_driver_raw),
+        )
+        return grp, per_driver_raw
 
-        if groups:
-            # Run one lake query per group in parallel. QuixLakeClient is
-            # `requests`-based (blocking), so a thread pool is the right
-            # primitive — we're already on the Kafka consumer thread, not
-            # an event loop. Cap concurrency at 8 to avoid hammering the
-            # lake on workspaces with many active drivers.
-            with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
-                for grp, per_driver_raw in pool.map(_run_one, groups):
-                    # Fold raw lake driver names to the cache key shape
-                    # `_build_group_rows` expects. Keep the MIN best_ms
-                    # when two raw names fold to the same key (typical
-                    # case: a driver re-recorded under different casing).
-                    folded: dict[str, int] = {}
-                    for raw_driver, (best_ms, _lap_num) in per_driver_raw.items():
-                        key = _fold_for_lookup(raw_driver) or raw_driver.lower()
-                        prev = folded.get(key)
-                        if prev is None or best_ms < prev:
-                            folded[key] = best_ms
-                    new_cache[grp] = folded
-    except Exception:
-        logger.exception("best-laps cache refresh failed; keeping previous cache")
-        return
+    results: dict[tuple[str, str, str, str], dict[str, int] | None] = {}
+    if due:
+        # Run one lake query per group in parallel. `LakehouseClient` is
+        # blocking httpx, so a thread pool is the right primitive — we're
+        # already on the Kafka consumer thread, not an event loop. Cap
+        # concurrency at 8 to avoid hammering the lake.
+        with ThreadPoolExecutor(max_workers=min(8, len(due))) as pool:
+            for grp, per_driver_raw in pool.map(_run_one, due):
+                results[grp] = per_driver_raw
 
-    # Only swap when we actually queried something. An empty `new_cache`
-    # because no groups were known yet is NOT a "refreshed, lake had no
-    # rows" outcome — it's "we don't know what to ask for yet". Leaving
-    # the previous cache (or `None`) intact lets `build_live_positions`
-    # retry on the next request.
-    if not new_cache:
-        return
-
+    diffs: dict[tuple[str, str, str, str], _GroupDiff] = {}
+    refreshed = 0
+    failed = 0
     with _best_laps_lock:
-        global _best_laps_cache
-        _best_laps_cache = new_cache
-    total_historicals = sum(len(g) for g in new_cache.values())
+        had_cache = _best_laps_cache is not None
+        base = dict(_best_laps_cache) if _best_laps_cache is not None else {}
+        swap_now = time.monotonic()
+        for grp in due:
+            per_driver_raw = results.get(grp)
+            if per_driver_raw is None:
+                # Stale-on-error: keep the previous entry (if any) and
+                # back off one TTL before retrying this group.
+                _best_laps_failure_ts[grp] = swap_now
+                failed += 1
+                continue
+            _best_laps_failure_ts.pop(grp, None)
+            folded, folded_to_raw = _fold_best_laps(per_driver_raw)
+            old_entry = base.get(grp)
+            old_folded = old_entry[1] if old_entry is not None else {}
+            changed_folded = {
+                k for k, v in folded.items() if old_folded.get(k) != v
+            }
+            removed_folded = frozenset(old_folded.keys() - folded.keys())
+            if changed_folded or removed_folded:
+                diffs[grp] = _GroupDiff(
+                    changed_raw={
+                        folded_to_raw[k]: folded[k] for k in changed_folded
+                    },
+                    removed_folded=removed_folded,
+                )
+            base[grp] = (swap_now, folded)
+            refreshed += 1
+        for grp in pruned:
+            _ts, old_folded = base.pop(grp)
+            _best_laps_failure_ts.pop(grp, None)
+            if old_folded:
+                diffs[grp] = _GroupDiff(
+                    changed_raw={}, removed_folded=frozenset(old_folded)
+                )
+        # Keep the `None` cold-start sentinel when nothing was ever
+        # cached successfully — `build_live_positions` uses it to retry
+        # synchronously on the next request.
+        if base or had_cache:
+            _best_laps_cache = base
+
+    total_historicals = sum(len(rows) for _ts, rows in base.values())
     logger.info(
-        "best-laps cache refreshed: %d groups, %d historicals",
-        len(new_cache),
+        "best-laps cache refreshed: %d/%d due groups ok (%d failed, %d pruned), "
+        "%d groups cached, %d historicals, %d group(s) changed",
+        refreshed,
+        len(due),
+        failed,
+        len(pruned),
+        len(base),
         total_historicals,
+        len(diffs),
     )
-
-    # Best-laps changed → drop the driver-name lookup so a newly added
-    # driver flows to the wire envelope on the next publish without
-    # waiting for a process restart.
-    _invalidate_driver_name_lookup()
-
-    # Pair with a gate-vectors refresh: the Left-table colour cue depends
-    # on per-gate cumulative-time vectors of every historical's best lap
-    # for the same `(track, car, experiment)` set. Same trigger cadence
-    # (session / config / startup), one place to keep them in sync.
-    refresh_gate_vectors_cache(quixlake_url, quix_lake_token)
-
-    # Historicals changed → broadcast a fresh full snapshot to every WS
-    # client so the leaderboard tab updates without waiting for the next
-    # connect. Best-effort: any failure inside the broadcast helpers is
-    # logged and swallowed so the consumer thread stays alive.
-    _broadcast_full_snapshot_safely()
+    return diffs
 
 
 def get_gate_vectors_cache() -> (
@@ -1639,93 +1775,221 @@ def get_gate_vectors_cache() -> (
 def refresh_gate_vectors_cache(
     quixlake_url: str,
     quix_lake_token: str,
+    *,
+    changed: dict[tuple[str, str, str, str], _GroupDiff] | None = None,
 ) -> None:
-    """Pull per-gate cumulative-time vectors for every historical best lap
-    in scope and atomically swap into `_gate_vectors_cache`.
+    """Rebuild per-gate cumulative-time vectors for the changed drivers
+    and merge into `_gate_vectors_cache` (spec §6.4).
 
-    Scope = the `(track, car, experiment, environment)` tuples enumerated
-    by `_known_groups()`. The reducer in `routes/leaderboard_real.py`
-    returns `{(track, car, experiment): {driver_folded: _HistoricalEntry}}`
-    keyed without environment because the active-row code path only knows
-    (track, car, experiment) — `environment` is a lake-side partition
-    that the assembly layer filters on but doesn't echo back to the live
-    state. The reducer naturally drops `environment` from its key on
-    output.
+    `changed` given (the normal path — diff from
+    `refresh_best_laps_cache`): for each group, Query B
+    (`_query_lap_table` narrowed with `drivers=`) identifies the lap each
+    driver's Query A `best_ms` was set on (`_match_best_lap`, tolerance
+    `BEST_LAP_MATCH_TOLERANCE_MS`; fastest-complete-lap fallback with a
+    reconciliation warning), then Query C (`_query_gate_samples`) fetches
+    only the matched `(driver, lap)` sample rows. The result is merged
+    copy-on-write into the existing cache: changed/added drivers get new
+    `_HistoricalEntry` values, removed drivers are dropped, untouched
+    drivers keep their vectors.
 
-    Triggered from:
-      * consumer startup (after `_prewarm_session_cache_from_dcm`),
-      * AC `ac-telemetry-session` Kafka message,
-      * DCM `ac-telemetry-config` event (session OR experiment type),
-      * (implicitly) every `refresh_best_laps_cache` call, since the two
-        caches always refresh together.
+    `changed=None` (cold start / explicit force): full rebuild — Query A
+    runs per known group here, every driver counts as changed, and the
+    merge replaces the whole cache (stale groups drop out). Groups whose
+    Query A fails keep their previous `(track, car, exp)` entries.
+
+    The reducer returns `{(track, car, experiment): {driver_folded:
+    _HistoricalEntry}}` keyed without environment because the active-row
+    code path only knows (track, car, experiment) — `environment` is a
+    lake-side partition the assembly layer filters on but doesn't echo
+    back to the live state.
 
     Failures are swallowed + logged; the previous cache stays valid.
     """
     try:
         from .routes.leaderboard_real import (
+            _match_best_lap,
+            _pick_fastest_complete,
+            _query_best_laps_min,
             _query_gate_samples,
+            _query_lap_table,
             _reduce_to_gate_vectors,
         )
+        from .settings import get_settings
 
-        groups = _known_groups()
-        if not groups:
-            logger.info(
-                "gate-vectors cache refresh: no groups known yet — leaving cache as-is"
-            )
-            return
+        tolerance_ms = get_settings().best_lap_match_tolerance_ms
+        full_replace = changed is None
+        failed_key3s: set[tuple[str, str, str]] = set()
 
-        # Run one discovery query per group: `{raw_lake_driver: (best_ms,
-        # lap_num)}` for every driver with a ≥0.95-coverage completed lap.
-        # The gate-samples SQL downstream needs the RAW lake driver string
-        # (its WHERE clause matches the lake byte-for-byte); folding to
-        # the wire/cache form happens at the tail of the pipeline.
-        from concurrent.futures import ThreadPoolExecutor
+        if changed is None:
+            from concurrent.futures import ThreadPoolExecutor
 
-        from .routes.leaderboard_real import _query_best_laps_with_lap
+            groups = _known_groups()
+            if not groups:
+                logger.info(
+                    "gate-vectors cache refresh: no groups known yet — "
+                    "leaving cache as-is"
+                )
+                return
 
-        def _run_one_group(
-            grp: tuple[str, str, str, str],
-        ) -> tuple[tuple[str, str, str, str], dict[str, tuple[int, int]]]:
-            track, car, experiment, environment = grp
-            per = _query_best_laps_with_lap(
-                quixlake_url,
-                quix_lake_token,
-                track=track,
-                car=car,
-                experiment=experiment,
-                environment=environment,
-            )
-            return grp, per
+            def _run_one_group(
+                grp: tuple[str, str, str, str],
+            ) -> tuple[tuple[str, str, str, str], dict[str, int] | None]:
+                track, car, experiment, environment = grp
+                try:
+                    return grp, _query_best_laps_min(
+                        quixlake_url,
+                        quix_lake_token,
+                        track=track,
+                        car=car,
+                        experiment=experiment,
+                        environment=environment,
+                    )
+                except Exception:
+                    logger.exception(
+                        "gate-vectors discovery failed for %s; keeping its "
+                        "previous vectors",
+                        grp,
+                    )
+                    return grp, None
 
-        best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
-        with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
-            for (track, car, experiment, environment), per_driver_with_lap in pool.map(
-                _run_one_group, groups
-            ):
-                for lake_driver, (best_ms, lap_num) in per_driver_with_lap.items():
-                    best_per_group[(track, car, experiment, lake_driver)] = (
-                        int(best_ms),
-                        int(lap_num),
+            changed = {}
+            with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
+                for grp, per_driver_raw in pool.map(_run_one_group, groups):
+                    if per_driver_raw is None:
+                        failed_key3s.add(grp[:3])
+                        continue
+                    changed[grp] = _GroupDiff(
+                        changed_raw=per_driver_raw, removed_folded=frozenset()
                     )
 
-        if not best_per_group:
-            reduced: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
-        else:
+        # Query B per group (narrowed to the changed drivers), lap
+        # identification per spec §5, then one Query C for all matched
+        # (driver, lap) tuples. The gate-samples SQL needs the RAW lake
+        # driver string (its WHERE clause matches the lake byte-for-byte);
+        # folding to the wire/cache form happens at the reducer tail.
+        best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
+        # Folded drivers to drop per (track, car, exp): removed from the
+        # best-laps cache, or no complete lap could be identified.
+        drop: dict[tuple[str, str, str], set[str]] = {}
+        for grp, diff in changed.items():
+            track, car, experiment, environment = grp
+            key3 = (track, car, experiment)
+            for folded in diff.removed_folded:
+                drop.setdefault(key3, set()).add(folded)
+            if not diff.changed_raw:
+                continue
+            try:
+                lap_table = _query_lap_table(
+                    quixlake_url,
+                    quix_lake_token,
+                    track=track,
+                    car=car,
+                    experiment=experiment,
+                    environment=environment,
+                    drivers=sorted(diff.changed_raw),
+                )
+            except Exception:
+                # Stale-on-error: the changed drivers keep their previous
+                # vectors (possibly mismatched against the new best until
+                # the next refresh round succeeds).
+                logger.exception(
+                    "gate-vectors lap scan failed for %s; keeping previous "
+                    "vectors for %d driver(s)",
+                    grp,
+                    len(diff.changed_raw),
+                )
+                failed_key3s.add(key3)
+                continue
+            fastest_complete = _pick_fastest_complete(lap_table)
+            for raw_driver, best_ms in diff.changed_raw.items():
+                match = _match_best_lap(lap_table, raw_driver, best_ms, tolerance_ms)
+                if match is None:
+                    match = fastest_complete.get(raw_driver)
+                    if match is not None:
+                        logger.warning(
+                            "best-lap reconciliation: driver=%r best_ms=%d has "
+                            "no complete lap within %dms (closest lap rule); "
+                            "falling back to fastest complete lap "
+                            "(%dms, lap %d) for the gate vector",
+                            raw_driver,
+                            best_ms,
+                            tolerance_ms,
+                            match[0],
+                            match[1],
+                        )
+                if match is None:
+                    # No complete lap at all → graceful neutral-cue
+                    # degradation: no gate vector for this driver.
+                    logger.warning(
+                        "no complete lap found for driver=%r in %s; dropping "
+                        "gate vector",
+                        raw_driver,
+                        grp,
+                    )
+                    folded = _fold_for_lookup(raw_driver) or raw_driver.lower()
+                    drop.setdefault(key3, set()).add(folded)
+                    continue
+                _lap_ms, lap_num = match
+                best_per_group[(track, car, experiment, raw_driver)] = (
+                    int(best_ms),
+                    int(lap_num),
+                )
+
+        if best_per_group:
             sample_rows = _query_gate_samples(
                 quixlake_url, quix_lake_token, best_per_group
             )
-            reduced = _reduce_to_gate_vectors(best_per_group, sample_rows)
+            partial = _reduce_to_gate_vectors(best_per_group, sample_rows)
+        else:
+            partial = {}
+
+        # Drivers that were queried but didn't survive the reducer
+        # (partial-coverage lap, no samples) lose their stale vector too —
+        # keeping it would disagree with the new best lap.
+        for track, car, experiment, raw_driver in best_per_group:
+            key3 = (track, car, experiment)
+            folded = _fold_for_lookup(raw_driver) or raw_driver.lower()
+            if folded not in partial.get(key3, {}):
+                drop.setdefault(key3, set()).add(folded)
     except Exception:
         logger.exception("gate-vectors cache refresh failed; keeping previous cache")
         return
 
+    # Copy-on-write merge under the lock: read base, apply drops, apply
+    # updates, swap. Doing the copy inside the lock serialises concurrent
+    # merges so no update is lost.
     with _gate_vectors_lock:
         global _gate_vectors_cache
-        _gate_vectors_cache = reduced
-    total_historicals = sum(len(g) for g in reduced.values())
+        old = _gate_vectors_cache or {}
+        if full_replace:
+            # Full rebuild replaces everything except groups whose
+            # discovery query failed (stale-on-error).
+            base = {
+                key3: dict(drivers)
+                for key3, drivers in old.items()
+                if key3 in failed_key3s
+            }
+        else:
+            base = {key3: dict(drivers) for key3, drivers in old.items()}
+        for key3, folded_set in drop.items():
+            group_dict = base.get(key3)
+            if not group_dict:
+                continue
+            for folded in folded_set:
+                group_dict.pop(folded, None)
+        for key3, group_partial in partial.items():
+            base.setdefault(key3, {}).update(group_partial)
+        base = {key3: drivers for key3, drivers in base.items() if drivers}
+        _gate_vectors_cache = base
+
+    rebuilt = sum(len(g) for g in partial.values())
+    total_historicals = sum(len(g) for g in base.values())
     logger.info(
-        "gate-vectors cache refreshed: %d (track,car,exp) groups, %d historicals",
-        len(reduced),
+        "gate vectors rebuilt for %d driver(s) (%s); cache now %d "
+        "(track,car,exp) groups, %d historicals",
+        rebuilt,
+        "full rebuild" if full_replace else "targeted",
+        len(base),
         total_historicals,
     )
 
@@ -1767,15 +2031,16 @@ def _broadcast_full_snapshot_safely() -> None:
         )
 
 
-def _refresh_best_laps_from_settings() -> None:
+def _refresh_best_laps_from_settings(*, force: bool = False) -> None:
     """Internal: pull lake creds from `Settings` and refresh the best-laps
     cache.
 
     Used by the session-message handler, the DCM config-event handler,
-    and the consumer-startup warm-up so callers don't have to plumb
-    settings through. Silently no-ops when credentials are missing — in
-    that mode the route layer raises `LeaderboardError` anyway, so
-    populating the cache is moot.
+    the consumer-startup warm-up (all `force=True` — they bypass the
+    per-group TTL), and the consumer loop's TTL tick (`force=False` —
+    only groups older than `BEST_LAPS_TTL_SECONDS` refresh). Silently
+    no-ops when credentials are missing — in that mode the route layer
+    raises `LeaderboardError` anyway, so populating the cache is moot.
     """
     from .settings import get_settings
 
@@ -1785,7 +2050,44 @@ def _refresh_best_laps_from_settings() -> None:
             "skipping best-laps cache refresh: Lakehouse credentials not configured"
         )
         return
-    refresh_best_laps_cache(settings.lakehouse_query_url, settings.lakehouse_query_token)
+    refresh_best_laps_cache(
+        settings.lakehouse_query_url, settings.lakehouse_query_token, force=force
+    )
+
+
+def _maybe_refresh_on_ttl() -> None:
+    """TTL tick for the best-laps cache, piggybacked on the consumer loop.
+
+    Cheap check (no lake traffic) on every poll iteration: if any known
+    group has no cache entry or one older than `BEST_LAPS_TTL_SECONDS` —
+    and isn't inside its failure backoff window — run a (TTL-respecting,
+    single-flight) refresh on this thread. Steady-state cost is a dict
+    scan over a handful of groups every 0.5 s.
+    """
+    from .settings import get_settings
+
+    settings = get_settings()
+    if not settings.lakehouse_query_url or not settings.lakehouse_query_token:
+        return
+    ttl = settings.best_laps_ttl_seconds
+    groups = _known_groups()
+    if not groups:
+        return
+    now = time.monotonic()
+    with _best_laps_lock:
+        cache = _best_laps_cache
+        due = False
+        for grp in groups:
+            entry = cache.get(grp) if cache is not None else None
+            if entry is not None and now - entry[0] < ttl:
+                continue
+            last_failure = _best_laps_failure_ts.get(grp)
+            if last_failure is not None and now - last_failure < ttl:
+                continue
+            due = True
+            break
+    if due:
+        _refresh_best_laps_from_settings()
 
 
 def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
@@ -1901,7 +2203,7 @@ def _consumer_loop() -> None:
     # configs found → no internal refresh call). Failures are swallowed
     # inside `refresh_best_laps_cache`; if the lake is unreachable the
     # route layer's cache-miss fallback will retry on the next request.
-    _refresh_best_laps_from_settings()
+    _refresh_best_laps_from_settings(force=True)
 
     logger.info(
         "ghost-lap consumer starting (topics=%s, %s, %s)",
@@ -1916,6 +2218,14 @@ def _consumer_loop() -> None:
             )
             while not _stop_event.is_set():
                 msg = consumer.poll(timeout=0.5)
+                # TTL tick (spec §6.4): cheap age check per iteration; a
+                # refresh only runs when a group's entry outlived
+                # BEST_LAPS_TTL_SECONDS (single-flight, stale-on-error,
+                # failure backoff handled inside).
+                try:
+                    _maybe_refresh_on_ttl()
+                except Exception:
+                    logger.exception("best-laps TTL tick failed")
                 if msg is None:
                     continue
                 if msg.error():

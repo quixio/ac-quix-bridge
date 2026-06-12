@@ -111,6 +111,34 @@ class Settings(BaseSettings):
         description="Column name for the 0..1 lap position",
     )
 
+    # Best-laps TTL cache + gate-vector rebuild knobs
+    # (dev-planning/leaderboard-bestlaps-gates/spec.md §6.1).
+    best_laps_ttl_seconds: float = Field(
+        15.0,
+        alias="BEST_LAPS_TTL_SECONDS",
+        description=(
+            "Age (seconds) after which a per-group best-laps cache entry "
+            "is refreshed from the lake"
+        ),
+    )
+    best_lap_match_tolerance_ms: int = Field(
+        1500,
+        alias="BEST_LAP_MATCH_TOLERANCE_MS",
+        description=(
+            "Max |lap_ms - iBestTime| (ms) for a per-lap scan row to be "
+            "identified as the lap the best time was set on"
+        ),
+    )
+    lake_server_aggregation: bool = Field(
+        True,
+        alias="LAKE_SERVER_AGGREGATION",
+        description=(
+            "Use server-side MIN(...) GROUP BY driver for best laps. Set "
+            "false to force the raw-scan + Python-MIN fallback (needed if "
+            "LAKE_TABLE points at a derived table where GROUP BY stalls)"
+        ),
+    )
+
     @field_validator(
         "lake_table",
         "col_current_time",
