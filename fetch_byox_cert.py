@@ -21,14 +21,15 @@ OUT = os.path.join(
 )
 
 
-def fetch_chain(host: str, port: int) -> list[bytes]:
-    """Return the PEM-encoded cert chain the server presents, without verifying it."""
+def fetch_chain(host: str, port: int) -> list[str]:
+    """Return the PEM cert chain the server presents, without verifying it."""
     ctx = ssl._create_unverified_context()
     with socket.create_connection((host, port), timeout=15) as sock:
         with ctx.wrap_socket(sock, server_hostname=host) as tls:
             # get_unverified_chain() is public only in 3.13+; the laptop runs
             # 3.12, where it lives on the underlying _ssl object.
             chain = tls._sslobj.get_unverified_chain()
+    # public_bytes(ENCODING_PEM) returns str (PEM text), not bytes.
     return [cert.public_bytes(ssl._ssl.ENCODING_PEM) for cert in chain]
 
 
@@ -42,9 +43,10 @@ def verify(host: str, port: int, cafile: str) -> None:
 
 def main() -> None:
     pems = fetch_chain(HOST, PORT)
+    content = "".join(pems)  # write only after a successful fetch — no empty file
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
-        f.write("".join(p.decode() for p in pems))
+        f.write(content)
     print(f"wrote {len(pems)} cert(s) -> {OUT}")
 
     try:

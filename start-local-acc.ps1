@@ -59,10 +59,11 @@ if ($needsInstall) {
 # inherit SSL_CERT_FILE. Quix Dev uses public certs, so leave it unset there.
 if ($isByox) {
     $certFile = Join-Path $root "certificates\byox-chain.pem"
-    if (-not (Test-Path $certFile)) {
+    $haveCert = (Test-Path $certFile) -and ((Get-Item $certFile).Length -gt 0)
+    if (-not $haveCert) {
         Write-Host "Fetching byox TLS chain..." -ForegroundColor Yellow
         & "$venv\Scripts\python.exe" (Join-Path $root "fetch_byox_cert.py")
-        if (-not (Test-Path $certFile)) {
+        if (-not ((Test-Path $certFile) -and ((Get-Item $certFile).Length -gt 0))) {
             Write-Host "Failed to fetch byox cert chain ($certFile)." -ForegroundColor Red
             exit 1
         }
