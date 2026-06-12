@@ -284,6 +284,7 @@ deployments:
         inputType: FreeText
         value: https://portal-api.dev.quix.io
   - name: Test Manager - Frontend
+    group: Test Manager
     application: test-manager-frontend
     version: latest
     deploymentType: Service
@@ -315,10 +316,10 @@ deployments:
         description: Disable Next.js telemetry
         value: 1
       - name: NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
-        inputType: ProjectVariable
+        inputType: FreeText
         description: Public URL of the Telemetry Explorer deployment
         required: true
-        variableKey: TELEMETRY_EXPLORER_URL
+        value: TELEMETRY_EXPLORER_URL
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: Live-positions blue-freeze window duration in ms after a gate crossing.
