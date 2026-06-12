@@ -81,6 +81,7 @@ deployments:
         secret: true
         variableKey: MONGO_PASSWORD
   - name: Session Config Bridge
+    group: Ingestion
     application: session-config-bridge
     version: latest
     deploymentType: Service
@@ -106,7 +107,7 @@ deployments:
         value: session
       - name: TEST_MANAGER_URL
         inputType: FreeText
-        description: Test Manager backend URL (in-cluster service name)
+        description: Test Manager backend URL (in-cluster service name by default)
         value: http://test-manager-backend
   - name: Dynamic Configuration Manager
     group: Ingestion
