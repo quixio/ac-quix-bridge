@@ -776,6 +776,7 @@ deployments:
 # This section describes the Topics of the data pipeline
 topics:
   - name: ac-telemetry-raw
+    sourceName: AC Telemetry PC Bridge
     configuration:
       partitions: 1
       replicationFactor: 1
