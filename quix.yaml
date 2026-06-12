@@ -726,18 +726,6 @@ deployments:
       - name: NEXT_TELEMETRY_DISABLED
         inputType: FreeText
         value: 1
-  - name: Quix DataLake Raw Sink 2
-    application: DataLake.Sink
-    version: latest
-    deploymentType: Managed
-    resources:
-      limits:
-        cpu: 500
-        memory: 1500
-    configuration:
-      topic: ac-telemetry-raw
-      consumerGroup: v1
-      autoOffsetReset: earliest
   - name: ac-telemetry-raw replay2
     application: DataLake.Replay
     version: latest
