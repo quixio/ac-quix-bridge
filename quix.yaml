@@ -689,11 +689,11 @@ deployments:
         value: https://portal-api.dev.quix.io
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
-        description: "Build-time: blue-freeze window ms (baked into UI bundle)"
+        description: 'Build-time: blue-freeze window ms (baked into UI bundle)'
         value: 200
       - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
         inputType: ProjectVariable
-        description: "Build-time: standalone-mode fallback PAT baked into UI bundle"
+        description: 'Build-time: standalone-mode fallback PAT baked into UI bundle'
         secret: true
         variableKey: quix_lake_pat
     blobStorage:
