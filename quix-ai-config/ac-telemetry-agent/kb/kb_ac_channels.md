@@ -2,9 +2,9 @@
 
 Columns available in the `ac_telemetry` table in Quix Lakehouse, grouped by category.
 
-> **Data source: Assetto Corsa Competizione (ACC).** ACC's channel set is a
-> *superset* of the original Assetto Corsa channels listed below — every name
-> here is present and valid. ACC adds extras not enumerated here, e.g. weather
+> **Assetto Corsa / ACC.** The columns below are the original Assetto Corsa
+> channel set — all valid in both titles. ACC's set is a *superset*: it adds
+> extras not enumerated here, e.g. weather
 > (`rainIntensity`, `rainIntensityIn10min`, `rainTyres`), tyre-set MFD
 > (`mfdTyrePressureLF`, `currentTyreSet`, `strategyTyreSet`), brake compounds
 > (`frontBrakeCompound`, `rearBrakeCompound`), ERS/DRS (`ersPowerLevel`,
