@@ -1108,13 +1108,14 @@ def _build_group_rows(
         # we have no active row OR the active driver hasn't crossed gate
         # 1 yet, all historicals carry `None`.
         row_delta = per_historical_deltas.get(folded_driver)
-        # Historical's cumulative lap-time at the NEXT gate ahead of the
-        # active driver (display) and at the LAST crossed gate (rank).
-        # Display = gate (N+1) so the column shows the upcoming target.
-        # Rank   = gate N so the order only snaps at gate crossings.
-        # Both pulled from the same helpers the WS active mutation uses
-        # (spec §7.7 reconciliation): one source of truth per value.
-        gate_time_next = historical_next_gate_value(entry, sticky_last_gate_index)
+        # Historical's cumulative lap-time at the SAME gate the active just
+        # crossed (i*). Both the "At Position" display AND the rank key use
+        # this one value so the column, the rank, and the gap chip all
+        # reference one gate. (Previously the display used the NEXT gate
+        # (i*+1) "upcoming target", which made the gap chips — computed off
+        # the displayed column between crossings — compare the active's
+        # gate-i* time against the historical's gate-(i*+1) time, inflating
+        # the gap. One gate, one source of truth.)
         gate_time_last = historical_at_crossing_value(entry, sticky_last_gate_index)
         rows.append(
             _historical_row(
@@ -1126,7 +1127,7 @@ def _build_group_rows(
                 best_lap_number=best_lap_number,
                 last_gate_index=sticky_last_gate_index,
                 delta_at_last_gate_ms=row_delta,
-                gate_time_at_active_ms=gate_time_next,
+                gate_time_at_active_ms=gate_time_last,
                 rank_time_ms=gate_time_last,
             )
         )
