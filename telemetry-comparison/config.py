@@ -48,10 +48,10 @@ WORKSPACE_ID = os.getenv("Quix__Workspace__Id", "")  # noqa: SIM112
 API_AUTH_ACTIVE = os.getenv("API_AUTH_ACTIVE", "true").lower() == "true"
 LOCAL_DEV_MODE = os.getenv("LOCAL_DEV_MODE", "").lower() == "true"
 
-# QuixLake Querier agent (system prompt + KBs + MCP tools live on it).
-# Override via env if you need to point at a fork of the agent.
+# AC Telemetry Agent (system prompt + KBs + MCP tools live on it). Per-env:
+# set AC_TELEMETRY_AGENT_ID — byox/dev portals hold different agent GUIDs.
 _DEFAULT_AGENT_ID = "d578e2f5-c2b7-461a-90d2-70dfac450fb0"
-AGENT_CONFIGURATION_ID = os.getenv("QUIX_AI_AGENT_ID", _DEFAULT_AGENT_ID)
+AGENT_CONFIGURATION_ID = os.getenv("AC_TELEMETRY_AGENT_ID", _DEFAULT_AGENT_ID)
 
 
 def portal_headers(token: str, *, streaming: bool = False) -> dict[str, str]:
@@ -101,9 +101,9 @@ def validate_env() -> None:
     if LOCAL_DEV_MODE:
         logger.warning("LOCAL_DEV_MODE=true — using mock auth (all permissions granted)")
 
-    if AGENT_CONFIGURATION_ID == _DEFAULT_AGENT_ID and not os.getenv("QUIX_AI_AGENT_ID"):
+    if AGENT_CONFIGURATION_ID == _DEFAULT_AGENT_ID and not os.getenv("AC_TELEMETRY_AGENT_ID"):
         logger.warning(
-            "QUIX_AI_AGENT_ID not set — using default QuixLake Querier agent %s",
+            "AC_TELEMETRY_AGENT_ID not set — using default AC Telemetry Agent %s",
             _DEFAULT_AGENT_ID,
         )
 

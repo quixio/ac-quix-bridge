@@ -36,7 +36,7 @@ The chat panel calls Quix AI's QuixLake Querier agent via `POST /api/chat`. Requ
 | Var | Default | Notes |
 |---|---|---|
 | `Quix__Portal__Api` | (required) | Quix Portal API base. Auto-injected in Quix Cloud. |
-| `QUIX_TOKEN` | (required) | Bearer token for `/ai/api/...`. SDK token with org access. |
-| `QUIX_AI_AGENT_ID` | `d578e2f5-c2b7-461a-90d2-70dfac450fb0` | QuixLake Querier agent UUID. |
+| `QUIX_TOKEN` | (optional) | Fallback PAT for the AI chat; used only in local dev without auth. Deployed, the chat forwards the logged-in user's Bearer. |
+| `AC_TELEMETRY_AGENT_ID` | `d578e2f5-c2b7-461a-90d2-70dfac450fb0` | AC Telemetry Agent config ID. Per-environment — set as a project variable (byox/dev differ). |
 
 The agent's system prompt + knowledge bases live on the agent itself; this service only forwards user messages and streams responses.

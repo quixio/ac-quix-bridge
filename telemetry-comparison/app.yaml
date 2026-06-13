@@ -12,18 +12,13 @@ variables:
     inputType: FreeText
     description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
     defaultValue: ac_video
-  - name: QUIX_TOKEN
-    inputType: Secret
-    description: Optional fallback PAT for the Quix AI chat. Normally unset — the chat forwards the logged-in user's Bearer; used only in local dev without auth.
-    required: false
-    secretKey: pat
-  - name: QUIX_AI_AGENT_ID
+  - name: AC_TELEMETRY_AGENT_ID
     inputType: FreeText
-    description: Quix AI agent ID for the Lakehouse Querier. Must exist in the target environment's portal.
-    defaultValue: a04cfe48-e816-4a66-87af-ac547b7b8137
+    description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Must exist in the target environment's portal; byox/dev hold different GUIDs.
+    defaultValue: d578e2f5-c2b7-461a-90d2-70dfac450fb0
   - name: TELEMETRY_COMPARISON_MCP_API_KEY
     inputType: Secret
-    description: X-API-Key gating the /mcp endpoint (plot_data tool). Must match the key registered for this MCP server on the Lakehouse Querier agent.
+    description: X-API-Key gating the /mcp endpoint (plot_data tool). Must match the key registered for this MCP server on the AC Telemetry Agent.
     required: true
     secretKey: mcp_api_key
 dockerfile: dockerfile
