@@ -724,7 +724,7 @@ deployments:
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw-replay2
       fromTimestamp: 2026-06-08T15:52:21.569Z
-      toTimestamp: 2026-06-08T16:01:15.856Z
+      toTimestamp: 2026-06-08T18:39:24.747Z
   - name: Speed Dashboard
     application: speed-dashboard
     version: latest
