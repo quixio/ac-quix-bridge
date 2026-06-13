@@ -21,6 +21,7 @@ import { formatStatus } from './thinking-messages.js';
 let _sessionId = null;
 let _activeAnswer = null; // current accumulating assistant bubble
 let _sending = false;
+let _abortController = null; // aborts the in-flight /api/chat stream on new-session
 let _statusKey = null; // raw status key currently shown; re-roll label only when it changes
 let _statusLabel = ''; // friendly label picked for the current status key
 const _toolCards = new Map(); // tool_call_id -> { argsBuf, argsEl, resultEl }
@@ -462,11 +463,13 @@ async function _submit() {
   _statusLabel = formatStatus('generating');
   _showProgress(_statusLabel);
 
+  _abortController = new AbortController();
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, session_id: _sessionId }),
+      signal: _abortController.signal,
     });
     if (!res.ok || !res.body) {
       _hideProgress();
@@ -476,13 +479,36 @@ async function _submit() {
     }
     await _readEventStream(res.body);
   } catch (err) {
+    // A new-session reset aborts the stream on purpose — stay silent.
+    if (err.name === 'AbortError') return;
     _hideProgress();
     _addMessage('error', `Network error: ${err.message}`);
   } finally {
     _sending = false;
+    _abortController = null;
     input.focus();
     _refreshSendDisabled();
   }
+}
+
+/** Discard the current conversation and start fresh. Aborts any in-flight
+ *  stream, clears the transcript + per-turn state, and drops the session id
+ *  so the next send opens a new Quix AI session (backend creates one when
+ *  session_id is null). Frontend-only — no request is made here. */
+export function newChatSession() {
+  _abortController?.abort();
+  _sessionId = null;
+  _sending = false;
+  _activeAnswer = null;
+  _statusKey = null;
+  _statusLabel = '';
+  _toolCards.clear();
+  _envAgents.clear();
+  _pendingRender.clear();
+  const list = document.getElementById('chat-messages');
+  if (list) list.innerHTML = '';
+  _refreshSendDisabled();
+  document.getElementById('chat-input')?.focus();
 }
 
 export function initChat() {
@@ -491,6 +517,7 @@ export function initChat() {
   if (!sendBtn || !input) return;
 
   sendBtn.addEventListener('click', _submit);
+  document.getElementById('chat-new')?.addEventListener('click', newChatSession);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

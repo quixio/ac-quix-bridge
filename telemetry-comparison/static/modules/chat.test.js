@@ -10,6 +10,7 @@ beforeEach(() => {
     <div id="chat-messages"></div>
     <textarea id="chat-input"></textarea>
     <button id="chat-send"></button>
+    <button id="chat-new"></button>
   `;
   applyPlotPlanSpy.mockClear();
 });
@@ -331,5 +332,34 @@ describe('chat.js JSONL handling', () => {
 
     const block = document.querySelector('.chat-env-agent');
     expect(block.classList.contains('chat-env-failed')).toBe(true);
+  });
+
+  it('new-chat button clears messages and starts a fresh session', async () => {
+    _stubFetch([{ event: 'answer_delta', session_id: 's1', text: 'hi' }]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('first');
+    await _flush();
+    expect(document.querySelectorAll('#chat-messages .chat-msg').length).toBeGreaterThan(0);
+
+    document.getElementById('chat-new').click();
+    expect(document.getElementById('chat-messages').children.length).toBe(0);
+
+    // The next turn must POST session_id: null so the backend opens a fresh session.
+    let sentBody = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, opts) => {
+        sentBody = JSON.parse(opts.body);
+        return {
+          ok: true,
+          body: _ndjson([{ event: 'answer_delta', session_id: 's2', text: 'yo' }]),
+          text: async () => '',
+        };
+      }),
+    );
+    _typeAndSend('second');
+    await _flush();
+    expect(sentBody.session_id).toBeNull();
   });
 });
