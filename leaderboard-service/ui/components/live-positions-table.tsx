@@ -29,7 +29,11 @@ export interface LivePositionsTableProps {
   isLive?: boolean
 }
 
-const FREEZE_MS = Number(process.env.NEXT_PUBLIC_FREEZE_MS) || 200
+// Respect an explicit 0 (freeze disabled). `Number(x) || 200` treated 0 as
+// falsy and silently fell back to 200ms, so NEXT_PUBLIC_FREEZE_MS=0 never
+// actually disabled the freeze. Only fall back to 200 when unset/invalid.
+const _freezeParsed = Number(process.env.NEXT_PUBLIC_FREEZE_MS)
+const FREEZE_MS = Number.isFinite(_freezeParsed) ? _freezeParsed : 200
 
 type FreezeMode = "live" | "frozen"
 
