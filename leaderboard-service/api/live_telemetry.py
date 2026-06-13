@@ -92,6 +92,12 @@ CONSUMER_GROUP = "leaderboard-service-ghost-lap"
 # and `[GATE_COUNT-1]` to the lap line. Override via `GATE_COUNT` env var.
 GATE_COUNT = int(os.environ.get("GATE_COUNT", "650"))
 
+# normalizedCarPosition below this after a lap rollover marks the genuine
+# start of the new lap — the point at which gate stamping may resume. Guards
+# against the post-rollover tail where the lap clock has reset but position
+# still reads ~1.0 (finish line) before wrapping to ~0.0.
+_LAP_START_POS_THRESHOLD = 0.5
+
 # DCM experiment lookups: timeouts and a cache TTL fence. The TTL only
 # matters as a safety net — the primary invalidation event is a new session
 # message for the same hostname (which triggers a fresh fetch). 5 s timeout
@@ -972,19 +978,18 @@ def _record_message(payload: dict[str, Any]) -> None:
         )
         if rollover or prev is None:
             gate_times: list[int | None] = [None] * GATE_COUNT
-            # Rebase prev_pos to the CURRENT normalized position, not 0.0.
-            # At the exact lap rollover the lap clock (iCurrentTime) resets to
-            # ~0 while normalizedCarPosition is often still ~0.99 (the finish
-            # line, before it wraps to 0). With prev_pos=0.0 the gate sweep
-            # `new_pos >= boundary > prev_pos` would stamp EVERY gate at the
-            # new lap's ~0 ms time, leaving last_gate_index pinned high with a
-            # garbage delta until the next real crossing. Seeding prev_pos with
-            # norm_pos records no spurious crossings on this tick; gates then
-            # fill correctly as the new lap progresses forward.
             prev_pos = norm_pos
             last_gate_index: int | None = None
             last_gate_state: str | None = None
             last_gate_delta_ms: int | None = None
+            # After a rollover the lap clock (iCurrentTime) resets to ~0 while
+            # normalizedCarPosition often lingers at ~1.0 (the finish line)
+            # for a tick or two before it wraps to ~0.0. Stamping during that
+            # tail would record the top gate(s) at the new lap's ~0 ms time —
+            # pinning last_gate_index high with a garbage delta. Suppress all
+            # stamping until the position actually wraps low (the genuine new-
+            # lap start). Tracked across ticks via `awaiting_lap_start`.
+            awaiting_lap_start = True
         else:
             gate_times = list(prev.get("gate_times_ms") or [None] * GATE_COUNT)
             if len(gate_times) != GATE_COUNT:
@@ -993,6 +998,15 @@ def _record_message(payload: dict[str, Any]) -> None:
             last_gate_index = prev.get("last_gate_index")
             last_gate_state = prev.get("last_gate_state")
             last_gate_delta_ms = prev.get("last_gate_delta_ms")
+            awaiting_lap_start = bool(prev.get("awaiting_lap_start"))
+
+        # While awaiting the genuine new-lap start, record no crossings (keep
+        # prev_pos == norm_pos so the sweep stamps nothing) until the position
+        # wraps below the threshold, then resume normal forward stamping.
+        if awaiting_lap_start:
+            if norm_pos < _LAP_START_POS_THRESHOLD:
+                awaiting_lap_start = False
+            prev_pos = norm_pos
 
         newly_crossed = _update_gate_times(gate_times, prev_pos, norm_pos, i_current)
 
@@ -1016,6 +1030,7 @@ def _record_message(payload: dict[str, Any]) -> None:
         entry_partial["last_gate_index"] = last_gate_index
         entry_partial["last_gate_state"] = last_gate_state
         entry_partial["last_gate_delta_ms"] = last_gate_delta_ms
+        entry_partial["awaiting_lap_start"] = awaiting_lap_start
         _state[key] = entry_partial
 
     # Compute the per-historical inline deltas the active envelope carries
