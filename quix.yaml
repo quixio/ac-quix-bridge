@@ -665,7 +665,7 @@ deployments:
         value: ac-telemetry-session-replay
       - name: config_input
         inputType: InputTopic
-        description: DCM config events topic — declared so the pipeline view shows this service consuming it
+        description: DCM config events topic (ac-telemetry-config) — declared so the pipeline view shows this service consuming it
         required: true
         value: ac-telemetry-config
       - name: LAKE_TABLE
@@ -682,7 +682,7 @@ deployments:
         value: normalizedCarPosition
       - name: GATE_COUNT
         inputType: FreeText
-        value: 10
+        value: 100
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false
@@ -695,7 +695,7 @@ deployments:
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: 'Build-time: blue-freeze window ms (baked into UI bundle)'
-        value: 200
+        value: 100
       - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
         inputType: ProjectVariable
         description: 'Build-time: standalone-mode fallback PAT baked into UI bundle'
