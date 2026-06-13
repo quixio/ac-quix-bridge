@@ -162,32 +162,17 @@ export function LivePositionsTable({
         </TableHeader>
         <TableBody ref={bodyRef}>
           {visible.map((row, idx) => {
-            const aboveDriver = idx > 0 ? visible[idx - 1].driver : null
-            const belowDriver =
-              idx < visible.length - 1 ? visible[idx + 1].driver : null
             const aboveRow = idx > 0 ? visible[idx - 1] : null
             const belowRow =
               idx < visible.length - 1 ? visible[idx + 1] : null
-            const aboveAtCrossingMs =
-              aboveDriver != null && crossingSnapshot
-                ? crossingSnapshot.historicalAtMs[aboveDriver] ??
-                  aboveRow?.current_lap_time_ms ??
-                  null
-                : aboveRow?.current_lap_time_ms ?? null
-            const belowAtCrossingMs =
-              belowDriver != null && crossingSnapshot
-                ? crossingSnapshot.historicalAtMs[belowDriver] ??
-                  belowRow?.current_lap_time_ms ??
-                  null
-                : belowRow?.current_lap_time_ms ?? null
             return (
               <LeaderRow
                 key={`${row.driver}|${row.track}|${row.car}|${row.experiment}|${row.is_active ? "live" : "ghost"}`}
                 row={row}
                 freezeState={freezeState}
                 crossingSnapshot={crossingSnapshot}
-                aboveAtCrossingMs={aboveAtCrossingMs}
-                belowAtCrossingMs={belowAtCrossingMs}
+                aboveDelta={aboveRow?.delta_at_last_gate_ms ?? null}
+                belowDelta={belowRow?.delta_at_last_gate_ms ?? null}
               />
             )
           })}
@@ -224,14 +209,14 @@ function LeaderRow({
   row,
   freezeState,
   crossingSnapshot,
-  aboveAtCrossingMs,
-  belowAtCrossingMs,
+  aboveDelta,
+  belowDelta,
 }: {
   row: LivePositionEntry
   freezeState: FreezeState
   crossingSnapshot: CrossingSnapshot | null
-  aboveAtCrossingMs: number | null
-  belowAtCrossingMs: number | null
+  aboveDelta: number | null
+  belowDelta: number | null
 }) {
   const isFrozen = freezeState.mode === "frozen"
   const displayMs = rowDisplayMs(row, freezeState, crossingSnapshot)
@@ -242,26 +227,19 @@ function LeaderRow({
     atPosClass = "font-semibold text-blue-400"
   }
 
-  const activeRef =
-    crossingSnapshot?.activeAtGateMs ??
-    crossingSnapshot?.activeAtMs ??
-    (row.is_active ? row.current_lap_time_ms : null)
-  // Only show gap chips once the active driver has actually crossed a gate
-  // on the CURRENT lap (last_gate_index != null). Right after a lap rollover
-  // — and in the transient window where completedLaps increments before
-  // iCurrentTime resets — the gate index is null while the lap clock is
-  // still high; computing a gap then compares the active's stale high time
-  // against the historicals' gate-0 fallback and renders a garbage value
-  // (e.g. +112s). No crossed gate ⇒ no gap.
-  const hasGate = row.last_gate_index != null
+  // Gap chips come straight from the backend's same-gate per-historical
+  // delta (`delta_at_last_gate_ms` = active_gate[i*] - neighbour_gate[i*]),
+  // NOT a client recompute. The above neighbour is faster, so a positive
+  // delta is the seconds the active is BEHIND (red "+"); the below neighbour
+  // is slower, so a negative delta is the seconds AHEAD (green "-"). Null
+  // (no gate crossed on this lap) ⇒ no chip — which also avoids the
+  // post-rollover transient garbage. Comparing the active's live between-
+  // gates time to a historical's gate time (the old approach) inflated the
+  // gap; same-gate delta is the correct racing gap.
   const gapAbove =
-    row.is_active && hasGate && activeRef != null && aboveAtCrossingMs != null
-      ? Math.max(0, activeRef - aboveAtCrossingMs)
-      : null
+    row.is_active && aboveDelta != null && aboveDelta > 0 ? aboveDelta : null
   const gapBelow =
-    row.is_active && hasGate && activeRef != null && belowAtCrossingMs != null
-      ? Math.max(0, belowAtCrossingMs - activeRef)
-      : null
+    row.is_active && belowDelta != null && belowDelta < 0 ? -belowDelta : null
 
   return (
     <TableRow
