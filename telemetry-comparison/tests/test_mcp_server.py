@@ -41,10 +41,17 @@ _SSE_ACCEPT = {"Accept": "application/json, text/event-stream"}
 
 
 def test_plot_data_returns_confirmation() -> None:
-    out = mcp_server.plot_data(signals=["speedKmh", "gas"], traces=[_TRACE], title="Lap 1")
+    out = mcp_server.plot_data(signals=["speedKmh", "gas"], traces=[_TRACE])
     assert out["status"] == "plotted"
     assert out["trace_count"] == 1
     assert out["signals"] == ["speedKmh", "gas"]
+
+
+def test_plot_data_no_longer_accepts_title() -> None:
+    """The chart title is never rendered (charts.js forces layout.title=null),
+    so the tool dropped it — the agent shouldn't spend tokens generating one."""
+    with pytest.raises(TypeError):
+        mcp_server.plot_data(signals=["speedKmh"], traces=[_TRACE], title="Lap 1")
 
 
 def test_plot_data_rejects_empty_signals() -> None:

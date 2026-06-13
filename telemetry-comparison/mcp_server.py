@@ -31,7 +31,7 @@ from plans import PlotPlan, Trace
 logger = logging.getLogger(__name__)
 
 
-def plot_data(*, signals: list[str], traces: list[Trace], title: str = "") -> dict[str, Any]:
+def plot_data(*, signals: list[str], traces: list[Trace]) -> dict[str, Any]:
     """Draw a telemetry chart in the Telemetry Explorer for the user.
 
     Call this to PLOT data instead of describing it in prose. The chart is
@@ -43,9 +43,8 @@ def plot_data(*, signals: list[str], traces: list[Trace], title: str = "") -> di
         traces: One entry per (session, lap) to overlay. Each must carry the
             full partition path: session_id, lap, driver, carModel, track,
             experiment, environment, test_rig. At least one.
-        title: Optional chart title.
     """
-    plan = PlotPlan(type="plot", title=title, signals=signals, traces=traces)
+    plan = PlotPlan(type="plot", signals=signals, traces=traces)
     logger.info("plot_data: %d trace(s), signals=%s", len(plan.traces), plan.signals)
     return {
         "status": "plotted",
