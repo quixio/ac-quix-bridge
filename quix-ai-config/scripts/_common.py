@@ -104,18 +104,18 @@ def read_env_value(key: str) -> str | None:
     return None
 
 
-# --- KB resource upload helper, shared by update_kb.py -------------------- #
+# --- KB resource upload + processing helpers, shared by upload_kb_resource.py --- #
 
 
 def upload_kb_resource(kb_id: str, md_path: pathlib.Path) -> None:
-    """Replace prior resource with same filename, upload, trigger reprocess, poll."""
+    """Upload one resource file, replacing a prior one with the same filename. No processing."""
     target_filename = md_path.name
 
     with http_client() as client:
         resources = client.get(f"/api/org/knowledge-bases/{kb_id}/resources").json()
         prior = next((r for r in resources if r.get("fileName") == target_filename), None)
         if prior:
-            print(f"  deleting prior resource {prior['id']} ({target_filename})")
+            print(f"  replacing prior resource {prior['id']} ({target_filename})")
             client.delete(
                 f"/api/org/knowledge-bases/{kb_id}/resources/{prior['id']}"
             ).raise_for_status()
@@ -132,16 +132,20 @@ def upload_kb_resource(kb_id: str, md_path: pathlib.Path) -> None:
         r.raise_for_status()
         print(f"  uploaded {target_filename} ({md_path.stat().st_size:,} bytes)")
 
+
+def process_kb(kb_id: str, wait: bool = False) -> None:
+    """Trigger KB (re)processing. Incremental server-side — only changed resources
+    re-distill (hash compare); unchanged are skipped. Async unless `wait` polls to done."""
     with http_client() as client:
         r = client.post(f"/ai/api/org/knowledge-bases/{kb_id}/process")
         if r.status_code not in (200, 202, 204):
             raise SystemExit(f"process trigger failed: {r.status_code} {r.text[:200]}")
-        print(f"  reprocess triggered ({r.status_code})")
+        print(f"  processing triggered ({r.status_code})")
+    if wait:
+        _wait_for_processing(kb_id)
 
-    _wait_for_processing(kb_id)
 
-
-def _wait_for_processing(kb_id: str, timeout_s: float = 120.0) -> None:
+def _wait_for_processing(kb_id: str, timeout_s: float = 300.0) -> None:
     """Poll /ai/api/processing/{kb_id} until processingStatus == 'completed'."""
     t0 = time.perf_counter()
     with httpx.Client(

@@ -11,8 +11,8 @@ quix-ai-config/
 ├── README.md
 ├── scripts/                              # shared across all agents
 │   ├── update_agent.py                   # push agent config (system prompt + tool filter + KB refs)
-│   ├── create_kb.py                      # create a new KB from a markdown file
-│   ├── update_kb.py                      # refresh existing KB's resource (--kb-id required)
+│   ├── create_kb.py                      # create (or adopt) an empty KB; --env-key stores its id
+│   ├── upload_kb_resource.py             # upload resource file(s) + trigger processing (--wait optional)
 │   ├── bind_kb_to_agent.py               # bind one or more KBs to one agent
 │   ├── register_mcp.py                   # register an MCP server in the org config
 │   ├── list_agents.py                    # debug: list all org agents
@@ -55,8 +55,7 @@ uv run create_kb.py --title "Post Race Summary" \
     --description "Reference docs for the Post-Race Analyzer agent"
 # Writes POST_RACE_SUMMARY_KB_ID=<id> to .env.
 
-uv run update_kb.py ../post-race/kb/analysis_contract.md
-uv run update_kb.py ../post-race/kb/tm_schema.md
+uv run upload_kb_resource.py --env-key POST_RACE_SUMMARY_KB_ID ../post-race/kb/analysis_contract.md ../post-race/kb/tm_schema.md
 # --kb-id defaults to $POST_RACE_SUMMARY_KB_ID (from .env). Override with
 # --kb-id <other-uuid> for any other KB.
 # Each call adds (or replaces by filename) a resource inside the same KB.
@@ -75,7 +74,7 @@ uv run update_agent.py
 Any subsequent change to system prompt or KB content:
 
 ```bash
-uv run update_kb.py ../post-race/kb/<changed-file>.md
+uv run upload_kb_resource.py --env-key POST_RACE_SUMMARY_KB_ID ../post-race/kb/<changed-file>.md
 uv run update_agent.py
 ```
 

@@ -13,7 +13,7 @@ Reads channel metadata from `telemetry-comparison/channels.json` and
 walks QuixLake's /partitions endpoint for the session list. Re-run when
 new sessions appear in the lake; upload via:
 
-    uv run ../scripts/update_kb.py --kb-id <KB_ID> kb/kb_ac_sessions.md
+    uv run ../scripts/upload_kb_resource.py --env-key AC_TELEMETRY_KB_ID kb/kb_ac_channels.md
 
 Credentials come from `quix-ai-config/.env`. `QUIX_TOKEN` doubles as the
 QuixLake bearer. `QUIXLAKE_URL` defaults to the dev cluster but can be

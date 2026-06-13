@@ -157,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
             body["kbAccessRules"] = match.get("kbAccessRules", [])
         else:  # fresh agent, no KBs yet
             body["kbAccessRules"] = []
+        body["isEnabled"] = True  # PUT honors this; create POST ignores it (enabled explicitly below)
 
         if args.dry_run:
             print(f"[dry-run] would {'PUT' if match else 'POST'} body:")
@@ -171,6 +172,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Creating agent ({display_name})")
             agent_id = client.post("/ai/api/org/agents", json=body).json()["id"]
             print(f"  id={agent_id}")
+            # CreateOrgAgentRequest has no isEnabled; enable explicitly so new agents are live.
+            client.post(f"/ai/api/org/agents/{agent_id}/enable").raise_for_status()
+            print("  enabled")
 
     write_env(config["output_env"], agent_id)
     return 0
