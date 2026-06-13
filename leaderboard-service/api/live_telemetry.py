@@ -972,7 +972,16 @@ def _record_message(payload: dict[str, Any]) -> None:
         )
         if rollover or prev is None:
             gate_times: list[int | None] = [None] * GATE_COUNT
-            prev_pos = 0.0
+            # Rebase prev_pos to the CURRENT normalized position, not 0.0.
+            # At the exact lap rollover the lap clock (iCurrentTime) resets to
+            # ~0 while normalizedCarPosition is often still ~0.99 (the finish
+            # line, before it wraps to 0). With prev_pos=0.0 the gate sweep
+            # `new_pos >= boundary > prev_pos` would stamp EVERY gate at the
+            # new lap's ~0 ms time, leaving last_gate_index pinned high with a
+            # garbage delta until the next real crossing. Seeding prev_pos with
+            # norm_pos records no spurious crossings on this tick; gates then
+            # fill correctly as the new lap progresses forward.
+            prev_pos = norm_pos
             last_gate_index: int | None = None
             last_gate_state: str | None = None
             last_gate_delta_ms: int | None = None
