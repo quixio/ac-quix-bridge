@@ -264,6 +264,110 @@ def test_tool_events_forwarded_to_browser() -> None:
 
 
 @respx.mock
+def test_environment_agent_events_forwarded() -> None:
+    """DEEP mode — environment_agent_{start,activity,end} stream through as
+    env_agent_{start,activity,end} so the UI can render the agent block."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    body = _sse_named(
+        [
+            ("text_delta", {"text": "Spinning up an agent. "}),
+            (
+                "environment_agent_start",
+                {
+                    "agentId": "a1",
+                    "workspaceId": "ws-1",
+                    "workspaceName": "WS One",
+                    "task": "analyze laps",
+                },
+            ),
+            (
+                "environment_agent_activity",
+                {
+                    "agentId": "a1",
+                    "kind": "tool_start",
+                    "data": {"tool": "Bash", "toolUseId": "u1", "arguments": "{}"},
+                },
+            ),
+            (
+                "environment_agent_activity",
+                {
+                    "agentId": "a1",
+                    "kind": "command",
+                    "data": {"command": "ls", "exitCode": 0, "toolUseId": "u1"},
+                },
+            ),
+            (
+                "environment_agent_activity",
+                {
+                    "agentId": "a1",
+                    "kind": "tool_result",
+                    "data": {"toolUseId": "u1", "summary": "files", "isError": False},
+                },
+            ),
+            (
+                "environment_agent_end",
+                {"agentId": "a1", "status": "completed", "summary": "Done analyzing."},
+            ),
+            ("text_delta", {"text": "Analysis complete."}),
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(200, content=body)
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "go deep"}).content)
+
+    start = next(e for e in events if e["event"] == "env_agent_start")
+    assert start["agent_id"] == "a1"
+    assert start["workspace_id"] == "ws-1"
+    assert start["workspace_name"] == "WS One"
+    assert start["task"] == "analyze laps"
+
+    acts = [e for e in events if e["event"] == "env_agent_activity"]
+    assert [a["kind"] for a in acts] == ["tool_start", "command", "tool_result"]
+    assert all(a["agent_id"] == "a1" for a in acts)
+    assert acts[0]["data"]["tool"] == "Bash"
+    assert acts[1]["data"]["exitCode"] == 0
+
+    end = next(e for e in events if e["event"] == "env_agent_end")
+    assert end["status"] == "completed"
+    assert end["summary"] == "Done analyzing."
+
+
+@respx.mock
+def test_delegate_task_tool_card_suppressed() -> None:
+    """delegate_task's own tool frames are hidden — the env-agent block replaces
+    that card (mirrors native Quix AI)."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    body = _sse_named(
+        [
+            (
+                "tool_call_start",
+                {"toolCallId": "d1", "toolName": "delegate_task", "displayName": "Delegate Task"},
+            ),
+            ("tool_call_delta", {"toolCallId": "d1", "argumentsDelta": '{"task":"x"}'}),
+            ("tool_call_end", {"toolCallId": "d1"}),
+            (
+                "environment_agent_start",
+                {"agentId": "a1", "workspaceId": "ws-1", "task": "x"},
+            ),
+            ("environment_agent_end", {"agentId": "a1", "status": "completed", "summary": "ok"}),
+            (
+                "tool_result",
+                {"toolCallId": "d1", "result": "Environment provisioned", "isError": False},
+            ),
+            ("text_delta", {"text": "Done."}),
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(200, content=body)
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "go deep"}).content)
+
+    tool_ids = [e.get("tool_call_id") for e in events if e["event"].startswith("tool_")]
+    assert "d1" not in tool_ids, f"delegate_task frames leaked: {tool_ids}"
+    # The env-agent block still shows up in its place.
+    assert any(e["event"] == "env_agent_start" for e in events)
+
+
+@respx.mock
 def test_forwards_user_bearer_to_portal() -> None:
     """The logged-in user's Bearer is forwarded to the AI API so the session
     is owned by them — not the static QUIX_TOKEN fallback."""

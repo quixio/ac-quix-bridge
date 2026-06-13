@@ -238,4 +238,98 @@ describe('chat.js JSONL handling', () => {
     expect(err.textContent).toContain('boom');
     expect(err.textContent).toContain('502');
   });
+
+  it('env_agent events render a block with header name, command line, and completed status', async () => {
+    _stubFetch([
+      {
+        event: 'env_agent_start',
+        session_id: 's',
+        agent_id: 'a1',
+        workspace_id: 'ws-1',
+        workspace_name: 'WS One',
+        task: 'analyze laps',
+      },
+      {
+        event: 'env_agent_activity',
+        session_id: 's',
+        agent_id: 'a1',
+        kind: 'command',
+        data: { command: 'ls', exitCode: 0, toolUseId: 'u1' },
+      },
+      {
+        event: 'env_agent_end',
+        session_id: 's',
+        agent_id: 'a1',
+        status: 'completed',
+        summary: 'Done analyzing.',
+      },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('go deep');
+    await _flush();
+
+    const block = document.querySelector('.chat-env-agent');
+    expect(block).not.toBeNull();
+    expect(block.querySelector('.chat-env-agent-name').textContent).toBe('WS One');
+    expect(block.textContent).toContain('$ ls');
+    expect(block.querySelector('.chat-env-agent-summary').textContent).toContain('Done analyzing.');
+    expect(block.classList.contains('chat-env-done')).toBe(true);
+  });
+
+  it('env_agent nested tool_start/tool_result correlate into a tool card', async () => {
+    _stubFetch([
+      { event: 'env_agent_start', session_id: 's', agent_id: 'a1', workspace_id: 'ws-1' },
+      {
+        event: 'env_agent_activity',
+        session_id: 's',
+        agent_id: 'a1',
+        kind: 'tool_start',
+        data: {
+          tool: 'Bash',
+          displayName: 'Run command',
+          toolUseId: 'u1',
+          arguments: '{"cmd":"ls"}',
+        },
+      },
+      {
+        event: 'env_agent_activity',
+        session_id: 's',
+        agent_id: 'a1',
+        kind: 'tool_result',
+        data: { toolUseId: 'u1', summary: 'file list', isError: false },
+      },
+      { event: 'env_agent_end', session_id: 's', agent_id: 'a1', status: 'completed' },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('go deep');
+    await _flush();
+
+    const card = document.querySelector('.chat-env-agent .chat-tool-card');
+    expect(card).not.toBeNull();
+    expect(card.querySelector('.chat-tool-head').textContent).toBe('Run command');
+    expect(card.querySelector('.chat-tool-result').textContent).toBe('file list');
+    expect(card.classList.contains('chat-tool-done')).toBe(true);
+  });
+
+  it('env_agent_end with failed status marks the block as failed', async () => {
+    _stubFetch([
+      { event: 'env_agent_start', session_id: 's', agent_id: 'a1', workspace_id: 'ws-1' },
+      {
+        event: 'env_agent_end',
+        session_id: 's',
+        agent_id: 'a1',
+        status: 'failed',
+        summary: 'boom',
+      },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('go deep');
+    await _flush();
+
+    const block = document.querySelector('.chat-env-agent');
+    expect(block.classList.contains('chat-env-failed')).toBe(true);
+  });
 });

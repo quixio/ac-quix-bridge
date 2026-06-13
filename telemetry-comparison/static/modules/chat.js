@@ -2,9 +2,10 @@
  * Chat UI glue. Submits prompts to /api/chat (JSONL stream), renders
  * assistant replies (status / answer_delta / answer_break / tool_start /
  * tool_args / tool_end / tool_result / clarify / plot / error) including
- * tool cards, and forwards plot plans to applyPlotPlan so they drive
- * the existing manual UI surfaces (dropdowns + lap chips + signal chips
- * + Plot button).
+ * tool cards, renders the DEEP-mode environment-agent block (env_agent_start /
+ * env_agent_activity / env_agent_end), and forwards plot plans to applyPlotPlan
+ * so they drive the existing manual UI surfaces (dropdowns + lap chips +
+ * signal chips + Plot button).
  *
  * Wire flow:
  *   user types -> submit() -> POST /api/chat
@@ -23,6 +24,7 @@ let _sending = false;
 let _statusKey = null; // raw status key currently shown; re-roll label only when it changes
 let _statusLabel = ''; // friendly label picked for the current status key
 const _toolCards = new Map(); // tool_call_id -> { argsBuf, argsEl, resultEl }
+const _envAgents = new Map(); // agent_id -> { root, body, count, indicator, tools, n, lastText }
 
 const _pendingRender = new Set();
 let _renderScheduled = false;
@@ -106,12 +108,12 @@ function _isPlotTool(name) {
   return typeof name === 'string' && /(?:^|_)plot_data$/.test(name);
 }
 
-function _addToolCard(toolCallId, label, toolName) {
-  const list = document.getElementById('chat-messages');
-  if (!list) return;
-  // Collapsed by default — header (caret + name) toggles the body; input is
-  // hidden behind its own "Show input" toggle. Mirrors the native Quix AI card
-  // so tool runs don't dump args + results into the conversation by default.
+// Build a tool card element + its state record. The caller appends `cardEl`
+// to a parent (top-level chat or an env-agent body) and tracks `record` in
+// whichever registry correlates results back. Collapsed by default — header
+// toggles the body; input hides behind its own "Show input" toggle. Mirrors
+// the native Quix AI card so tool runs don't dump args + results by default.
+function _buildToolCard(label, toolName) {
   const card = document.createElement('div');
   card.className = 'chat-tool-card chat-tool-running chat-tool-collapsed';
 
@@ -142,20 +144,29 @@ function _addToolCard(toolCallId, label, toolName) {
 
   body.append(inputToggle, args, resultLabel, result);
   card.append(head, body);
-  list.appendChild(card);
-  _toolCards.set(toolCallId, {
-    argsBuf: '',
-    argsEl: args,
-    resultEl: result,
-    resultLabelEl: resultLabel,
+  return {
     cardEl: card,
-    name: toolName || '',
-  });
+    record: {
+      argsBuf: '',
+      argsEl: args,
+      resultEl: result,
+      resultLabelEl: resultLabel,
+      cardEl: card,
+      name: toolName || '',
+    },
+  };
+}
+
+function _addToolCard(toolCallId, label, toolName) {
+  const list = document.getElementById('chat-messages');
+  if (!list) return;
+  const { cardEl, record } = _buildToolCard(label, toolName);
+  list.appendChild(cardEl);
+  _toolCards.set(toolCallId, record);
   _scrollBottom(list);
 }
 
-function _finalizeToolArgs(toolCallId) {
-  const c = _toolCards.get(toolCallId);
+function _finalizeToolArgs(c) {
   if (!c) return;
   let parsed = null;
   if (!c.argsBuf.trim()) {
@@ -174,13 +185,155 @@ function _finalizeToolArgs(toolCallId) {
   }
 }
 
-function _fillToolResult(toolCallId, text, isError) {
-  const c = _toolCards.get(toolCallId);
+function _fillResult(c, text, isError) {
   if (!c) return;
   c.cardEl.classList.remove('chat-tool-running');
   c.cardEl.classList.add(isError ? 'chat-tool-error' : 'chat-tool-done');
   c.resultEl.textContent = typeof text === 'string' ? text : JSON.stringify(text);
   if (c.resultLabelEl) c.resultLabelEl.style.display = c.resultEl.textContent ? 'block' : 'none';
+  const list = document.getElementById('chat-messages');
+  if (list) _scrollBottom(list);
+}
+
+// --- DEEP-mode environment-agent block -----------------------------------
+// delegate_task spawns an environment agent; the backend suppresses that
+// tool's card and streams environment_agent_* events instead. We render a
+// nested, collapsible block: header (status + workspace + event count),
+// optional "Agent prompt", a body of activities (nested tool cards correlated
+// by toolUseId, command/file lines, prose, status), and a summary footer.
+
+function _startEnvAgent(evt) {
+  const list = document.getElementById('chat-messages');
+  if (!list) return;
+  const root = document.createElement('div');
+  root.className = 'chat-env-agent chat-env-running';
+
+  const head = document.createElement('div');
+  head.className = 'chat-env-agent-head';
+  const indicator = document.createElement('span');
+  indicator.className = 'chat-env-agent-indicator';
+  const name = document.createElement('span');
+  name.className = 'chat-env-agent-name';
+  name.textContent = evt.workspace_name || evt.workspace_id || 'environment agent';
+  const count = document.createElement('span');
+  count.className = 'chat-env-agent-count';
+  const chevron = document.createElement('span');
+  chevron.className = 'chat-env-agent-chevron';
+  head.append(indicator, name, count, chevron);
+  head.addEventListener('click', () => root.classList.toggle('chat-env-collapsed'));
+
+  const body = document.createElement('div');
+  body.className = 'chat-env-agent-body';
+  if (evt.task) {
+    const toggle = document.createElement('div');
+    toggle.className = 'chat-env-agent-task-toggle';
+    toggle.textContent = 'Agent prompt';
+    const taskEl = document.createElement('div');
+    taskEl.className = 'chat-env-agent-task';
+    taskEl.textContent = evt.task;
+    toggle.addEventListener('click', () => taskEl.classList.toggle('chat-env-agent-task-shown'));
+    body.append(toggle, taskEl);
+  }
+
+  root.append(head, body);
+  list.appendChild(root);
+  _envAgents.set(evt.agent_id, {
+    root,
+    body,
+    count,
+    indicator,
+    tools: new Map(),
+    n: 0,
+    lastText: null,
+  });
+  _scrollBottom(list);
+}
+
+function _envAgentActivity(evt) {
+  const a = _envAgents.get(evt.agent_id);
+  if (!a) return;
+  const d = evt.data || {};
+  if (evt.kind === 'working') return; // transient "still working" pulse — no row
+  a.n += 1;
+  a.count.textContent = `${a.n} event${a.n === 1 ? '' : 's'}`;
+
+  switch (evt.kind) {
+    case 'tool_start': {
+      const { cardEl, record } = _buildToolCard(d.displayName || d.tool, d.tool);
+      a.body.appendChild(cardEl);
+      if (d.toolUseId) a.tools.set(d.toolUseId, record);
+      record.argsBuf = typeof d.arguments === 'string' ? d.arguments : '';
+      _finalizeToolArgs(record);
+      a.lastText = null;
+      break;
+    }
+    case 'tool_result':
+      _fillResult(a.tools.get(d.toolUseId), d.summary, d.isError);
+      a.lastText = null;
+      break;
+    case 'command': {
+      const line = document.createElement('div');
+      line.className = 'chat-env-line chat-env-cmd';
+      line.textContent = `$ ${d.command || ''}` + (d.exitCode ? `  (exit ${d.exitCode})` : '');
+      a.body.appendChild(line);
+      a.lastText = null;
+      break;
+    }
+    case 'file_edit': {
+      const line = document.createElement('div');
+      line.className = 'chat-env-line chat-env-file';
+      line.textContent = `✎ ${d.path || ''}`;
+      a.body.appendChild(line);
+      a.lastText = null;
+      break;
+    }
+    case 'status': {
+      const line = document.createElement('div');
+      line.className = 'chat-env-line chat-env-statusmsg';
+      line.textContent = formatStatus(d.status || d.message || '');
+      a.body.appendChild(line);
+      a.lastText = null;
+      break;
+    }
+    case 'error': {
+      const block = document.createElement('div');
+      block.className = 'chat-env-error';
+      block.textContent = d.message || 'Agent error';
+      a.body.appendChild(block);
+      a.lastText = null;
+      break;
+    }
+    case 'text': {
+      const msg = d.text || d.message || '';
+      if (!msg) break;
+      if (a.lastText) {
+        a.lastText.dataset.raw = `${a.lastText.dataset.raw || ''}\n\n${msg}`;
+      } else {
+        a.lastText = document.createElement('div');
+        a.lastText.className = 'chat-env-text';
+        a.lastText.dataset.raw = msg;
+        a.body.appendChild(a.lastText);
+      }
+      a.lastText.innerHTML = renderMarkdown(a.lastText.dataset.raw);
+      break;
+    }
+  }
+  const list = document.getElementById('chat-messages');
+  if (list) _scrollBottom(list);
+}
+
+function _endEnvAgent(evt) {
+  const a = _envAgents.get(evt.agent_id);
+  if (!a) return;
+  a.root.classList.remove('chat-env-running');
+  a.root.classList.add(evt.status === 'failed' ? 'chat-env-failed' : 'chat-env-done');
+  if (evt.summary) {
+    const s = document.createElement('div');
+    s.className = 'chat-env-agent-summary';
+    s.dataset.raw = evt.summary;
+    s.innerHTML = renderMarkdown(evt.summary);
+    a.body.appendChild(s);
+  }
   const list = document.getElementById('chat-messages');
   if (list) _scrollBottom(list);
 }
@@ -248,10 +401,22 @@ function _handleEvent(evt) {
       break;
     }
     case 'tool_end':
-      _finalizeToolArgs(evt.tool_call_id);
+      _finalizeToolArgs(_toolCards.get(evt.tool_call_id));
       break;
     case 'tool_result':
-      _fillToolResult(evt.tool_call_id, evt.result, evt.is_error);
+      _fillResult(_toolCards.get(evt.tool_call_id), evt.result, evt.is_error);
+      break;
+    case 'env_agent_start':
+      _hideProgress();
+      _activeAnswer = null;
+      _startEnvAgent(evt);
+      break;
+    case 'env_agent_activity':
+      _envAgentActivity(evt);
+      break;
+    case 'env_agent_end':
+      _activeAnswer = null;
+      _endEnvAgent(evt);
       break;
     case 'clarify': {
       _hideProgress();
@@ -291,6 +456,7 @@ async function _submit() {
 
   _activeAnswer = null;
   _toolCards.clear();
+  _envAgents.clear();
   _addMessage('user', text);
   _statusKey = 'generating';
   _statusLabel = formatStatus('generating');

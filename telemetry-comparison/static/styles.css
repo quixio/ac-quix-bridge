@@ -1509,3 +1509,133 @@ body[data-chat-mode="docked"] #chat-float-slot {
   word-break: break-word;
   font-size: 0.85rem;
 }
+
+/* DEEP-mode environment-agent block — wraps a delegated agent's activity
+ * (nested tool cards correlated by toolUseId, command/file lines, prose,
+ * status) under a collapsible header with a status indicator. Renders in
+ * place of the suppressed delegate_task tool card, mirroring native Quix AI. */
+.chat-env-agent {
+  align-self: stretch;
+  border: 1px solid var(--color-brd, #3e3e46);
+  border-left: 3px solid var(--color-accent, #0064ff);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.8rem;
+}
+.chat-env-done {
+  border-left-color: #34d399;
+}
+.chat-env-failed {
+  border-left-color: #ff3f41;
+}
+.chat-env-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.chat-env-agent-indicator {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+.chat-env-running .chat-env-agent-indicator::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--color-accent, #0064ff);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: chat-spin 0.8s linear infinite;
+}
+.chat-env-done .chat-env-agent-indicator::before {
+  content: "✓";
+  color: #34d399;
+}
+.chat-env-failed .chat-env-agent-indicator::before {
+  content: "✕";
+  color: #ff3f41;
+}
+.chat-env-agent-name {
+  font-weight: 600;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-env-agent-count {
+  flex: none;
+  color: var(--color-muted, #94a3b8);
+  font-size: 0.7rem;
+}
+.chat-env-agent-chevron::before {
+  content: "▾";
+  color: var(--color-muted, #94a3b8);
+  font-size: 0.7rem;
+}
+.chat-env-collapsed .chat-env-agent-chevron::before {
+  content: "▸";
+}
+.chat-env-collapsed .chat-env-agent-body {
+  display: none;
+}
+.chat-env-agent-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+.chat-env-agent-task-toggle {
+  color: var(--color-muted, #94a3b8);
+  font-size: 0.72rem;
+  cursor: pointer;
+  user-select: none;
+}
+.chat-env-agent-task-toggle::before {
+  content: "▸ ";
+}
+.chat-env-agent-task {
+  display: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  color: var(--color-muted, #94a3b8);
+  font-size: 0.72rem;
+}
+.chat-env-agent-task.chat-env-agent-task-shown {
+  display: block;
+}
+.chat-env-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-env-file {
+  color: var(--color-muted, #94a3b8);
+}
+.chat-env-statusmsg {
+  color: var(--color-muted, #94a3b8);
+  font-style: italic;
+  font-family: inherit;
+}
+.chat-env-error {
+  background: rgba(255, 63, 65, 0.12);
+  border: 1px solid rgba(255, 63, 65, 0.4);
+  color: #fecaca;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+.chat-env-agent-summary {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-brd, #3e3e46);
+}

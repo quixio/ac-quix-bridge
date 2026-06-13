@@ -19,8 +19,16 @@ We forward all of it to the browser as ndjson with these event shapes:
     {event: "plot",         session_id: str, plan: dict}
     {event: "error",        session_id?: str, detail: str, status: int}
 
+    {event: "env_agent_start",    session_id, agent_id, workspace_id, workspace_name?, task?}
+    {event: "env_agent_activity", session_id, agent_id, kind, data}
+    {event: "env_agent_end",      session_id, agent_id, status, summary?}
+
 Tool-call frames (start/args/end/result, correlated by tool_call_id) let the
 UI render tool cards like the native Quix AI chat instead of hiding them.
+
+DEEP mode spawns an environment agent via `delegate_task`. We suppress that
+tool's own card frames and forward the environment_agent_* events instead, so
+the UI renders a nested agent block in its place (mirrors native Quix AI).
 
 No backend lake fan-out — Explorer's existing /api/telemetry path renders
 charts. We pass the raw plot plan through; the frontend's applyPlotPlan
@@ -96,6 +104,14 @@ def _event(obj: dict[str, Any]) -> bytes:
     return (json.dumps(obj) + "\n").encode("utf-8")
 
 
+def _is_delegate_task(tool_name: str | None) -> bool:
+    """True for the delegate_task tool (bare or MCP-prefixed).
+
+    Its card is suppressed; the environment_agent_* block renders in its place.
+    """
+    return isinstance(tool_name, str) and tool_name.split("__")[-1] == "delegate_task"
+
+
 def _error_event(session_id: str | None, detail: str, status: int = 502) -> bytes:
     logger.warning("chat error: %s (status=%d, session=%s)", detail, status, session_id)
     return _event(
@@ -161,6 +177,8 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
         streamed = 0
         json_seen = False
         tool_seen = False
+        # delegate_task's own card is hidden — the env-agent block stands in.
+        delegate_tool_ids: set[str] = set()
 
         async for evt in stream_message(client, session_id, req.message, token):
             t = evt.get("type")
@@ -169,6 +187,9 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                 return
             if t == "tool_call_start":
                 tool_seen = True
+                if _is_delegate_task(evt.get("toolName")):
+                    delegate_tool_ids.add(evt.get("toolCallId"))
+                    continue
                 # Flush held pre-tool prose + break the text bubble so post-tool
                 # prose starts fresh, then surface the tool card to the browser.
                 if not json_seen and streamed < len(accum):
@@ -193,6 +214,8 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                 )
                 continue
             if t == "tool_call_delta":
+                if evt.get("toolCallId") in delegate_tool_ids:
+                    continue
                 yield _event(
                     {
                         "event": "tool_args",
@@ -203,6 +226,8 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                 )
                 continue
             if t == "tool_call_end":
+                if evt.get("toolCallId") in delegate_tool_ids:
+                    continue
                 yield _event(
                     {
                         "event": "tool_end",
@@ -212,6 +237,8 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                 )
                 continue
             if t == "tool_result":
+                if evt.get("toolCallId") in delegate_tool_ids:
+                    continue
                 yield _event(
                     {
                         "event": "tool_result",
@@ -219,6 +246,40 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                         "tool_call_id": evt.get("toolCallId"),
                         "result": evt.get("userSummary") or evt.get("result"),
                         "is_error": evt.get("isError", False),
+                    }
+                )
+                continue
+            if t == "environment_agent_start":
+                yield _event(
+                    {
+                        "event": "env_agent_start",
+                        "session_id": session_id,
+                        "agent_id": evt.get("agentId"),
+                        "workspace_id": evt.get("workspaceId"),
+                        "workspace_name": evt.get("workspaceName"),
+                        "task": evt.get("task"),
+                    }
+                )
+                continue
+            if t == "environment_agent_activity":
+                yield _event(
+                    {
+                        "event": "env_agent_activity",
+                        "session_id": session_id,
+                        "agent_id": evt.get("agentId"),
+                        "kind": evt.get("kind"),
+                        "data": evt.get("data") or {},
+                    }
+                )
+                continue
+            if t == "environment_agent_end":
+                yield _event(
+                    {
+                        "event": "env_agent_end",
+                        "session_id": session_id,
+                        "agent_id": evt.get("agentId"),
+                        "status": evt.get("status"),
+                        "summary": evt.get("summary"),
                     }
                 )
                 continue
