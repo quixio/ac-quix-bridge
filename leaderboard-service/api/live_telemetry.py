@@ -976,6 +976,14 @@ def _record_message(payload: dict[str, Any]) -> None:
             or prev.get("completedLaps", -1) != completed
             or i_current < prev_i_current
         )
+        # A genuine lap completion = completedLaps strictly increased. Used
+        # below to re-read the best-laps DB so a freshly-completed lap (in
+        # real deployments, once the lake sink has written it) shows up in
+        # the right-hand Best Laps table. (For the replay demo the data isn't
+        # in the lake, so nothing new appears — but the trigger is wired.)
+        lap_completed = prev is not None and completed > int(
+            prev.get("completedLaps", -1)
+        )
         if rollover or prev is None:
             gate_times: list[int | None] = [None] * GATE_COUNT
             prev_pos = norm_pos
@@ -1147,6 +1155,18 @@ def _record_message(payload: dict[str, Any]) -> None:
     from . import live_stream
 
     live_stream.publish_snapshot(snapshot)
+
+    # On a completed lap, re-read the best-laps DB so the right-hand Best
+    # Laps table picks up the driver's newly-set lap (real deployments: the
+    # lake sink has written it by the next refresh). TTL/single-flight guarded
+    # inside, and this runs on the consumer thread (off the HTTP path), so the
+    # seconds-long lake call is safe. force=True bypasses the TTL because a
+    # lap boundary is exactly when fresh data is expected.
+    if lap_completed:
+        try:
+            _refresh_best_laps_from_settings(force=True)
+        except Exception:
+            logger.exception("best-laps refresh on lap completion failed")
 
 
 def get_active_driver() -> dict[str, Any] | None:

@@ -246,12 +246,20 @@ function LeaderRow({
     crossingSnapshot?.activeAtGateMs ??
     crossingSnapshot?.activeAtMs ??
     (row.is_active ? row.current_lap_time_ms : null)
+  // Only show gap chips once the active driver has actually crossed a gate
+  // on the CURRENT lap (last_gate_index != null). Right after a lap rollover
+  // — and in the transient window where completedLaps increments before
+  // iCurrentTime resets — the gate index is null while the lap clock is
+  // still high; computing a gap then compares the active's stale high time
+  // against the historicals' gate-0 fallback and renders a garbage value
+  // (e.g. +112s). No crossed gate ⇒ no gap.
+  const hasGate = row.last_gate_index != null
   const gapAbove =
-    row.is_active && activeRef != null && aboveAtCrossingMs != null
+    row.is_active && hasGate && activeRef != null && aboveAtCrossingMs != null
       ? Math.max(0, activeRef - aboveAtCrossingMs)
       : null
   const gapBelow =
-    row.is_active && activeRef != null && belowAtCrossingMs != null
+    row.is_active && hasGate && activeRef != null && belowAtCrossingMs != null
       ? Math.max(0, belowAtCrossingMs - activeRef)
       : null
 
