@@ -218,14 +218,8 @@ function LeaderRow({
   aboveDelta: number | null
   belowDelta: number | null
 }) {
-  const isFrozen = freezeState.mode === "frozen"
   const displayMs = rowDisplayMs(row, freezeState, crossingSnapshot)
   const atPosLabel = formatLapTime(displayMs)
-
-  let atPosClass = ""
-  if (row.is_active && isFrozen) {
-    atPosClass = "font-semibold text-blue-400"
-  }
 
   // Gap chips come straight from the backend's same-gate per-historical
   // delta (`delta_at_last_gate_ms` = active_gate[i*] - neighbour_gate[i*]),
@@ -277,7 +271,7 @@ function LeaderRow({
       </TableCell>
       <TableCell className="text-right tabular-nums">
         <div className="flex items-center justify-end gap-2">
-          <span className={cn(atPosClass)}>{atPosLabel}</span>
+          <span className="tabular-nums">{atPosLabel}</span>
           {row.is_active && gapAbove != null && gapAbove > 0 && (
             <span className="text-xs font-semibold tabular-nums text-rose-400">
               {formatGapMs(gapAbove, "+")}
