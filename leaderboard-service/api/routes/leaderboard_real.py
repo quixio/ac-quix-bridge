@@ -1326,7 +1326,27 @@ def build_live_positions(
 
     out: list[dict[str, object]] = []
     historical_keys = set(best_laps_cache.keys())
-    for track, car, experiment, environment in sorted(historical_keys):
+
+    # When a driver is live, scope the table to that driver's
+    # (track, car, experiment) so groups from other tracks/cars (e.g. a
+    # Zandvoort lap during a Spa session) can't leak in — that contamination
+    # corrupts both the rank order and the active row's above/below gap chips.
+    # With no active driver, keep every group (the UI doesn't render the live
+    # table without an active driver anyway).
+    emit_keys = historical_keys
+    active_track = str(active.get("track") or "") if active else ""
+    active_car = str(active.get("car") or "") if active else ""
+    active_experiment = str(active.get("experiment") or "") if active else ""
+    if active and active_track and active_car and active_experiment:
+        emit_keys = {
+            k
+            for k in historical_keys
+            if k[0] == active_track
+            and k[1] == active_car
+            and k[2] == active_experiment
+        }
+
+    for track, car, experiment, environment in sorted(emit_keys):
         out.extend(
             _build_group_rows(
                 track,
@@ -1342,23 +1362,19 @@ def build_live_positions(
 
     # Edge case: live driver is racing in a (track, car, experiment) that
     # has no historicals at all. Emit a 1-row solo group.
-    if active:
-        active_track = str(active.get("track") or "")
-        active_car = str(active.get("car") or "")
-        active_experiment = str(active.get("experiment") or "")
-        if active_track and active_car and active_experiment:
-            # The active driver might already be covered by one of the
-            # historical groups (any environment under the same track/
-            # car/experiment) — in that case the active row has already
-            # been emitted by `_build_group_rows`. Skip the solo emit to
-            # avoid a duplicate.
-            already_emitted = any(
-                k[0] == active_track
-                and k[1] == active_car
-                and k[2] == active_experiment
-                for k in historical_keys
-            )
-            if not already_emitted:
-                out.extend(_solo_active_group(active, driver_name_lookup))
+    if active and active_track and active_car and active_experiment:
+        # The active driver might already be covered by one of the
+        # emitted groups (any environment under the same track/car/
+        # experiment) — in that case the active row has already been
+        # emitted by `_build_group_rows`. Skip the solo emit to avoid a
+        # duplicate.
+        already_emitted = any(
+            k[0] == active_track
+            and k[1] == active_car
+            and k[2] == active_experiment
+            for k in emit_keys
+        )
+        if not already_emitted:
+            out.extend(_solo_active_group(active, driver_name_lookup))
 
     return out
