@@ -20,6 +20,15 @@ Include as many as you know in the `WHERE` clause — each one prunes the file s
 
 When the user doesn't specify an environment, pick one from `list_partition_combinations` (or ask if several apply) rather than scanning all of them.
 
+### `session_id` — get it from `list_partition_combinations`, NOT from a `SELECT`
+
+`session_id` is a TIMESTAMP-typed partition column, so its two representations differ:
+
+- **Partition-path form** (what a `WHERE` filter must match): `2026-06-05T16:32:20.885Z` — `T` separator, millisecond precision, trailing `Z`. This is exactly what `list_partition_combinations` returns.
+- **SELECT/display form**: a `SELECT session_id ...` returns `2026-06-05 16:32:20.885000` — *space* separator, *microsecond* precision, no `Z`.
+
+**Filtering by a SELECTed `session_id` returns 0 rows** — the formats don't match. So always source `session_id` from `list_partition_combinations` and use that string verbatim; never round-trip it through a `SELECT`. If you only have the display form, convert: replace the space with `T`, trim the fractional part to 3 digits, append `Z`.
+
 ## Column naming conventions
 
 - **Per-wheel columns** use suffixes `FL`, `FR`, `RL`, `RR` (front-left, front-right, rear-left, rear-right). Example: `tyreTempFL`, `brakeTempRR`, `wheelSlipFL`. Never invent names like `front_left_tyre_temp`.
@@ -234,6 +243,11 @@ printf('%d:%06.3f',
 ```
 
 `//` is integer division, `%` modulo (DuckDB). A 145 340 ms lap → `2:25.340`. Keep the raw `duration_s` alongside for sorting/aggregation — **sort by the number, display the string**.
+
+**Pitfalls (seen in practice):**
+- `printf('%d', x)` requires an **integer** — `MAX(iCurrentTime)//60000` is one; a float (e.g. `seconds/60`) errors with *"Invalid type specifier d"*.
+- **Never** `CAST(seconds/60 AS INTEGER)` for the minutes — DuckDB `CAST` **rounds**, not floors (`151.5 → 3`), giving wrong minutes and negative seconds (`3:-28.447`). Always floor via integer `//` on the **ms** value.
+- For an **average** time, format from `AVG(iCurrentTime)` (ms) the same way: `printf('%d:%06.3f', CAST(AVG(iCurrentTime) AS BIGINT)//60000, (CAST(AVG(iCurrentTime) AS BIGINT)%60000)/1000.0)`.
 
 ### 3. Peak speed per lap
 
