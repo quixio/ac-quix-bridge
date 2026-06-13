@@ -1,9 +1,11 @@
 """Minimal Quix AI chat client bound to a configured agent.
 
 Sessions are created against `config.AGENT_CONFIGURATION_ID` so the
-QuixLake Querier agent's system prompt + knowledge bases + MCP tools are
-in scope from turn 1. The backend therefore sends only the raw user
-message — no inline instructions, no sessions list, no channels dump.
+AC Telemetry Agent's system prompt + knowledge bases + MCP tools are in
+scope from turn 1. The workspace id rides in the request `context` field; the
+backend wraps it into the LLM-facing `<context>` block (so delegate_task can spawn
+an environment agent) while the stored message stays clean. Otherwise no inline
+instructions, sessions list, or channels dump.
 
     POST /ai/api/sessions
         body={"agentConfigurationId": <id>}              -> 200 {id, ...}
@@ -59,7 +61,7 @@ async def stream_message(
     or ignore (e.g. `text_delta` for streaming back, `usage` for logging).
     """
     url = f"{config.PORTAL}/ai/api/sessions/{session_id}/messages"
-    body = {"message": message, "context": {}}
+    body = {"message": message, "context": _workspace_context()}
     logger.debug("quix_ai: POST %s (%d chars message)", url, len(message))
     async with client.stream(
         "POST", url, headers=config.portal_headers(token, streaming=True), json=body
@@ -97,6 +99,16 @@ async def stream_message(
             logger.debug("quix_ai event: %s", _short(evt))
             yield evt
             current_type = ""  # one event per frame; don't leak type to a bare data: line
+
+
+def _workspace_context() -> dict[str, str]:
+    """Request `context` dict carrying the workspace id.
+
+    The backend wraps this into the LLM-facing `<context>{...}</context>` block
+    (UIContext.ToLlmBlock), so the agent can fill `delegate_task`'s `workspace_id`
+    while the stored/displayed user message stays clean. Empty when WORKSPACE_ID unset.
+    """
+    return {"workspaceId": config.WORKSPACE_ID} if config.WORKSPACE_ID else {}
 
 
 def _short(evt: dict, limit: int = 200) -> str:
