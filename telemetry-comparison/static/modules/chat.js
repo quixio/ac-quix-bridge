@@ -120,7 +120,16 @@ function _buildToolCard(label, toolName) {
 
   const head = document.createElement('div');
   head.className = 'chat-tool-head';
-  head.textContent = label || 'tool';
+  // Icon + chevron are drawn via CSS ::before so head.textContent stays the
+  // bare tool name (status icon tracks the card's running/done/error class).
+  const indicator = document.createElement('span');
+  indicator.className = 'chat-tool-indicator';
+  const name = document.createElement('span');
+  name.className = 'chat-tool-name';
+  name.textContent = label || 'tool';
+  const chevron = document.createElement('span');
+  chevron.className = 'chat-tool-chevron';
+  head.append(indicator, name, chevron);
   head.addEventListener('click', () => card.classList.toggle('chat-tool-collapsed'));
 
   const body = document.createElement('div');

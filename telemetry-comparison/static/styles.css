@@ -945,6 +945,23 @@ body.chat-gesturing * {
 }
 
 #chat-panel {
+  /* Chat-scoped design tokens — mirror native Quix AI (variables.scss) so the
+   * embedded chat reads as the same product, without restyling the rest of the
+   * Explorer. Every chat rule consumes these via var(--color-*, fallback). */
+  --color-surface: #222229;
+  --color-brd: rgba(255, 255, 255, 0.08);
+  --color-muted: rgba(255, 255, 255, 0.5);
+  --color-accent: #0064ff;
+  --color-green: #00dd81;
+  --color-red: #ff4040;
+  --color-head-bg: #2b2b34;
+  color: #fff;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -1402,51 +1419,86 @@ body[data-chat-mode="docked"] #chat-float-slot {
   color: var(--color-accent, #0064ff);
 }
 
-/* Tool-call card — collapsible, mirroring the native Quix AI chat: a header
- * (caret + tool name) toggles the body; input sits behind its own toggle; the
- * result is contained (scrolls) so tool runs don't flood the conversation.
- * Left border colour tracks state (running / done / error). */
+/* Tool-call card — collapsible, mirroring the native Quix AI chat: a full-width
+ * header (status icon + tool name + right chevron) toggles the body; input sits
+ * behind its own toggle; the result is contained (scrolls) so tool runs don't
+ * flood the conversation. The whole border colour tracks state. No MCP badge. */
 .chat-tool-card {
-  align-self: flex-start;
-  max-width: 85%;
+  align-self: stretch;
   border: 1px solid var(--color-brd, #3e3e46);
-  border-left: 3px solid var(--color-muted, #94a3b8);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
   font-size: 0.78rem;
 }
 .chat-tool-head {
-  font-weight: 600;
-  color: var(--color-muted, #94a3b8);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--color-head-bg, #2b2b34);
+  color: var(--color-muted, #94a3b8);
   cursor: pointer;
   user-select: none;
 }
-.chat-tool-head::before {
-  content: "▾";
-  font-size: 0.7rem;
-  transition: transform 0.12s;
+.chat-tool-indicator {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-weight: 700;
 }
-.chat-tool-collapsed .chat-tool-head::before {
+.chat-tool-running .chat-tool-indicator::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--color-accent, #0064ff);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: chat-spin 0.8s linear infinite;
+}
+.chat-tool-done .chat-tool-indicator::before {
+  content: "✓";
+  color: var(--color-green, #00dd81);
+}
+.chat-tool-error .chat-tool-indicator::before {
+  content: "✕";
+  color: var(--color-red, #ff4040);
+}
+.chat-tool-name {
+  flex: 0 1 auto;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-tool-chevron {
+  flex: none;
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--color-muted, #94a3b8);
+}
+.chat-tool-chevron::before {
+  content: "▼";
+}
+.chat-tool-collapsed .chat-tool-chevron::before {
   content: "▸";
 }
 .chat-tool-collapsed .chat-tool-body {
   display: none;
 }
+.chat-tool-body {
+  padding: 8px 10px;
+}
 .chat-tool-running {
-  border-left-color: var(--color-accent, #0064ff);
-}
-.chat-tool-running .chat-tool-head {
-  color: var(--color-accent, #0064ff);
-}
-.chat-tool-done {
-  border-left-color: #34d399;
+  border-color: var(--color-accent, #0064ff);
 }
 .chat-tool-error {
-  border-left-color: #ff3f41;
+  border-color: var(--color-red, #ff4040);
 }
 .chat-tool-subtoggle {
   margin-top: 6px;
@@ -1523,10 +1575,10 @@ body[data-chat-mode="docked"] #chat-float-slot {
   font-size: 0.8rem;
 }
 .chat-env-done {
-  border-left-color: #34d399;
+  border-left-color: var(--color-green, #00dd81);
 }
 .chat-env-failed {
-  border-left-color: #ff3f41;
+  border-left-color: var(--color-red, #ff4040);
 }
 .chat-env-agent-head {
   display: flex;
@@ -1556,11 +1608,11 @@ body[data-chat-mode="docked"] #chat-float-slot {
 }
 .chat-env-done .chat-env-agent-indicator::before {
   content: "✓";
-  color: #34d399;
+  color: var(--color-green, #00dd81);
 }
 .chat-env-failed .chat-env-agent-indicator::before {
   content: "✕";
-  color: #ff3f41;
+  color: var(--color-red, #ff4040);
 }
 .chat-env-agent-name {
   font-weight: 600;
@@ -1614,7 +1666,7 @@ body[data-chat-mode="docked"] #chat-float-slot {
   display: block;
 }
 .chat-env-line {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.72rem;
   white-space: pre-wrap;
   word-break: break-word;
