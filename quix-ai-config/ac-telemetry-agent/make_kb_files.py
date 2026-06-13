@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["httpx", "python-dotenv"]
 # ///
-"""Regenerate the QuixLake Querier agent's knowledge-base markdown files.
+"""Regenerate the AC Telemetry Agent's knowledge-base markdown files.
 
 Outputs into the sibling `kb/` directory:
 
@@ -20,7 +20,7 @@ QuixLake bearer. `QUIXLAKE_URL` defaults to the dev cluster but can be
 overridden in the same .env.
 
 Usage:
-    cd quix-ai-config/quixlake-querier
+    cd quix-ai-config/ac-telemetry-agent
     uv run make_kb_files.py
 """
 

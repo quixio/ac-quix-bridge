@@ -5,10 +5,13 @@ Reads env vars:
   QUIX_TOKEN        - personal access token
   QUIX_WORKSPACE_ID - workspace id (optional for some endpoints)
 
-Values can be set either in the shell environment OR in a `.env` file at
-`quix-ai-config/.env`. The .env file is loaded at module import; shell env
+Values can be set either in the shell environment OR in a `.env` file under
+`quix-ai-config/`. Set `QUIX_ENV` to pick a per-environment file
+(`QUIX_ENV=byox` -> `.env.byox`, `QUIX_ENV=dev` -> `.env.dev`); unset
+falls back to `.env`. The selected file is loaded at module import; shell env
 wins on conflict. The same file is also used to persist generated IDs
-(agent_id, kb_id, ...) so subsequent scripts chain automatically.
+(agent_id, kb_id, ...) so subsequent scripts chain automatically — each
+environment keeps its own ids.
 """
 
 from __future__ import annotations
@@ -21,10 +24,19 @@ import time
 import httpx
 from dotenv import load_dotenv
 
-ENV_FILE = pathlib.Path(__file__).resolve().parent.parent / ".env"
+# Select the .env file via QUIX_ENV (e.g. QUIX_ENV=byox -> .env.byox); unset -> .env.
+_ENV_NAME = os.environ.get("QUIX_ENV", "").strip()
+ENV_FILE = pathlib.Path(__file__).resolve().parent.parent / (
+    f".env.{_ENV_NAME}" if _ENV_NAME else ".env"
+)
 
-# Load .env without overriding existing shell values.
+# Load the selected .env without overriding existing shell values.
 load_dotenv(ENV_FILE, override=False)
+
+
+def active_env() -> str:
+    """Name of the selected environment ('default' when QUIX_ENV is unset)."""
+    return _ENV_NAME or "default"
 
 
 def portal() -> str:
@@ -48,8 +60,23 @@ def headers() -> dict[str, str]:
     }
 
 
+def ca_verify() -> str | bool:
+    """TLS verify setting for httpx. Point QUIX_CA_BUNDLE at a CA bundle for
+    self-signed clusters (e.g. BYOX); falls back to REQUESTS_CA_BUNDLE /
+    SSL_CERT_FILE, else default verification. httpx ignores SSL_CERT_FILE on
+    its own, so we pass it explicitly."""
+    return (
+        os.environ.get("QUIX_CA_BUNDLE")
+        or os.environ.get("REQUESTS_CA_BUNDLE")
+        or os.environ.get("SSL_CERT_FILE")
+        or True
+    )
+
+
 def http_client() -> httpx.Client:
-    return httpx.Client(base_url=portal(), headers=headers(), timeout=60.0)
+    return httpx.Client(
+        base_url=portal(), headers=headers(), timeout=60.0, verify=ca_verify()
+    )
 
 
 def write_env(key: str, value: str) -> None:
@@ -98,6 +125,7 @@ def upload_kb_resource(kb_id: str, md_path: pathlib.Path) -> None:
         base_url=portal(),
         headers={"Authorization": headers()["Authorization"]},
         timeout=60.0,
+        verify=ca_verify(),
     ) as upload_client:
         files = {"file": (target_filename, md_path.read_bytes(), "text/markdown")}
         r = upload_client.post(f"/api/org/knowledge-bases/{kb_id}/resources", files=files)
@@ -116,7 +144,9 @@ def upload_kb_resource(kb_id: str, md_path: pathlib.Path) -> None:
 def _wait_for_processing(kb_id: str, timeout_s: float = 120.0) -> None:
     """Poll /ai/api/processing/{kb_id} until processingStatus == 'completed'."""
     t0 = time.perf_counter()
-    with httpx.Client(base_url=portal(), headers=headers(), timeout=30.0) as client:
+    with httpx.Client(
+        base_url=portal(), headers=headers(), timeout=30.0, verify=ca_verify()
+    ) as client:
         while time.perf_counter() - t0 < timeout_s:
             r = client.get(f"/ai/api/processing/{kb_id}")
             r.raise_for_status()

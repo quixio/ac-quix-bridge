@@ -5,17 +5,19 @@
 """Create or update a Quix.AI agent.
 
 Reads `<agent>/system_prompt.md` and per-agent metadata from the `AGENTS` map
-below. Matches the existing agent by `displayName`; PUTs if found, POSTs if not.
-Writes the resolved agent ID back to .env under the configured key.
+below. ID-first: resolves the target by the agent id stored in this env's .env
+(the `output_env` key) or `--agent-id`; PUTs if found — pushing prompt +
+`displayName`, so renames apply — else POSTs a new agent. Writes the agent id
+back to the selected .env.
 
 Usage:
     uv run update_agent.py --agent post-race
-    uv run update_agent.py --agent quixlake-querier
+    uv run update_agent.py --agent ac-telemetry-agent
     uv run update_agent.py --agent post-race --dry-run
 
 Agents:
   post-race          — Post-Race Analyzer (one analysis report per session)
-  quixlake-querier   — QuixLake Querier (chat in Telemetry Explorer)
+  ac-telemetry-agent — AC Telemetry Agent (chat in Telemetry Explorer)
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ import sys
 
 import httpx
 
-from _common import portal, read_env_value, token, write_env
+from _common import active_env, ca_verify, portal, read_env_value, token, write_env
 
 
 # Per-agent metadata. To onboard a new agent: create a sibling folder with
@@ -52,14 +54,14 @@ AGENTS: dict[str, dict] = {
         ],
         "preserve_existing_kb_rules": False,
     },
-    "quixlake-querier": {
-        "display_name": "QuixLake Querier",
-        "output_env": "QUIX_AI_QUIXLAKE_QUERIER_AGENT_ID",
+    "ac-telemetry-agent": {
+        "display_name": "AC Telemetry Agent",
+        "output_env": "QUIX_AI_AC_TELEMETRY_AGENT_ID",
         "kb_rules_from_env": [
             {
                 "env_var": "AC_TELEMETRY_KB_ID",
                 "access_level": "standard",
-                "required": True,
+                "required": False,  # bind KBs later; agent can bootstrap without
             },
         ],
         "preserve_existing_kb_rules": False,
@@ -113,9 +115,8 @@ def main(argv: list[str] | None = None) -> int:
         "--agent-id",
         default=None,
         help=(
-            "Target this agent id directly instead of matching by display name. "
-            "Preserves the target's own name + existing KB rules and pushes only "
-            "the prompt — bind KBs separately with bind_kb_to_agent.py."
+            "Adopt an existing agent by id — a one-time seed when its id isn't "
+            "yet stored in this env's .env. Thereafter the stored id drives updates."
         ),
     )
     args = parser.parse_args(argv)
@@ -127,44 +128,47 @@ def main(argv: list[str] | None = None) -> int:
 
     display_name = config["display_name"]
 
+    print(f"[env: {active_env()}] target portal {portal()}")
+
+    # ID-first: operate on a known agent id (explicit flag wins, else the id
+    # stashed in this env's .env). Only POST a new agent when we have none.
+    target_id = args.agent_id or read_env_value(config["output_env"])
+
     with httpx.Client(
-        base_url=portal(), headers=_agent_headers(), timeout=60.0
+        base_url=portal(), headers=_agent_headers(), timeout=60.0, verify=ca_verify()
     ) as client:
         existing = client.get("/ai/api/org/agents").json()
-        if args.agent_id:
-            match = next((a for a in existing if a.get("id") == args.agent_id), None)
-            if not match:
-                raise SystemExit(f"agent id {args.agent_id} not found")
-            # Target by id: preserve the agent's own name + existing KB rules,
-            # push only the prompt. Bind KBs separately (bind_kb_to_agent.py).
-            display_name = match["displayName"]
-            body: dict = {"displayName": display_name, "systemPrompt": system_prompt}
+        match = (
+            next((a for a in existing if a.get("id") == target_id), None)
+            if target_id
+            else None
+        )
+        if target_id and not match:
+            if args.agent_id:
+                raise SystemExit(f"agent id {target_id} not found in {active_env()}")
+            print(f"  stored id {target_id} not found in {active_env()} — creating fresh")
+
+        # Always push the config displayName (so renames take) + the prompt.
+        body: dict = {"displayName": display_name, "systemPrompt": system_prompt}
+        kb_rules = _build_kb_rules(config)
+        if kb_rules:  # explicit KB ids resolved → set them
+            body["kbAccessRules"] = kb_rules
+        elif match:  # updating → keep whatever's already bound
             body["kbAccessRules"] = match.get("kbAccessRules", [])
-        else:
-            match = next(
-                (a for a in existing if a.get("displayName") == display_name), None
-            )
-            body = {"displayName": display_name, "systemPrompt": system_prompt}
-            kb_rules = _build_kb_rules(config)
-            if kb_rules is not None:
-                body["kbAccessRules"] = kb_rules
-            elif match:
-                # preserve_existing_kb_rules=True path: carry over what's deployed.
-                body["kbAccessRules"] = match.get("kbAccessRules", [])
+        else:  # fresh agent, no KBs yet
+            body["kbAccessRules"] = []
 
         if args.dry_run:
-            print("[dry-run] would POST/PUT body:")
+            print(f"[dry-run] would {'PUT' if match else 'POST'} body:")
             print(json.dumps(body, indent=2))
             return 0
 
         if match:
             agent_id = match["id"]
-            print(f"Updating existing agent {agent_id} ({display_name})")
-            client.put(
-                f"/ai/api/org/agents/{agent_id}", json=body
-            ).raise_for_status()
+            print(f"Updating agent {agent_id} ({display_name})")
+            client.put(f"/ai/api/org/agents/{agent_id}", json=body).raise_for_status()
         else:
-            print(f"Creating new agent ({display_name})")
+            print(f"Creating agent ({display_name})")
             agent_id = client.post("/ai/api/org/agents", json=body).json()["id"]
             print(f"  id={agent_id}")
 
@@ -183,5 +187,5 @@ if __name__ == "__main__":
 # per workspace (currently "1e237216cb7b444fbef92ec7142453d4" in quixdev).
 #
 # Add `body["toolFilter"] = {"mode": "Whitelist", "toolNames": [...]}`
-# once GUIDs are known. Apply only to post-race; quixlake-querier preserves
+# once GUIDs are known. Apply only to post-race; ac-telemetry-agent preserves
 # whatever is set in the Portal UI.
