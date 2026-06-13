@@ -682,7 +682,7 @@ deployments:
         value: normalizedCarPosition
       - name: GATE_COUNT
         inputType: FreeText
-        value: 750
+        value: 1000
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false
@@ -695,7 +695,7 @@ deployments:
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: 'Build-time: blue-freeze window ms (baked into UI bundle)'
-        value: 5
+        value: 0
       - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
         inputType: ProjectVariable
         description: 'Build-time: standalone-mode fallback PAT baked into UI bundle'
