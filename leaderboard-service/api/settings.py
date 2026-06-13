@@ -87,6 +87,16 @@ class Settings(BaseSettings):
         alias="session_output",
         description="Kafka topic for AC session events",
     )
+    kafka_config_topic: str = Field(
+        "ac-telemetry-config",
+        alias="config_input",
+        description=(
+            "Kafka topic for DCM config events. Declared as a deployment "
+            "InputTopic so the Quix pipeline view shows the leaderboard "
+            "consuming it (the subscription was previously hardcoded and "
+            "thus invisible in the topology)."
+        ),
+    )
 
     # Lake table the leaderboard SQL builders read from. Default matches
     # the deployed `LAKE_TABLE=ac_telemetry` (the previous

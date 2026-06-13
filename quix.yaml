@@ -663,6 +663,11 @@ deployments:
         description: Kafka topic for AC session events (ac-telemetry-session)
         required: true
         value: ac-telemetry-session-replay
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic — declared so the pipeline view shows this service consuming it
+        required: true
+        value: ac-telemetry-config
       - name: LAKE_TABLE
         inputType: FreeText
         value: ac_telemetry

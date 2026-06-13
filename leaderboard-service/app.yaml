@@ -31,6 +31,11 @@ variables:
     inputType: InputTopic
     description: Kafka topic for AC session events (ac-telemetry-session)
     required: true
+  - name: config_input
+    inputType: InputTopic
+    description: DCM config events topic (ac-telemetry-config) — declared so the pipeline view shows this service consuming it
+    required: true
+    defaultValue: ac-telemetry-config
   - name: LAKE_TABLE
     inputType: FreeText
     defaultValue: ac_telemetry

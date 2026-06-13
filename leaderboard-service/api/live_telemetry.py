@@ -212,6 +212,32 @@ def _latest_experiment() -> tuple[str, dict[str, Any]] | None:
     """Most-recent experiment-cache `(key, entry)`. Caller holds `_state_lock`."""
     return _latest_entry(_experiment_cache)
 
+
+def _latest_experiment_driver() -> str:
+    """Most-recent DCM driver across experiment-cache entries that actually
+    carry one.
+
+    `_get_cached_experiment(hostname)` writes an entry for every session
+    hostname (e.g. `QUIX-GAMING_<epoch>`), refreshed on each session message
+    — but those entries have an EMPTY `driver` when no DCM config matches
+    that hostname. Picking the plain most-recent entry (`_latest_experiment`)
+    therefore lets that empty, constantly-touched entry shadow a real
+    experiment config's driver (e.g. `Walter` → "LordSiderius"), so the live
+    row falls back to the session `playerName`. Selecting the most-recent
+    entry that has a NON-EMPTY driver fixes that. Caller holds `_state_lock`.
+    """
+    best_key: tuple[float, str] | None = None
+    best_driver = ""
+    for k, e in _experiment_cache.items():
+        drv = str(e.get("driver") or "").strip()
+        if not drv:
+            continue
+        epoch = float(e.get("updated_epoch") or e.get("fetched_epoch") or 0.0)
+        if best_key is None or (epoch, k) > best_key:
+            best_key = (epoch, k)
+            best_driver = drv
+    return best_driver
+
 _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
 
@@ -2471,8 +2497,10 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
                 )
             return
         session_key, session = latest_session
-        latest_experiment = _latest_experiment()
-        experiment_entry = latest_experiment[1] if latest_experiment else None
+        # Driver name from the most-recent experiment config that actually
+        # carries a driver (not the constantly-refreshed empty session-host
+        # entry, which would otherwise shadow it). Resolved under the lock.
+        dcm_driver_name = _latest_experiment_driver()
 
     # Raw ticks keep the adopted live session fresh — cheap lock + dict
     # write, no broadcast. Touch under the latest SESSION key: the live
@@ -2494,10 +2522,7 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     #      solo lap still produces a leaderboard row instead of being
     #      dropped by `_record_message`'s `(track, car, driver)` guard.
     if not enriched.get("driver"):
-        dcm_driver = (
-            str(experiment_entry.get("driver") or "") if experiment_entry else ""
-        )
-        enriched["driver"] = dcm_driver or session["playerName"]
+        enriched["driver"] = dcm_driver_name or session["playerName"]
     if not enriched.get("experiment"):
         # Resolve experiment/environment via the same lake-aligned resolver
         # the `live_session` envelope uses (DCM only when its experiment has
@@ -2571,6 +2596,7 @@ def _consumer_loop() -> None:
         _s = _get_settings()
         raw_topic_name = _s.kafka_raw_topic
         session_topic_name = _s.kafka_session_topic
+        config_topic_name = _s.kafka_config_topic
 
         app = Application(
             broker_address=os.environ.get("BROKER_ADDRESS") or None,
@@ -2579,7 +2605,7 @@ def _consumer_loop() -> None:
         )
         raw_topic = app.topic(raw_topic_name, value_deserializer="json")
         session_topic = app.topic(session_topic_name, value_deserializer="json")
-        config_events_topic = app.topic(CONFIG_EVENTS_TOPIC, value_deserializer="json")
+        config_events_topic = app.topic(config_topic_name, value_deserializer="json")
     except Exception:
         logger.exception("Application/topic init failed; live consumer disabled")
         return
@@ -2612,7 +2638,7 @@ def _consumer_loop() -> None:
         "ghost-lap consumer starting (topics=%s, %s, %s)",
         raw_topic.name,
         session_topic.name,
-        CONFIG_EVENTS_TOPIC,
+        config_events_topic.name,
     )
 
     # Topics whose partitions are rewound to the beginning on every
