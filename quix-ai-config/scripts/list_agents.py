@@ -10,7 +10,7 @@ import json
 
 import httpx
 
-from _common import portal, token
+from _common import ca_verify, portal, token
 
 
 def _agent_headers() -> dict[str, str]:
@@ -22,7 +22,9 @@ def _agent_headers() -> dict[str, str]:
 
 
 def main() -> int:
-    with httpx.Client(base_url=portal(), headers=_agent_headers(), timeout=60.0) as client:
+    with httpx.Client(
+        base_url=portal(), headers=_agent_headers(), timeout=60.0, verify=ca_verify()
+    ) as client:
         agents = client.get("/ai/api/org/agents").json()
     print(json.dumps(agents, indent=2))
     return 0
