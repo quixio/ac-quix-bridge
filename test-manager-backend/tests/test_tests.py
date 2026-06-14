@@ -335,6 +335,95 @@ def test_activate_preserves_requirements_in_dcm(
     assert content["requirements"] == MULTILINE_REQS
 
 
+def test_create_test_with_mode(
+    create_test: TestFactory, config_api: httpx.Client
+) -> None:
+    """mode round-trips through create + DCM config content (not a lake partition)."""
+    _, created = create_test(mode="pro")
+
+    assert created["mode"] == "pro"
+
+    content = config_api.get(
+        f"/api/v1/configurations/{created['config_id']}/versions/{created['config_version']}/content"
+    ).json()
+    assert content["mode"] == "pro"
+
+
+def test_create_test_without_mode_defaults_none(create_test: TestFactory) -> None:
+    """mode is optional on the backend; omitting it stores null."""
+    _, created = create_test()
+    assert created["mode"] is None
+
+
+def test_update_test_mode(
+    create_test: TestFactory, client: TestClient, config_api: httpx.Client
+) -> None:
+    """PUT changes mode and a new DCM version carries the new value."""
+    _, created = create_test(mode="easy")
+    test_id = created["test_id"]
+
+    response = client.put(f"/api/v1/tests/{test_id}", json={"mode": "pro"})
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["mode"] == "pro"
+
+    content = config_api.get(
+        f"/api/v1/configurations/{updated['config_id']}/versions/{updated['config_version']}/content"
+    ).json()
+    assert content["mode"] == "pro"
+
+
+def test_create_test_invalid_mode_422(client: TestClient) -> None:
+    """An unknown mode value is rejected by validation before any DCM call."""
+    response = client.post(
+        "/api/v1/tests",
+        json={
+            "experiment_id": "exp",
+            "pc_device_id": "DEV-0001",
+            "test_rig_device_id": "DEV-0002",
+            "environment_id": "ENV-0001",
+            "driver": "Test Driver",
+            "mode": "insane",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_update_test_clears_mode(
+    create_test: TestFactory, client: TestClient, config_api: httpx.Client
+) -> None:
+    """PUT {mode: null} clears a previously-set mode in Mongo and DCM content."""
+    _, created = create_test(mode="pro")
+    test_id = created["test_id"]
+
+    response = client.put(f"/api/v1/tests/{test_id}", json={"mode": None})
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["mode"] is None
+
+    content = config_api.get(
+        f"/api/v1/configurations/{updated['config_id']}/versions/{updated['config_version']}/content"
+    ).json()
+    assert content["mode"] is None
+
+
+def test_activate_preserves_mode_in_dcm(
+    create_test: TestFactory, client: TestClient, config_api: httpx.Client
+) -> None:
+    """Activate pushes a fresh DCM version that still carries mode."""
+    _, created = create_test(mode="pro")
+    test_id = created["test_id"]
+
+    response = client.post(f"/api/v1/tests/{test_id}/activate")
+    assert response.status_code == 200
+    activated = response.json()
+
+    content = config_api.get(
+        f"/api/v1/configurations/{activated['config_id']}/versions/{activated['config_version']}/content"
+    ).json()
+    assert content["mode"] == "pro"
+
+
 def test_delete_cleans_all_orphan_versions_of_that_test(
     create_test: TestFactory,
     create_device: DeviceFactory,

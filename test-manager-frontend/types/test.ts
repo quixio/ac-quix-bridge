@@ -5,6 +5,8 @@
 
 import type { PaginationParams } from "./pagination";
 
+export type TestMode = "easy" | "medium" | "pro";
+
 export interface DeviceReference {
   device_id: string;
   device_version: string | null;
@@ -24,6 +26,7 @@ export interface Test {
   environment_id: string;
   driver: string;
   requirements: string;
+  mode: TestMode | null;
   sessions: SessionInfo[];
   // Resolved display names from backend
   pc_device_name: string | null;
@@ -44,6 +47,7 @@ export interface TestCreate {
   environment_id: string;
   driver: string;
   requirements?: string;
+  mode: TestMode;
 }
 
 export interface TestUpdate {
@@ -53,6 +57,7 @@ export interface TestUpdate {
   environment_id?: string;
   driver?: string;
   requirements?: string;
+  mode?: TestMode;
 }
 
 export interface TestQuery extends PaginationParams {

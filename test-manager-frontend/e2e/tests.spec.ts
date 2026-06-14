@@ -110,6 +110,20 @@ test.describe("Tests Management", () => {
     await expect(page.getByText(experimentId)).toBeVisible();
   });
 
+  test("mode round-trips from the create form to the detail page", async ({
+    page,
+  }) => {
+    await page.goto("/tests/add");
+    const experimentId = generateTestId("e2e-mode");
+
+    await fillCreateTestForm(page, { experimentId, mode: "Pro" });
+    await page.getByRole("button", { name: "Create Test" }).click();
+
+    await page.waitForURL(/\/tests\/TST-\d+$/, { timeout: 10000 });
+    await expect(page.getByText("Mode", { exact: true })).toBeVisible();
+    await expect(page.getByText("Pro", { exact: true })).toBeVisible();
+  });
+
   test("should edit an existing test", async ({ page }) => {
     // Create a throwaway test so the run is self-contained.
     await page.goto("/tests/add");
@@ -444,6 +458,9 @@ test.describe("Activate and dirty-check", () => {
     await page.waitForURL(new RegExp(`/tests/${testId}/edit`));
     await expect(page.getByTestId("save-test")).toBeDisabled();
     await page.locator("#requirements").fill("churn-before-delete");
+    // Mode is required on edit; a legacy test (mode=null) must get one before Save enables.
+    await page.getByRole("combobox").last().click();
+    await page.getByRole("option", { name: "Pro", exact: true }).click();
     await expect(page.getByTestId("save-test")).toBeEnabled();
     await page.getByTestId("save-test").click();
     await page.waitForURL(new RegExp(`/tests/${testId}$`));

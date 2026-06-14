@@ -52,13 +52,19 @@ export async function fillCreateTestForm(
   data: {
     experimentId: string;
     requirements?: string;
+    mode?: "Easy" | "Medium" | "Pro";
   },
 ) {
-  // Four Radix Selects in DOM order: PC, Test Rig, Environment, Driver.
+  // Five Radix Selects in DOM order: PC, Test Rig, Environment, Driver, Mode.
   const selects = page.getByRole("combobox");
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     await selects.nth(i).click();
     await page.getByRole("option").first().click();
+  }
+  // The loop leaves Mode (5th select) on its first option (Easy); override if asked.
+  if (data.mode && data.mode !== "Easy") {
+    await selects.nth(4).click();
+    await page.getByRole("option", { name: data.mode, exact: true }).click();
   }
   await page.locator("#experiment_id").fill(data.experimentId);
   if (data.requirements) {

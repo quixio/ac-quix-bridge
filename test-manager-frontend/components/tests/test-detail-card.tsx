@@ -131,6 +131,12 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
             label: "Environment",
             value: resolvedNames?.envName || test.environment_id,
           },
+          {
+            label: "Mode",
+            value: test.mode
+              ? test.mode.charAt(0).toUpperCase() + test.mode.slice(1)
+              : "—",
+          },
           ...(test.requirements
             ? [
                 {

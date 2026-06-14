@@ -75,6 +75,14 @@ class SessionInfo(BaseModel):
     car_model: str
 
 
+class TestMode(str, Enum):
+    """Assetto Corsa difficulty mode for a test."""
+
+    EASY = "easy"
+    MEDIUM = "medium"
+    PRO = "pro"
+
+
 class Test(BaseModel):
     """Represents a test / experiment record."""
 
@@ -85,6 +93,7 @@ class Test(BaseModel):
     environment_id: str
     driver: str
     requirements: str = ""
+    mode: TestMode | None = None
     sessions: list[SessionInfo] = []
     # Resolved display names (populated by API, not stored in DB)
     pc_device_name: str | None = None
@@ -107,6 +116,7 @@ class TestCreate(BaseModel):
     environment_id: str = Field(..., min_length=1)
     driver: str = Field(..., min_length=1)
     requirements: str = ""
+    mode: TestMode | None = None
 
 
 class TestUpdate(BaseModel):
@@ -118,6 +128,7 @@ class TestUpdate(BaseModel):
     environment_id: str | None = None
     driver: str | None = None
     requirements: str | None = None
+    mode: TestMode | None = None
 
 
 class TestQuery(PaginationParams):

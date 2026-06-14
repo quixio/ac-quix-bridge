@@ -26,6 +26,7 @@ import { DeviceCategory } from "@/types/device";
 import type { Device } from "@/types/device";
 import type { Driver } from "@/types/driver";
 import type { Environment } from "@/types/environment";
+import type { TestMode } from "@/types/test";
 
 export default function AddTestPage() {
   const router = useRouter();
@@ -41,6 +42,7 @@ export default function AddTestPage() {
   const [environmentId, setEnvironmentId] = useState("");
   const [driver, setDriver] = useState("");
   const [requirements, setRequirements] = useState("");
+  const [mode, setMode] = useState<TestMode | "">("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Dropdown data
@@ -104,7 +106,8 @@ export default function AddTestPage() {
       !pcDeviceId ||
       !testRigDeviceId ||
       !environmentId ||
-      !driver
+      !driver ||
+      !mode
     )
       return;
 
@@ -117,6 +120,7 @@ export default function AddTestPage() {
         environment_id: environmentId,
         driver,
         requirements: requirements.trim(),
+        mode: mode as TestMode,
       });
 
       toast({
@@ -142,7 +146,8 @@ export default function AddTestPage() {
     pcDeviceId &&
     testRigDeviceId &&
     environmentId &&
-    driver;
+    driver &&
+    mode;
 
   return (
     <MainLayout backLink={{ href: "/tests", label: "Back to Tests" }}>
@@ -232,6 +237,23 @@ export default function AddTestPage() {
                         {d.name}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Mode *</Label>
+                <Select
+                  value={mode}
+                  onValueChange={(v) => setMode(v as TestMode)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

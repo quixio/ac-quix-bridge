@@ -29,6 +29,7 @@ const TEST: Test = {
   environment_id: "ENV-1",
   driver: "Daniel",
   requirements: "",
+  mode: "easy",
   sessions: [
     {
       session_id: "2026-06-03T11:08:18.206Z",

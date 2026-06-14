@@ -28,6 +28,7 @@ import { DeviceCategory } from "@/types/device";
 import type { Device } from "@/types/device";
 import type { Driver } from "@/types/driver";
 import type { Environment } from "@/types/environment";
+import type { TestMode } from "@/types/test";
 
 export default function EditTestPage() {
   const params = useParams();
@@ -48,6 +49,7 @@ export default function EditTestPage() {
   const [environmentId, setEnvironmentId] = useState<string | null>(null);
   const [driver, setDriver] = useState<string | null>(null);
   const [requirements, setRequirements] = useState<string | null>(null);
+  const [mode, setMode] = useState<TestMode | null>(null);
 
   // Dropdown data
   const [pcDevices, setPcDevices] = useState<Device[]>([]);
@@ -84,6 +86,7 @@ export default function EditTestPage() {
   const formEnvironmentId = environmentId ?? test?.environment_id ?? "";
   const formDriver = driver ?? test?.driver ?? "";
   const formRequirements = requirements ?? test?.requirements ?? "";
+  const formMode = mode ?? test?.mode ?? "";
 
   const isDirty =
     formExperimentId !== (test?.experiment_id ?? "") ||
@@ -91,10 +94,15 @@ export default function EditTestPage() {
     formTestRigDeviceId !== (test?.test_rig_device_id ?? "") ||
     formEnvironmentId !== (test?.environment_id ?? "") ||
     formDriver !== (test?.driver ?? "") ||
-    formRequirements !== (test?.requirements ?? "");
+    formRequirements !== (test?.requirements ?? "") ||
+    formMode !== (test?.mode ?? "");
+
+  // mode is required in the UI; a legacy test with no mode must get one before save.
+  const isValid = formMode !== "";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isValid) return;
 
     try {
       setIsSubmitting(true);
@@ -105,6 +113,7 @@ export default function EditTestPage() {
         environment_id: formEnvironmentId,
         driver: formDriver,
         requirements: formRequirements,
+        mode: formMode as TestMode,
       });
 
       toast({
@@ -234,6 +243,28 @@ export default function EditTestPage() {
               </div>
 
               <div className="space-y-2">
+                <Label>Mode *</Label>
+                <Select
+                  value={formMode}
+                  onValueChange={(v) => setMode(v as TestMode)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
+                  </SelectContent>
+                </Select>
+                {!isValid && (
+                  <p className="text-sm text-muted-foreground">
+                    Required — pick a mode to enable saving.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="requirements">Requirements</Label>
                 <Textarea
                   id="requirements"
@@ -251,7 +282,7 @@ Tyre temperature shall stay below 80°C.`}
               <div className="flex gap-3 pt-4">
                 <Button
                   type="submit"
-                  disabled={isSubmitting || !isDirty}
+                  disabled={isSubmitting || !isDirty || !isValid}
                   data-testid="save-test"
                 >
                   {isSubmitting ? "Saving..." : "Save Changes"}

@@ -87,6 +87,7 @@ def sync_to_dcm(
                     "experiment_id": partition["experiment"],
                     "driver": partition["driver"],
                     "requirements": test.requirements,
+                    "mode": test.mode,
                 },
                 "replace": True,
             },
