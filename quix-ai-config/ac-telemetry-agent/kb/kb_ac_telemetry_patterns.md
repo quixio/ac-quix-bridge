@@ -233,21 +233,15 @@ ORDER BY stddev_s ASC
 
 ### Formatting lap times as `m:ss.mmm`
 
-Users often want `m:ss.mmm` (e.g. `2:24.180`), not raw seconds. Format from the **integer** ms lap time (`MAX(iCurrentTime)`) — never from a rounded seconds value — so it stays exact:
+Users often want `m:ss.mmm` (e.g. `2:24.180`), not raw seconds. Format the ms lap time **through a timestamp** — one expression, no `printf`/integer-division traps:
 
 ```sql
-printf('%d:%06.3f',
-       MAX(iCurrentTime) // 60000,            -- whole minutes
-       (MAX(iCurrentTime) % 60000) / 1000.0)  -- remaining s.mmm
-  AS lap_time
+strftime(to_timestamp(MAX(iCurrentTime) / 1000), '%M:%S.%g') AS lap_time
 ```
 
-`//` is integer division, `%` modulo (DuckDB). A 145 340 ms lap → `2:25.340`. Keep the raw `duration_s` alongside for sorting/aggregation — **sort by the number, display the string**.
+`MAX(iCurrentTime) / 1000` → fractional seconds (DuckDB `/` is float, so `.mmm` survives — do **NOT** use `//`, it drops the millis); `to_timestamp` → a timestamp; `strftime('%M:%S.%g')` → `02:23.655` (`%g` = milliseconds). A 145 340 ms lap → `02:25.340`; same form for `AVG(iCurrentTime)`. Minutes are zero-padded (`02:`) and wrap past 60 min — irrelevant for laps. Keep the raw ms alongside for sorting — **sort by the number, display the string**.
 
-**Pitfalls (seen in practice):**
-- `printf('%d', x)` requires an **integer** — `MAX(iCurrentTime)//60000` is one; a float (e.g. `seconds/60`) errors with *"Invalid type specifier d"*.
-- **Never** `CAST(seconds/60 AS INTEGER)` for the minutes — DuckDB `CAST` **rounds**, not floors (`151.5 → 3`), giving wrong minutes and negative seconds (`3:-28.447`). Always floor via integer `//` on the **ms** value.
-- For an **average** time, format from `AVG(iCurrentTime)` (ms) the same way: `printf('%d:%06.3f', CAST(AVG(iCurrentTime) AS BIGINT)//60000, (CAST(AVG(iCurrentTime) AS BIGINT)%60000)/1000.0)`.
+Avoid the old `printf('%d', …)` recipe: it needs an *integer* minute, so `MAX(iCurrentTime) / 60000` (float in DuckDB) errors with *"Invalid type specifier d"*. The `strftime` form sidesteps it — the float `/` it wants is the natural one.
 
 ### 3. Peak speed per lap
 

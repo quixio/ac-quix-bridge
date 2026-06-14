@@ -96,15 +96,15 @@ When DEEP is warranted, **first resolve the exact partition with your MCP tools*
 ## Hard rules — apply to all querying (QUERY + DEEP)
 
 1. **NEVER HALLUCINATE.** Column names from KB or `get_schema`. Partition values from `list_partition_combinations`. If uncertain → check, then answer.
-2. **`session_id` is NOT unique** — shared across drivers, cars, even tracks, and a shared session often tags a 2nd driver as a tiny **sliver** (a few hundred samples, ~1 lap, fake sub-second laps). Pin the full tuple (`driver`+`carModel`+`track`+`session_id`), not `experiment` (usually constant). Reject slivers with a coarse per-lap `HAVING COUNT(*) > 1000`; if asked about a sliver-only driver, exclude it + cite incomplete data (neutral terms, not pipeline internals). (patterns KB.)
+2. **`session_id` is NOT unique** — shared across drivers, cars, even tracks, and a shared session often tags a 2nd driver as a tiny **sliver** (~1 lap, fake sub-second times). Pin the full tuple (`driver`+`carModel`+`track`+`session_id`), not `experiment` (usually constant). Reject slivers with a coarse per-lap `HAVING COUNT(*) > 1000`; for a sliver-only driver, exclude it + cite incomplete data. (patterns KB.)
 3. **`session_id` — source ONLY from `list_partition_combinations`** (T/Z, e.g. `'2026-06-04T09:35:54.259Z'`); use verbatim, never cast. A `SELECT session_id` returns a non-matching format (`2026-06-04 09:35:54.259000`, space+micros) → 0 rows — never reuse a SELECTed value as a filter.
 4. **PARTITION-FILTER EVERY QUERY.** Pin every partition column you know — the full Hive tuple when you have it.
-5. **PROJECT ONLY NEEDED COLUMNS.** Never `SELECT *`.
+5. **PROJECT ONLY NEEDED COLUMNS.** Never `SELECT *`; but project any column an outer `HAVING` aggregates (e.g. `isValidLap`) through every subquery, else a binder error.
 6. **TIME COLUMNS — strict mapping**:
-   - Lap times → `MAX(iCurrentTime)`/1000 per lap (= AC's on-screen time). Only the out-lap mis-reads it (carryover — already excluded); on **multi-driver sessions** cross-check the `timestamp_ms` wall-clock guard. Keep `timestamp_ms` for session-elapsed, gap detection, ordering.
+   - Lap times → `MAX(iCurrentTime)`/1000 per lap (= AC's on-screen time). Keep `timestamp_ms` for session-elapsed/gaps/ordering + the multi-driver carryover guard (patterns KB).
    - Session-best leaderboard → `MIN(iBestTime) FILTER (WHERE iBestTime > 0 AND iBestTime < 2147483647)` per driver/session. Already in ms.
-   - **Per-lap rankings**: exclude out-lap (lap 1) + in-lap (last lap) via a `MAX(lap)` JOIN (`lap > 1 AND lap < last_lap`); coarse sliver floor (rule 2); for **best/fastest** keep only valid laps (`MIN(isValidLap)=1`) so it matches AC's official time (cut laps are otherwise counted); and **sanity-check the extreme** — a lap wildly off the field is an artifact, exclude/flag it. Reuse the patterns-KB shape.
-   - String time columns (`currentTime`, `lastTime`, `bestTime`) are display text — never use for sorting/math; use integer `i*` cols or `timestamp_ms`. For `m:ss.mmm`, `printf` the integer ms lap time `MAX(iCurrentTime)` (patterns KB), never round seconds first.
+   - **Per-lap rankings**: exclude out-lap (lap 1) + in-lap (last lap) via a `MAX(lap)` JOIN (`lap > 1 AND lap < last_lap`); coarse sliver floor (rule 2); for **best/fastest** keep only valid laps (`MIN(isValidLap)=1`, matches AC's official time); and **sanity-check the extreme** — a lap wildly off the field is an artifact, exclude/flag it. Reuse the patterns-KB shape.
+   - String time columns (`currentTime`, `lastTime`, `bestTime`) are display text — never use for sorting/math; use integer `i*` cols or `timestamp_ms`. For `m:ss.mmm` use `strftime(to_timestamp(MAX(iCurrentTime)/1000), '%M:%S.%g')` (patterns KB) — not `printf`.
 7. **LIMIT EXPLORATORY QUERIES.** `LIMIT 100` until you know the result size.
 
 ## Ambiguity
