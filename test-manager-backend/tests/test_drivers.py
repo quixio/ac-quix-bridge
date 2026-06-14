@@ -14,7 +14,10 @@ UTC_ISO_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
 def test_create_driver(client: TestClient) -> None:
     """Test creating a driver with auto-generated ID."""
-    response = client.post("/api/v1/drivers", json={"name": "Tomas"})
+    response = client.post(
+        "/api/v1/drivers",
+        json={"name": "Tomas", "email": "tomas@quix.io", "company": "Quix"},
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["driver_id"] == "DRV-0001"
@@ -24,8 +27,14 @@ def test_create_driver(client: TestClient) -> None:
 
 def test_create_driver_auto_increment(client: TestClient) -> None:
     """Test that driver IDs auto-increment."""
-    client.post("/api/v1/drivers", json={"name": "Driver A"})
-    response = client.post("/api/v1/drivers", json={"name": "Driver B"})
+    client.post(
+        "/api/v1/drivers",
+        json={"name": "Driver A", "email": "a@quix.io", "company": "Quix"},
+    )
+    response = client.post(
+        "/api/v1/drivers",
+        json={"name": "Driver B", "email": "b@quix.io", "company": "Quix"},
+    )
     assert response.json()["driver_id"] == "DRV-0002"
 
 
@@ -89,21 +98,23 @@ def test_get_driver_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_update_driver(create_driver: DriverFactory, client: TestClient) -> None:
-    """Test updating a driver's name."""
+def test_update_driver_name_is_locked(
+    create_driver: DriverFactory, client: TestClient
+) -> None:
+    """Driver name is the lake identity and cannot be changed after create."""
     _, created = create_driver(name="Old Name")
     driver_id = created["driver_id"]
 
+    # name-only update has no updatable fields -> 400, name untouched
     response = client.put(f"/api/v1/drivers/{driver_id}", json={"name": "New Name"})
-    assert response.status_code == 200
-    assert response.json()["name"] == "New Name"
-
-    # Verify persisted
-    assert client.get(f"/api/v1/drivers/{driver_id}").json()["name"] == "New Name"
+    assert response.status_code == 400
+    assert client.get(f"/api/v1/drivers/{driver_id}").json()["name"] == "Old Name"
 
 
 def test_update_driver_not_found(client: TestClient) -> None:
-    response = client.put("/api/v1/drivers/nonexistent", json={"name": "X"})
+    response = client.put(
+        "/api/v1/drivers/nonexistent", json={"email": "x@example.com"}
+    )
     assert response.status_code == 404
 
 

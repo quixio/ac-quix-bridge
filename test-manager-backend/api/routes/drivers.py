@@ -3,6 +3,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pymongo.database import Database
+from pymongo.errors import DuplicateKeyError
 
 from ..auth import update_permission, read_permission
 from ..mongo import get_mongo
@@ -13,6 +14,7 @@ from ..models import (
     DriverUpdate,
     PaginatedResponse,
 )
+from ..text import driver_name_key
 from ..utils import now
 
 router = APIRouter()
@@ -36,14 +38,36 @@ def create_driver(
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     _: None = Depends(update_permission),
 ) -> Driver:
-    """Create a new Driver with an auto-generated ID."""
+    """Create a new Driver with an auto-generated ID.
+
+    Name uniqueness is enforced via a folded `name_key` (case/accent/whitespace
+    insensitive) because the lake identifies drivers by name — two same-named
+    drivers would pollute the telemetry partition. Email is unique too.
+    """
     driver_id = generate_driver_id(mongo)
+    name_key = driver_name_key(driver_data.name)
+
+    if mongo.drivers.find_one({"name_key": name_key}):
+        raise HTTPException(
+            status_code=409, detail="A driver with this name already exists"
+        )
+    if mongo.drivers.find_one({"email": driver_data.email}):
+        raise HTTPException(
+            status_code=409, detail="A driver with this email already exists"
+        )
 
     driver = Driver(
         _id=driver_id,
         name=driver_data.name,
+        email=driver_data.email,
+        company=driver_data.company,
     )
-    mongo.drivers.insert_one(driver.model_dump(by_alias=True))
+    doc = driver.model_dump(by_alias=True)
+    doc["name_key"] = name_key
+    try:
+        mongo.drivers.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="Driver already exists")
     return driver
 
 
@@ -75,6 +99,8 @@ def list_drivers(
                         "$or": [
                             {"_id": word_pattern},
                             {"name": word_pattern},
+                            {"email": word_pattern},
+                            {"company": word_pattern},
                         ]
                     }
                 )
@@ -115,18 +141,30 @@ def update_driver(
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     _: None = Depends(update_permission),
 ) -> Driver:
-    """Update an existing Driver."""
+    """Update an existing Driver's email/company. Name is locked (lake identity)."""
     update_fields = driver_data.model_dump(exclude_none=True)
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields to update")
 
+    if "email" in update_fields and mongo.drivers.find_one(
+        {"email": update_fields["email"], "_id": {"$ne": driver_id}}
+    ):
+        raise HTTPException(
+            status_code=409, detail="A driver with this email already exists"
+        )
+
     update_fields["updated_at"] = now()
 
-    result = mongo.drivers.find_one_and_update(
-        {"_id": driver_id},
-        {"$set": update_fields},
-        return_document=True,
-    )
+    try:
+        result = mongo.drivers.find_one_and_update(
+            {"_id": driver_id},
+            {"$set": update_fields},
+            return_document=True,
+        )
+    except DuplicateKeyError:
+        raise HTTPException(
+            status_code=409, detail="A driver with this email already exists"
+        )
     if not result:
         raise HTTPException(status_code=404, detail="Driver not found")
     return Driver(**result)

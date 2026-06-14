@@ -14,6 +14,7 @@ dependencies = [
 	"pymongo",
 	"pydantic",
 	"pydantic-settings",
+	"email-validator",
 	"python-multipart",
 	"quixportal",
 	"quixstreams",

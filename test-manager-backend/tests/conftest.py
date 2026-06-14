@@ -176,8 +176,12 @@ def create_driver(client: TestClient) -> DriverFactory:
     """Helper fixture to create a Driver for testing."""
 
     def _create_driver(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        name = kwargs.get("name", "Test Driver")
+        slug = name.lower().replace(" ", ".")
         input_data = {
-            "name": "Test Driver",
+            "name": name,
+            "email": f"{slug}@example.com",
+            "company": "Test Co",
         }
         input_data.update(kwargs)
         response = client.post("/api/v1/drivers", json=input_data)

@@ -3,7 +3,7 @@ from typing import Any, Generic, Literal, TypeVar
 from enum import Enum
 from math import ceil
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from .utils import now
 
@@ -379,24 +379,51 @@ class DeploymentInfo(BaseModel):
 
 
 class Driver(BaseModel):
-    """Represents a driver (operator) in the system."""
+    """Represents a driver (operator) in the system.
+
+    `email`/`company` are optional on the read model so drivers created before
+    these fields existed still validate on list/get.
+    """
 
     driver_id: str = Field(..., alias="_id")
     name: str
+    email: str | None = None
+    company: str | None = None
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
 
 
 class DriverCreate(BaseModel):
-    """Request model for creating a Driver. ID is auto-generated."""
+    """Request model for creating a Driver. ID is auto-generated.
 
-    name: str = Field(..., min_length=1, description="Driver name")
+    `name` is the lake identity and is locked after create (no rename via
+    `DriverUpdate`). `email`/`company` are required.
+    """
+
+    name: str = Field(..., min_length=1, max_length=100, description="Driver name")
+    email: EmailStr = Field(..., max_length=254)
+    company: str = Field(..., min_length=1, max_length=200)
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        """Store emails lowercased so uniqueness is case-insensitive."""
+        return v.lower()
 
 
 class DriverUpdate(BaseModel):
-    """Request model for updating a Driver."""
+    """Request model for updating a Driver.
 
-    name: str | None = Field(default=None, min_length=1)
+    Name is intentionally absent — it is the lake identity and cannot change.
+    """
+
+    email: EmailStr | None = Field(default=None, max_length=254)
+    company: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, v: str | None) -> str | None:
+        return v.lower() if v is not None else v
 
 
 class DriverQuery(PaginationParams):
