@@ -1075,6 +1075,13 @@ body.chat-gesturing * {
    * #222229 assistant bubbles + cards stand out instead of blending in. */
   background: var(--color-bg, #1a1a1b);
 }
+/* Flex children default to flex-shrink:1, so in this fixed-height scroller they
+ * COMPRESS to fit when content overflows — expanding one tool card squished the
+ * others into slivers and clipped the open one. Pin natural height; let the
+ * container scroll instead. */
+#chat-messages > * {
+  flex-shrink: 0;
+}
 
 .chat-msg {
   word-break: break-word;
