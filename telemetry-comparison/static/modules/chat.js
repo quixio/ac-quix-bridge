@@ -19,7 +19,8 @@ import { renderMarkdown } from './markdown.js';
 import { formatStatus } from './thinking-messages.js';
 
 let _sessionId = null;
-let _activeAnswer = null; // current accumulating assistant bubble
+let _turn = null; // current assistant turn container — all prose + tool/env cards for one reply
+let _activeAnswer = null; // current accumulating text segment inside _turn
 let _sending = false;
 let _abortController = null; // aborts the in-flight /api/chat stream on new-session
 let _statusKey = null; // raw status key currently shown; re-roll label only when it changes
@@ -72,6 +73,34 @@ function _addMessage(role, text) {
   list.appendChild(div);
   _scrollBottom(list);
   return div;
+}
+
+// Lazily open the current assistant-turn container. All of one reply's prose +
+// tool cards + env blocks live inside it, mirroring native's single message
+// block. Reset to null on submit / new-session so the next reply starts fresh.
+function _ensureTurn() {
+  if (_turn && _turn.isConnected) return _turn;
+  const list = document.getElementById('chat-messages');
+  if (!list) return null;
+  _turn = document.createElement('div');
+  _turn.className = 'chat-msg chat-msg-assistant';
+  list.appendChild(_turn);
+  _scrollBottom(list);
+  return _turn;
+}
+
+// Append/continue a markdown text segment inside the current turn. answer_break
+// nulls _activeAnswer so the next delta starts a new segment in the same turn.
+function _assistantText(text) {
+  const turn = _ensureTurn();
+  if (!turn) return;
+  if (!_activeAnswer) {
+    _activeAnswer = document.createElement('div');
+    _activeAnswer.className = 'chat-asst-text';
+    turn.appendChild(_activeAnswer);
+  }
+  _activeAnswer.dataset.raw = (_activeAnswer.dataset.raw || '') + text;
+  _scheduleRender(_activeAnswer);
 }
 
 function _showProgress(label) {
@@ -178,12 +207,12 @@ function _buildToolCard(label, toolName) {
 }
 
 function _addToolCard(toolCallId, label, toolName) {
-  const list = document.getElementById('chat-messages');
-  if (!list) return;
+  const turn = _ensureTurn();
+  if (!turn) return;
   const { cardEl, record } = _buildToolCard(label, toolName);
-  list.appendChild(cardEl);
+  turn.appendChild(cardEl);
   _toolCards.set(toolCallId, record);
-  _scrollBottom(list);
+  _scrollBottom(document.getElementById('chat-messages'));
 }
 
 function _finalizeToolArgs(c) {
@@ -241,8 +270,8 @@ function _nestCardLine(c, className, text, prompt) {
 // by toolUseId, command/file lines, prose, status), and a summary footer.
 
 function _startEnvAgent(evt) {
-  const list = document.getElementById('chat-messages');
-  if (!list) return;
+  const turn = _ensureTurn();
+  if (!turn) return;
   const root = document.createElement('div');
   root.className = 'chat-env-agent chat-env-running';
 
@@ -274,7 +303,7 @@ function _startEnvAgent(evt) {
   }
 
   root.append(head, body);
-  list.appendChild(root);
+  turn.appendChild(root);
   _envAgents.set(evt.agent_id, {
     root,
     body,
@@ -284,7 +313,7 @@ function _startEnvAgent(evt) {
     n: 0,
     lastText: null,
   });
-  _scrollBottom(list);
+  _scrollBottom(document.getElementById('chat-messages'));
 }
 
 function _envAgentActivity(evt) {
@@ -429,15 +458,10 @@ function _handleEvent(evt) {
       }
       _showProgress(_statusLabel);
       break;
-    case 'answer_delta': {
+    case 'answer_delta':
       _hideProgress();
-      if (!_activeAnswer) {
-        _activeAnswer = _addMessage('assistant', '');
-      }
-      _activeAnswer.dataset.raw = (_activeAnswer.dataset.raw || '') + evt.text;
-      _scheduleRender(_activeAnswer);
+      _assistantText(evt.text);
       break;
-    }
     case 'answer_break':
       _activeAnswer = null;
       break;
@@ -472,8 +496,15 @@ function _handleEvent(evt) {
     case 'clarify': {
       _hideProgress();
       _activeAnswer = null;
-      const msg = _addMessage('assistant', evt.question);
-      if (msg) _addClarifyChips(evt.options || [], msg);
+      const turn = _ensureTurn();
+      // Render once (sync) + chips — not via _scheduleRender, whose async
+      // innerHTML rewrite would wipe the appended chip buttons.
+      const msg = document.createElement('div');
+      msg.className = 'chat-asst-text';
+      msg.innerHTML = renderMarkdown(evt.question);
+      if (turn) turn.appendChild(msg);
+      _addClarifyChips(evt.options || [], msg);
+      _scrollBottom(document.getElementById('chat-messages'));
       break;
     }
     case 'plot':
@@ -506,6 +537,7 @@ async function _submit() {
   _refreshSendDisabled();
 
   _activeAnswer = null;
+  _turn = null; // next assistant reply opens a fresh turn block
   _toolCards.clear();
   _envAgents.clear();
   _stick = true; // a fresh user message should always scroll into view
@@ -551,6 +583,7 @@ export function newChatSession() {
   _sessionId = null;
   _sending = false;
   _activeAnswer = null;
+  _turn = null;
   _statusKey = null;
   _statusLabel = '';
   _toolCards.clear();

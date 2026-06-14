@@ -1096,14 +1096,24 @@ body.chat-gesturing * {
   background: rgba(0, 100, 255, 0.12);
 }
 
-/* Assistant: left-aligned surface box, sized to content. */
+/* Assistant TURN: one surface box per reply, holding all prose segments +
+ * tool cards + env blocks (native groups a whole reply in one block). Full
+ * width of the list; children carry their own side insets. */
 .chat-msg-assistant {
-  align-self: flex-start;
-  max-width: 80%;
-  width: fit-content;
-  padding: 8px 14px;
+  align-self: stretch;
+  padding: 8px 0;
   border-radius: 8px;
   background: var(--color-surface, #222229);
+}
+.chat-asst-text {
+  padding: 4px 16px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.chat-msg-assistant > .chat-tool-card,
+.chat-msg-assistant > .chat-env-agent {
+  align-self: auto;
+  margin: 6px 16px;
 }
 
 .chat-msg-assistant-status {

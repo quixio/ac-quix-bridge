@@ -74,7 +74,7 @@ describe('chat.js JSONL handling', () => {
     expect(bubbles[0].textContent).toBe('Hello world.');
   });
 
-  it('answer_break splits prose into two bubbles', async () => {
+  it('answer_break splits prose into two segments within one assistant turn', async () => {
     _stubFetch([
       { event: 'answer_delta', session_id: 's', text: 'Pre.' },
       { event: 'answer_break', session_id: 's' },
@@ -85,8 +85,9 @@ describe('chat.js JSONL handling', () => {
     _typeAndSend('q');
     await _flush();
 
-    const bubbles = document.querySelectorAll('.chat-msg-assistant');
-    expect(bubbles).toHaveLength(2);
+    const turns = document.querySelectorAll('.chat-msg-assistant');
+    expect(turns).toHaveLength(1);
+    expect(turns[0].querySelectorAll('.chat-asst-text')).toHaveLength(2);
   });
 
   it('plot event calls applyPlotPlan', async () => {
@@ -400,12 +401,14 @@ describe('chat.js JSONL handling', () => {
     _typeAndSend('lap times');
     await _flush();
 
-    const cards = document.querySelectorAll('#chat-messages .chat-tool-card');
-    const bubbles = document.querySelectorAll('#chat-messages .chat-msg-assistant');
-    // Is the card still in the DOM after the final prose render?
+    // One assistant turn holds both prose segments + the tool card (grouped,
+    // like native) — the card is not removed by the later prose render.
+    const turns = document.querySelectorAll('#chat-messages .chat-msg-assistant');
+    expect(turns.length).toBe(1);
+    const cards = turns[0].querySelectorAll('.chat-tool-card');
     expect(cards.length).toBe(1);
     expect(cards[0].querySelector('.chat-tool-head').textContent).toBe('Run query');
-    expect(bubbles.length).toBe(2); // "Querying now." + "Done..."
+    expect(turns[0].querySelectorAll('.chat-asst-text').length).toBe(2);
   });
 
   it('new-chat button clears messages and starts a fresh session', async () => {
