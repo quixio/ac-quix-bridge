@@ -121,6 +121,8 @@ deployments:
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
+    network:
+      serviceName: dynamic-configuration-manager
     configuration:
       topic: ac-telemetry-config
       mongoHost: mongodb
