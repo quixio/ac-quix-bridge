@@ -3,13 +3,16 @@
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response
 from pymongo.database import Database
 
+from shared.post_race_ai.pdf import render_analysis_pdf
 from shared.post_race_ai.runner import BatchAnalysisAI
 from ..auth import bearer_from_request, read_permission, update_permission
 from ..models import Analysis, AnalysisCreate
@@ -115,6 +118,33 @@ def get_analysis(
         raise HTTPException(status_code=404, detail="Analysis not found")
     logger.debug("[analyses] GET %s", analysis_id)
     return Analysis(**doc)
+
+
+@router.get("/analyses/{analysis_id}/pdf")
+def get_analysis_pdf(
+    analysis_id: str,
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    _: None = Depends(read_permission),
+) -> Response:
+    """Render a completed analysis to a PDF (manual download; reused by F4)."""
+    doc = mongo.analyses.find_one({"_id": analysis_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    analysis = Analysis(**doc)
+    if analysis.status != "complete":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Analysis not complete (status={analysis.status})",
+        )
+    pdf = render_analysis_pdf(analysis)
+    safe_test_id = re.sub(r"[^A-Za-z0-9._-]", "_", analysis.test_id)
+    filename = f"analysis-{safe_test_id}-{analysis_id[:8]}.pdf"
+    logger.info("[analyses] GET %s/pdf -> %d bytes", analysis_id, len(pdf))
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/analyses")

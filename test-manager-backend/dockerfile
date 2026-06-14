@@ -9,8 +9,11 @@ ARG MAINAPPPATH=.
 
 WORKDIR /app
 
-# Install system dependencies for healthcheck
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# System deps: curl (healthcheck) + Pango for WeasyPrint PDF rendering
+# (libpango pulls cairo/freetype/fontconfig/dejavu transitively).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	curl libpango-1.0-0 libpangoft2-1.0-0 \
+	&& rm -rf /var/lib/apt/lists/*
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

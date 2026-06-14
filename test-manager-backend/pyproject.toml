@@ -22,6 +22,8 @@ dependencies = [
 	"httpx",
 	"mcp>=1.27",
 	"asgi-correlation-id>=4.3.4",
+	"weasyprint",
+	"markdown",
 ]
 
 [dependency-groups]

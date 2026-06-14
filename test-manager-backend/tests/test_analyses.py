@@ -379,6 +379,46 @@ def test_triggered_by_invalid_rejected(
     assert resp.status_code == 422
 
 
+# --- Routes: GET /api/v1/analyses/{id}/pdf (F2) --------------------------- #
+
+
+def _insert_analysis(status: str = "complete", analysis_id: str = "a-pdf-1") -> str:
+    """Insert an analysis doc straight into Mongo and return its id."""
+    from api.mongo import get_mongo
+
+    now = datetime.now(timezone.utc)
+    doc = Analysis(
+        _id=analysis_id,
+        test_id="TST-0001",
+        session_id="2026-01-01T00:00:00Z",
+        status=status,  # type: ignore[arg-type]
+        summary_md="## Summary\n\npace ok",
+        created_at=now,
+        updated_at=now,
+    )
+    get_mongo().analyses.insert_one(doc.model_dump(by_alias=True))
+    return analysis_id
+
+
+def test_pdf_endpoint_returns_pdf_for_complete(client: TestClient) -> None:
+    analysis_id = _insert_analysis(status="complete")
+    resp = client.get(f"/api/v1/analyses/{analysis_id}/pdf")
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content[:4] == b"%PDF"
+
+
+def test_pdf_endpoint_409_when_incomplete(client: TestClient) -> None:
+    analysis_id = _insert_analysis(status="pending", analysis_id="a-pdf-2")
+    resp = client.get(f"/api/v1/analyses/{analysis_id}/pdf")
+    assert resp.status_code == 409
+
+
+def test_pdf_endpoint_404_when_missing(client: TestClient) -> None:
+    resp = client.get("/api/v1/analyses/does-not-exist/pdf")
+    assert resp.status_code == 404
+
+
 # --- Routes: GET /api/v1/analyses/{id} ------------------------------------ #
 
 
