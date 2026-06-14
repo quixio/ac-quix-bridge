@@ -93,13 +93,13 @@ export default function TestDetailPage() {
     try {
       const updated = await testsApi.activate(testId);
       toast({
-        title: "Test activated",
+        title: "Test reactivated",
         description: `${testId} is now the active config (v${updated.config_version}).`,
       });
       refetch();
     } catch (error) {
       toast({
-        title: "Error activating test",
+        title: "Error reactivating test",
         description:
           error instanceof Error ? error.message : "An error occurred",
         variant: "destructive",
@@ -210,7 +210,7 @@ export default function TestDetailPage() {
                 data-testid="activate-test"
               >
                 <Zap className="mr-2 h-4 w-4" />
-                {isActivating ? "Activating..." : "Activate"}
+                {isActivating ? "Reactivating..." : "Reactivate"}
               </Button>
               <NavigationButton
                 variant="outline"

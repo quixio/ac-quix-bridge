@@ -361,7 +361,7 @@ test.describe("Activate and dirty-check", () => {
     const before = await request.get(apiUrl).then((r) => r.json());
 
     await page.getByTestId("activate-test").click();
-    await waitForToast(page, "Test activated");
+    await waitForToast(page, "Test reactivated");
 
     const after = await request.get(apiUrl).then((r) => r.json());
     expect(after.config_version).toBe(before.config_version + 1);
@@ -434,10 +434,10 @@ test.describe("Activate and dirty-check", () => {
 
     // Simulate a busy session: two activates to pile orphans.
     await page.getByTestId("activate-test").click();
-    await waitForToast(page, "Test activated");
+    await waitForToast(page, "Test reactivated");
     await page.waitForTimeout(300);
     await page.getByTestId("activate-test").click();
-    await waitForToast(page, "Test activated");
+    await waitForToast(page, "Test reactivated");
 
     // Edit → change requirements → save (creates another version).
     await page.getByRole("link", { name: /Edit Test/ }).click();
