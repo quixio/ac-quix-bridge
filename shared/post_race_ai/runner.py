@@ -38,9 +38,11 @@ class BatchAnalysisAI:
 
     Construction takes the mongo handle and (optionally) the Quix.AI config.
     When portal_url / agent_id / workspace_id / quix_token are None, they are
-    read from `Quix__Portal__Api` / `QUIX_AI_POST_RACE_AGENT_ID` /
-    `Quix__Workspace__Id` / `QUIX_TOKEN` env vars at `run()` time — convenient
-    for in-cluster callers where Quix auto-injects those.
+    read from `Quix__Portal__Api` / `POST_RACE_AGENT_ID` /
+    `Quix__Workspace__Id` / `PAT_TOKEN` env vars at `run()` time. The `Quix__*`
+    vars are auto-injected in-cluster; `POST_RACE_AGENT_ID` / `PAT_TOKEN` are
+    project variables (PAT_TOKEN is a user PAT — the service-account SDK token
+    cannot use Quix AI).
     """
 
     def __init__(
@@ -130,13 +132,13 @@ class BatchAnalysisAI:
         return url.rstrip("/")
 
     def _resolved_agent_id(self) -> str:
-        return self._agent_id or os.environ["QUIX_AI_POST_RACE_AGENT_ID"]
+        return self._agent_id or os.environ["POST_RACE_AGENT_ID"]
 
     def _resolved_workspace_id(self) -> str:
         return self._workspace_id or os.environ["Quix__Workspace__Id"]
 
     def _resolved_quix_token(self) -> str:
-        return self._quix_token or os.environ["QUIX_TOKEN"]
+        return self._quix_token or os.environ["PAT_TOKEN"]
 
     def _auth_headers(self) -> dict[str, str]:
         return {

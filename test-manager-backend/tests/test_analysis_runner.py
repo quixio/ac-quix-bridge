@@ -39,8 +39,8 @@ def mock_quix_ai(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
     """Force the runner to use the canonical PORTAL URL in tests."""
     monkeypatch.setenv("Quix__Portal__Api", PORTAL)
     monkeypatch.setenv("Quix__Workspace__Id", "ws-test")
-    monkeypatch.setenv("QUIX_AI_POST_RACE_AGENT_ID", "agent-test")
-    monkeypatch.setenv("QUIX_TOKEN", "test-pat-12345")
+    monkeypatch.setenv("POST_RACE_AGENT_ID", "agent-test")
+    monkeypatch.setenv("PAT_TOKEN", "test-pat-12345")
     yield
 
 

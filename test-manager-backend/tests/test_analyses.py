@@ -258,7 +258,7 @@ def test_post_analysis_spawns_runner_when_quix_ai_configured(
     """When Quix.AI env is set, endpoint must schedule BatchAnalysisAI.run on the
     event loop and return 202 — not crash with RuntimeError: no running event loop."""
     monkeypatch.setenv("Quix__Portal__Api", "https://portal.example")
-    monkeypatch.setenv("QUIX_AI_POST_RACE_AGENT_ID", "agent-xyz")
+    monkeypatch.setenv("POST_RACE_AGENT_ID", "agent-xyz")
 
     called = {"ran": False}
 

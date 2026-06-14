@@ -251,17 +251,6 @@ deployments:
         inputType: FreeText
         required: true
         value: http://dynamic-configuration-manager
-      - name: Quix__Lakehouse__Query__Url
-        inputType: FreeText
-        description: Base URL of the Quix Lakehouse Query API (e.g. https://lh-ui-<workspace>.edge.byox.demo)
-        required: true
-        value: LAKE_API_URL
-      - name: Quix__Lakehouse__Query__AuthToken
-        inputType: ProjectVariable
-        description: PAT for the Quix Lakehouse Query API
-        required: true
-        secret: true
-        variableKey: quix_lake_pat
       - name: LAKE_TABLE
         inputType: FreeText
         description: Lake table the leaderboard queries (e.g. ac_telemetry, ac_telemetry_leaderboard)
@@ -288,9 +277,22 @@ deployments:
         inputType: FreeText
         description: Number of checkpoint gates the lap is split into for live sector comparison.
         value: 650
-      - name: Quix__Portal__Api
-        inputType: FreeText
-        value: https://portal-api.dev.quix.io
+      - name: POST_RACE_AGENT_ID
+        inputType: ProjectVariable
+        description: Agent configuration ID of the Post-Race Analyzer agent. Per-environment project variable — each portal (dev/byox) holds its own agent GUID. Empty disables the AI summary runner.
+        variableKey: POST_RACE_AGENT_ID
+      - name: PAT_TOKEN
+        inputType: ProjectVariable
+        description: User-scoped Personal Access Token authenticating Quix.AI agent sessions for the post-race summary runner. Required for the headless/auto-trigger path — the workspace service-account SDK token cannot use Quix AI.
+        required: true
+        secret: true
+        variableKey: PAT_TOKEN
+      - name: TESTMANAGER_MCP_API_KEY
+        inputType: ProjectVariable
+        description: X-API-Key gating the Test Manager /mcp endpoint. Must match the key registered for this MCP server on the Quix.AI agent(s).
+        required: true
+        secret: true
+        variableKey: TESTMANAGER_MCP_API_KEY
   - name: Test Manager - Frontend
     group: Test Manager
     application: test-manager-frontend

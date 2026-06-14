@@ -20,16 +20,6 @@ variables:
     inputType: FreeText
     multiline: false
     required: true
-  - name: Quix__Lakehouse__Query__Url
-    inputType: FreeText
-    multiline: false
-    description: Base URL of the Quix Lakehouse Query API (e.g. https://lh-ui-<workspace>.edge.byox.demo)
-    required: true
-  - name: Quix__Lakehouse__Query__AuthToken
-    inputType: Secret
-    multiline: false
-    description: PAT for the Quix Lakehouse Query API
-    required: true
   - name: LAKE_TABLE
     inputType: FreeText
     multiline: false
@@ -63,10 +53,6 @@ variables:
     multiline: false
     defaultValue: "650"
     description: Number of checkpoint gates the lap is split into for live sector comparison.
-  - name: Quix__Portal__Api
-    inputType: FreeText
-    multiline: false
-    defaultValue: https://portal-api.dev.quix.io
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

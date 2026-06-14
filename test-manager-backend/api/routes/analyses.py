@@ -72,7 +72,7 @@ async def create_analysis(
 
     # Spawn the async runner only when Quix.AI is configured. In tests the env
     # var is unset so the doc stays in `pending` (matches Phase 3 contract).
-    if os.getenv("Quix__Portal__Api") and os.getenv("QUIX_AI_POST_RACE_AGENT_ID"):
+    if os.getenv("Quix__Portal__Api") and os.getenv("POST_RACE_AGENT_ID"):
         analyzer = BatchAnalysisAI(mongo)
         task = asyncio.create_task(
             analyzer.run(
@@ -86,7 +86,7 @@ async def create_analysis(
     else:
         logger.warning(
             "[analyses] runner not started — Quix__Portal__Api or "
-            "QUIX_AI_POST_RACE_AGENT_ID unset (test or misconfig)"
+            "POST_RACE_AGENT_ID unset (test or misconfig)"
         )
     return {"analysis_id": analysis_id}
 
