@@ -33,7 +33,7 @@ import os
 
 import httpx
 
-from _common import portal, token
+from _common import ca_verify, portal, token
 
 POST_RACE_AGENT_ID = "350c788d-d25f-4aea-a78c-61ebab32b059"
 TRUNC = 600
@@ -180,7 +180,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    with httpx.Client(base_url=portal(), headers=_headers(), timeout=60.0) as client:
+    with httpx.Client(
+        base_url=portal(), headers=_headers(), timeout=60.0, verify=ca_verify()
+    ) as client:
         if args.last:
             sid = _resolve_last(client, args.agent)
         elif args.session_id:
