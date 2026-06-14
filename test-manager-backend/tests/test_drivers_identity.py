@@ -6,8 +6,10 @@ Name is the lake identity, so it is locked after create. Email/company are
 required on create and updatable; name is not updatable.
 """
 
+import logging
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.mongo import (
@@ -188,16 +190,22 @@ def test_update_duplicate_email_conflicts(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_backfill_sets_name_key_on_legacy_docs(client: TestClient) -> None:
+def test_backfill_sets_name_key_on_legacy_docs(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
     db = get_mongo()
     db.drivers.insert_one({"_id": "DRV-9001", "name": "Petr Čech"})
 
-    updated = backfill_driver_name_keys(db)
+    with caplog.at_level(logging.INFO, logger="api.mongo"):
+        updated = backfill_driver_name_keys(db)
 
     assert updated == 1
     doc = db.drivers.find_one({"_id": "DRV-9001"})
     assert doc is not None
     assert doc["name_key"] == "petr cech"
+    # the backfill logs which driver got keyed (verifiable via `quix logs`)
+    assert "DRV-9001" in caplog.text
+    assert "petr cech" in caplog.text
 
 
 def test_backfill_is_idempotent(client: TestClient) -> None:
@@ -219,12 +227,16 @@ def test_backfill_leaves_existing_name_key_untouched(client: TestClient) -> None
     assert db.drivers.find_one({"_id": "DRV-9002"})["name_key"] == "needs key"
 
 
-def test_backfill_skips_docs_without_a_name(client: TestClient) -> None:
+def test_backfill_skips_docs_without_a_name(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
     db = get_mongo()
     db.drivers.insert_one({"_id": "DRV-9001"})  # no name, no name_key
 
-    assert backfill_driver_name_keys(db) == 0
+    with caplog.at_level(logging.WARNING, logger="api.mongo"):
+        assert backfill_driver_name_keys(db) == 0
     assert "name_key" not in db.drivers.find_one({"_id": "DRV-9001"})
+    assert "DRV-9001" in caplog.text  # the skip is surfaced as a warning
 
 
 def test_ensure_indexes_degrades_on_duplicate_name_key(client: TestClient) -> None:

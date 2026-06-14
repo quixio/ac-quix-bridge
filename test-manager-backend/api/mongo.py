@@ -24,11 +24,17 @@ def backfill_driver_name_keys(db: Database[dict[str, Any]]) -> int:
     for doc in db.drivers.find({"name_key": {"$exists": False}}):
         name = doc.get("name")
         if name:
+            key = driver_name_key(name)
             db.drivers.update_one(
                 {"_id": doc["_id"]},
-                {"$set": {"name_key": driver_name_key(name)}},
+                {"$set": {"name_key": key}},
             )
+            logger.info("✓ backfilled name_key for %s: %r → %r", doc["_id"], name, key)
             updated += 1
+        else:
+            logger.warning("skipping driver %s: no name, name_key not set", doc["_id"])
+    if updated:
+        logger.info("✓ driver name_key backfill complete — %d updated", updated)
     return updated
 
 
