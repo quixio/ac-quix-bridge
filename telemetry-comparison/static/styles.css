@@ -1071,6 +1071,9 @@ body.chat-gesturing * {
   gap: 8px;
   font-size: 0.875rem;
   line-height: 1.4;
+  /* Messages area = native bg-primary (darker than the #222229 chrome) so the
+   * #222229 assistant bubbles + cards stand out instead of blending in. */
+  background: var(--color-bg, #1a1a1b);
 }
 
 .chat-msg {
