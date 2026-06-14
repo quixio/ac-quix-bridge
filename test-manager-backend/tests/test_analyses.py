@@ -277,6 +277,108 @@ def test_post_analysis_spawns_runner_when_quix_ai_configured(
     assert response.status_code == 202, response.text
 
 
+# --- Routes: triggered_by + per-request token forwarding (F6) -------------- #
+
+
+def _enable_quix_ai(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("Quix__Portal__Api", "https://portal.example")
+    monkeypatch.setenv("POST_RACE_AGENT_ID", "agent-xyz")
+
+
+def _capture_runner_token(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    """Patch BatchAnalysisAI so the runner never really runs; capture the
+    quix_token the endpoint constructs it with."""
+    captured: dict[str, object] = {}
+
+    def _init(self, mongo, **kwargs):  # type: ignore[no-untyped-def]
+        captured["quix_token"] = kwargs.get("quix_token")
+        self._mongo = mongo
+
+    async def _run(self, **kwargs):  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr(
+        "shared.post_race_ai.runner.BatchAnalysisAI.__init__", _init, raising=True
+    )
+    monkeypatch.setattr(
+        "shared.post_race_ai.runner.BatchAnalysisAI.run", _run, raising=True
+    )
+    return captured
+
+
+def test_manual_forwards_user_bearer(
+    client: TestClient, create_test: TestFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Manual analyze (default) forwards the caller's bearer to the runner."""
+    _enable_quix_ai(monkeypatch)
+    captured = _capture_runner_token(monkeypatch)
+    test_id, session_id = _create_test_with_session(client, create_test)
+
+    resp = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": session_id},
+        headers={"Authorization": "Bearer user-tok"},
+    )
+    assert resp.status_code == 202, resp.text
+    assert captured["quix_token"] == "user-tok"
+
+
+def test_auto_ignores_bearer_uses_pat_fallback(
+    client: TestClient, create_test: TestFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Auto-triggered analyze ignores the request bearer (the trigger's service
+    token) so the runner falls back to PAT_TOKEN."""
+    _enable_quix_ai(monkeypatch)
+    captured = _capture_runner_token(monkeypatch)
+    test_id, session_id = _create_test_with_session(client, create_test)
+
+    resp = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": session_id, "triggered_by": "auto"},
+        headers={"Authorization": "Bearer service-tok"},
+    )
+    assert resp.status_code == 202, resp.text
+    assert captured["quix_token"] is None
+
+
+def test_manual_without_bearer_falls_back(
+    client: TestClient, create_test: TestFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _enable_quix_ai(monkeypatch)
+    captured = _capture_runner_token(monkeypatch)
+    test_id, session_id = _create_test_with_session(client, create_test)
+
+    resp = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": session_id},
+    )
+    assert resp.status_code == 202, resp.text
+    assert captured["quix_token"] is None
+
+
+def test_triggered_by_defaults_manual_and_roundtrips(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    test_id, session_id = _create_test_with_session(client, create_test)
+    created = client.post(
+        "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
+    ).json()
+
+    doc = client.get(f"/api/v1/analyses/{created['analysis_id']}").json()
+    assert doc["triggered_by"] == "manual"
+
+
+def test_triggered_by_invalid_rejected(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    test_id, session_id = _create_test_with_session(client, create_test)
+    resp = client.post(
+        "/api/v1/analyses",
+        json={"test_id": test_id, "session_id": session_id, "triggered_by": "bogus"},
+    )
+    assert resp.status_code == 422
+
+
 # --- Routes: GET /api/v1/analyses/{id} ------------------------------------ #
 
 

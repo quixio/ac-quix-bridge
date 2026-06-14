@@ -2,9 +2,44 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
-from api.auth import auth, validate_token, update_permission, read_permission
+from api.auth import (
+    auth,
+    bearer_from_request,
+    extract_token,
+    read_permission,
+    update_permission,
+    validate_token,
+)
 from api.settings import Settings
+
+
+@pytest.mark.parametrize(
+    "header,expected",
+    [
+        ("Bearer abc", "abc"),
+        ("bearer abc", "abc"),
+        ("rawtoken", "rawtoken"),  # auth.py also accepts a bare token
+        (None, None),
+        ("", None),
+    ],
+)
+def test_extract_token(header: str | None, expected: str | None) -> None:
+    assert extract_token(header) == expected
+
+
+def _request_with_auth(value: str | None) -> Request:
+    headers = [(b"authorization", value.encode())] if value is not None else []
+    return Request({"type": "http", "headers": headers})
+
+
+def test_bearer_from_request_present() -> None:
+    assert bearer_from_request(_request_with_auth("Bearer xyz")) == "xyz"
+
+
+def test_bearer_from_request_absent() -> None:
+    assert bearer_from_request(_request_with_auth(None)) is None
 
 
 def _make_request(path: str = "/api/v1/tests") -> Mock:

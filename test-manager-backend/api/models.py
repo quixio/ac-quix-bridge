@@ -672,6 +672,7 @@ class Analysis(BaseModel):
     schema_version: int = 2  # v2 introduces optional session_id (null = test-wide)
     test_id: str
     session_id: str | None  # null on test-wide rows
+    triggered_by: Literal["manual", "auto"] | None = None  # who initiated the run
     status: Literal[
         "pending",
         "running",
@@ -716,6 +717,8 @@ class AnalysisCreate(BaseModel):
 
     test_id: str = Field(..., min_length=1)
     session_id: str | None = None
+    # manual = forward the caller's bearer (attribution); auto = use PAT_TOKEN.
+    triggered_by: Literal["manual", "auto"] = "manual"
 
 
 class AnalysisListQuery(PaginationParams):

@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from pymongo.database import Database
 
 from shared.post_race_ai.runner import BatchAnalysisAI
-from ..auth import read_permission, update_permission
+from ..auth import bearer_from_request, read_permission, update_permission
 from ..models import Analysis, AnalysisCreate
 from ..mongo import get_mongo
 
@@ -34,6 +34,7 @@ _RUNNING_TASKS: set[asyncio.Task[None]] = set()
     },
 )
 async def create_analysis(
+    request: Request,
     payload: AnalysisCreate = Body(...),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     _: None = Depends(update_permission),
@@ -58,6 +59,7 @@ async def create_analysis(
         _id=analysis_id,
         test_id=payload.test_id,
         session_id=payload.session_id,
+        triggered_by=payload.triggered_by,
         status="pending",
         created_at=now,
         updated_at=now,
@@ -73,7 +75,16 @@ async def create_analysis(
     # Spawn the async runner only when Quix.AI is configured. In tests the env
     # var is unset so the doc stays in `pending` (matches Phase 3 contract).
     if os.getenv("Quix__Portal__Api") and os.getenv("POST_RACE_AGENT_ID"):
-        analyzer = BatchAnalysisAI(mongo)
+        # Manual: attribute the Quix.AI session to the clicking user by
+        # forwarding their bearer. Auto (Kafka trigger): no user — the runner
+        # falls back to PAT_TOKEN. (The auto POST's own bearer is a service
+        # token that cannot use Quix AI, so it must NOT be forwarded.)
+        # TODO(F3): triggered_by is caller-supplied — gate "auto" to the
+        # trigger service so a user can't opt into the admin PAT.
+        bearer = (
+            bearer_from_request(request) if payload.triggered_by == "manual" else None
+        )
+        analyzer = BatchAnalysisAI(mongo, quix_token=bearer)
         task = asyncio.create_task(
             analyzer.run(
                 analysis_id=analysis_id,
