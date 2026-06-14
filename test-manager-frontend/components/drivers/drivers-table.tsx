@@ -79,6 +79,36 @@ export const DriversTable = memo(function DriversTable({
         cell: ({ row }) => row.getValue("name"),
       },
       {
+        accessorKey: "email",
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-3 h-8"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            Email
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        cell: ({ row }) => row.getValue<string | null>("email") ?? "—",
+      },
+      {
+        accessorKey: "company",
+        header: ({ column }) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-3 h-8"
+            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          >
+            Company
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        cell: ({ row }) => row.getValue<string | null>("company") ?? "—",
+      },
+      {
         accessorKey: "created_at",
         header: ({ column }) => (
           <Button

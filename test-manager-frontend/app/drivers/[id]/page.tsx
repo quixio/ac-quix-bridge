@@ -139,6 +139,14 @@ export default function DriverDetailPage() {
                 <p className="font-medium">{driver.name}</p>
               </div>
               <div>
+                <p className="text-sm text-muted-foreground">Email</p>
+                <p className="font-medium">{driver.email || "—"}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Company</p>
+                <p className="font-medium">{driver.company || "—"}</p>
+              </div>
+              <div>
                 <p className="text-sm text-muted-foreground">Created</p>
                 <p className="font-medium">{formatDate(driver.created_at)}</p>
               </div>

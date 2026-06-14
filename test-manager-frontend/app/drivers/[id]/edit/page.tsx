@@ -19,20 +19,29 @@ export default function EditDriverPage() {
   const driversApi = useDriversApi();
   const driverId = params.id as string;
   const { driver, loading } = useDriver(driverId);
-  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const canSubmit = !!email.trim() && !!company.trim();
+
   useEffect(() => {
-    if (driver) setName(driver.name);
+    if (driver) {
+      setEmail(driver.email ?? "");
+      setCompany(driver.company ?? "");
+    }
   }, [driver]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!canSubmit) return;
 
     try {
       setIsSubmitting(true);
-      await driversApi.update(driverId, { name: name.trim() });
+      await driversApi.update(driverId, {
+        email: email.trim(),
+        company: company.trim(),
+      });
 
       toast({
         title: "Driver Updated",
@@ -79,24 +88,45 @@ export default function EditDriverPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label>Driver ID</Label>
-                <Input value={driverId} disabled />
+                <Label htmlFor="name">Name</Label>
+                <Input id="name" value={driver?.name ?? ""} disabled />
+                <p className="text-sm text-muted-foreground">
+                  Permanent — can&apos;t be changed.
+                </p>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="name">Name *</Label>
+                <Label htmlFor="email">Email *</Label>
                 <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter driver name"
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="driver@example.com"
                   disabled={isSubmitting}
                   autoFocus
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="company">Company *</Label>
+                <Input
+                  id="company"
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
+                  placeholder="Enter company"
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              {!canSubmit && (
+                <p className="text-sm text-muted-foreground">
+                  Email and company are required to save.
+                </p>
+              )}
+
               <div className="flex gap-3 pt-4">
-                <Button type="submit" disabled={isSubmitting || !name.trim()}>
+                <Button type="submit" disabled={isSubmitting || !canSubmit}>
                   {isSubmitting ? "Saving..." : "Save Changes"}
                 </Button>
                 <Button

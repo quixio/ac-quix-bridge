@@ -15,15 +15,23 @@ export default function AddDriverPage() {
   const { toast } = useToast();
   const driversApi = useDriversApi();
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const canSubmit = !!name.trim() && !!email.trim() && !!company.trim();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!canSubmit) return;
 
     try {
       setIsSubmitting(true);
-      const created = await driversApi.create({ name: name.trim() });
+      const created = await driversApi.create({
+        name: name.trim(),
+        email: email.trim(),
+        company: company.trim(),
+      });
 
       toast({
         title: "Driver Created",
@@ -66,8 +74,31 @@ export default function AddDriverPage() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="email">Email *</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="driver@example.com"
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="company">Company *</Label>
+                <Input
+                  id="company"
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
+                  placeholder="Enter company"
+                  disabled={isSubmitting}
+                />
+              </div>
+
               <div className="flex gap-3 pt-4">
-                <Button type="submit" disabled={isSubmitting || !name.trim()}>
+                <Button type="submit" disabled={isSubmitting || !canSubmit}>
                   {isSubmitting ? "Creating..." : "Create Driver"}
                 </Button>
                 <Button

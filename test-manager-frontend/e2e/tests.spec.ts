@@ -209,13 +209,29 @@ test.describe("Tests Table Features", () => {
 });
 
 test.describe("Entity CRUD smokes", () => {
-  test("driver create and delete roundtrip", async ({ page }) => {
+  test("driver create, edit (name locked) and delete roundtrip", async ({
+    page,
+  }) => {
     const name = generateTestId("e2e-drv");
+    const email = `${name}@example.com`;
     await page.goto("/drivers/add");
     await page.locator("#name").fill(name);
+    await page.locator("#email").fill(email);
+    await page.locator("#company").fill("Acme");
     await page.getByRole("button", { name: "Create Driver" }).click();
     await page.waitForURL(/\/drivers\/DRV-\d+$/);
     await expect(page.getByRole("heading", { name })).toBeVisible();
+    await expect(page.getByText(email)).toBeVisible();
+    await expect(page.getByText("Acme")).toBeVisible();
+
+    // Edit: name is the lake identity and must be read-only; email/company editable.
+    await page.getByRole("button", { name: "Edit" }).click();
+    await page.waitForURL(/\/drivers\/DRV-\d+\/edit$/);
+    await expect(page.locator("#name")).toBeDisabled();
+    await page.locator("#company").fill("Globex");
+    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.waitForURL(/\/drivers\/DRV-\d+$/);
+    await expect(page.getByText("Globex")).toBeVisible();
 
     await page.getByRole("button", { name: "Delete" }).click();
     await expect(page.getByRole("alertdialog")).toBeVisible();
