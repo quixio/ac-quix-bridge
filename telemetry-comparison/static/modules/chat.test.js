@@ -314,6 +314,44 @@ describe('chat.js JSONL handling', () => {
     expect(card.classList.contains('chat-tool-done')).toBe(true);
   });
 
+  it('env_agent command nests inside its tool card by toolUseId (not a loose line)', async () => {
+    _stubFetch([
+      { event: 'env_agent_start', session_id: 's', agent_id: 'a1', workspace_id: 'ws-1' },
+      {
+        event: 'env_agent_activity',
+        session_id: 's',
+        agent_id: 'a1',
+        kind: 'tool_start',
+        data: { tool: 'Bash', displayName: 'Run command', toolUseId: 'u1' },
+      },
+      {
+        event: 'env_agent_activity',
+        session_id: 's',
+        agent_id: 'a1',
+        kind: 'command',
+        data: { command: 'ls -la', exitCode: 0, toolUseId: 'u1' },
+      },
+      {
+        event: 'env_agent_activity',
+        session_id: 's',
+        agent_id: 'a1',
+        kind: 'tool_result',
+        data: { toolUseId: 'u1', summary: 'files', isError: false },
+      },
+      { event: 'env_agent_end', session_id: 's', agent_id: 'a1', status: 'completed' },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('go deep');
+    await _flush();
+
+    const card = document.querySelector('.chat-env-agent .chat-tool-card');
+    expect(card).not.toBeNull();
+    // Command renders INSIDE the card (terminal line), not as a loose env body line.
+    expect(card.textContent).toContain('$ ls -la');
+    expect(document.querySelector('.chat-env-agent-body > .chat-env-cmd')).toBeNull();
+  });
+
   it('env_agent_end with failed status marks the block as failed', async () => {
     _stubFetch([
       { event: 'env_agent_start', session_id: 's', agent_id: 'a1', workspace_id: 'ws-1' },
@@ -332,6 +370,42 @@ describe('chat.js JSONL handling', () => {
 
     const block = document.querySelector('.chat-env-agent');
     expect(block.classList.contains('chat-env-failed')).toBe(true);
+  });
+
+  it('tool card stays in the DOM through a prose→tool→prose QUERY turn', async () => {
+    _stubFetch([
+      { event: 'status', session_id: 's', message: 'generating' },
+      { event: 'answer_delta', session_id: 's', text: 'Querying now. ' },
+      { event: 'answer_break', session_id: 's' },
+      {
+        event: 'tool_start',
+        session_id: 's',
+        tool_call_id: 't1',
+        tool_name: 'mcp__abc__run_query',
+        display_name: 'Run query',
+      },
+      { event: 'tool_args', session_id: 's', tool_call_id: 't1', delta: '{"sql":"SELECT 1"}' },
+      { event: 'tool_end', session_id: 's', tool_call_id: 't1' },
+      {
+        event: 'tool_result',
+        session_id: 's',
+        tool_call_id: 't1',
+        result: '1 row',
+        is_error: false,
+      },
+      { event: 'answer_delta', session_id: 's', text: 'Done. Lap 8 was fastest.' },
+    ]);
+    const { initChat } = await import('./chat.js');
+    initChat();
+    _typeAndSend('lap times');
+    await _flush();
+
+    const cards = document.querySelectorAll('#chat-messages .chat-tool-card');
+    const bubbles = document.querySelectorAll('#chat-messages .chat-msg-assistant');
+    // Is the card still in the DOM after the final prose render?
+    expect(cards.length).toBe(1);
+    expect(cards[0].querySelector('.chat-tool-head').textContent).toBe('Run query');
+    expect(bubbles.length).toBe(2); // "Querying now." + "Done..."
   });
 
   it('new-chat button clears messages and starts a fresh session', async () => {

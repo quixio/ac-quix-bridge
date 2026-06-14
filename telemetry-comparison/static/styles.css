@@ -945,16 +945,24 @@ body.chat-gesturing * {
 }
 
 #chat-panel {
-  /* Chat-scoped design tokens — mirror native Quix AI (variables.scss) so the
-   * embedded chat reads as the same product, without restyling the rest of the
-   * Explorer. Every chat rule consumes these via var(--color-*, fallback). */
-  --color-surface: #222229;
+  /* Chat-scoped design tokens — mirror native Quix AI (variables.scss) 1:1 so
+   * the embedded chat reads as the same product, without restyling the rest of
+   * the Explorer. Every chat rule consumes these via var(--color-*, fallback). */
+  --color-bg: #1a1a1b; /* assistant turn body / card details bg */
+  --color-surface: #222229; /* assistant bubble surface */
+  --color-head-bg: #2b2b34; /* card/header/footer fill (bg-input) */
+  --color-terminal: #0d1117; /* command/result terminal bg */
   --color-brd: rgba(255, 255, 255, 0.08);
+  --color-brd-light: rgba(255, 255, 255, 0.12);
+  --color-txt2: rgba(255, 255, 255, 0.7); /* secondary text */
   --color-muted: rgba(255, 255, 255, 0.5);
   --color-accent: #0064ff;
+  --color-accent-light: #008eff; /* running spinner / env-running border */
   --color-green: #00dd81;
   --color-red: #ff4040;
-  --color-head-bg: #2b2b34;
+  --color-orange: #ff7828;
+  --color-pending: color-mix(in srgb, #0064ff 70%, #00dd81 30%);
+  --mono: "IBM Plex Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
   color: #fff;
   font-family:
     "Inter",
@@ -1066,20 +1074,26 @@ body.chat-gesturing * {
 }
 
 .chat-msg {
-  padding: 8px 10px;
-  border-radius: 8px;
-  max-width: 85%;
   word-break: break-word;
 }
 
+/* User: right-aligned blue-tint bubble, native asymmetric radius. */
 .chat-msg-user {
-  background: rgba(99, 179, 237, 0.18);
   align-self: flex-end;
+  max-width: 85%;
+  padding: 12px 16px;
+  border-radius: 12px 4px 12px 12px;
+  background: rgba(0, 100, 255, 0.12);
 }
 
+/* Assistant: left-aligned surface box, sized to content. */
 .chat-msg-assistant {
-  background: rgba(255, 255, 255, 0.04);
   align-self: flex-start;
+  max-width: 80%;
+  width: fit-content;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--color-surface, #222229);
 }
 
 .chat-msg-assistant-status {
@@ -1325,14 +1339,14 @@ body[data-chat-mode="docked"] #chat-float-slot {
  * ============================================================================= */
 
 #chat-progress {
-  /* Render as a proper assistant bubble — same bg/padding/radius as a real
-   * .chat-msg-assistant (.chat-msg already gives padding + border-radius via
-   * its base rule). The italic muted look from .chat-msg-assistant-status
-   * is intentionally overridden here. */
-  background: rgba(255, 255, 255, 0.04);
+  /* Render as a proper assistant bubble. The per-role .chat-msg-* rules now
+   * carry padding/radius, so the status bubble sets its own here. */
+  background: var(--color-surface, #222229);
   color: var(--color-muted, #94a3b8);
   font-style: normal;
   align-self: flex-start;
+  padding: 8px 14px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1425,22 +1439,31 @@ body[data-chat-mode="docked"] #chat-float-slot {
  * flood the conversation. The whole border colour tracks state. No MCP badge. */
 .chat-tool-card {
   align-self: stretch;
-  border: 1px solid var(--color-brd, #3e3e46);
+  border: 1px solid var(--color-brd);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
   overflow: hidden;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
+  transition: border-color 0.4s ease;
+}
+.chat-tool-running {
+  border-color: var(--color-pending);
+}
+.chat-tool-error {
+  border-color: var(--color-red);
 }
 .chat-tool-head {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 10px;
-  background: var(--color-head-bg, #2b2b34);
-  color: var(--color-muted, #94a3b8);
+  padding: 8px 12px;
+  background: var(--color-head-bg);
+  color: var(--color-txt2);
   cursor: pointer;
   user-select: none;
+}
+.chat-tool-head:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 .chat-tool-indicator {
   flex: none;
@@ -1453,24 +1476,24 @@ body[data-chat-mode="docked"] #chat-float-slot {
 }
 .chat-tool-running .chat-tool-indicator::before {
   content: "";
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--color-accent, #0064ff);
-  border-top-color: transparent;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-brd-light);
+  border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: chat-spin 0.8s linear infinite;
 }
 .chat-tool-done .chat-tool-indicator::before {
   content: "✓";
-  color: var(--color-green, #00dd81);
+  color: var(--color-green);
 }
 .chat-tool-error .chat-tool-indicator::before {
   content: "✕";
-  color: var(--color-red, #ff4040);
+  color: var(--color-red);
 }
 .chat-tool-name {
   flex: 0 1 auto;
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
   color: #fff;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1479,8 +1502,8 @@ body[data-chat-mode="docked"] #chat-float-slot {
 .chat-tool-chevron {
   flex: none;
   margin-left: auto;
-  font-size: 0.7rem;
-  color: var(--color-muted, #94a3b8);
+  font-size: 0.75rem;
+  color: var(--color-muted);
 }
 .chat-tool-chevron::before {
   content: "▼";
@@ -1491,36 +1514,50 @@ body[data-chat-mode="docked"] #chat-float-slot {
 .chat-tool-collapsed .chat-tool-body {
   display: none;
 }
+/* Details — native uses the darkest bg with a top divider from the header. */
 .chat-tool-body {
-  padding: 8px 10px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-brd);
+  padding: 8px 12px;
 }
-.chat-tool-running {
-  border-color: var(--color-accent, #0064ff);
+/* Nested command / file-edit lines (correlated by toolUseId), terminal-style. */
+.chat-tool-cmd,
+.chat-tool-file {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-txt2);
 }
-.chat-tool-error {
-  border-color: var(--color-red, #ff4040);
+.chat-tool-file {
+  color: var(--color-muted);
+}
+.chat-tool-prompt {
+  color: var(--color-green);
 }
 .chat-tool-subtoggle {
-  margin-top: 6px;
-  color: var(--color-muted, #94a3b8);
-  font-size: 0.72rem;
+  color: var(--color-muted);
+  font-size: 0.75rem;
   cursor: pointer;
   user-select: none;
 }
 .chat-tool-subtoggle::before {
   content: "▸ ";
 }
+/* Input + result render terminal-style on the near-black bg, monospace. */
 .chat-tool-args {
   display: none;
   margin: 6px 0 0;
-  padding: 6px 8px;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 6px;
+  padding: 8px;
+  background: var(--color-terminal);
+  border-radius: 4px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--color-muted, #94a3b8);
-  font-size: 0.72rem;
-  max-height: 9rem;
+  color: var(--color-txt2);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  max-height: 200px;
   overflow: auto;
 }
 .chat-tool-args.chat-tool-args-shown {
@@ -1529,19 +1566,24 @@ body[data-chat-mode="docked"] #chat-float-slot {
 .chat-tool-result-label {
   display: none;
   margin-top: 8px;
-  padding-top: 6px;
-  border-top: 1px solid var(--color-brd, #3e3e46);
-  color: var(--color-muted, #94a3b8);
+  padding-top: 8px;
+  border-top: 1px solid var(--color-brd);
+  color: var(--color-muted);
   font-size: 0.66rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .chat-tool-result {
-  margin-top: 4px;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--color-terminal);
+  border-radius: 4px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--color-muted, #94a3b8);
+  color: var(--color-muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
   max-height: 14rem;
   overflow: auto;
 }
@@ -1568,25 +1610,34 @@ body[data-chat-mode="docked"] #chat-float-slot {
  * place of the suppressed delegate_task tool card, mirroring native Quix AI. */
 .chat-env-agent {
   align-self: stretch;
-  border: 1px solid var(--color-brd, #3e3e46);
-  border-left: 3px solid var(--color-accent, #0064ff);
+  border: 1px solid var(--color-brd);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  font-size: 0.8rem;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  transition: border-color 0.4s ease;
+}
+.chat-env-running {
+  border-color: var(--color-accent-light);
 }
 .chat-env-done {
-  border-left-color: var(--color-green, #00dd81);
+  border-color: var(--color-brd);
 }
 .chat-env-failed {
-  border-left-color: var(--color-red, #ff4040);
+  border-color: var(--color-red);
 }
 .chat-env-agent-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--color-head-bg);
+  color: var(--color-txt2);
   cursor: pointer;
   user-select: none;
+}
+.chat-env-agent-head:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 .chat-env-agent-indicator {
   flex: none;
@@ -1599,37 +1650,42 @@ body[data-chat-mode="docked"] #chat-float-slot {
 }
 .chat-env-running .chat-env-agent-indicator::before {
   content: "";
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--color-accent, #0064ff);
-  border-top-color: transparent;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-brd-light);
+  border-top-color: var(--color-accent);
   border-radius: 50%;
   animation: chat-spin 0.8s linear infinite;
 }
 .chat-env-done .chat-env-agent-indicator::before {
   content: "✓";
-  color: var(--color-green, #00dd81);
+  color: var(--color-green);
 }
 .chat-env-failed .chat-env-agent-indicator::before {
   content: "✕";
-  color: var(--color-red, #ff4040);
+  color: var(--color-red);
 }
 .chat-env-agent-name {
-  font-weight: 600;
   flex: 1 1 auto;
+  font-family: var(--mono);
+  color: #fff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .chat-env-agent-count {
   flex: none;
-  color: var(--color-muted, #94a3b8);
-  font-size: 0.7rem;
+  font-family: var(--mono);
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.chat-env-agent-chevron {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--color-muted);
 }
 .chat-env-agent-chevron::before {
   content: "▾";
-  color: var(--color-muted, #94a3b8);
-  font-size: 0.7rem;
 }
 .chat-env-collapsed .chat-env-agent-chevron::before {
   content: "▸";
@@ -1637,15 +1693,25 @@ body[data-chat-mode="docked"] #chat-float-slot {
 .chat-env-collapsed .chat-env-agent-body {
   display: none;
 }
+/* Body — native's near-black panel, capped + scrollable; children get their
+ * own side padding so nested tool cards can inset like native (margin 0 8px). */
 .chat-env-agent-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 0 10px 10px;
+  padding: 8px 0;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-brd);
+  max-height: 300px;
+  overflow-y: auto;
+}
+.chat-env-agent-body > .chat-tool-card {
+  margin: 0 8px;
 }
 .chat-env-agent-task-toggle {
-  color: var(--color-muted, #94a3b8);
-  font-size: 0.72rem;
+  padding: 0 16px;
+  color: var(--color-muted);
+  font-size: 0.75rem;
   cursor: pointer;
   user-select: none;
 }
@@ -1654,40 +1720,54 @@ body[data-chat-mode="docked"] #chat-float-slot {
 }
 .chat-env-agent-task {
   display: none;
+  margin: 0 16px;
   white-space: pre-wrap;
   word-break: break-word;
-  padding: 6px 8px;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 6px;
-  color: var(--color-muted, #94a3b8);
-  font-size: 0.72rem;
+  color: var(--color-txt2);
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 .chat-env-agent-task.chat-env-agent-task-shown {
   display: block;
 }
 .chat-env-line {
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.72rem;
+  padding: 0 16px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
   white-space: pre-wrap;
   word-break: break-word;
 }
+.chat-env-cmd {
+  color: var(--color-txt2);
+}
 .chat-env-file {
-  color: var(--color-muted, #94a3b8);
+  color: var(--color-muted);
 }
 .chat-env-statusmsg {
-  color: var(--color-muted, #94a3b8);
+  color: var(--color-muted);
   font-style: italic;
   font-family: inherit;
 }
+.chat-env-text {
+  padding: 0 16px;
+  color: var(--color-txt2);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
 .chat-env-error {
-  background: rgba(255, 63, 65, 0.12);
-  border: 1px solid rgba(255, 63, 65, 0.4);
+  margin: 0 16px;
+  background: rgba(255, 64, 64, 0.12);
+  border: 1px solid rgba(255, 64, 64, 0.4);
   color: #fecaca;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
 }
 .chat-env-agent-summary {
-  margin-top: 2px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-brd, #3e3e46);
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-brd);
+  background: var(--color-head-bg);
+  color: var(--color-txt2);
+  font-size: 0.75rem;
 }

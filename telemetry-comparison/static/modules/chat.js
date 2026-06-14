@@ -30,8 +30,17 @@ const _envAgents = new Map(); // agent_id -> { root, body, count, indicator, too
 const _pendingRender = new Set();
 let _renderScheduled = false;
 
+// "Stick to bottom" — only auto-scroll when the user is already near the
+// bottom (mirrors native chat). If they scroll up mid-stream we leave them
+// there instead of yanking back, so earlier tool cards stay reachable.
+let _stick = true;
+
+function _nearBottom(el) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 30; // native ChatPanel threshold
+}
+
 function _scrollBottom(el) {
-  el.scrollTop = el.scrollHeight;
+  if (_stick) el.scrollTop = el.scrollHeight;
 }
 
 function _scheduleRender(body) {
@@ -159,6 +168,7 @@ function _buildToolCard(label, toolName) {
     record: {
       argsBuf: '',
       argsEl: args,
+      bodyEl: body,
       resultEl: result,
       resultLabelEl: resultLabel,
       cardEl: card,
@@ -203,6 +213,24 @@ function _fillResult(c, text, isError) {
   if (c.resultLabelEl) c.resultLabelEl.style.display = c.resultEl.textContent ? 'block' : 'none';
   const list = document.getElementById('chat-messages');
   if (list) _scrollBottom(list);
+}
+
+// Append a terminal-style line (a command or file edit) inside a tool card's
+// body, before its result block — mirrors native's nested innerActivities so
+// command/file activities read as part of the tool, not loose lines.
+function _nestCardLine(c, className, text, prompt) {
+  if (!c) return;
+  const line = document.createElement('div');
+  line.className = className;
+  if (prompt) {
+    const p = document.createElement('span');
+    p.className = 'chat-tool-prompt';
+    p.textContent = prompt;
+    line.append(p, document.createTextNode(` ${text}`));
+  } else {
+    line.textContent = text;
+  }
+  c.bodyEl.insertBefore(line, c.resultLabelEl);
 }
 
 // --- DEEP-mode environment-agent block -----------------------------------
@@ -282,18 +310,31 @@ function _envAgentActivity(evt) {
       a.lastText = null;
       break;
     case 'command': {
-      const line = document.createElement('div');
-      line.className = 'chat-env-line chat-env-cmd';
-      line.textContent = `$ ${d.command || ''}` + (d.exitCode ? `  (exit ${d.exitCode})` : '');
-      a.body.appendChild(line);
+      const text = `${d.command || ''}${d.exitCode ? `  (exit ${d.exitCode})` : ''}`;
+      const card = d.toolUseId ? a.tools.get(d.toolUseId) : null;
+      if (card) {
+        // Nest inside its tool card (correlated by toolUseId), like native.
+        _nestCardLine(card, 'chat-tool-cmd', text, '$');
+      } else {
+        const line = document.createElement('div');
+        line.className = 'chat-env-line chat-env-cmd';
+        line.textContent = `$ ${text}`;
+        a.body.appendChild(line);
+      }
       a.lastText = null;
       break;
     }
     case 'file_edit': {
-      const line = document.createElement('div');
-      line.className = 'chat-env-line chat-env-file';
-      line.textContent = `✎ ${d.path || ''}`;
-      a.body.appendChild(line);
+      const card = d.toolUseId ? a.tools.get(d.toolUseId) : null;
+      const label = `✎ ${d.path || ''}`;
+      if (card) {
+        _nestCardLine(card, 'chat-tool-file', label);
+      } else {
+        const line = document.createElement('div');
+        line.className = 'chat-env-line chat-env-file';
+        line.textContent = label;
+        a.body.appendChild(line);
+      }
       a.lastText = null;
       break;
     }
@@ -467,6 +508,7 @@ async function _submit() {
   _activeAnswer = null;
   _toolCards.clear();
   _envAgents.clear();
+  _stick = true; // a fresh user message should always scroll into view
   _addMessage('user', text);
   _statusKey = 'generating';
   _statusLabel = formatStatus('generating');
@@ -514,6 +556,7 @@ export function newChatSession() {
   _toolCards.clear();
   _envAgents.clear();
   _pendingRender.clear();
+  _stick = true;
   const list = document.getElementById('chat-messages');
   if (list) list.innerHTML = '';
   _refreshSendDisabled();
@@ -527,6 +570,13 @@ export function initChat() {
 
   sendBtn.addEventListener('click', _submit);
   document.getElementById('chat-new')?.addEventListener('click', newChatSession);
+  // Track whether the user is pinned to the bottom; auto-scroll only when so.
+  const messages = document.getElementById('chat-messages');
+  if (messages) {
+    messages.addEventListener('scroll', () => {
+      _stick = _nearBottom(messages);
+    });
+  }
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
