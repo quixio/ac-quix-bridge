@@ -26,7 +26,7 @@ Split on sentence boundaries. Each clause = one `RequirementCheck`. Set `met` ba
 - `track` (string): AC track code, e.g. `"barcelona"`
 - `car_model` (string): AC car code, e.g. `"ferrari_488_gt3"`
 
-**Treat `session_id` as opaque.** Don't reparse it as a date — use the lake's `timestamp_ms` column for time.
+**Treat `session_id` as opaque.** Don't reparse it as a date — use the lake's `timestamp_ms` column for time. When filtering the lake, use it VERBATIM in the partition-path form (`T`…`Z`, millisecond) from `SessionInfo` or `list_partition_combinations`; a `SELECT session_id` returns a space/microsecond form (`2026-05-21 14:32:15.123000`) that matches 0 rows in a WHERE clause.
 
 ## LogbookEntry (from `list_logbook`)
 
@@ -54,7 +54,7 @@ When the user message specifies `scope: test-wide` (no `session_id`), call `list
 
 ## Partition mapping — Test Manager → QuixLake AC telemetry tables
 
-**Default lake table: `ac_telemetry_leadboard`** (current sink — all sessions recorded after 2026-05-29). Older sessions are in legacy `ac_telemetry`. If `FROM ac_telemetry_leadboard` returns 0 rows for the user's `session_id`, retry the same query with `FROM ac_telemetry`. Or call `list_session_combinations(table)` to confirm which table holds the session before composing the query.
+**Default lake table: `ac_telemetry`.** If `FROM ac_telemetry` returns 0 rows for the user's `session_id`, call `list_tables()` and retry on the table whose name resembles `ac_telemetry` (some deployments use a renamed sink). Use `list_partition_combinations(table)` to confirm which table holds the session before composing the query.
 
 Both tables share the same Hive partition layout, in order:
 
@@ -75,11 +75,11 @@ Always pin every column you know in the WHERE clause. Values come from Test Mana
 | `session_id` | `SessionInfo.session_id` | as-is (ISO ms + `Z`) |
 | `lap` | per-row from telemetry stream | integer; filter when scoping a single lap |
 
-Example query for a session-scoped KPI (defaults to `ac_telemetry_leadboard`):
+Example query for a session-scoped best-lap KPI:
 
 ```sql
-SELECT MIN(iBestTime) AS best_ms
-FROM ac_telemetry_leadboard
+SELECT MIN(iBestTime) FILTER (WHERE iBestTime > 0 AND iBestTime < 2147483647) AS best_ms
+FROM ac_telemetry
 WHERE environment = 'thermal_lab'
   AND test_rig    = 'rig_a'
   AND experiment  = 'TST-0007'
@@ -89,4 +89,4 @@ WHERE environment = 'thermal_lab'
   AND session_id  = '2026-05-21T14:32:15.123Z'
 ```
 
-If 0 rows: rerun with `FROM ac_telemetry` (legacy table). Skipping partition columns forces the lake to scan more files — slower and more expensive.
+If 0 rows: call `list_tables()` and rerun on the table that exists (see top of this section). Skipping partition columns forces the lake to scan more files — slower and more expensive.

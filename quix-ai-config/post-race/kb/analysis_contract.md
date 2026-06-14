@@ -10,6 +10,8 @@ The opaque UUID passed to you in the user message. You must pass it back unchang
 
 The narrative spine of your analysis. The only required content field. If everything else is uncertain, write `summary_md` and leave other lists empty.
 
+Write **insight only** — interpretation, trends, causes, recommendations, driver feedback. Do NOT restate the raw KPI/anomaly numbers you already emit in `kpis[]` / `anomalies[]`; the UI renders those as cards and chips, so repeating the values in prose is redundant. Reference a metric to explain what it *means*, don't re-list it.
+
 Suggested section headers: `## Pace`, `## Requirements`, `## Anomalies`, `## Driver feedback`, `## Recommendations`.
 
 ## kpis (optional, list of KpiValue)
