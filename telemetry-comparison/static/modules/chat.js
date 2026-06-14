@@ -182,6 +182,7 @@ function _buildToolCard(label, toolName) {
   inputToggle.addEventListener('click', () => {
     const shown = args.classList.toggle('chat-tool-args-shown');
     inputToggle.textContent = shown ? 'Hide input' : 'Show input';
+    inputToggle.classList.toggle('chat-tool-subtoggle-open', shown);
   });
 
   const resultLabel = document.createElement('div');
@@ -298,7 +299,10 @@ function _startEnvAgent(evt) {
     const taskEl = document.createElement('div');
     taskEl.className = 'chat-env-agent-task';
     taskEl.textContent = evt.task;
-    toggle.addEventListener('click', () => taskEl.classList.toggle('chat-env-agent-task-shown'));
+    toggle.addEventListener('click', () => {
+      const open = taskEl.classList.toggle('chat-env-agent-task-shown');
+      toggle.classList.toggle('chat-env-agent-task-toggle-open', open);
+    });
     body.append(toggle, taskEl);
   }
 

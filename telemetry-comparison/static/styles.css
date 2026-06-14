@@ -1526,10 +1526,10 @@ body[data-chat-mode="docked"] #chat-float-slot {
   color: var(--color-muted);
 }
 .chat-tool-chevron::before {
-  content: "▼";
+  content: "▲";
 }
 .chat-tool-collapsed .chat-tool-chevron::before {
-  content: "▸";
+  content: "▼";
 }
 .chat-tool-collapsed .chat-tool-body {
   display: none;
@@ -1563,7 +1563,10 @@ body[data-chat-mode="docked"] #chat-float-slot {
   user-select: none;
 }
 .chat-tool-subtoggle::before {
-  content: "▸ ";
+  content: "▼ ";
+}
+.chat-tool-subtoggle-open::before {
+  content: "▲ ";
 }
 /* Input + result render terminal-style on the near-black bg, monospace. */
 .chat-tool-args {
@@ -1705,10 +1708,10 @@ body[data-chat-mode="docked"] #chat-float-slot {
   color: var(--color-muted);
 }
 .chat-env-agent-chevron::before {
-  content: "▾";
+  content: "▲";
 }
 .chat-env-collapsed .chat-env-agent-chevron::before {
-  content: "▸";
+  content: "▼";
 }
 .chat-env-collapsed .chat-env-agent-body {
   display: none;
@@ -1736,7 +1739,10 @@ body[data-chat-mode="docked"] #chat-float-slot {
   user-select: none;
 }
 .chat-env-agent-task-toggle::before {
-  content: "▸ ";
+  content: "▼ ";
+}
+.chat-env-agent-task-toggle-open::before {
+  content: "▲ ";
 }
 .chat-env-agent-task {
   display: none;
