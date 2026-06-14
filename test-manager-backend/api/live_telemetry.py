@@ -35,6 +35,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from .text import fold_for_lookup
+
 logger = logging.getLogger(__name__)
 
 
@@ -358,24 +360,6 @@ def simulated_active_driver() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _fold_for_lookup(name: str) -> str:
-    """Fold a driver name to the same NFKD + lowercase ASCII key the lake
-    uses. Local helper so `live_telemetry` doesn't import from
-    `routes.leaderboard_real` (which already imports us — circular).
-    """
-    import unicodedata
-
-    if not name:
-        return ""
-    folded = (
-        unicodedata.normalize("NFKD", name)
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .lower()
-    )
-    return folded or name.lower()
-
-
 def _get_driver_name_lookup() -> dict[str, str]:
     """Return the cached `{folded_key: display_name}` lookup.
 
@@ -405,7 +389,7 @@ def _refresh_driver_name_lookup() -> dict[str, str]:
         for doc in db.drivers.find({}, {"name": 1}):
             name = doc.get("name")
             if isinstance(name, str) and name:
-                lookup[_fold_for_lookup(name)] = name
+                lookup[fold_for_lookup(name)] = name
         with _driver_lookup_lock:
             global _driver_name_lookup
             _driver_name_lookup = lookup
@@ -746,7 +730,7 @@ def _record_message(payload: dict[str, Any]) -> None:
 
     # Bug A: resolve the active-row driver name to display case BEFORE
     # publish so snapshots and active mutations carry identical text.
-    display_driver = _resolve_display_name(_fold_for_lookup(driver), name_lookup)
+    display_driver = _resolve_display_name(fold_for_lookup(driver), name_lookup)
 
     # Active's cumulative time AT the just-crossed gate (= gate_times_ms[i*]).
     # This is the stable reference the frontend's dual gap chips (spec §3.5)
@@ -1575,7 +1559,7 @@ def refresh_best_laps_cache(
                     # case: a driver re-recorded under different casing).
                     folded: dict[str, int] = {}
                     for raw_driver, (best_ms, _lap_num) in per_driver_raw.items():
-                        key = _fold_for_lookup(raw_driver) or raw_driver.lower()
+                        key = fold_for_lookup(raw_driver) or raw_driver.lower()
                         prev = folded.get(key)
                         if prev is None or best_ms < prev:
                             folded[key] = best_ms
