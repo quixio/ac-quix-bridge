@@ -1731,6 +1731,11 @@ body[data-chat-mode="docked"] #chat-float-slot {
 .chat-env-agent-body > .chat-tool-card {
   margin: 0 8px;
 }
+/* Same flex-shrink trap as the root list: pin children so a nested tool card
+ * keeps its height (the body scrolls) instead of being squished to a sliver. */
+.chat-env-agent-body > * {
+  flex-shrink: 0;
+}
 .chat-env-agent-task-toggle {
   padding: 0 16px;
   color: var(--color-muted);
