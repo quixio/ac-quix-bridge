@@ -9,7 +9,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 vi.mock("@/lib/hooks/use-api", () => ({
-  useIntegrationsApi: () => ({ getConfigManagerUrl: vi.fn() }),
   useTestsApi: () => ({ getTelemetryParams: vi.fn() }),
 }));
 vi.mock("@/lib/hooks/use-toast", () => ({
@@ -81,5 +80,35 @@ describe("TestDetailCard — per-session Analyze", () => {
     expect(qs.get("session_id")).toBe("2026-06-03T11:08:18.206Z");
     expect(qs.get("track")).toBe("spa");
     expect(qs.get("carModel")).toBe("lambo");
+  });
+});
+
+describe("TestDetailCard — View in Config Manager", () => {
+  beforeEach(() => push.mockClear());
+
+  it("navigates in-app to the Configurations page deep-linked to the config", () => {
+    render(
+      <TestDetailCard
+        test={{ ...TEST, config_id: "cfg-1", config_version: 45 }}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /view in config manager/i }),
+    );
+    expect(push).toHaveBeenCalledWith(
+      "/config-manager?config_id=cfg-1&config_version=45",
+    );
+  });
+
+  it("falls back to /config-manager (no params) when the test has no config", () => {
+    render(
+      <TestDetailCard
+        test={{ ...TEST, config_id: "", config_version: null }}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /view in config manager/i }),
+    );
+    expect(push).toHaveBeenCalledWith("/config-manager");
   });
 });

@@ -139,7 +139,7 @@ export const useLogbookApi = createAuthenticatedApi(logbookApiRaw);
  * @example
  * ```typescript
  * const integrationsApi = useIntegrationsApi()
- * const { url } = await integrationsApi.getConfigManagerUrl("test-123")
+ * const { url } = await integrationsApi.getConfigManagerFrontendUrl(configId, version)
  * ```
  */
 export const useIntegrationsApi = createAuthenticatedApi(integrationsApiRaw);

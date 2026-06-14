@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { DataCard } from "@/components/shared/data-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useIntegrationsApi, useTestsApi } from "@/lib/hooks/use-api";
+import { useTestsApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
 import type { SessionInfo, Test } from "@/types/test";
-import { ExternalLink, TrendingUp, Sparkles } from "lucide-react";
+import { Sliders, TrendingUp, Sparkles } from "lucide-react";
 
 interface TestDetailCardProps {
   test: Test;
@@ -17,29 +17,21 @@ interface TestDetailCardProps {
 }
 
 export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
-  const integrationsApi = useIntegrationsApi();
   const testsApi = useTestsApi();
   const router = useRouter();
   const { formatDateTime } = useDateFormatter();
-  const [isLoadingConfigUrl, setIsLoadingConfigUrl] = useState(false);
   const [isOpeningAnalysis, setIsOpeningAnalysis] = useState(false);
   const { toast } = useToast();
 
-  const handleOpenConfigManager = async () => {
-    setIsLoadingConfigUrl(true);
-    try {
-      const { url } = await integrationsApi.getConfigManagerUrl(test.test_id);
-      window.open(url, "_blank");
-    } catch (error) {
-      toast({
-        title: "Error loading Config Manager",
-        description:
-          error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingConfigUrl(false);
-    }
+  const handleOpenConfigManager = () => {
+    // In-app, platform-agnostic: open the Configurations page deep-linked to this
+    // test's config + version (the page resolves the DCM URL from the Portal API /
+    // stored settings). Replaces the old hardcoded portal.cloud.quix.io tab.
+    const url =
+      test.config_id && test.config_version !== null
+        ? `/config-manager?config_id=${test.config_id}&config_version=${test.config_version}`
+        : "/config-manager";
+    router.push(url);
   };
 
   const handleAnalyze = async () => {
@@ -206,10 +198,9 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
               variant="outline"
               size="sm"
               onClick={handleOpenConfigManager}
-              disabled={isLoadingConfigUrl}
             >
-              <ExternalLink className="mr-2 h-4 w-4" />
-              {isLoadingConfigUrl ? "Loading..." : "View in Config Manager"}
+              <Sliders className="mr-2 h-4 w-4" />
+              View in Config Manager
             </Button>
           </div>
         </CardHeader>

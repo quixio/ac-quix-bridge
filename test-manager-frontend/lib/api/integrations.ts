@@ -7,7 +7,7 @@
  * import { useIntegrationsApi } from "@/lib/hooks/use-api"
  *
  * const integrationsApi = useIntegrationsApi()
- * const url = await integrationsApi.getConfigManagerUrl(testId)
+ * const { url } = await integrationsApi.getConfigManagerFrontendUrl(configId, version)
  * ```
  */
 
@@ -18,24 +18,6 @@ export interface ConfigManagerUrl {
 }
 
 export const integrationsApi = {
-  /**
-   * Get Portal-embedded URL for Configuration Manager
-   * @param streamId - Optional test ID for context-aware filtering
-   */
-  getConfigManagerUrl: (
-    streamId?: string | null,
-    token?: string | null,
-    refreshToken?: () => Promise<string | null>,
-  ) => {
-    const params = streamId ? { stream_id: streamId } : undefined;
-    return apiGet<ConfigManagerUrl>(
-      "/integrations/config-manager-url",
-      params,
-      token,
-      refreshToken,
-    );
-  },
-
   /**
    * Get direct frontend URL for Configuration Manager (for iframe embedding)
    * @param configId - Optional config ID for context-aware filtering
