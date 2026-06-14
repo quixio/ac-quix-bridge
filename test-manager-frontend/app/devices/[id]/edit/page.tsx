@@ -97,11 +97,6 @@ export default function EditDevicePage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label>Device ID</Label>
-                <Input value={deviceId} disabled />
-              </div>
-
-              <div className="space-y-2">
                 <Label>Category *</Label>
                 <Select
                   value={formCategory}

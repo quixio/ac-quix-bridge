@@ -102,11 +102,6 @@ export default function EditEnvironmentPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label>Environment ID</Label>
-                <Input value={environmentId} disabled />
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="name">Name *</Label>
                 <Input
                   id="name"
