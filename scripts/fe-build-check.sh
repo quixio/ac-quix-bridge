@@ -14,8 +14,13 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE="docker compose -f $REPO/docker-compose.dev.yml"
 FE="$REPO/test-manager-frontend"
 
-restart() { $COMPOSE up -d frontend >/dev/null 2>&1 || true; }
-trap restart EXIT  # bring dev back even on build failure
+# The prod build leaves a production .next in the bind-mounted dir; next dev
+# chokes on it and serves 500 on every route. Clear it before restarting dev.
+restart() {
+  rm -rf "$FE/.next" >/dev/null 2>&1 || true
+  $COMPOSE up -d frontend >/dev/null 2>&1 || true
+}
+trap restart EXIT  # bring dev back (clean) even on build failure
 
 echo "→ stopping frontend dev (frees the shared .next)…"
 $COMPOSE stop frontend >/dev/null
