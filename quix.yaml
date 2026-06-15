@@ -772,7 +772,7 @@ topics:
       partitions: 1
       replicationFactor: 1
       retentionInMinutes: -1
-      cleanupPolicy: Compact
+      cleanupPolicy: Delete
   - name: ac-video-frames
   - name: ac-telemetry-config
   - name: test-completed
