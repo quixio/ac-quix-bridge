@@ -1,5 +1,10 @@
 .env
 env/.env*
+
+# quix-ai-config writes script-state to its own per-env .env files
+quix-ai-config/.env
+quix-ai-config/.env.*
+!quix-ai-config/.env.example
 __pycache__/
 *.pyc
 .venv/
@@ -12,6 +17,8 @@ certificates/
 .quix.yaml.variables
 ac-machine-secrets/
 recordings/
+logs/
+*.log
 .DS_Store
 .claude/settings.local.json
 
