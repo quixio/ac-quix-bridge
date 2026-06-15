@@ -77,6 +77,9 @@ class AssettoCorsaCompetizioneSource(Source):
         self._hostname = socket.gethostname()
         self._prev_status = None
         self._prev_current_time = None
+        self._session_warmup_drop_ms = int(os.environ.get("SESSION_WARMUP_DROP_MS", "2000"))
+        self._warmup_until = 0.0
+        self._warmup_dropped = 0
 
     def _new_session_id(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
@@ -249,12 +252,31 @@ class AssettoCorsaCompetizioneSource(Source):
                 )
                 if new_session:
                     self._publish_session_metadata(reader)
+                    self._warmup_until = time.perf_counter() + self._session_warmup_drop_ms / 1000
+                    self._warmup_dropped = 0
 
                 if status != "live" or self._session_id is None:
                     now = time.perf_counter()
                     if next_tick > now:
                         time.sleep(next_tick - now)
                     continue
+
+                # Drop the first SESSION_WARMUP_DROP_MS of raw on a new session:
+                # the DCM session config (carModel/track) lags the raw stream, so
+                # these ticks would join the previous session's config (the sliver).
+                if time.perf_counter() < self._warmup_until:
+                    self._warmup_dropped += 1
+                    now = time.perf_counter()
+                    if next_tick > now:
+                        time.sleep(next_tick - now)
+                    continue
+
+                if self._warmup_dropped:
+                    logger.info(
+                        "Raw resumed: dropped %d warmup ticks (~%dms) for session %s",
+                        self._warmup_dropped, self._session_warmup_drop_ms, self._session_id,
+                    )
+                    self._warmup_dropped = 0
 
                 data["session_id"] = self._session_id
                 data["timestamp_ms"] = int(time.time() * 1000)
