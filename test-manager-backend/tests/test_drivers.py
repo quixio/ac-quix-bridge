@@ -16,7 +16,7 @@ def test_create_driver(client: TestClient) -> None:
     """Test creating a driver with auto-generated ID."""
     response = client.post(
         "/api/v1/drivers",
-        json={"name": "Tomas", "email": "tomas@quix.io", "company": "Quix"},
+        json={"name": "Tomas", "email": "tomas@example.com", "company": "Quix"},
     )
     assert response.status_code == 200
     data = response.json()
@@ -29,11 +29,11 @@ def test_create_driver_auto_increment(client: TestClient) -> None:
     """Test that driver IDs auto-increment."""
     client.post(
         "/api/v1/drivers",
-        json={"name": "Driver A", "email": "a@quix.io", "company": "Quix"},
+        json={"name": "Driver A", "email": "a@example.com", "company": "Quix"},
     )
     response = client.post(
         "/api/v1/drivers",
-        json={"name": "Driver B", "email": "b@quix.io", "company": "Quix"},
+        json={"name": "Driver B", "email": "b@example.com", "company": "Quix"},
     )
     assert response.json()["driver_id"] == "DRV-0002"
 

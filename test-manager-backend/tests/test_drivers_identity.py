@@ -39,7 +39,7 @@ def test_create_requires_email(client: TestClient) -> None:
 
 def test_create_requires_company(client: TestClient) -> None:
     response = client.post(
-        "/api/v1/drivers", json={"name": "Daniel", "email": "daniel@quix.io"}
+        "/api/v1/drivers", json={"name": "Daniel", "email": "daniel@example.com"}
     )
     assert response.status_code == 422
 
@@ -61,11 +61,11 @@ def test_create_rejects_overlong_company(client: TestClient) -> None:
 def test_create_stores_email_lowercased_and_company(client: TestClient) -> None:
     response = client.post(
         "/api/v1/drivers",
-        json=_payload("Daniel Lastic", email="Daniel@QUIX.io", company="Quix"),
+        json=_payload("Daniel Lastic", email="Daniel@EXAMPLE.com", company="Quix"),
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["email"] == "daniel@quix.io"
+    assert data["email"] == "daniel@example.com"
     assert data["company"] == "Quix"
 
 
