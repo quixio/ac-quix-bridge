@@ -26,6 +26,7 @@ import socket
 import tempfile
 import time
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from quixstreams.sources import Source
@@ -56,14 +57,32 @@ class _UtcMsFormatter(logging.Formatter):
 
 
 def configure_logging() -> None:
-    """Install the UTC-ms formatter on the root handler.
+    """Install the UTC-ms formatter on the root handler, plus a rotating file log.
 
-    Called from main.py after `logging.basicConfig` so the level is honoured
-    but the format is upgraded.
+    Called from main.py after `logging.basicConfig` so the level is honoured but
+    the format is upgraded. Also tees to a rotating file (default
+    `logs/acc-source.log` next to this module, override with LOG_FILE) so session
+    history survives the terminal closing on the sim PC.
     """
+    fmt = _UtcMsFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     root = logging.getLogger()
     for h in root.handlers:
-        h.setFormatter(_UtcMsFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        h.setFormatter(fmt)
+
+    if any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+        return  # idempotent: file handler already installed
+
+    # File logging is best-effort — a read-only FS or bad LOG_FILE must not
+    # crash the source (console logging is already up from basicConfig).
+    log_file = Path(os.environ.get("LOG_FILE") or Path(__file__).resolve().parent / "logs" / "acc-source.log")
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(log_file, maxBytes=10_000_000, backupCount=5)
+        file_handler.setFormatter(fmt)
+        root.addHandler(file_handler)
+        logger.info("File logging enabled: %s (rotating 10MB x5)", log_file)
+    except OSError as exc:
+        logging.warning("File logging disabled: %s", exc)
 
 
 class AssettoCorsaCompetizioneSource(Source):
