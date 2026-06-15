@@ -39,15 +39,57 @@ export async function fetchSessions(filters) {
   return json.sessions || [];
 }
 
-export async function fetchTrack() {
+// Monotonic load token: a slow geometry fetch must not overwrite a newer
+// selection's trackData. Each fetchTrack() call claims the next token; when its
+// response arrives it only commits if it still holds the latest token.
+let _trackLoadToken = 0;
+
+/**
+ * Fetch track geometry + render the map. `track`/`layout` are optional — when
+ * `track` is empty the server returns the bundled CSV fallback (preserves the
+ * original first-paint behaviour). The `/api/track/config` fetch and the
+ * setTrackData/renderTrackMap calls are unchanged; only the URL gains params.
+ */
+export async function fetchTrack(track = '', layout = '') {
+  const myToken = ++_trackLoadToken;
   try {
-    const [tRes, cRes] = await Promise.all([fetch('/api/track'), fetch('/api/track/config')]);
-    setTrackData(await tRes.json());
-    setTrackConfig(await cRes.json());
+    const p = new URLSearchParams();
+    if (track) p.set('track', track);
+    if (layout) p.set('layout', layout);
+    const qs = p.toString();
+    const [tRes, cRes] = await Promise.all([
+      fetch('/api/track' + (qs ? '?' + qs : '')),
+      fetch('/api/track/config'),
+    ]);
+    const trackJson = await tRes.json();
+    const configJson = await cRes.json();
+    // Stale-fetch guard: a newer selection already superseded this load.
+    if (myToken !== _trackLoadToken) return;
+    setTrackData(trackJson);
+    setTrackConfig(configJson);
     // renderTrackMap() is defined in the non-module track-map.js.
     if (typeof window.renderTrackMap === 'function') window.renderTrackMap();
   } catch (e) {
     console.warn('Track data unavailable:', e);
+  }
+}
+
+/**
+ * List the Mongo layouts available for a track. Always resolves to an array
+ * (empty when no track, Mongo down, or no docs) — the server returns 200 with
+ * an empty list rather than erroring, so the caller can simply hide the LAYOUT
+ * dropdown and let fetchTrack() CSV-fallback.
+ */
+export async function fetchLayouts(track) {
+  if (!track) return [];
+  try {
+    const res = await fetch('/api/track/layouts?track=' + encodeURIComponent(track));
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.layouts || [];
+  } catch (e) {
+    console.warn('Track layouts unavailable:', e);
+    return [];
   }
 }
 

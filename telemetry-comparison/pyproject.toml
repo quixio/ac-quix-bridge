@@ -17,6 +17,7 @@ dependencies = [
 	"python-dotenv",
 	"pydantic>=2.13.2",
 	"mcp>=1.26",
+	"pymongo",
 ]
 
 [dependency-groups]
