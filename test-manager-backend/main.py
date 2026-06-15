@@ -71,6 +71,14 @@ def _build_log_config() -> dict:
                 "handlers": ["default"],
                 "propagate": False,
             },
+            # Third-party INFO spam. fontTools logs ~100 font-subset lines on
+            # EVERY PDF render (WeasyPrint); weasyprint its own progress; httpx
+            # one line per outbound request. Quiet to WARNING — children (e.g.
+            # fontTools.subset) inherit and propagate ≥WARNING to the root
+            # handler, so real problems still surface, formatted.
+            "fontTools": {"level": "WARNING"},
+            "weasyprint": {"level": "WARNING"},
+            "httpx": {"level": "WARNING"},
         },
     }
 
