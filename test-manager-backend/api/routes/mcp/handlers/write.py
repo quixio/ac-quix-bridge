@@ -6,7 +6,8 @@ from typing import Any
 
 from pymongo.database import Database
 
-from ....models import SaveAnalysisPayload
+from ....models import Analysis, SaveAnalysisPayload
+from ....notify import email_completed_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -71,4 +72,10 @@ def save_analysis(
         len(payload.anomalies),
         len(payload.summary_md),
     )
+
+    # F4: email the completed report to the test's driver (best-effort).
+    fresh = mongo.analyses.find_one({"_id": analysis_id})
+    if fresh:
+        email_completed_analysis(mongo, Analysis(**fresh))
+
     return {"ok": True, "analysis_id": analysis_id}
