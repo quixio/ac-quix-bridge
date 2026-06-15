@@ -55,7 +55,16 @@ session_id→test_id resolve and the dedup (backend owns Mongo).
 Files: `main.py`, `app.yaml`, `dockerfile`, `requirements.txt`, + `quix.yaml`
 deployment entry. Model on `session-config-bridge` (stateless QuixStreams
 consumer, commit every 5s).
-- Consume the `test-completed` topic.
+- Consume the `test-completed` topic with **`auto_offset_reset="latest"`** on
+  the `Application` — the topic has a large historical backlog (100+ old
+  events); `latest` makes a fresh consumer group start at NEW messages only and
+  NOT replay history (which would fire an analysis for every old session).
+  `earliest` would be wrong here. Use a stable `consumer_group` so restarts
+  resume from the last committed offset (commit ~5s), not re-read. NOTE: this
+  handles the BACKLOG; the backend dedup (below) is still required for the
+  same-session RE-FIRES (the lake re-emits while a session stays silent) and
+  the no-committed-offset edge. (Same keyword the lake sink already uses,
+  `ac-telemetry-lake/main.py:94`.)
 - Per event: `POST {TM_BACKEND_URL}/api/v1/analyses` with body
   `{"session_id": event["key"], "triggered_by": "auto"}`.
 - Auth for the POST (passes backend `update_permission`): `Quix__Sdk__Token`
