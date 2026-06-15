@@ -327,24 +327,24 @@ deployments:
       - name: SMTP_HOST
         inputType: FreeText
         description: SMTP server host for emailing completed post-race analyses (F4). Unset = email disabled (analysis still completes; emailing is best-effort).
-        value: ""
+        value: smtp.gmail.com
       - name: SMTP_PORT
         inputType: FreeText
         description: SMTP server port (STARTTLS submission default).
         value: "587"
       - name: SMTP_USER
-        inputType: FreeText
-        description: SMTP auth username. Empty = no auth (anonymous relay).
-        value: ""
+        inputType: ProjectVariable
+        description: SMTP auth username (the sending address). Set per-env in the Portal so the address stays out of the public repo.
+        variableKey: SMTP_USER
       - name: SMTP_PASSWORD
         inputType: ProjectVariable
         description: SMTP auth password / app-password. Secret.
         secret: true
         variableKey: SMTP_PASSWORD
       - name: SMTP_FROM
-        inputType: FreeText
-        description: From address for analysis emails. Defaults to SMTP_USER when empty.
-        value: ""
+        inputType: ProjectVariable
+        description: From address for analysis emails (defaults to SMTP_USER). Set in the Portal to keep it out of the public repo.
+        variableKey: SMTP_FROM
       - name: SMTP_STARTTLS
         inputType: FreeText
         description: Issue STARTTLS before auth on port 587 (true/false). Ignored when SMTP_SSL=true.
