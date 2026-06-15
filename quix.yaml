@@ -109,6 +109,30 @@ deployments:
         inputType: FreeText
         description: Test Manager backend URL (in-cluster service name by default)
         value: http://test-manager-backend
+  - name: AC Post-Race Trigger
+    group: Ingestion
+    application: ac-postrace-trigger
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 300
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Topic of test-completed events (session-end signals)
+        required: true
+        value: test-completed
+      - name: TEST_MANAGER_URL
+        inputType: FreeText
+        description: Test Manager backend URL (in-cluster service name by default)
+        value: http://test-manager-backend
+      - name: TRIGGER_SECRET
+        inputType: ProjectVariable
+        description: Optional shared secret proving auto-analysis POSTs come from this service. Must match the Test Manager backend's TRIGGER_SECRET. Unset = gate disabled.
+        secret: true
+        variableKey: TRIGGER_SECRET
   - name: Dynamic Configuration Manager
     group: Ingestion
     application: DynamicConfiguration
@@ -295,6 +319,11 @@ deployments:
         required: true
         secret: true
         variableKey: TESTMANAGER_MCP_API_KEY
+      - name: TRIGGER_SECRET
+        inputType: ProjectVariable
+        description: Optional shared secret gating auto-triggered analyses. When set, an auto POST must carry a matching X-Trigger-Secret header (sent by AC Post-Race Trigger). Unset = gate disabled. Set the SAME value here and on AC Post-Race Trigger.
+        secret: true
+        variableKey: TRIGGER_SECRET
   - name: Test Manager - Frontend
     group: Test Manager
     application: test-manager-frontend

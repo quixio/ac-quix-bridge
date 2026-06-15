@@ -52,6 +52,7 @@ PYTHON_SERVICES: dict[str, str] = {
     "telemetry-dashboard": "fastapi",
     "telemetry-comparison": "fastapi",
     "session-config-bridge": "quixstreams-app",
+    "ac-postrace-trigger": "quixstreams-app",
     "test-manager-backend": "fastapi",
     "ac_video_streaming": "quixstreams-source",
     "ac-video-viewer": "fastapi",
