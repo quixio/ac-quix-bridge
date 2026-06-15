@@ -8,6 +8,7 @@ JPEG streaming, so no Kafka output topic is required at startup.
 
 import logging
 import os
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,6 +28,21 @@ from video_source import ACVideoSource
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
+
+# Tee logs to a rotating file (default logs/video-source.log next to this module,
+# override with VIDEO_LOG_FILE) so recording/session history survives the terminal
+# closing on the sim PC. Best-effort: a bad path/FS must not crash recording.
+_video_log = Path(os.environ.get("VIDEO_LOG_FILE") or Path(__file__).resolve().parent / "logs" / "video-source.log")
+_root = logging.getLogger()
+if not any(isinstance(h, RotatingFileHandler) for h in _root.handlers):
+    try:
+        _video_log.parent.mkdir(parents=True, exist_ok=True)
+        _fh = RotatingFileHandler(_video_log, maxBytes=10_000_000, backupCount=5)
+        _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        _root.addHandler(_fh)
+        logger.info("File logging enabled: %s (rotating 10MB x5)", _video_log)
+    except OSError as exc:
+        logging.warning("File logging disabled: %s", exc)
 
 
 def main():
