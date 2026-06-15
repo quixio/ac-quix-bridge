@@ -799,6 +799,48 @@ deployments:
       destinationTopic: ac-telemetry-session-replay
       fromTimestamp: 2026-06-08T15:43:11.624Z
       toTimestamp: 2026-06-08T19:06:53.229Z
+  - name: track-viewer
+    group: Test Manager
+    application: track-viewer
+    version: latest
+    # Read-only Service with public ingress so a browser can confirm the
+    # track-importer Job's track_layouts docs are present and loadable.
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 400
+        replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: track-viewer
+    network:
+      serviceName: track-viewer
+      ports:
+        - port: 80
+          targetPort: 8080
+    variables:
+      - name: MONGO_USER
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_USER
+      - name: MONGO_PASSWORD
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_ROOT_PASSWORD
+      - name: MONGO_HOST
+        inputType: FreeText
+        required: true
+        value: mongodb
+      - name: MONGO_PORT
+        inputType: FreeText
+        value: 27017
+      - name: MONGO_DATABASE
+        inputType: FreeText
+        description: DB to read track_layouts from (the DB the backend connects to).
+        value: test_manager
 
 # This section describes the Topics of the data pipeline
 topics:

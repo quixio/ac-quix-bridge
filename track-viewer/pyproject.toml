@@ -1,0 +1,17 @@
+[project]
+name = "track-viewer"
+description = "Read-only FastAPI service to browse and render imported track_layouts."
+requires-python = ">=3.13"
+version = "0.1.0"
+
+authors = [
+	{ name = "Quix Analytics Ltd", email = "devs@quix.io" },
+]
+
+dependencies = [
+	"fastapi",
+	"uvicorn[standard]",
+	"pymongo",
+	"pydantic",
+	"pydantic-settings",
+]

@@ -1,0 +1,28 @@
+FROM python:3.13-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+	PYTHONUNBUFFERED=1 \
+	PYTHONIOENCODING=UTF-8 \
+	UV_COMPILE_BYTECODE=1
+
+ARG MAINAPPPATH=.
+
+WORKDIR /app
+
+# Install system dependencies for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Copy project (build context = repo root, MAINAPPPATH = app subdir).
+COPY "${MAINAPPPATH}" /app
+
+# Install dependencies with uv
+RUN uv sync --frozen --no-cache
+
+ENV PYTHONPATH=/app
+EXPOSE 8080
+
+# Start the read-only viewer API.
+ENTRYPOINT ["/bin/uv", "run", "-m", "main"]
