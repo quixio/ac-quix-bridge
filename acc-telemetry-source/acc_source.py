@@ -77,7 +77,7 @@ class AssettoCorsaCompetizioneSource(Source):
         self._hostname = socket.gethostname()
         self._prev_status = None
         self._prev_current_time = None
-        self._session_warmup_drop_ms = int(os.environ.get("SESSION_WARMUP_DROP_MS", "2000"))
+        self._session_warmup_drop_ms = max(0, int(os.environ.get("SESSION_WARMUP_DROP_MS", "2000")))
         self._warmup_until = 0.0
         self._warmup_dropped = 0
 
@@ -252,8 +252,9 @@ class AssettoCorsaCompetizioneSource(Source):
                 )
                 if new_session:
                     self._publish_session_metadata(reader)
-                    self._warmup_until = time.perf_counter() + self._session_warmup_drop_ms / 1000
-                    self._warmup_dropped = 0
+                    if self._session_warmup_drop_ms > 0:
+                        self._warmup_until = time.perf_counter() + self._session_warmup_drop_ms / 1000
+                        self._warmup_dropped = 0
 
                 if status != "live" or self._session_id is None:
                     now = time.perf_counter()
