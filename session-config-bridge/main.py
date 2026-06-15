@@ -60,7 +60,12 @@ def _find_config_id(target_key: str) -> str | None:
 
 def _push_to_config_manager(target_key: str, content: dict):
     """Create or update a session config in the Dynamic Configuration Manager."""
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    # Anchor valid_from to session start (session_id is the session-start UTC
+    # timestamp) so the lake's event-time join binds car/track from the first
+    # tick, not from when the bridge happened to POST. Fall back to now().
+    ts = content.get("session_id") or (
+        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    )
     config_id = _find_config_id(target_key)
 
     with httpx.Client() as client:
