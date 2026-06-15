@@ -1,0 +1,40 @@
+{
+  "track": "ks_monza66",
+  "layout": "junior",
+  "source_csv": "tracks_csv/ks_monza66/layout_junior.csv",
+  "total_length_m": 2394.28,
+  "config": {
+    "hairpin_max_m": 60,
+    "tight_max_m": 150,
+    "sweeper_max_m": 400,
+    "straight_threshold_m": 500
+  },
+  "generated_at": "2026-06-15T09:32:42Z",
+  "version": "1",
+  "corners": [
+    {
+      "id": 1,
+      "type": "hairpin",
+      "direction": "right",
+      "distance_start_m": 206.77,
+      "distance_end_m": 620.41,
+      "length_m": 413.64,
+      "min_radius_m": 45.6,
+      "avg_radius_m": 135.52,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 2,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 1393.24,
+      "distance_end_m": 1790.76,
+      "length_m": 397.52,
+      "min_radius_m": 81.9,
+      "avg_radius_m": 164.07,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    }
+  ]
+}

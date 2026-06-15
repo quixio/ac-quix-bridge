@@ -1,0 +1,100 @@
+{
+  "track": "ks_black_cat_county",
+  "layout": "short",
+  "source_csv": "tracks_csv/ks_black_cat_county/layout_short.csv",
+  "total_length_m": 6451.84,
+  "config": {
+    "hairpin_max_m": 60,
+    "tight_max_m": 150,
+    "sweeper_max_m": 400,
+    "straight_threshold_m": 500
+  },
+  "generated_at": "2026-06-15T09:32:34Z",
+  "version": "1",
+  "corners": [
+    {
+      "id": 1,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 533.82,
+      "distance_end_m": 1179.59,
+      "length_m": 645.77,
+      "min_radius_m": 33.6,
+      "avg_radius_m": 253.05,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 2,
+      "type": "sweeper",
+      "direction": "right",
+      "distance_start_m": 1250.88,
+      "distance_end_m": 1360.79,
+      "length_m": 109.91,
+      "min_radius_m": 261.0,
+      "avg_radius_m": 333.4,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 3,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 1455.94,
+      "distance_end_m": 3233.46,
+      "length_m": 1777.52,
+      "min_radius_m": 31.5,
+      "avg_radius_m": 166.78,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 4,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 3516.42,
+      "distance_end_m": 3762.06,
+      "length_m": 245.64,
+      "min_radius_m": 49.2,
+      "avg_radius_m": 108.76,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 5,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 3991.9,
+      "distance_end_m": 4480.65,
+      "length_m": 488.75,
+      "min_radius_m": 25.8,
+      "avg_radius_m": 151.6,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 6,
+      "type": "sweeper",
+      "direction": "right",
+      "distance_start_m": 4558.58,
+      "distance_end_m": 4620.26,
+      "length_m": 61.68,
+      "min_radius_m": 268.0,
+      "avg_radius_m": 367.29,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 7,
+      "type": "hairpin",
+      "direction": "right",
+      "distance_start_m": 5035.45,
+      "distance_end_m": 6045.94,
+      "length_m": 1010.49,
+      "min_radius_m": 16.1,
+      "avg_radius_m": 222.83,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    }
+  ]
+}

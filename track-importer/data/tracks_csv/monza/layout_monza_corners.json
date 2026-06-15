@@ -1,0 +1,112 @@
+{
+  "track": "monza",
+  "layout": "monza",
+  "source_csv": "tracks_csv/monza/layout_monza.csv",
+  "total_length_m": 5757.2,
+  "config": {
+    "hairpin_max_m": 60,
+    "tight_max_m": 150,
+    "sweeper_max_m": 400,
+    "straight_threshold_m": 500
+  },
+  "generated_at": "2026-06-15T09:32:53Z",
+  "version": "1",
+  "corners": [
+    {
+      "id": 1,
+      "type": "hairpin",
+      "direction": "right",
+      "distance_start_m": 908.54,
+      "distance_end_m": 1004.48,
+      "length_m": 95.94,
+      "min_radius_m": 21.3,
+      "avg_radius_m": 48.92,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 2,
+      "type": "sweeper",
+      "direction": "left",
+      "distance_start_m": 1065.76,
+      "distance_end_m": 1155.06,
+      "length_m": 89.3,
+      "min_radius_m": 292.6,
+      "avg_radius_m": 405.11,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 3,
+      "type": "sweeper",
+      "direction": "left",
+      "distance_start_m": 1270.97,
+      "distance_end_m": 1712.06,
+      "length_m": 441.09,
+      "min_radius_m": 263.6,
+      "avg_radius_m": 363.72,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 4,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 2105.03,
+      "distance_end_m": 2215.77,
+      "length_m": 110.74,
+      "min_radius_m": 32.3,
+      "avg_radius_m": 95.06,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 5,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 2461.46,
+      "distance_end_m": 2653.53,
+      "length_m": 192.07,
+      "min_radius_m": 80.7,
+      "avg_radius_m": 139.04,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 6,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 2821.02,
+      "distance_end_m": 2930.09,
+      "length_m": 109.07,
+      "min_radius_m": 64.2,
+      "avg_radius_m": 119.44,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 7,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 3898.2,
+      "distance_end_m": 4190.56,
+      "length_m": 292.36,
+      "min_radius_m": 64.7,
+      "avg_radius_m": 227.65,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 8,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 5068.42,
+      "distance_end_m": 5459.68,
+      "length_m": 391.26,
+      "min_radius_m": 79.6,
+      "avg_radius_m": 159.77,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    }
+  ]
+}
