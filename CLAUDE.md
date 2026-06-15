@@ -90,7 +90,7 @@ Other services (`ac-telemetry-source`, `telemetry-dashboard`, `ac-telemetry-lake
 ## Key implementation details
 
 - **Shared memory structs** (`ac-telemetry-source/models.py`): `ACPhysics`, `ACGraphics`, `ACStatic` are ctypes Structures matching AC's memory layout. **Field order is critical** (sequential memory read). Reference: https://assettocorsa.club/forum/index.php?threads/shared-memory-documentation.3352/
-- **Session detection** (`ac-telemetry-source/ac_source.py`): New session = change in `car|track` key. Session ID is a UTC timestamp string; static data published once per session change.
+- **Session detection** (`ac-telemetry-source/ac_source.py` `_check_session`): keyed on AC **status transitions**, NOT car/track. New session on `off`/init→`live` and `replay`/other→`live` (always), and `pause`→`live` only when `iCurrentTime` dropped (a restart); a plain `pause`→`live` resumes the same session. Session ID is a UTC timestamp string; static data published once per new session.
 - **Per-wheel fields** use suffix convention: `FL`, `FR`, `RL`, `RR` (e.g., `tyreTempFL`, `brakeTempRR`). Lake partitioning relies on these exact names.
 - **Test Manager entities** — Auto-generated prefixed IDs: `DEV-0001` (Device), `DRV-0001` (Driver), `ENV-0001` (Environment), `TST-0001` (Test). Sessions are stored as an array on Test (not their own collection).
 - **DCM config routing** — Each test edit creates a new version on the same `config_id` (server-side `replace: true`). Deleting a test deletes only its version, not the whole config. Test target is keyed by hostname; bridge resolves active test via latest version's `test_id`.
