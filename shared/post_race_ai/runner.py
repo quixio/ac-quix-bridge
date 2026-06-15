@@ -172,7 +172,8 @@ class BatchAnalysisAI:
                 f"analysis_id: {analysis_id}\n"
                 f"test_id:     {test_id}\n"
                 f"session_id:  {session_id}\n\n"
-                "Workspace context: AC telemetry. Default lake table = ac_telemetry_leadboard.\n\n"
+                "Workspace context: AC telemetry. Resolve the lake table per your "
+                "instructions (do not assume a table name).\n\n"
                 f'Call save_analysis(analysis_id="{analysis_id}", payload={{...}}) exactly once when done.'
             )
         return {

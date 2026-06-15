@@ -329,6 +329,9 @@ def test_seed_message_session_mode_includes_session_id() -> None:
     assert "2026-06-01T13:13:12.038Z" in msg
     assert "scope:" not in msg
     assert "workspaceId" in seed["context"]
+    # The seed must not hardcode a lake table — the agent's KB/prompt own table
+    # selection (the old "ac_telemetry_leadboard" hint drifted out of date).
+    assert "leadboard" not in msg.lower()
     # test-wide-only fragments must NOT leak into session body
     assert "list_sessions_for_test" not in msg
     assert "Workflow:" not in msg
