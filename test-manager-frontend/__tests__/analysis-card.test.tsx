@@ -1,7 +1,27 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AnalysisCard } from "@/app/analysis/ai-summary/components/analysis-card";
 import type { Analysis } from "@/types/analysis";
+
+const { getPdf, toast } = vi.hoisted(() => ({
+  getPdf: vi.fn(),
+  toast: vi.fn(),
+}));
+
+vi.mock("@/lib/hooks/use-api", () => ({
+  useAnalysesApi: () => ({ getPdf }),
+}));
+vi.mock("@/lib/hooks/use-toast", () => ({
+  useToast: () => ({ toast }),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  getPdf.mockResolvedValue(new Blob(["%PDF-1.7"], { type: "application/pdf" }));
+  // jsdom doesn't implement these:
+  global.URL.createObjectURL = vi.fn(() => "blob:mock");
+  global.URL.revokeObjectURL = vi.fn();
+});
 
 function fullAnalysis(): Analysis {
   return {
@@ -60,11 +80,10 @@ describe("AnalysisCard", () => {
     expect(screen.getByText(/Great session/)).toBeInTheDocument();
   });
 
-  it("renders footer with model + tokens + duration", () => {
+  it("renders footer with model + duration", () => {
     render(<AnalysisCard analysis={fullAnalysis()} />);
     expect(screen.getByText(/claude-opus-4-7/)).toBeInTheDocument();
-    expect(screen.getByText(/4218/)).toBeInTheDocument();
-    expect(screen.getByText(/1132/)).toBeInTheDocument();
+    expect(screen.getByText(/Generated in/)).toBeInTheDocument();
     expect(screen.getByText(/33s/)).toBeInTheDocument();
   });
 
@@ -77,5 +96,56 @@ describe("AnalysisCard", () => {
     };
     render(<AnalysisCard analysis={empty} />);
     expect(screen.getByText(/Great session/)).toBeInTheDocument();
+  });
+
+  // --- Download PDF button (F2-UI) ---
+
+  it("shows the Download PDF button when complete", () => {
+    render(<AnalysisCard analysis={fullAnalysis()} />);
+    expect(
+      screen.getByRole("button", { name: /download pdf/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the Download PDF button when not complete", () => {
+    for (const status of ["running", "failed"] as const) {
+      const { unmount } = render(
+        <AnalysisCard analysis={{ ...fullAnalysis(), status }} />,
+      );
+      expect(
+        screen.queryByRole("button", { name: /download pdf/i }),
+      ).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("fetches the blob and triggers a download on click", async () => {
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    render(<AnalysisCard analysis={fullAnalysis()} />);
+    fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+
+    await waitFor(() => expect(getPdf).toHaveBeenCalledWith("aid"));
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled());
+    expect(URL.createObjectURL).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it("toasts a destructive error when the PDF fetch fails", async () => {
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    getPdf.mockRejectedValueOnce(new Error("boom"));
+    render(<AnalysisCard analysis={fullAnalysis()} />);
+    fireEvent.click(screen.getByRole("button", { name: /download pdf/i }));
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: "destructive" }),
+      ),
+    );
+    expect(clickSpy).not.toHaveBeenCalled();
+    clickSpy.mockRestore();
   });
 });

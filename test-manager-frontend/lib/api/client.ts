@@ -156,11 +156,12 @@ async function fetchWithRetry<T>(
   fetchFn: (token?: string | null) => Promise<Response>,
   currentToken?: string | null,
   refreshTokenFn?: () => Promise<string | null>,
+  handler: (response: Response) => Promise<T> = handleResponse,
 ): Promise<T> {
   try {
     // First attempt with current token
     const response = await fetchFn(currentToken);
-    return await handleResponse<T>(response);
+    return await handler(response);
   } catch (error) {
     // If auth error and refresh function provided, attempt refresh and retry
     if (
@@ -177,7 +178,7 @@ async function fetchWithRetry<T>(
       if (freshToken && freshToken !== currentToken) {
         console.log("[API Client] Got fresh token, retrying request...");
         const retryResponse = await fetchFn(freshToken);
-        return await handleResponse<T>(retryResponse);
+        return await handler(retryResponse);
       } else {
         console.warn("[API Client] Token refresh did not provide new token");
       }
@@ -241,6 +242,48 @@ export async function apiGet<T>(
       }),
     token,
     refreshToken,
+  );
+}
+
+/**
+ * Handle a binary (Blob) response. Mirrors handleResponse's error handling but
+ * returns the body as a Blob instead of parsing JSON.
+ */
+async function handleBlobResponse(response: Response): Promise<Blob> {
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const errorData = await response.json();
+      message = errorData?.detail || errorData?.message || message;
+    } catch (e) {
+      console.debug("[API Client] blob error body was not JSON", e);
+    }
+    throw new ApiError(message, response.status);
+  }
+  return response.blob();
+}
+
+/**
+ * GET request returning a binary Blob (e.g. a PDF), with the same auth +
+ * token-refresh behaviour as apiGet.
+ */
+export async function apiGetBlob(
+  endpoint: string,
+  token?: string | null,
+  refreshToken?: () => Promise<string | null>,
+): Promise<Blob> {
+  const url = buildUrl(endpoint);
+  console.log("[API Client] GET (blob)", url);
+
+  return fetchWithRetry<Blob>(
+    (authToken) =>
+      fetch(url, {
+        method: "GET",
+        headers: buildHeaders(authToken),
+      }),
+    token,
+    refreshToken,
+    handleBlobResponse,
   );
 }
 

@@ -3,7 +3,7 @@
  * Provides methods to interact with /analyses endpoints
  */
 
-import { apiGet, apiPost } from "./client";
+import { apiGet, apiGetBlob, apiPost } from "./client";
 import type {
   Analysis,
   AnalysisCreateRequest,
@@ -71,5 +71,17 @@ export const analysesApi = {
       token,
       refreshToken,
     );
+  },
+
+  /**
+   * Fetch a completed analysis rendered as a PDF (binary Blob). Backend 409s
+   * if the analysis isn't complete.
+   */
+  getPdf: (
+    analysisId: string,
+    token?: string | null,
+    refreshToken?: () => Promise<string | null>,
+  ) => {
+    return apiGetBlob(`/analyses/${analysisId}/pdf`, token, refreshToken);
   },
 };

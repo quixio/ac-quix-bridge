@@ -1,9 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
+import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useAnalysesApi } from "@/lib/hooks/use-api";
+import { useToast } from "@/lib/hooks/use-toast";
 import type { Analysis } from "@/types/analysis";
 
 function formatDuration(ms: number | null | undefined): string {
@@ -69,21 +74,65 @@ function SessionBadge({ sessionId }: { sessionId?: string | null }) {
 }
 
 export function AnalysisCard({ analysis }: { analysis: Analysis }) {
+  const analysesApi = useAnalysesApi();
+  const { toast } = useToast();
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    try {
+      setIsDownloading(true);
+      const blob = await analysesApi.getPdf(analysis.id);
+      // Download via an anchor click, not window.open — a programmatic download
+      // works inside the embedded Portal iframe and isn't blocked as a popup.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `analysis-${analysis.test_id}-${analysis.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoke later so the download has time to start.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      toast({
+        title: "Failed to download PDF",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <Card className="p-6 space-y-6">
-      <header className="space-y-0.5">
-        <h2 className="text-lg font-semibold">Post-Race Summary</h2>
-        <p className="text-sm text-muted-foreground">
-          {[
-            analysis.test_id,
-            analysis.session_id
-              ? formatSessionDate(analysis.session_id)
-              : "Test-wide",
-            subtitleExtras(analysis.extra),
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div className="space-y-0.5">
+          <h2 className="text-lg font-semibold">Post-Race Summary</h2>
+          <p className="text-sm text-muted-foreground">
+            {[
+              analysis.test_id,
+              analysis.session_id
+                ? formatSessionDate(analysis.session_id)
+                : "Test-wide",
+              subtitleExtras(analysis.extra),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </div>
+        {analysis.status === "complete" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadPdf}
+            disabled={isDownloading}
+            className="shrink-0"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {isDownloading ? "Downloading…" : "Download PDF"}
+          </Button>
+        )}
       </header>
 
       {/* KPI grid */}
