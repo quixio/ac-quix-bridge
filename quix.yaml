@@ -575,6 +575,17 @@ deployments:
         inputType: FreeText
         description: "Run mode: 'app' (view only) or 'edit' (full editor)"
         value: edit
+      - name: QUIXLAB_MCP_KEY
+        inputType: ProjectVariable
+        description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent.
+        required: true
+        secret: true
+        variableKey: QUIXLAB_MCP_KEY
+      - name: QUIXLAB_AGENT_ID
+        inputType: ProjectVariable
+        description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent.
+        required: true
+        variableKey: QUIXLAB_AGENT_ID
     plugin:
       embeddedView:
         enabled: true
@@ -670,9 +681,6 @@ deployments:
       - name: LIVE_TELEMETRY_ENABLED
         inputType: FreeText
         value: true
-      - name: Quix__Portal__Api
-        inputType: FreeText
-        value: https://portal-api.dev.quix.io
     blobStorage:
       bind: true
   - name: leaderboard-ui
@@ -697,10 +705,10 @@ deployments:
         description: Internal k8s service URL for server-side Next.js requests (unused — no rewrites; kept for parity)
         value: http://leaderboard-service
       - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
-        inputType: FreeText
+        inputType: ProjectVariable
         description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
         required: true
-        value: https://leaderboard-service-9cb716a-quixdev-acquixbridge-nurembergdemo.deployments-dev.quix.io
+        variableKey: LEADERBOARD_SERVICE_URL
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: Blue-freeze window duration in ms after a gate crossing.
