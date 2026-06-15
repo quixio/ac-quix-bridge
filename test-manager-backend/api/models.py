@@ -3,7 +3,15 @@ from typing import Any, Generic, Literal, TypeVar
 from enum import Enum
 from math import ceil
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import PydanticCustomError
 
 from .utils import now
 
@@ -712,13 +720,27 @@ class Analysis(BaseModel):
 class AnalysisCreate(BaseModel):
     """Request body for POST /api/v1/analyses.
 
-    session_id is optional: null = test-wide (analyze every session of the test).
+    Either `test_id` or `session_id` must be given. The manual UI sends
+    `test_id` (+ optional `session_id`; null = test-wide). The auto-trigger
+    (F3) sends `session_id` only — the backend resolves the owning test.
     """
 
-    test_id: str = Field(..., min_length=1)
+    test_id: str | None = None
     session_id: str | None = None
     # manual = forward the caller's bearer (attribution); auto = use PAT_TOKEN.
     triggered_by: Literal["manual", "auto"] = "manual"
+
+    @model_validator(mode="after")
+    def require_test_or_session(self) -> "AnalysisCreate":
+        if not self.test_id and not self.session_id:
+            raise PydanticCustomError(
+                "value_error", "either test_id or session_id is required"
+            )
+        if self.triggered_by == "auto" and not self.session_id:
+            raise PydanticCustomError(
+                "value_error", "auto-triggered analysis requires session_id"
+            )
+        return self
 
 
 class AnalysisListQuery(PaginationParams):

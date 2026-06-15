@@ -99,6 +99,8 @@ def connect(settings: MongoSettings) -> None:
     _mongo.tests.create_index("pc_device_id")
     _mongo.tests.create_index("test_rig_device_id")
     _mongo.tests.create_index([("experiment_id", "text"), ("driver", "text")])
+    # F3 auto-trigger resolves test_id from a session_id (reverse of the bridge).
+    _mongo.tests.create_index("sessions.session_id")
 
     # Devices collection
     _mongo.devices.create_index("category")

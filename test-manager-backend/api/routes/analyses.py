@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import re
+import secrets
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
@@ -33,34 +34,98 @@ _RUNNING_TASKS: set[asyncio.Task[None]] = set()
     "/analyses",
     status_code=status.HTTP_202_ACCEPTED,
     responses={
-        202: {"content": {"application/json": {"example": {"analysis_id": "..."}}}}
+        202: {"content": {"application/json": {"example": {"analysis_id": "..."}}}},
+        200: {
+            "description": "Existing analysis returned (auto dedup)",
+            "content": {"application/json": {"example": {"analysis_id": "..."}}},
+        },
     },
 )
 async def create_analysis(
     request: Request,
+    response: Response,
     payload: AnalysisCreate = Body(...),
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     _: None = Depends(update_permission),
 ) -> dict[str, str]:
-    test = mongo.tests.find_one({"_id": payload.test_id})
-    if not test:
-        raise HTTPException(status_code=404, detail="Test not found")
-
-    if payload.session_id is not None:
-        known_session_ids = {s["session_id"] for s in test.get("sessions", [])}
-        if payload.session_id not in known_session_ids:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"session_id '{payload.session_id}' not found on test {payload.test_id}"
-                ),
+    # Gate the auto path to the trigger service. `triggered_by` is a
+    # self-reported claim, and auto runs under the admin PAT_TOKEN (F6), so a
+    # user could POST `auto` to dodge attribution/quota. When TRIGGER_SECRET is
+    # set, an auto request must carry the matching X-Trigger-Secret header.
+    # Unset (local dev / API_AUTH_ACTIVE=false) is a no-op, so manual flows and
+    # tests are unaffected. Constant-time compare to avoid a timing oracle.
+    if payload.triggered_by == "auto":
+        expected = os.getenv("TRIGGER_SECRET", "")
+        provided = request.headers.get("x-trigger-secret", "")
+        if expected and not secrets.compare_digest(provided, expected):
+            logger.warning(
+                "[analyses] auto request rejected — missing/invalid X-Trigger-Secret"
             )
+            raise HTTPException(status_code=403, detail="Not Allowed")
+
+    if payload.test_id is not None:
+        test = mongo.tests.find_one({"_id": payload.test_id})
+        if not test:
+            raise HTTPException(status_code=404, detail="Test not found")
+        test_id = payload.test_id
+        if payload.session_id is not None:
+            known_session_ids = {s["session_id"] for s in test.get("sessions", [])}
+            if payload.session_id not in known_session_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"session_id '{payload.session_id}' not found on test {test_id}"
+                    ),
+                )
+    else:
+        # F3 auto-trigger path: resolve the owning test from session_id alone.
+        # Membership is implicit — the test is found BY owning the session, so
+        # no separate cross-check (unlike the test_id-supplied branch above).
+        owners = list(
+            mongo.tests.find({"sessions.session_id": payload.session_id}, {"_id": 1})
+        )
+        if not owners:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No test owns session '{payload.session_id}'",
+            )
+        if len(owners) > 1:
+            logger.warning(
+                "[analyses] session %s owned by %d tests; using first %s",
+                payload.session_id,
+                len(owners),
+                owners[0]["_id"],
+            )
+        test_id = owners[0]["_id"]
+
+    # Dedup auto re-fires: the test-completed event re-emits for the same
+    # session_id while it stays silent. Return the existing non-failed run
+    # instead of starting a duplicate. Manual is never deduped (a human can
+    # always force a re-run).
+    if payload.triggered_by == "auto":
+        existing = mongo.analyses.find_one(
+            {
+                "test_id": test_id,
+                "session_id": payload.session_id,
+                "status": {"$in": [*IN_PROGRESS_STATUSES, "complete"]},
+            },
+            sort=[("created_at", -1)],
+        )
+        if existing:
+            logger.info(
+                "[analyses] auto dedup — existing %s for (test=%s session=%s)",
+                existing["_id"],
+                test_id,
+                payload.session_id,
+            )
+            response.status_code = status.HTTP_200_OK
+            return {"analysis_id": existing["_id"]}
 
     analysis_id = str(uuid4())
     now = datetime.now(timezone.utc)
     doc = Analysis(
         _id=analysis_id,
-        test_id=payload.test_id,
+        test_id=test_id,
         session_id=payload.session_id,
         triggered_by=payload.triggered_by,
         status="pending",
@@ -69,10 +134,11 @@ async def create_analysis(
     )
     mongo.analyses.insert_one(doc.model_dump(by_alias=True))
     logger.info(
-        "[analyses] POST create %s (test=%s session=%s)",
+        "[analyses] POST create %s (test=%s session=%s triggered_by=%s)",
         analysis_id,
-        payload.test_id,
+        test_id,
         payload.session_id,
+        payload.triggered_by,
     )
 
     # Spawn the async runner only when Quix.AI is configured. In tests the env
@@ -91,7 +157,7 @@ async def create_analysis(
         task = asyncio.create_task(
             analyzer.run(
                 analysis_id=analysis_id,
-                test_id=payload.test_id,
+                test_id=test_id,
                 session_id=payload.session_id,
             )
         )

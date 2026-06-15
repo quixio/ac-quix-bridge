@@ -141,12 +141,23 @@ def test_analysis_invalid_error_kind_rejected():
 # --- Request models ------------------------------------------------------- #
 
 
-def test_analysis_create_requires_test_id():
-    """test_id is required; session_id is optional (v2 — null = test-wide)."""
+def test_analysis_create_requires_test_id_or_session_id():
+    """F3: test_id became optional — at least one of test_id / session_id required."""
     with pytest.raises(ValidationError):
-        AnalysisCreate(test_id="", session_id="s")  # min_length=1 on test_id
-    ok = AnalysisCreate(test_id="t", session_id="s")
-    assert ok.test_id == "t"
+        AnalysisCreate()  # neither provided
+    assert AnalysisCreate(test_id="t").session_id is None
+    assert AnalysisCreate(session_id="s").test_id is None
+    both = AnalysisCreate(test_id="t", session_id="s")
+    assert both.test_id == "t"
+    assert both.session_id == "s"
+
+
+def test_auto_triggered_requires_session_id():
+    """Auto trigger must name a session — a null session_id would let the dedup
+    match test-wide rows and is never what the trigger sends."""
+    with pytest.raises(ValidationError):
+        AnalysisCreate(test_id="t", triggered_by="auto")  # no session_id
+    ok = AnalysisCreate(session_id="s", triggered_by="auto")
     assert ok.session_id == "s"
 
 
@@ -377,6 +388,170 @@ def test_triggered_by_invalid_rejected(
         json={"test_id": test_id, "session_id": session_id, "triggered_by": "bogus"},
     )
     assert resp.status_code == 422
+
+
+# --- Routes: F3 auto trigger-secret gate ---------------------------------- #
+
+
+def test_auto_requires_trigger_secret_when_configured(
+    client: TestClient, create_test: TestFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When TRIGGER_SECRET is set, an auto POST without the matching header is 403."""
+    monkeypatch.setenv("TRIGGER_SECRET", "s3cr3t")
+    _, session_id = _create_test_with_session(client, create_test)
+
+    missing = client.post(
+        "/api/v1/analyses",
+        json={"session_id": session_id, "triggered_by": "auto"},
+    )
+    assert missing.status_code == 403, missing.text
+
+    wrong = client.post(
+        "/api/v1/analyses",
+        json={"session_id": session_id, "triggered_by": "auto"},
+        headers={"X-Trigger-Secret": "nope"},
+    )
+    assert wrong.status_code == 403, wrong.text
+
+    ok = client.post(
+        "/api/v1/analyses",
+        json={"session_id": session_id, "triggered_by": "auto"},
+        headers={"X-Trigger-Secret": "s3cr3t"},
+    )
+    assert ok.status_code == 202, ok.text
+
+
+def test_manual_unaffected_by_trigger_secret(
+    client: TestClient, create_test: TestFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate applies only to auto — manual never needs the secret."""
+    monkeypatch.setenv("TRIGGER_SECRET", "s3cr3t")
+    test_id, session_id = _create_test_with_session(client, create_test)
+
+    resp = client.post(
+        "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
+    )
+    assert resp.status_code == 202, resp.text
+
+
+def test_auto_no_secret_required_when_unset(
+    client: TestClient, create_test: TestFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With TRIGGER_SECRET unset (local dev / tests), auto works without a header."""
+    monkeypatch.delenv("TRIGGER_SECRET", raising=False)
+    _, session_id = _create_test_with_session(client, create_test)
+
+    resp = client.post(
+        "/api/v1/analyses", json={"session_id": session_id, "triggered_by": "auto"}
+    )
+    assert resp.status_code == 202, resp.text
+
+
+# --- Routes: F3 session-only resolve + auto dedup ------------------------- #
+
+
+def _insert_analysis_for(
+    test_id: str, session_id: str, status: str, analysis_id: str
+) -> str:
+    """Insert an analysis doc bound to a specific (test, session) straight into Mongo."""
+    from api.mongo import get_mongo
+
+    now = datetime.now(timezone.utc)
+    doc = Analysis(
+        _id=analysis_id,
+        test_id=test_id,
+        session_id=session_id,
+        status=status,  # type: ignore[arg-type]
+        summary_md="x",
+        created_at=now,
+        updated_at=now,
+    )
+    get_mongo().analyses.insert_one(doc.model_dump(by_alias=True))
+    return analysis_id
+
+
+def test_post_analysis_session_only_resolves_test_id(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """A session_id-only POST resolves the owning test (the auto-trigger path)."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+
+    resp = client.post(
+        "/api/v1/analyses",
+        json={"session_id": session_id, "triggered_by": "auto"},
+    )
+    assert resp.status_code == 202, resp.text
+    analysis_id = resp.json()["analysis_id"]
+
+    doc = client.get(f"/api/v1/analyses/{analysis_id}").json()
+    assert doc["test_id"] == test_id
+    assert doc["session_id"] == session_id
+    assert doc["triggered_by"] == "auto"
+
+
+def test_post_analysis_session_only_404_when_no_test_owns_session(
+    client: TestClient,
+) -> None:
+    resp = client.post(
+        "/api/v1/analyses",
+        json={"session_id": "2099-12-31T00:00:00Z", "triggered_by": "auto"},
+    )
+    assert resp.status_code == 404
+
+
+def test_post_analysis_requires_test_id_or_session_id(client: TestClient) -> None:
+    resp = client.post("/api/v1/analyses", json={"triggered_by": "auto"})
+    assert resp.status_code == 422
+
+
+def test_auto_dedup_returns_existing_with_200(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """Re-fired auto triggers for the same session return the same analysis (200)."""
+    _, session_id = _create_test_with_session(client, create_test)
+
+    first = client.post(
+        "/api/v1/analyses", json={"session_id": session_id, "triggered_by": "auto"}
+    )
+    assert first.status_code == 202, first.text
+    first_id = first.json()["analysis_id"]
+
+    second = client.post(
+        "/api/v1/analyses", json={"session_id": session_id, "triggered_by": "auto"}
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["analysis_id"] == first_id
+
+
+def test_manual_always_creates_fresh(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """A human can re-run: manual is never deduped, even if one already exists."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+
+    first = client.post(
+        "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
+    )
+    second = client.post(
+        "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
+    )
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert first.json()["analysis_id"] != second.json()["analysis_id"]
+
+
+def test_auto_dedup_ignores_failed(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """A prior failed analysis must NOT block a fresh auto run."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+    _insert_analysis_for(test_id, session_id, "failed", "a-failed-1")
+
+    resp = client.post(
+        "/api/v1/analyses", json={"session_id": session_id, "triggered_by": "auto"}
+    )
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["analysis_id"] != "a-failed-1"
 
 
 # --- Routes: GET /api/v1/analyses/{id}/pdf (F2) --------------------------- #
