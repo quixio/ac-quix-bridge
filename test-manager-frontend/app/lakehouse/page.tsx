@@ -48,16 +48,19 @@ function LakehouseView() {
       );
 
     const run = async () => {
-      if (testId) {
-        try {
-          const params = await testsApi.getTelemetryParams(testId);
-          if (!cancelled) setIframeUrl(make(params));
-          return;
-        } catch {
-          // Config service down — still open with whatever the URL carries.
-        }
+      // Sidebar / no test context → open blank: browse the partition tree and
+      // write SQL, no prefilled query.
+      if (!testId) {
+        if (!cancelled) setIframeUrl(LAKEHOUSE_UI_URL);
+        return;
       }
-      if (!cancelled) setIframeUrl(make({}));
+      try {
+        const params = await testsApi.getTelemetryParams(testId);
+        if (!cancelled) setIframeUrl(make(params));
+      } catch {
+        // params load failed — open with whatever the URL carries (session deep-link).
+        if (!cancelled) setIframeUrl(make({}));
+      }
     };
     run();
     return () => {

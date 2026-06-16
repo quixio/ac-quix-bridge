@@ -41,6 +41,14 @@ describe("buildLakehouseQuery", () => {
     expect(q).not.toContain("track =");
   });
 
+  it("emits no WHERE clause when there are no partition filters", () => {
+    const q = buildLakehouseQuery({}, null);
+    expect(q).not.toContain("WHERE");
+    expect(q).not.toContain("1=1");
+    expect(q).toContain("FROM ac_telemetry");
+    expect(q.trimEnd()).toMatch(/LIMIT 100$/);
+  });
+
   it("escapes single quotes to avoid breaking the SQL string", () => {
     const q = buildLakehouseQuery({ driver: "o'brien" }, null);
     expect(q).toContain("driver = 'o''brien'");

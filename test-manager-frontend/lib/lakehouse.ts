@@ -46,11 +46,13 @@ export function buildLakehouseQuery(
     eq("carModel", p.carModel);
     where.push(`session_id = '${sessionId.replace(/'/g, "''")}'`);
   }
-  const clause = where.length > 0 ? where.join("\n  AND ") : "1=1";
-  return `SELECT *\nFROM ac_telemetry\nWHERE ${clause}\nLIMIT 100`;
+  const whereClause =
+    where.length > 0 ? `\nWHERE ${where.join("\n  AND ")}` : "";
+  return `SELECT *\nFROM ac_telemetry${whereClause}\nLIMIT 100`;
 }
 
-/** Build the Lakehouse UI iframe URL with the query prefilled + auto-run. */
+/** Build the Lakehouse UI iframe URL with the query prefilled (no auto-run —
+ * the user reviews + runs it). */
 export function lakehouseIframeUrl(sql: string): string {
-  return `${LAKEHOUSE_UI_URL}?sql=${encodeURIComponent(sql)}&autorun=true`;
+  return `${LAKEHOUSE_UI_URL}?sql=${encodeURIComponent(sql)}`;
 }
