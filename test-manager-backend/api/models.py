@@ -622,7 +622,7 @@ class LivePositionEntry(BaseModel):
 class KpiValue(BaseModel):
     """One measurable KPI surfaced by the AI agent."""
 
-    name: str  # opaque string — e.g. "best_lap"
+    name: str  # display label shown verbatim, Title Case — e.g. "Fastest Clean Lap"
     value: float | str
     unit: str | None = None
     notes: str | None = None
@@ -641,7 +641,7 @@ class Anomaly(BaseModel):
     """One detected event of note (brake spike, off-track, telemetry gap, ...)."""
 
     severity: Literal["info", "warn", "error"]
-    kind: str  # opaque string — e.g. "brake_spike"
+    kind: str  # display label shown verbatim, Title Case — e.g. "Brake Spike"
     lap: int | None = None
     time_ms: int | None = None
     description: str
