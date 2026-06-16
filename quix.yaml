@@ -815,6 +815,7 @@ deployments:
       sourceTopic: ac-telemetry-session
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-session-replay
+      suffixReplayedKeysWithTimestamp: false
       fromTimestamp: 2026-06-08T15:43:11.624Z
       toTimestamp: 2026-06-08T19:06:53.229Z
   - name: track-viewer
