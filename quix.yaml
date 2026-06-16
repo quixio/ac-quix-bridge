@@ -781,3 +781,4 @@ topics:
     configuration:
       retentionInBytes: 524288000
   - name: demo-acquixbridge-dev-ac-telemetry-raw
+  - name: demo-acquixbridge-dev-ac-telemetry-session
