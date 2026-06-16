@@ -63,8 +63,10 @@ function LakehouseView() {
     return () => {
       cancelled = true;
     };
+    // testsApi is intentionally omitted (it's recreated each render); token is
+    // the meaningful dep — re-fetch params if the auth token refreshes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testId, sessionId, track, carModel]);
+  }, [testId, sessionId, track, carModel, token]);
 
   // Forward the auth token once on REQUEST_AUTH_TOKEN. Origin- AND source-
   // checked so the bearer only ever reaches the iframe we control.
