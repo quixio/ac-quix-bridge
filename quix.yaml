@@ -139,7 +139,7 @@ deployments:
         inputType: InputTopic
         description: Name of the Kafka input topic to consume from
         required: true
-        value: ac-telemetry-raw
+        value: ac-telemetry-raw-replay2
       - name: config_topic
         inputType: InputTopic
         description: Dynamic Configuration Manager topic for enrichment
