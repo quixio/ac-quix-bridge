@@ -23,7 +23,7 @@ One entry per measurable. Names are opaque strings; the UI displays whatever you
 - `name` (string, required): e.g. `best_lap`, `top_speed_kmh`, `avg_brake_temp_FR_c`
 - `value` (number or string, required): e.g. `1.45321` or `"1:45.321"`. Prefer numbers when meaningful.
 - `unit` (optional string): e.g. `"s"`, `"km/h"`, `"°C"`, `"lap"`
-- `notes` (optional string): caveats, e.g. `"laps 2-12 only — lap 1 excluded as out-lap"`
+- `notes` (optional string): caveats, e.g. `"dropped final partial lap + 1 out-of-range outlier"`
 
 ### Worked KpiValue example
 

@@ -72,14 +72,13 @@ ORDER BY session_id, lap
 
 ## Clean-lap filter (default for any lap-time aggregate)
 
-Most sessions contain two laps that aren't real racing laps:
+The one partition that is **never** a clean racing lap is the **last lap of each session** (the highest `lap` value). You never stop exactly on the start/finish line, so the final partition is whatever you drove after your last completed crossing — either a **short partial** (stopped mid-lap: e.g. 17 s / 49 s against a ~145 s field) or a **long idle / cool-down** lap (e.g. 277 s ≈ 2× a real lap). Drop it with a `lap < MAX(lap) per session` JOIN. (Lake-verified across many sessions: the last partition is reliably short OR long, never a normal mid-field lap.)
 
-1. **Lap 1 — out-lap.** Driver leaves the pit/menu, drives slowly to the line, then crosses it for the first time — an approach lap, not a flying lap (and the one lap the `iCurrentTime` carryover can corrupt).
-2. **The last lap of each session — incomplete.** The driver typically stops recording mid-lap. The partition for the highest `lap` value in that session is partial.
+**Do NOT blanket-skip lap 1.** Lap 1 is a real, often *valid* timed lap — AC/ACC zeroes the lap timer at the line crossing, not at spawn, so in hotlap mode (where you stage well before the line and cross it at speed) lap 1 is a full flying lap. Verified on the lake: clean valid ~145 s lap-1s exist, sometimes one of a session's only valid laps — a blanket `lap >= 2` throws away good data. In race/practice mode lap 1 *can* be a cold out-lap, but then it shows up as a **slow outlier**, handled by the duration sanity-check below — not by its lap number.
 
-A **clean lap** is therefore one with `lap >= 2 AND lap < MAX(lap) per session`. Sessions with fewer than 3 partition laps (most test/probe sessions) contain **zero clean laps** — they get filtered out entirely.
+**The real arbiter is completeness + outlier, not lap position.** A clean lap = thousands of samples (`COUNT(*) > 1000`, rejects config-overflow slivers), is not the last partition (`lap < MAX(lap)`), and has a duration **in line with that driver/car/track's other laps**. Flag or exclude any lap whose time is suspiciously **short** (a partial that slipped the count floor) or **long** (cold out-lap, sim pause, or `iCurrentTime` carryover) relative to the field — *whatever its lap number, including lap 1*. For best / fastest also require valid laps (next section).
 
-For best / worst / average / consistency queries, default to clean laps only. Always mention the filter in the answer ("excluded out-lap and incomplete final laps") and call out drivers/sessions that ended up with **0 clean laps** so the user knows why they're missing. If the user explicitly asks about lap 1, all laps, or short test sessions, drop the filter for that turn.
+Mention the filter in the answer ("dropped the final partial/idle lap and any out-of-range outliers") and call out drivers/sessions left with **0 usable laps**. If the user explicitly asks about a specific lap or all laps, drop the filter for that turn.
 
 ## Valid laps only — for best / fastest / leaderboard (match AC's official time)
 
@@ -105,7 +104,6 @@ FROM (
     WHERE environment = 'prague_office'
       AND track = 'Spa'
       AND carModel = 'porsche_991ii_gt3_r'
-      AND lap >= 2
     GROUP BY driver, session_id, lap
     HAVING COUNT(*) > 1000      -- reject config-overflow slivers (a real lap is thousands of samples)
        AND MIN(isValidLap) = 1  -- official laps only; a cut/invalidated lap drops to 0
@@ -144,15 +142,11 @@ ORDER BY ms LIMIT 2
 ```
 Returns the same `iBestTime` for every lap from the best-setting lap onward → ties + wrong ranking.
 
-### Clean-lap filter is MANDATORY for per-lap rankings
+### Dropping the final partition is MANDATORY for per-lap rankings
 
-Every recorded session has two truncated laps:
-- **Lap 1** = out-lap (rolling start / pit exit, partial).
-- **Last partition lap** = in-lap (session ended mid-lap; duration is truncated to whenever the user pressed escape).
+The **last partition of every session** is never a clean lap — it's whatever you drove after your final completed crossing, so it's either unrealistically **short** (in-lap, often 5–50 s) or oddly **long** (idle / cool-down, e.g. ~2× a normal lap). It corrupts any "fastest lap" ranking. **Filter it out by joining against `MAX(lap)` per session and requiring `lap < last_lap`.** This is non-negotiable for any per-lap query. Do **not** also blanket-drop lap 1 — it's frequently a clean valid lap (see the clean-lap section); reject a bad lap 1 (or any lap) via the validity + duration-sanity checks, not its number.
 
-Both look unrealistically fast (often 5–40 s) and corrupt any "fastest lap" ranking. **Filter them out by joining against `MAX(lap)` per session and requiring `lap > 1 AND lap < last_lap`.** This is non-negotiable for any per-lap query.
-
-A *tight* row-count threshold (e.g. `>= 4000`) is NOT a substitute for the JOIN — a real ~108 s lap at 50 Hz has ~5400 rows, but slow laps, telemetry gaps, or sample-rate changes can drop a real lap below it. The JOIN does the out/in-lap removal.
+A *tight* row-count threshold (e.g. `>= 4000`) is NOT a substitute for the JOIN — a real ~108 s lap at 50 Hz has ~5400 rows, but slow laps, telemetry gaps, or sample-rate changes can drop a real lap below it. The JOIN does the in-lap removal.
 
 ### Config-overflow slivers — recognise, filter, AND explain
 
@@ -178,7 +172,6 @@ JOIN (
   ON  clean.driver     = bounds.driver
   AND clean.session_id = bounds.session_id
 WHERE clean.driver = 'tomas'
-  AND clean.lap > 1
   AND clean.lap < bounds.last_lap
 GROUP BY clean.driver, clean.session_id, clean.lap
 HAVING COUNT(*) > 1000             -- reject config-overflow slivers
@@ -209,7 +202,6 @@ FROM (
     WHERE environment = 'prague_office'
       AND track = 'Spa'
       AND carModel = 'porsche_991ii_gt3_r'
-      AND lap >= 2
     GROUP BY driver, session_id, lap
     HAVING COUNT(*) > 1000      -- reject config-overflow slivers (a real lap is thousands of samples)
        AND MIN(isValidLap) = 1  -- official laps only; a cut/invalidated lap drops to 0
@@ -275,9 +267,9 @@ This only hits the out-lap, which the clean-lap filter already excludes — *exc
 
 `iLastTime` holds `iCurrentTime` at the previous crossing — the completed lap's official time (the value AC shows after the line). It equals `MAX(iCurrentTime)` of that lap; attributing it to a lap needs reading it from lap N+1 (a +1 shift), so `MAX(iCurrentTime)` per lap is usually simpler. Same carryover caveat. Filter its `0` / `2147483647` "no lap" sentinel before aggregating.
 
-### Lap 1 is unreliable for time analysis — skip by default
+### Lap 1 — judge it, don't blanket-skip it
 
-Lap 1 is typically an out-lap (rolling start, pit exit) and additionally absorbs any `iCurrentTime` carryover from earlier session activity. For lap-time aggregates default to `WHERE lap >= 2` unless the user explicitly asks about lap 1. Lap 1 is fine for signal-range queries (top speed, max RPM) — those are not time-derived.
+Lap 1 is a real timed lap: the lap timer zeroes at the line crossing, not at spawn, so a hotlap-mode lap 1 (staged before the line, crossed at speed) is a full flying lap, and clean *valid* lap-1s exist on the lake. Do **not** default to `WHERE lap >= 2`. In race/practice mode lap 1 may instead be a cold out-lap, and on legacy multi-driver glued sessions it can absorb `iCurrentTime` carryover (reads 70–100 s too long) — but in both cases it surfaces as a duration **outlier**, handled by the sanity-check (and the carryover guard below), not by excluding lap number 1. Lap 1 is always fine for signal-range queries (top speed, max RPM) — those are not time-derived.
 
 ### Lap-boundary partition lag (~80 ms / ~4 samples at 50 Hz)
 
