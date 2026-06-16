@@ -96,7 +96,7 @@ class AssettoCorsaCompetizioneSource(Source):
         self._hostname = socket.gethostname()
         self._prev_status = None
         self._prev_current_time = None
-        self._session_warmup_drop_ms = max(0, int(os.environ.get("SESSION_WARMUP_DROP_MS", "2000")))
+        self._session_warmup_drop_ms = max(0, int(os.environ.get("SESSION_WARMUP_DROP_MS", "3000")))
         self._warmup_until = 0.0
         self._warmup_dropped = 0
 
