@@ -34,7 +34,7 @@ const navItems: NavItem[] = [
 const integrationItems: NavItem[] = [
   { href: "/config-manager", icon: Sliders, label: "Configurations" },
   { href: "/analysis", icon: TrendingUp, label: "Analysis" },
-  { href: "/lakehouse", icon: Database, label: "Data Lake" },
+  { href: "/lakehouse", icon: Database, label: "Lakehouse" },
 ];
 
 export function Sidebar() {

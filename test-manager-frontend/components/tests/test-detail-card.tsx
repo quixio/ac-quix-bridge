@@ -118,7 +118,7 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
               onClick={() => handleViewInLakehouse()}
             >
               <Database className="mr-2 h-4 w-4" />
-              View Data
+              Lakehouse
             </Button>
           </div>
         </CardContent>
@@ -205,7 +205,7 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
                       onClick={() => handleViewInLakehouse(session)}
                     >
                       <Database className="mr-1 h-3 w-3" />
-                      Data
+                      Lakehouse
                     </Button>
                   </div>
                 </div>

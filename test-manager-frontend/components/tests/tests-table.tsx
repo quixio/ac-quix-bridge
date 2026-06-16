@@ -173,7 +173,7 @@ export const TestsTable = memo(function TestsTable({
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
-                  title="View data in Lakehouse"
+                  title="View in Lakehouse"
                 >
                   <Database className="h-4 w-4" />
                 </Button>
