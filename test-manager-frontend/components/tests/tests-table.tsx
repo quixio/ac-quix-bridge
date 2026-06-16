@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import type { Test } from "@/types/test";
-import { ArrowUpDown, Loader2, TrendingUp } from "lucide-react";
+import { ArrowUpDown, Loader2, TrendingUp, Database } from "lucide-react";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
 
 interface TestsTableProps {
@@ -163,6 +163,19 @@ export const TestsTable = memo(function TestsTable({
                   title="Analyze telemetry"
                 >
                   <TrendingUp className="h-4 w-4" />
+                </Button>
+              </Link>
+              <Link
+                href={`/lakehouse?test_id=${test.test_id}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  title="View data in Lakehouse"
+                >
+                  <Database className="h-4 w-4" />
                 </Button>
               </Link>
             </div>

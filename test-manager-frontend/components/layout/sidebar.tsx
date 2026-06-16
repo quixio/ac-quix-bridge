@@ -12,6 +12,7 @@ import {
   Sliders,
   Users,
   TrendingUp,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSidebar } from "@/lib/contexts/sidebar-context";
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
 const integrationItems: NavItem[] = [
   { href: "/config-manager", icon: Sliders, label: "Configurations" },
   { href: "/analysis", icon: TrendingUp, label: "Analysis" },
+  { href: "/lakehouse", icon: Database, label: "Data Lake" },
 ];
 
 export function Sidebar() {
