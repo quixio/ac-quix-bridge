@@ -93,7 +93,7 @@ deployments:
         inputType: InputTopic
         description: Topic to consume AC session data from
         required: true
-        value: ac-telemetry-session
+        value: ac-telemetry-session-replay
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: URL of the Dynamic Configuration Manager API
@@ -106,7 +106,7 @@ deployments:
         value: session
       - name: TEST_MANAGER_URL
         inputType: FreeText
-        description: Test Manager backend URL (in-cluster service name)
+        description: Test Manager backend URL (in-cluster service name by default)
         value: http://test-manager-backend
   - name: Dynamic Configuration Manager
     application: DynamicConfiguration
