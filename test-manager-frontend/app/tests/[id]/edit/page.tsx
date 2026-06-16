@@ -24,6 +24,7 @@ import {
   useEnvironmentsApi,
 } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
+import { AddDriverDialog } from "@/components/drivers/add-driver-dialog";
 import { DeviceCategory } from "@/types/device";
 import type { Device } from "@/types/device";
 import type { Driver } from "@/types/driver";
@@ -48,6 +49,7 @@ export default function EditTestPage() {
   const [testRigDeviceId, setTestRigDeviceId] = useState<string | null>(null);
   const [environmentId, setEnvironmentId] = useState<string | null>(null);
   const [driver, setDriver] = useState<string | null>(null);
+  const [pendingDriver, setPendingDriver] = useState<string | null>(null);
   const [requirements, setRequirements] = useState<string | null>(null);
   const [mode, setMode] = useState<TestMode | null>(null);
 
@@ -80,6 +82,16 @@ export default function EditTestPage() {
     fetchData();
   }, []);
 
+  // Select a just-created driver once the refetched list contains its
+  // SelectItem — avoids the Radix preselect race (setting value in the same
+  // batch as setDrivers fires onValueChange("") and clears it in prod).
+  useEffect(() => {
+    if (pendingDriver && drivers.some((d) => d.name === pendingDriver)) {
+      setDriver(pendingDriver);
+      setPendingDriver(null);
+    }
+  }, [drivers, pendingDriver]);
+
   const formExperimentId = experimentId ?? test?.experiment_id ?? "";
   const formPcDeviceId = pcDeviceId ?? test?.pc_device_id ?? "";
   const formTestRigDeviceId = testRigDeviceId ?? test?.test_rig_device_id ?? "";
@@ -99,6 +111,20 @@ export default function EditTestPage() {
 
   // mode is required in the UI; a legacy test with no mode must get one before save.
   const isValid = formMode !== "";
+
+  const refetchDrivers = async () => {
+    try {
+      const res = await driversApi.list({ page_size: 100 });
+      setDrivers(res.items);
+    } catch (error) {
+      console.error("Failed to refetch drivers:", error);
+    }
+  };
+
+  const handleDriverCreated = async (created: Driver) => {
+    setPendingDriver(created.name);
+    await refetchDrivers();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,18 +254,23 @@ export default function EditTestPage() {
 
               <div className="space-y-2">
                 <Label>Driver *</Label>
-                <Select value={formDriver} onValueChange={setDriver}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select driver" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {drivers.map((d) => (
-                      <SelectItem key={d.driver_id} value={d.name}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <Select value={formDriver} onValueChange={setDriver}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select driver" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {drivers.map((d) => (
+                          <SelectItem key={d.driver_id} value={d.name}>
+                            {d.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AddDriverDialog onCreated={handleDriverCreated} />
+                </div>
               </div>
 
               <div className="space-y-2">
