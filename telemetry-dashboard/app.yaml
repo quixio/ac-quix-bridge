@@ -1,0 +1,37 @@
+name: Telemetry Dashboard
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: Kafka topic to consume telemetry from
+    defaultValue: ac-telemetry-raw
+    required: true
+  - name: config_input
+    inputType: InputTopic
+    description: Config topic to resolve the current driver from (DCM change events)
+    defaultValue: ac-telemetry-config
+    required: true
+  - name: CONFIG_MANAGER_URL
+    inputType: FreeText
+    description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
+    defaultValue: ""
+    required: false
+  - name: LEADERBOARD_SQL
+    inputType: FreeText
+    multiline: true
+    description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Defaults to all-time fastest lap per driver from ac_telemetry.
+    defaultValue: ""
+    required: false
+  - name: LEADERBOARD_TTL_SECONDS
+    inputType: FreeText
+    description: Server-side cache TTL for the leaderboard query (seconds)
+    defaultValue: "15"
+    required: false
+  - name: DATALAKE_INSECURE_SSL
+    inputType: FreeText
+    description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
+    defaultValue: ""
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

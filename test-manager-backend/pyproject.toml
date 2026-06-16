@@ -1,0 +1,58 @@
+[project]
+name = "test-manager-api"
+description = "FastAPI service for the Test Manager."
+requires-python = ">=3.13"
+version = "0.1.0"
+
+authors = [
+	{ name = "Quix Analytics Ltd", email = "devs@quix.io" },
+]
+
+dependencies = [
+	"fastapi",
+	"uvicorn[standard]",
+	"pymongo",
+	"pydantic",
+	"pydantic-settings",
+	"email-validator",
+	"python-multipart",
+	"quixportal",
+	"quixstreams",
+	"pandas",
+	"httpx",
+	"mcp>=1.27",
+	"asgi-correlation-id>=4.3.4",
+	"weasyprint",
+	"markdown",
+]
+
+[dependency-groups]
+dev = [
+	"pytest",
+	"pytest-cov",
+	"ruff",
+	"ty",
+	"testcontainers[mongodb]",
+	"respx>=0.21",
+	"pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+# ".." puts the repo root on sys.path so tests can import the shared/
+# post_race_ai package (the runner used by the analyses route).
+pythonpath = [".", ".."]
+filterwarnings = [
+	# api.models.Test is a Pydantic BaseModel; pytest's class collector flags
+	# it because the name starts with "Test". Narrow filter — any OTHER class
+	# that accidentally isn't collectable still emits a warning.
+	"ignore:cannot collect test class 'Test':pytest.PytestCollectionWarning",
+]
+asyncio_mode = "auto"
+
+[tool.uv.sources]
+quixportal = { index = "quix-public" }
+
+[[tool.uv.index]]
+name = "quix-public"
+url = "https://pkgs.dev.azure.com/quix-analytics/53f7fe95-59fe-4307-b479-2473b96de6d1/_packaging/public/pypi/simple/"
+explicit = true

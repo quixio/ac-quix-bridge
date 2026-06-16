@@ -1,0 +1,26 @@
+name: Session Config Bridge
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: Topic to consume AC session data from
+    defaultValue: ac-telemetry-session
+    required: true
+  - name: CONFIG_MANAGER_URL
+    inputType: FreeText
+    description: URL of the Dynamic Configuration Manager API
+    defaultValue: ""
+    required: true
+  - name: CONFIG_TYPE
+    inputType: FreeText
+    description: Config type for session data
+    defaultValue: session
+    required: true
+  - name: TEST_MANAGER_URL
+    inputType: FreeText
+    description: Test Manager backend URL (in-cluster service name by default)
+    defaultValue: http://test-manager-backend
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

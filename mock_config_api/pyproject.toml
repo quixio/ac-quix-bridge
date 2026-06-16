@@ -1,0 +1,16 @@
+[project]
+name = "mock-config-api"
+description = "Mock of the Quix Dynamic Configuration Manager API for local development and testing."
+requires-python = ">=3.13"
+version = "0.1.0"
+
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.11",
+    "ty>=0.0.31",
+]

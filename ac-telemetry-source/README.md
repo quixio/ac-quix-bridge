@@ -14,4 +14,4 @@ QuixStreams custom Source connector that reads Assetto Corsa physics telemetry f
 | Variable | Description | Default |
 |---|---|---|
 | `output` | Kafka topic name (set by Quix) | `ac-telemetry-raw` |
-| `SAMPLE_RATE_HZ` | Telemetry polling rate in Hz | `50` |
+| `SAMPLE_RATE_HZ` | Telemetry polling rate in Hz | `60` |

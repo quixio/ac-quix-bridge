@@ -1,0 +1,34 @@
+FROM python:3.13-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+	PYTHONUNBUFFERED=1 \
+	PYTHONIOENCODING=UTF-8 \
+	UV_COMPILE_BYTECODE=1
+
+ARG MAINAPPPATH=.
+
+WORKDIR /app
+
+# System deps: curl (healthcheck) + Pango for WeasyPrint PDF rendering
+# (libpango pulls cairo/freetype/fontconfig/dejavu transitively).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	curl libpango-1.0-0 libpangoft2-1.0-0 \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Copy project (build context = repo root, MAINAPPPATH = app subdir)
+COPY "${MAINAPPPATH}" /app
+
+# Copy includedFolders siblings declared in app.yaml
+COPY shared /app/shared
+
+# Install dependencies with uv
+RUN uv sync --frozen --no-cache
+
+ENV PYTHONPATH=/app
+EXPOSE 8080
+
+# Start the API using uv to run the module
+ENTRYPOINT ["/bin/uv", "run", "-m", "main"]

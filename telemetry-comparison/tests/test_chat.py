@@ -1,0 +1,415 @@
+"""POST /api/chat — JSONL streaming integration."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+import respx
+from fastapi.testclient import TestClient
+
+import config
+from main import app
+
+
+@pytest.fixture(autouse=True)
+def _stub_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the client at a deterministic Portal URL + token."""
+    monkeypatch.setattr(config, "PORTAL", "https://portal.test")
+    monkeypatch.setattr(config, "QUIX_TOKEN", "test-token")
+    monkeypatch.setattr(config, "AGENT_CONFIGURATION_ID", "agent-uuid")
+
+
+def _sse(events: list[dict[str, Any]]) -> bytes:
+    """Format a list of dicts as the SSE payload Quix Portal returns."""
+    out = []
+    for evt in events:
+        out.append(f"data: {json.dumps(evt)}".encode())
+    out.append(b"data: [DONE]")
+    return b"\n".join(out) + b"\n"
+
+
+def _read_jsonl(body: bytes) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in body.splitlines() if line.strip()]
+
+
+@respx.mock
+def test_plot_mode_emits_status_and_plot_events() -> None:
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "sess-1"})
+    plot_json = {
+        "type": "plot",
+        "title": "Ludvik lap 1",
+        "signals": ["speedKmh"],
+        "traces": [
+            {
+                "session_id": "2026-04-17T06:39:45.652Z",
+                "lap": 1,
+                "driver": "ludvik",
+                "carModel": "bmw_1m",
+                "track": "ks_nurburgring",
+                "experiment": "VideoSyncFix",
+                "environment": "prague_office",
+                "test_rig": "g29",
+            }
+        ],
+    }
+    sse_body = _sse(
+        [
+            {"type": "text_delta", "text": "Plotting Ludvik. "},
+            {
+                "type": "text_delta",
+                "text": f"```json\n{json.dumps(plot_json)}\n```",
+            },
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/sess-1/messages").respond(200, content=sse_body)
+
+    with TestClient(app) as client:
+        r = client.post("/api/chat", json={"message": "plot ludvik"})
+        assert r.status_code == 200
+        events = _read_jsonl(r.content)
+
+    kinds = [e["event"] for e in events]
+    assert kinds[0] == "status"
+    assert "plot" in kinds
+    plot = next(e for e in events if e["event"] == "plot")
+    assert plot["plan"]["type"] == "plot"
+    assert plot["plan"]["title"] == "Ludvik lap 1"
+    assert plot["plan"]["signals"] == ["speedKmh"]
+    assert plot["plan"]["traces"][0]["driver"] == "ludvik"
+
+
+@respx.mock
+def test_clarify_mode_emits_clarify_event() -> None:
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "sess-2"})
+    clarify_json = {
+        "type": "clarify",
+        "question": "Which session?",
+        "options": ["a", "b"],
+    }
+    sse_body = _sse(
+        [
+            {
+                "type": "text_delta",
+                "text": f"```json\n{json.dumps(clarify_json)}\n```",
+            },
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/sess-2/messages").respond(200, content=sse_body)
+
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "plot ludvik"}).content)
+
+    clarify = next(e for e in events if e["event"] == "clarify")
+    assert clarify["question"] == "Which session?"
+    assert clarify["options"] == ["a", "b"]
+
+
+@respx.mock
+def test_analysis_mode_streams_answer_delta_only() -> None:
+    """Mode 2 / Mode 3 — no JSON fence, just prose. Stream answer_delta, no plot."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "sess-3"})
+    sse_body = _sse(
+        [
+            {"type": "text_delta", "text": "Tomas's lap "},
+            {"type": "text_delta", "text": "3 was fastest."},
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/sess-3/messages").respond(200, content=sse_body)
+
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "fastest lap?"}).content)
+
+    kinds = [e["event"] for e in events]
+    assert "plot" not in kinds
+    assert "clarify" not in kinds
+    deltas = [e for e in events if e["event"] == "answer_delta"]
+    assert "".join(d["text"] for d in deltas) == "Tomas's lap 3 was fastest."
+
+
+@respx.mock
+def test_tool_call_emits_answer_break() -> None:
+    """Mode 2 with tool use — answer_break splits pre/post-tool prose."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "sess-4"})
+    sse_body = _sse(
+        [
+            {"type": "text_delta", "text": "Querying lake. "},
+            {"type": "tool_call_start", "toolName": "mcp__abc__run_query"},
+            {"type": "tool_result", "result": "csv,here"},
+            {"type": "text_delta", "text": "Tomas was fastest."},
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/sess-4/messages").respond(200, content=sse_body)
+
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "fastest lap?"}).content)
+
+    kinds = [e["event"] for e in events]
+    assert "answer_break" in kinds
+
+
+@respx.mock
+def test_agent_5xx_emits_error_event() -> None:
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "sess-5"})
+    respx.post("https://portal.test/ai/api/sessions/sess-5/messages").respond(
+        503, text="upstream unavailable"
+    )
+
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "x"}).content)
+
+    err = next(e for e in events if e["event"] == "error")
+    assert err["status"] == 502  # we re-classify Quix Portal 503 as our 502
+
+
+@respx.mock
+def test_unclosed_fence_emits_error_event() -> None:
+    """Upstream truncation mid-JSON should not silently land in Mode 2."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "sess-trunc"})
+    sse_body = _sse(
+        [
+            {"type": "text_delta", "text": "Plotting. "},
+            {"type": "text_delta", "text": '```json\n{"type": "plot"'},
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/sess-trunc/messages").respond(
+        200, content=sse_body
+    )
+
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "plot"}).content)
+
+    err = next(e for e in events if e["event"] == "error")
+    assert "truncated" in err["detail"].lower()
+
+
+@respx.mock
+def test_session_id_reused_when_provided() -> None:
+    """Frontend sends session_id on follow-up turns; backend skips create."""
+    create_route = respx.post("https://portal.test/ai/api/sessions").respond(
+        200, json={"id": "should-not-be-called"}
+    )
+    sse_body = _sse([{"type": "text_delta", "text": "ok"}])
+    respx.post("https://portal.test/ai/api/sessions/existing-sess/messages").respond(
+        200, content=sse_body
+    )
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/chat",
+            json={"message": "follow up", "session_id": "existing-sess"},
+        )
+
+    assert create_route.call_count == 0
+
+
+def test_message_validation_rejects_empty() -> None:
+    with TestClient(app) as client:
+        r = client.post("/api/chat", json={"message": ""})
+        assert r.status_code == 422
+
+
+def test_message_validation_rejects_oversized() -> None:
+    with TestClient(app) as client:
+        r = client.post("/api/chat", json={"message": "x" * 2001})
+        assert r.status_code == 422
+
+
+def test_session_id_validation() -> None:
+    with TestClient(app) as client:
+        r = client.post("/api/chat", json={"message": "x", "session_id": "bad id with spaces"})
+        assert r.status_code == 422
+
+
+def _sse_named(events: list[tuple[str, dict[str, Any]]]) -> bytes:
+    """Format named SSE frames (`event: <name>\\ndata: <json>`)."""
+    out: list[bytes] = []
+    for name, obj in events:
+        out.append(f"event: {name}".encode())
+        out.append(f"data: {json.dumps(obj)}".encode())
+    out.append(b"event: done")
+    out.append(b"data: [DONE]")
+    return b"\n".join(out) + b"\n"
+
+
+@respx.mock
+def test_tool_events_forwarded_to_browser() -> None:
+    """Tool-call frames stream through as tool_start/args/end/result so the UI
+    can render tool cards — not dropped like before."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    body = _sse_named(
+        [
+            ("text_delta", {"text": "Checking. "}),
+            (
+                "tool_call_start",
+                {"toolCallId": "t1", "toolName": "run_query", "displayName": "Run Query"},
+            ),
+            ("tool_call_delta", {"toolCallId": "t1", "argumentsDelta": '{"sql":'}),
+            ("tool_call_delta", {"toolCallId": "t1", "argumentsDelta": ' "SELECT 1"}'}),
+            ("tool_call_end", {"toolCallId": "t1"}),
+            ("tool_result", {"toolCallId": "t1", "result": "1 row", "isError": False}),
+            ("text_delta", {"text": "Done."}),
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(200, content=body)
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "go"}).content)
+
+    kinds = [e["event"] for e in events]
+    for k in ("tool_start", "tool_args", "tool_end", "tool_result"):
+        assert k in kinds, f"missing {k} in {kinds}"
+    assert next(e for e in events if e["event"] == "tool_start")["tool_name"] == "run_query"
+    assert next(e for e in events if e["event"] == "tool_result")["result"] == "1 row"
+
+
+@respx.mock
+def test_environment_agent_events_forwarded() -> None:
+    """DEEP mode — environment_agent_{start,activity,end} stream through as
+    env_agent_{start,activity,end} so the UI can render the agent block."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    body = _sse_named(
+        [
+            ("text_delta", {"text": "Spinning up an agent. "}),
+            (
+                "environment_agent_start",
+                {
+                    "agentId": "a1",
+                    "workspaceId": "ws-1",
+                    "workspaceName": "WS One",
+                    "task": "analyze laps",
+                },
+            ),
+            (
+                "environment_agent_activity",
+                {
+                    "agentId": "a1",
+                    "kind": "tool_start",
+                    "data": {"tool": "Bash", "toolUseId": "u1", "arguments": "{}"},
+                },
+            ),
+            (
+                "environment_agent_activity",
+                {
+                    "agentId": "a1",
+                    "kind": "command",
+                    "data": {"command": "ls", "exitCode": 0, "toolUseId": "u1"},
+                },
+            ),
+            (
+                "environment_agent_activity",
+                {
+                    "agentId": "a1",
+                    "kind": "tool_result",
+                    "data": {"toolUseId": "u1", "summary": "files", "isError": False},
+                },
+            ),
+            (
+                "environment_agent_end",
+                {"agentId": "a1", "status": "completed", "summary": "Done analyzing."},
+            ),
+            ("text_delta", {"text": "Analysis complete."}),
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(200, content=body)
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "go deep"}).content)
+
+    start = next(e for e in events if e["event"] == "env_agent_start")
+    assert start["agent_id"] == "a1"
+    assert start["workspace_id"] == "ws-1"
+    assert start["workspace_name"] == "WS One"
+    assert start["task"] == "analyze laps"
+
+    acts = [e for e in events if e["event"] == "env_agent_activity"]
+    assert [a["kind"] for a in acts] == ["tool_start", "command", "tool_result"]
+    assert all(a["agent_id"] == "a1" for a in acts)
+    assert acts[0]["data"]["tool"] == "Bash"
+    assert acts[1]["data"]["exitCode"] == 0
+
+    end = next(e for e in events if e["event"] == "env_agent_end")
+    assert end["status"] == "completed"
+    assert end["summary"] == "Done analyzing."
+
+
+@respx.mock
+def test_delegate_task_tool_card_suppressed() -> None:
+    """delegate_task's own tool frames are hidden — the env-agent block replaces
+    that card (mirrors native Quix AI)."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    body = _sse_named(
+        [
+            (
+                "tool_call_start",
+                {"toolCallId": "d1", "toolName": "delegate_task", "displayName": "Delegate Task"},
+            ),
+            ("tool_call_delta", {"toolCallId": "d1", "argumentsDelta": '{"task":"x"}'}),
+            ("tool_call_end", {"toolCallId": "d1"}),
+            (
+                "environment_agent_start",
+                {"agentId": "a1", "workspaceId": "ws-1", "task": "x"},
+            ),
+            ("environment_agent_end", {"agentId": "a1", "status": "completed", "summary": "ok"}),
+            (
+                "tool_result",
+                {"toolCallId": "d1", "result": "Environment provisioned", "isError": False},
+            ),
+            ("text_delta", {"text": "Done."}),
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(200, content=body)
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "go deep"}).content)
+
+    tool_ids = [e.get("tool_call_id") for e in events if e["event"].startswith("tool_")]
+    assert "d1" not in tool_ids, f"delegate_task frames leaked: {tool_ids}"
+    # The env-agent block still shows up in its place.
+    assert any(e["event"] == "env_agent_start" for e in events)
+
+
+@respx.mock
+def test_forwards_user_bearer_to_portal() -> None:
+    """The logged-in user's Bearer is forwarded to the AI API so the session
+    is owned by them — not the static QUIX_TOKEN fallback."""
+    create = respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(
+        200, content=_sse([{"type": "text_delta", "text": "hi"}])
+    )
+    with TestClient(app) as client:
+        client.post(
+            "/api/chat",
+            json={"message": "hello"},
+            headers={"Authorization": "Bearer user-xyz"},
+        )
+    assert create.calls.last.request.headers["authorization"] == "Bearer user-xyz"
+
+
+@respx.mock
+def test_falls_back_to_static_token_without_bearer() -> None:
+    """No request Bearer (e.g. local dev) → use the optional QUIX_TOKEN."""
+    create = respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s2"})
+    respx.post("https://portal.test/ai/api/sessions/s2/messages").respond(
+        200, content=_sse([{"type": "text_delta", "text": "hi"}])
+    )
+    with TestClient(app) as client:
+        client.post("/api/chat", json={"message": "hello"})
+    assert create.calls.last.request.headers["authorization"] == "Bearer test-token"
+
+
+def test_no_token_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No request Bearer and no QUIX_TOKEN fallback → clean 401 before any HTTP call."""
+    monkeypatch.setattr(config, "QUIX_TOKEN", "")
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "x"}).content)
+    err = next(e for e in events if e["event"] == "error")
+    assert err["status"] == 401
+
+
+def test_missing_portal_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Empty Quix__Portal__Api must surface a clean JSONL error before any HTTP call."""
+    monkeypatch.setattr(config, "PORTAL", "")
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "x"}).content)
+    err = next(e for e in events if e["event"] == "error")
+    assert "Quix__Portal__Api" in err["detail"]
+    assert err["status"] == 503

@@ -1,0 +1,28 @@
+name: frontend
+language: nodejs
+variables:
+  - name: API_URL
+    inputType: FreeText
+    description: Backend API URL for server-side requests (internal Kubernetes service name)
+    defaultValue: http://test-manager-backend
+    required: true
+  - name: NODE_ENV
+    inputType: FreeText
+    description: Node environment
+    defaultValue: production
+    required: true
+  - name: NEXT_TELEMETRY_DISABLED
+    inputType: FreeText
+    description: Disable Next.js telemetry
+    defaultValue: 1
+  - name: NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
+    inputType: FreeText
+    description: Public URL of the Telemetry Explorer deployment
+    required: true
+  - name: NEXT_PUBLIC_FREEZE_MS
+    inputType: FreeText
+    description: Live-positions blue-freeze window duration in ms after a gate crossing.
+    defaultValue: "200"
+dockerfile: dockerfile
+runEntryPoint: package.json
+defaultFile: package.json

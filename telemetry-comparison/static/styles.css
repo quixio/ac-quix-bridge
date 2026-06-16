@@ -1,0 +1,1804 @@
+/*
+ * Telemetry Explorer — minimal stylesheet.
+ *
+ * The layout and palette are expressed via Tailwind utility classes in
+ * index.html. This file carries only:
+ *   1. Keyframes (toast in/out, spinner).
+ *   2. Rules for DOM that app.js / track-map.js / toast.js build at runtime
+ *      with hard-coded class names — we keep those to avoid touching the JS
+ *      module contract.
+ *   3. A few Plotly-specific overrides.
+ *   4. Scrollbar cosmetics.
+ *
+ * Color tokens mirror tailwind.config in index.html; keeping them here means
+ * runtime-built markup doesn't have to pull utilities from Tailwind's JIT.
+ */
+
+:root {
+  /* Palette aligned with Test Manager + Quix Cloud (neutral charcoal,
+   * Quix-blue accent) so the iframe boundary on the TM /analysis tab is
+   * visually seamless. */
+  --bg: #1a1a1a;
+  --surface: #222229;
+  --border: #3e3e46;
+  --text: #eaedf0;
+  --text-muted: #a8b1c0;
+  --accent: #0064ff;
+  --green: #059669;
+  --orange: #f59e0b;
+  --red: #ff3f41;
+  --row-control-h: 32px;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+}
+
+/* ---------- Runtime-built: selection rows ---------- */
+/* Override the parent .gap-3 (0.75rem) so spacing between rows comes from
+ * each row's own symmetric padding instead. Avoids divider-line asymmetry
+ * (parent gap above + smaller padding-bottom below) and gives each row a
+ * single source of truth for its breathing space. */
+#selections {
+  gap: 0;
+}
+.selection-row {
+  display: flex;
+  /* Bottom-align: chips/select/X all share their bottom edge. `last baseline`
+   * (former value) broke for the close button because it has no text content
+   * and falls back to "baseline = margin-box bottom". */
+  align-items: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.selection-row:first-child {
+  padding-top: 0;
+}
+.selection-row:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.part-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.part-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+/* Issue 2 — Dropdown truncation fix.
+ * Remove the hard 140px max-width cap that clipped long values like
+ * "ks_nurburgring" and "bmw_z4_gt3". Use min-width so short options
+ * (e.g. "g29") don't collapse, and width:auto so the select expands to
+ * its longest option without overflowing the flex row (flex-wrap:wrap
+ * on .selection-row handles graceful degradation below 1280px).
+ * Principle: content determines width; container constrains overflow. */
+/* Selection-row controls (dropdown / lap chip / × button) share font-size
+ * + vertical padding so they render at identical heights and the row reads
+ * flat. `appearance: none` on select strips Chrome/Safari's native arrow;
+ * we draw our own chevron as an inline SVG background.
+ *
+ * We target `.part-select` (specificity 0,0,1,0) instead of bare `select`
+ * (0,0,0,1) so we beat Tailwind Play CDN's preflight reset, which injects
+ * a `select { padding: 0; ... }` rule late in the cascade. */
+/* Shared control height for every interactive child of .selection-row.
+ * Pinning a concrete height avoids drift between selects (which auto-size
+ * to padding + font * line-height + border) and the close button (which
+ * had to declare width/height for its SVG icon). All three render at
+ * exactly the same y-extent regardless of text metrics. */
+.part-select {
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23a8b1c0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l5 5 5-5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 26px 0 0.65rem;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+  min-width: 120px;
+  max-width: none;
+  width: auto;
+  height: var(--row-control-h);
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.part-select:focus {
+  border-color: var(--accent);
+}
+
+.color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ---------- Runtime-built: lap chips ---------- */
+.lap-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  min-height: 26px;
+}
+.lap-cb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+  min-width: 32px;
+  height: var(--row-control-h);
+  box-sizing: border-box;
+}
+.lap-cb:hover {
+  border-color: var(--accent);
+}
+.lap-cb.checked {
+  background: rgba(0, 100, 255, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.lap-cb input {
+  display: none;
+}
+.lap-info {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+/* ---------- Runtime-built: small buttons ---------- */
+.btn {
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 1rem;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn:hover {
+  background: #0050cc;
+}
+.btn:disabled {
+  background: var(--border);
+  cursor: wait;
+}
+.btn-sm {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+}
+.btn-xs {
+  padding: 0 0.6rem;
+  font-size: 0.82rem;
+  /* Transparent border keeps box-sizing identical to bordered siblings
+   * (.lap-cb, select) so they render at the same visual height in a
+   * .selection-row. */
+  border: 1px solid transparent;
+  min-width: 32px;
+  height: var(--row-control-h);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Selection-row close button — square footprint (height inherited from
+ * .btn-xs above) with a centered SVG close icon. */
+.selection-row .btn-xs.btn-danger {
+  width: 32px;
+  padding: 0;
+  line-height: 0;
+}
+.selection-row .btn-xs.btn-danger svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.btn-outline:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.btn-danger {
+  background: var(--red);
+}
+.btn-danger:hover {
+  background: #cc3234;
+}
+.btn-add {
+  background: var(--green);
+}
+.btn-add:hover {
+  background: #047857;
+}
+
+/* Signal-filter input — class-targeted to beat Tailwind preflight resets.
+ * Fixed 320 px by default, capped at 100 % of the container so it shrinks
+ * with the panel on narrow viewports. */
+.signal-filter-input {
+  width: 320px;
+  max-width: 100%;
+  margin-bottom: 0.6rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
+}
+.signal-filter-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+.signal-filter-input:focus {
+  border-color: var(--accent);
+}
+
+/* Filter visibility helpers — `!important` is required because the chip
+ * collapse machinery (toggleCat) writes inline `style="display:none"` on
+ * extra chips. Class wins over inline only via importance. */
+.chip-filter-hidden {
+  display: none !important;
+}
+.chip-filter-visible {
+  display: inline !important;
+}
+
+/* ---------- Runtime-built: signal chips / category sections ---------- */
+.signal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+.chip {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: all 0.15s;
+  user-select: none;
+}
+.chip.active {
+  background: rgba(0, 100, 255, 0.2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chip:hover {
+  border-color: var(--accent);
+}
+.cat-section {
+  margin-bottom: 0.25rem;
+}
+.cat-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.cat-header:first-child {
+  margin-top: 0;
+}
+.cat-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+.cat-toggle {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  text-decoration: underline;
+}
+.cat-toggle:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* ---------- Runtime-built: chart containers + corner legend rows ---------- */
+.chart-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.5rem;
+}
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 0.5rem 0.25rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.chart-header label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  user-select: none;
+}
+.chart-header input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.legend-label {
+  font-family: monospace;
+  color: var(--text);
+}
+.legend-name {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Collapsible panels (data-collapsible / body) ---------- */
+[data-collapsible][data-collapsed="true"] [data-collapsible-body] {
+  display: none;
+}
+/* When the body is hidden, drop the header's bottom margin too — otherwise
+ * the section's bottom padding stacks with the header's margin and the
+ * collapsed panel looks bottom-heavy. Two-attribute specificity (0,0,2,1)
+ * beats Tailwind's `.mb-3` utility (0,0,1,0) which is on the header. */
+[data-collapsible][data-collapsed="true"] > header {
+  margin-bottom: 0;
+}
+
+/* When the track map is collapsed in docked mode, #combined-panel-body (the
+ * 65/35 flex row inside #combined-panel) adapts by shrinking the map flex
+ * basis so the video pane reclaims the full width. The map pane stops
+ * filling height via a max-height, showing only its header. This replaces
+ * the old :has()-on-topbar reflow that relied on #topbar-map being a direct
+ * grid child of #topbar — now it's a grandchild via #combined-panel. */
+body[data-video-mode="docked"] #combined-panel-body:has(#topbar-map[data-collapsed="true"]) {
+  flex-direction: column;
+  gap: 0.5rem;
+}
+body[data-video-mode="docked"]
+  #combined-panel-body:has(#topbar-map[data-collapsed="true"])
+  #topbar-map {
+  flex: 0 0 auto;
+  min-height: 0;
+  order: -1;
+}
+body[data-video-mode="docked"]
+  #combined-panel-body:has(#topbar-map[data-collapsed="true"])
+  #video-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* §11.5 — Minimum map size floor. Prevents the 35% map column from shrinking
+ * below a usable canvas. When the grid can't honor 35% at 240 px, the video
+ * pane gives up width instead (Plotly-filled rectangles are more sensitive
+ * to squish than a <video> with object-contain).
+ * min-height: 200px matches the 10%-reduced topbar floor (lg clamp base = 288px). */
+#topbar-map {
+  min-width: 240px;
+  min-height: 200px;
+}
+
+/* ---------- Video panel pieces that app.js toggles via style.display ---------
+ * app.js flips display:'block'/'flex' on #video-player, #video-empty,
+ * #video-controls, so we shouldn't rely on Tailwind's `hidden` class for those.
+ * The initial state is set via classes in index.html, but app.js overrides
+ * them with inline styles at runtime. */
+.video-player,
+.video-empty {
+  aspect-ratio: 16 / 9;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+
+.video-status.error {
+  color: var(--red);
+}
+.video-status.warn {
+  color: #f59e0b;
+}
+
+.status-bar.error {
+  color: var(--red);
+}
+
+/* ---------- Floating overlay + combined panel tab states ----------
+ *
+ * The combined panel (#combined-panel) wraps both #video-panel and
+ * #topbar-map. In docked mode both panes are visible side-by-side (the flex
+ * basis 65/35 from index.html). In floating mode exactly one pane is visible
+ * — controlled by the data-active-tab attribute on #combined-panel. The
+ * other pane is display:none'd.
+ *
+ * The #video-float-slot is fixed-positioned; interact.js tracks position
+ * in data-x/data-y attributes via a transform.
+ */
+
+/* §float-header — Container query host.
+ *
+ * container-type: inline-size on #video-float-slot lets @container rules
+ * key off the slot's own rendered width rather than the viewport. This is
+ * the correct scope: the float panel is independently resizable/pinchable
+ * and its width is unrelated to window.innerWidth.
+ *
+ * This rule is safe in docked mode: #video-float-slot is display:none when
+ * docked (CSS rule below), so the container size is 0 and no @container
+ * rules fire against docked DOM. */
+#video-float-slot {
+  container-type: inline-size;
+}
+
+/* §float-header — Progressive disclosure via container queries.
+ *
+ * When the float panel is pinched/resized narrow, header elements hide in
+ * this priority order (first hidden → last hidden):
+ *   1. #video-status      (sync info: "15.4 MB • 120.4s • sync 577 pts")
+ *   2. #track-readout     ("59.9% @ 2136m")
+ *   3. speed label+select ("Speed [Realtime ▾]")
+ *   4. #video-lap-select  ("L2 • 06:39:45")
+ *   5. #combined-tabs     (Video / Map tab buttons)
+ *   ∞. #btn-combined-dock — NEVER hidden; flex-shrink:0 keeps it visible.
+ *
+ * Principle: Nielsen's "aesthetic and minimalist design" — show only what
+ * fits. Clipping or wrapping is worse than hiding because clipping gives
+ * partial information (worse than none) and wrapping blows the header height
+ * and buries the Dock button.
+ *
+ * Breakpoints were chosen so each transition leaves a balanced header with
+ * sensible breathing room at the cutoff width:
+ *   700 px — sync info gone; remaining: readout + tabs + lap + speed + Dock
+ *   550 px — readout gone; remaining: tabs + lap + speed + Dock
+ *   450 px — speed gone; remaining: tabs + lap + Dock
+ *   370 px — lap select gone; remaining: tabs + Dock
+ *   300 px — tabs gone; remaining: Dock only (matches the interact.js 320px floor)
+ */
+@container (max-width: 700px) {
+  #video-float-slot #video-status {
+    display: none !important;
+  }
+}
+
+@container (max-width: 550px) {
+  #video-float-slot #track-readout {
+    display: none !important;
+  }
+}
+
+@container (max-width: 450px) {
+  #video-float-slot .float-speed-control {
+    display: none !important;
+  }
+}
+
+@container (max-width: 370px) {
+  #video-float-slot #video-lap-select {
+    display: none !important;
+  }
+}
+
+@container (max-width: 300px) {
+  #video-float-slot #combined-tabs {
+    display: none !important;
+  }
+}
+body[data-video-mode="floating"] #video-float-slot {
+  display: block;
+}
+body[data-video-mode="floating"] #video-dock-slot {
+  display: none;
+}
+body[data-video-mode="floating"] #topbar-placeholder {
+  display: flex;
+}
+body[data-video-mode="docked"] #topbar-placeholder {
+  display: none;
+}
+
+/* §float-header — No-wrap + Dock-button anchor.
+ *
+ * flex-wrap: nowrap on the combined-panel-head prevents elements from
+ * reflowing onto a second line when the panel narrows. Instead, elements
+ * are hidden progressively via the @container rules above.
+ *
+ * min-width: 0 on the head itself lets Flexbox allow children to compress
+ * to zero (without it, the default min-width: auto prevents hidden-to-zero).
+ *
+ * flex-shrink: 0 + min-width: 0 on #combined-panel-head-right ensures the
+ * Dock button cluster never shrinks or disappears — it anchors at the right
+ * edge at every width. The outer head's justify-content: space-between
+ * (from Tailwind's 'justify-between') naturally pushes this cluster to the
+ * right.
+ *
+ * overflow: hidden on the head clips any residual sub-pixel overflow
+ * from elements that are transitioning to display:none rather than
+ * generating a scrollbar. */
+body[data-video-mode="floating"] #combined-panel-head {
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+body[data-video-mode="floating"] #combined-panel-head-right {
+  flex-shrink: 0;
+  min-width: 0;
+}
+body[data-video-mode="floating"] #btn-combined-dock {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+body[data-video-mode="floating"] #video-controls {
+  min-width: 0;
+  overflow: hidden;
+}
+body[data-video-mode="floating"] #combined-tabs {
+  min-width: 0;
+  flex-shrink: 0;
+}
+body[data-video-mode="floating"] #track-readout {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+}
+
+/* Floating: combined panel fills the slot and gets accent border/shadow. */
+body[data-video-mode="floating"] #combined-panel {
+  width: 100%;
+  height: 100%;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+}
+/* Floating: the combined-panel-head becomes visible (host of tab switcher +
+ * Dock button + relocated video controls). Docked: hidden. */
+body[data-video-mode="floating"] #combined-panel-head {
+  display: flex;
+}
+body[data-video-mode="docked"] #combined-panel-head {
+  display: none;
+}
+/* Floating: the individual pane headers (#video-panel-head and
+ * #topbar-map > header) hide so the combined-panel-head is the only chrome.
+ * The body expands to consume the vacated space. */
+body[data-video-mode="floating"] #video-panel-head,
+body[data-video-mode="floating"] #topbar-map > header {
+  display: none;
+}
+/* Floating: each pane fills the combined-panel-body; they are not
+ * side-by-side flex children anymore. The data-active-tab attribute toggles
+ * which of them is shown. */
+body[data-video-mode="floating"] #combined-panel-body {
+  flex-direction: column;
+  gap: 0;
+}
+body[data-video-mode="floating"] #video-panel,
+body[data-video-mode="floating"] #topbar-map {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+/* Tab visibility rules — the inactive pane is display:none'd. */
+body[data-video-mode="floating"] #combined-panel[data-active-tab="video"] #topbar-map {
+  display: none;
+}
+body[data-video-mode="floating"] #combined-panel[data-active-tab="map"] #video-panel {
+  display: none;
+}
+
+/* Tab button active-state styling via attribute selector — Tailwind Play
+ * CDN can't JIT dynamic class strings, so we drive the active state off
+ * the stable data-active-tab attribute on the combined-panel. */
+#combined-panel[data-active-tab="video"] .combined-tab[data-tab="video"],
+#combined-panel[data-active-tab="map"] .combined-tab[data-tab="map"] {
+  background: rgba(0, 100, 255, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Nitpicker R1: in floating mode the default window is 480 px wide. The
+ * corner-legend column is 160 px fixed, which leaves the track canvas at
+ * only ~296 px — the circuit becomes an unreadable squished blob. The
+ * §11 ResizeObserver tiers evaluated "compact" (not "minimal") because it
+ * measured the pane body width (478 px) not the track canvas (296 px),
+ * and "compact" keeps the corner legend visible. Supersede that: in
+ * floating mode the corner legend is always hidden, regardless of tier.
+ * Docked mode still uses the §11 tier logic on the 35% column. */
+body[data-video-mode="floating"] #corner-legend {
+  display: none;
+}
+
+/* Floating-mode topbar — collapse to the compact placeholder strip. Drop
+ * the fixed h-[clamp(...)] height from the Tailwind utilities so the topbar
+ * only consumes the placeholder's own height. */
+body[data-video-mode="floating"] #topbar {
+  grid-template-columns: 1fr;
+  height: auto;
+}
+
+/* ---------- Docked-mode sticky topbar ----------
+ *
+ * When docked, the topbar (video + map) stays pinned to the top of the
+ * viewport while the rest of the page (sessions, signals, charts) scrolls
+ * underneath. z-index sits below the floating overlay (z-40) and toasts
+ * (z-[10000]) but above Plotly chart contents. A solid bg-bg background
+ * prevents scrolled content from bleeding through the gap-3 padding.
+ *
+ * top: 0 — the readout strip has been removed; the topbar is now the
+ * topmost sticky element with no predecessor to offset around.
+ *
+ * In floating mode this rule is NOT applied — the topbar there is just the
+ * compact placeholder strip and behaves as a normal flex child. */
+body[data-video-mode="docked"] #topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--bg);
+}
+
+/* interact.js drives drag from the whole #video-float-slot surface when
+ * floating. Cursor rules:
+ *   - Idle float surface: grab (whole slot)
+ *   - <video>: cursor:auto so the browser shows native-controls cursors
+ *     (scrubber, volume, fullscreen). The video IS a drag surface — a
+ *     movement threshold (pointerMoveTolerance=5) in video-overlay.js means
+ *     a simple click never starts a drag; only a deliberate swipe does.
+ *   - Other interactive children (select, button, input, a, [data-no-drag]):
+ *     cursor:auto — these are in ignoreFrom and never initiate drag.
+ *   - While dragging (body gets .overlay-dragging): grabbing on every child
+ *     including the video, overrides the auto cursor during active drag.
+ * The docked header (#video-panel-head, #combined-panel-head) returns to
+ * default — it is not a drag handle. */
+#video-panel-head,
+#combined-panel-head {
+  cursor: default;
+}
+body[data-video-mode="floating"] #video-float-slot {
+  cursor: grab;
+}
+body[data-video-mode="floating"] #video-float-slot video,
+body[data-video-mode="floating"] #video-float-slot select,
+body[data-video-mode="floating"] #video-float-slot button,
+body[data-video-mode="floating"] #video-float-slot input,
+body[data-video-mode="floating"] #video-float-slot a,
+body[data-video-mode="floating"] #video-float-slot [data-no-drag] {
+  cursor: auto;
+}
+body.overlay-dragging,
+body.overlay-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+body.overlay-dragging #video-float-slot,
+body.overlay-dragging #video-float-slot * {
+  cursor: grabbing !important;
+}
+
+/* ---------- Toasts ---------- */
+.toast {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  max-width: min(620px, calc(100vw - 2rem));
+  padding: 0.6rem 0.8rem 0.6rem 0.7rem;
+  background: #1f2330;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  animation: toast-in 0.18s ease-out;
+}
+.toast--error {
+  border-left-color: var(--red);
+  background: #2a1a1d;
+}
+.toast--warn {
+  border-left-color: #f59e0b;
+  background: #2a2316;
+}
+.toast--info {
+  border-left-color: var(--accent);
+}
+.toast--success {
+  border-left-color: #10b981;
+  background: #162620;
+}
+.toast__icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-top: 0.1rem;
+}
+.toast--error .toast__icon {
+  background: var(--red);
+  color: #fff;
+}
+.toast--warn .toast__icon {
+  background: #f59e0b;
+  color: #1a1a1a;
+}
+.toast--info .toast__icon {
+  background: var(--accent);
+  color: #fff;
+}
+.toast--success .toast__icon {
+  background: #10b981;
+  color: #fff;
+}
+.toast__body {
+  flex: 1;
+  min-width: 0;
+}
+.toast__title {
+  font-weight: 600;
+  margin-bottom: 0.1rem;
+}
+.toast__detail {
+  color: var(--text-muted);
+  white-space: pre-line;
+  word-break: break-word;
+}
+.toast__close {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.1rem;
+  margin-left: 0.2rem;
+  align-self: flex-start;
+}
+.toast__close:hover {
+  color: var(--text);
+}
+.toast.toast--leaving {
+  animation: toast-out 0.18s ease-in forwards;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* ---------- Loading spinner ----------
+   Keyframes are renamed `te-spin` to avoid collision with Tailwind Play CDN's
+   `@keyframes spin` (which is paired with its `.animate-spin` utility). When
+   both stylesheets define a same-named keyframe, the later definition wins
+   for any element resolved after it, which left our spinner visually frozen
+   in some load orders. */
+.loading-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: te-spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+}
+/* XL modifier used by the video-loading overlay. Geometry lives here (not as
+   inline style on the element) so the animation never has to compete with a
+   style.cssText reset and the markup stays declarative. */
+.loading-spinner--xl {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  margin-right: 0;
+}
+@keyframes te-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- Scrollbar cosmetics (WebKit) ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3e4263;
+}
+
+/* ---------- Plotly touch-action override (spec §6.3 round 3) ----------
+ * Plotly sets `touch-action: none` (inline, via JS at runtime) on its inner
+ * drag layers — `.nsewdrag`, `.drag`, `.draglayer`, the main SVG, etc. The
+ * browser's gesture-intent heuristic uses the EVENT TARGET's touch-action,
+ * not the ancestor's, so the `pan-y` we set on the outer chart div in
+ * charts.js attachMarkerDrag() is overridden the moment a finger lands on
+ * an inner SVG. Result: vertical page scroll is hijacked on touchscreens.
+ *
+ * Cascade `pan-y` into every descendant of a Plotly chart so the browser
+ * still permits vertical scroll wherever the finger lands. Horizontal pan
+ * is the marker drag, handled by pointermove + 6 px threshold in charts.js
+ * (pointercancel cleans up `pending` when the browser claims the gesture).
+ *
+ * `!important` is required because Plotly's rules are inline-style
+ * equivalent (set via JS at runtime); a normal cascade rule loses. */
+.js-plotly-plot,
+.js-plotly-plot * {
+  touch-action: pan-y !important;
+}
+
+/* =============================================================================
+ * AI chat panel — floating-only, drag/resize via interact.js, toggle via
+ * `#chat-toggle` (fixed bottom-right). Panel itself is `#chat-float-slot`,
+ * which contains `#chat-panel`. Geometry is set by chat-overlay.js via
+ * inline transform/width/height — these rules supply look + container-query
+ * shrink behaviour at narrow widths.
+ *
+ * Container query thresholds chosen to be tighter than the video panel's
+ * (700/550/450/370/300) since chat is naturally tall+narrow. */
+/* While a chat panel drag/resize is in progress, suppress text selection
+ * everywhere — otherwise dragging over the message list text would create
+ * an accidental selection that lingers after the gesture. */
+body.chat-gesturing,
+body.chat-gesturing * {
+  user-select: none !important;
+}
+
+/* Two-layer structure: the OUTER #chat-float-slot is transparent and
+ * adds an 8 px halo of empty space around the visible panel. interact.js
+ * resizes the slot, so its bounding box (which includes the halo) is
+ * what the cursor must enter to grab a resize edge — hit area extends
+ * BEYOND the visible panel edges. The INNER #chat-panel carries the
+ * actual chrome (bg, border, shadow). */
+#chat-float-slot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  /* 8 px transparent halo — interact.js resize zone extends out to the
+   * outer edge of this padding, so the cursor changes to the resize
+   * arrow as soon as it enters the halo. Combined with `margin: 10` in
+   * interact.js, that gives ~18 px of grabbable area centered on each
+   * visible edge of the inner panel. */
+  padding: 8px;
+  box-sizing: border-box;
+  touch-action: none;
+}
+
+#chat-float-slot.hidden {
+  display: none;
+}
+
+#chat-panel {
+  /* Chat-scoped design tokens — mirror native Quix AI (variables.scss) 1:1 so
+   * the embedded chat reads as the same product, without restyling the rest of
+   * the Explorer. Every chat rule consumes these via var(--color-*, fallback). */
+  --color-bg: #1a1a1b; /* assistant turn body / card details bg */
+  --color-surface: #222229; /* assistant bubble surface */
+  --color-head-bg: #2b2b34; /* card/header/footer fill (bg-input) */
+  --color-terminal: #0d1117; /* command/result terminal bg */
+  --color-brd: rgba(255, 255, 255, 0.08);
+  --color-brd-light: rgba(255, 255, 255, 0.12);
+  --color-txt2: rgba(255, 255, 255, 0.7); /* secondary text */
+  --color-muted: rgba(255, 255, 255, 0.5);
+  --color-accent: #0064ff;
+  --color-accent-light: #008eff; /* running spinner / env-running border */
+  --color-green: #00dd81;
+  --color-red: #ff4040;
+  --color-orange: #ff7828;
+  --color-pending: color-mix(in srgb, #0064ff 70%, #00dd81 30%);
+  --mono: "IBM Plex Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #fff;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--color-surface, #222229);
+  border: 1px solid var(--color-brd, #3e3e46);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  transform: translateY(0) scale(1);
+  opacity: 1;
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 220ms ease-out;
+  transform-origin: bottom right;
+}
+
+/* Entrance state — applied for one frame before being removed so the
+ * transition runs from these starting values to the resting values
+ * defined above. Used on first-visit auto-open and on toggle-open. */
+#chat-float-slot.entering #chat-panel,
+#chat-float-slot.leaving #chat-panel {
+  transform: translateY(8px) scale(0.98);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #chat-panel {
+    transition: none;
+  }
+}
+
+#chat-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-brd, #3e3e46);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  cursor: move;
+  user-select: none;
+  background: var(--color-surface, #222229);
+}
+
+#chat-panel-head .chat-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#chat-panel-head .chat-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#chat-panel-head .chat-mode-btn {
+  border: 1px solid var(--color-brd, #3e3e46);
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  border-radius: 4px;
+}
+#chat-panel-head .chat-mode-btn:hover {
+  border-color: var(--color-accent, #0064ff);
+  color: var(--color-accent, #0064ff);
+}
+
+#chat-panel-head .chat-close {
+  border: none;
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+#chat-panel-head .chat-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+#chat-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  /* Messages area = native bg-primary (darker than the #222229 chrome) so the
+   * #222229 assistant bubbles + cards stand out instead of blending in. */
+  background: var(--color-bg, #1a1a1b);
+}
+/* Flex children default to flex-shrink:1, so in this fixed-height scroller they
+ * COMPRESS to fit when content overflows — expanding one tool card squished the
+ * others into slivers and clipped the open one. Pin natural height; let the
+ * container scroll instead. */
+#chat-messages > * {
+  flex-shrink: 0;
+}
+
+.chat-msg {
+  word-break: break-word;
+}
+
+/* User: right-aligned blue-tint bubble, native asymmetric radius. */
+.chat-msg-user {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 12px 16px;
+  border-radius: 12px 4px 12px 12px;
+  background: rgba(0, 100, 255, 0.12);
+}
+
+/* Assistant TURN: one surface box per reply, holding all prose segments +
+ * tool cards + env blocks (native groups a whole reply in one block). Full
+ * width of the list; children carry their own side insets. */
+.chat-msg-assistant {
+  align-self: stretch;
+  padding: 8px 0;
+  border-radius: 8px;
+  background: var(--color-surface, #222229);
+}
+.chat-asst-text {
+  padding: 4px 16px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.chat-msg-assistant > .chat-tool-card,
+.chat-msg-assistant > .chat-env-agent {
+  align-self: auto;
+  margin: 6px 16px;
+}
+
+.chat-msg-assistant-status {
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  font-style: italic;
+  align-self: flex-start;
+}
+
+#chat-input-row {
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-brd, #3e3e46);
+  background: var(--color-surface, #222229);
+}
+
+/* Combined input area: textarea + absolute-positioned send button. The
+ * textarea reserves right padding for the button; the button sits inside
+ * the visual rectangle of the prompt. */
+.chat-prompt-wrap {
+  position: relative;
+  background: var(--color-bg, #1a1a1a);
+  border: 1px solid var(--color-brd, #3e3e46);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+.chat-prompt-wrap:focus-within {
+  border-color: var(--color-accent, #0064ff);
+}
+
+#chat-input {
+  width: 100%;
+  /* Right padding reserves space for the absolute send button. */
+  padding: 10px 48px 10px 12px;
+  min-height: 38px;
+  max-height: 160px;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  outline: none;
+  display: block;
+  box-sizing: border-box;
+}
+
+#chat-send {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 30px;
+  height: 30px;
+  background: var(--color-accent, #0064ff);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+#chat-send:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+#chat-send:disabled {
+  background: var(--color-brd, #3e3e46);
+  color: var(--color-muted, #94a3b8);
+  cursor: not-allowed;
+}
+#chat-send svg {
+  display: block;
+  /* Paper-plane glyph is visually top-right heavy; nudge down-left to
+   * read as centered inside the small button. */
+  transform: translate(-1px, 1px);
+}
+
+/* Toggle button — fixed bottom-right, pill shape. */
+#chat-toggle {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 99;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--color-accent, #0064ff);
+  color: #0b0f15;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+#chat-toggle:hover {
+  filter: brightness(1.08);
+}
+#chat-toggle[aria-expanded="true"] {
+  background: var(--color-surface, #222229);
+  color: var(--color-accent, #0064ff);
+  border: 1px solid var(--color-accent, #0064ff);
+}
+
+/* Quix icon — used in toggle button (variant flips on expanded state) and in
+ * chat panel header (always light variant, since the head sits on a dark
+ * surface). Two SVG files live side-by-side; CSS toggles visibility instead
+ * of swapping the src so neither asset has to be re-fetched on state change. */
+.quix-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-block;
+  vertical-align: middle;
+}
+#chat-toggle .quix-icon {
+  width: 24px;
+  height: 24px;
+}
+#chat-toggle .quix-icon-light {
+  display: none;
+}
+#chat-toggle[aria-expanded="true"] .quix-icon-dark {
+  display: none;
+}
+#chat-toggle[aria-expanded="true"] .quix-icon-light {
+  display: inline-block;
+}
+#chat-panel-head .quix-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* No container-query reflow: header, input bar, and message paddings
+ * stay fixed regardless of panel width so there is nothing visually
+ * shifting as the user resizes. The panel itself just gets narrower /
+ * taller; the chrome inside it does not scale. */
+
+/* =============================================================================
+ * DOCKED MODE — chat-overlay.js reparents #chat-panel into
+ * <aside id="chat-dock-slot"> when the viewport allows it. The slot is a
+ * fixed-width right column inside #main-row; the panel fills it.
+ *
+ * Width matches the floating default (400 px) so toggling between modes
+ * is not jarring. Border + background are kept; the drop-shadow and
+ * rounded right edge are dropped so the sidebar looks built-in instead
+ * of pasted on top.
+ * ============================================================================= */
+#chat-dock-slot {
+  /* Width is a CSS variable so the drag handle on the left edge can
+   * resize the panel by writing --chat-dock-w on :root. Defaults to 400 px
+   * and is clamped (320-50% viewport) by the resize logic in chat-overlay.js. */
+  width: var(--chat-dock-w, 400px);
+  border-left: 1px solid var(--color-brd, #3e3e46);
+  background: var(--color-surface, #222229);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  /* Polite reflow when toggling dock/float so charts don't snap. */
+  transition: width 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Suppress the polite width transition while the user is actively dragging
+ * the resizer — otherwise width chases the cursor 180 ms behind. */
+body.chat-resizing #chat-dock-slot {
+  transition: none;
+}
+
+/* Drag handle on the left edge of the dock slot. Sits over the border so
+ * the visible affordance is the cursor change + a faint accent on hover. */
+#chat-dock-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+  touch-action: none;
+}
+#chat-dock-resizer:hover,
+body.chat-resizing #chat-dock-resizer {
+  background: var(--color-accent, #0064ff);
+  opacity: 0.35;
+}
+
+/* App-shell layout when chat is docked: lock body to viewport height, move
+ * scrolling into the <main> column. Topbar stays at top, sidebar fills the
+ * row, charts/signals scroll inside main. Restores normal page scroll when
+ * floating so existing behaviour for narrow viewports is unchanged. */
+body[data-chat-mode="docked"] {
+  height: 100vh;
+  overflow: hidden;
+}
+body[data-chat-mode="docked"] #main-row {
+  min-height: 0;
+}
+body[data-chat-mode="docked"] #main-row > main {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+#chat-dock-slot.hidden {
+  display: none;
+}
+
+/* When the panel lives inside the dock slot, strip floating chrome. */
+body[data-chat-mode="docked"] #chat-dock-slot #chat-panel {
+  flex: 1 1 auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  /* Floating mode applies an entrance transform; reset for docked so the
+   * panel sits flush. */
+  transform: none;
+  opacity: 1;
+}
+
+/* Drag cursor only meaningful while floating — strip it when docked. */
+body[data-chat-mode="docked"] #chat-panel-head {
+  cursor: default;
+}
+
+/* Ensure the floating slot stays out of the way when docked. The .hidden
+ * class on #chat-float-slot already does display:none, but belt-and-braces
+ * the visibility here so any stray transition state can't bleed through. */
+body[data-chat-mode="docked"] #chat-float-slot {
+  display: none !important;
+}
+
+/* The toggle button is bottom-right floating chrome — keep it fixed in
+ * floating mode (default), but in docked mode the dock sidebar already
+ * shows the panel; the toggle still serves as a Close-from-anywhere
+ * button so we keep it visible. No special override needed. */
+
+/* =============================================================================
+ * Chat backend polish — status spinner, clarify chips, error bubble,
+ * markdown-rendered assistant body. Scoped to .chat-msg-* classes that
+ * chat.js writes; styles.css already covers the panel chrome.
+ * ============================================================================= */
+
+#chat-progress {
+  /* Render as a proper assistant bubble. The per-role .chat-msg-* rules now
+   * carry padding/radius, so the status bubble sets its own here. */
+  background: var(--color-surface, #222229);
+  color: var(--color-muted, #94a3b8);
+  font-style: normal;
+  align-self: flex-start;
+  padding: 8px 14px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#chat-progress::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-muted, #94a3b8);
+  border-top-color: var(--color-accent, #0064ff);
+  border-radius: 50%;
+  animation: chat-spin 0.8s linear infinite;
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Markdown-rendered assistant body — tighten default browser styles. */
+.chat-msg-assistant > p {
+  margin: 0 0 6px 0;
+}
+.chat-msg-assistant > p:last-child {
+  margin-bottom: 0;
+}
+.chat-msg-assistant > ul,
+.chat-msg-assistant > ol {
+  margin: 0 0 6px 18px;
+  padding: 0;
+}
+.chat-msg-assistant code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.chat-msg-assistant pre {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.82em;
+}
+.chat-msg-assistant table {
+  border-collapse: collapse;
+  margin: 6px 0;
+}
+.chat-msg-assistant th,
+.chat-msg-assistant td {
+  border: 1px solid var(--color-brd, #3e3e46);
+  padding: 3px 8px;
+  font-size: 0.85em;
+}
+.chat-msg-assistant a {
+  color: var(--color-accent, #0064ff);
+}
+
+/* Clarify chips — appear inline beneath an assistant question bubble. */
+.chat-clarify-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.chat-clarify-chip {
+  border: 1px solid var(--color-brd, #3e3e46);
+  background: transparent;
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  border-radius: 999px;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+.chat-clarify-chip:hover {
+  border-color: var(--color-accent, #0064ff);
+  color: var(--color-accent, #0064ff);
+}
+
+/* Tool-call card — collapsible, mirroring the native Quix AI chat: a full-width
+ * header (status icon + tool name + right chevron) toggles the body; input sits
+ * behind its own toggle; the result is contained (scrolls) so tool runs don't
+ * flood the conversation. The whole border colour tracks state. No MCP badge. */
+.chat-tool-card {
+  align-self: stretch;
+  border: 1px solid var(--color-brd);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  transition: border-color 0.4s ease;
+}
+.chat-tool-running {
+  border-color: var(--color-pending);
+}
+.chat-tool-error {
+  border-color: var(--color-red);
+}
+.chat-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--color-head-bg);
+  color: var(--color-txt2);
+  cursor: pointer;
+  user-select: none;
+}
+.chat-tool-head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.chat-tool-indicator {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-weight: 700;
+}
+.chat-tool-running .chat-tool-indicator::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-brd-light);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: chat-spin 0.8s linear infinite;
+}
+.chat-tool-done .chat-tool-indicator::before {
+  content: "✓";
+  color: var(--color-green);
+}
+.chat-tool-error .chat-tool-indicator::before {
+  content: "✕";
+  color: var(--color-red);
+}
+.chat-tool-name {
+  flex: 0 1 auto;
+  font-family: var(--mono);
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-tool-chevron {
+  flex: none;
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+.chat-tool-chevron::before {
+  content: "▲";
+}
+.chat-tool-collapsed .chat-tool-chevron::before {
+  content: "▼";
+}
+.chat-tool-collapsed .chat-tool-body {
+  display: none;
+}
+/* Details — native uses the darkest bg with a top divider from the header. */
+.chat-tool-body {
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-brd);
+  padding: 8px 12px;
+}
+/* Nested command / file-edit lines (correlated by toolUseId), terminal-style. */
+.chat-tool-cmd,
+.chat-tool-file {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-txt2);
+}
+.chat-tool-file {
+  color: var(--color-muted);
+}
+.chat-tool-prompt {
+  color: var(--color-green);
+}
+.chat-tool-subtoggle {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+.chat-tool-subtoggle::before {
+  content: "▼ ";
+}
+.chat-tool-subtoggle-open::before {
+  content: "▲ ";
+}
+/* Input + result render terminal-style on the near-black bg, monospace. */
+.chat-tool-args {
+  display: none;
+  margin: 6px 0 0;
+  padding: 8px;
+  background: var(--color-terminal);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-txt2);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  max-height: 200px;
+  overflow: auto;
+}
+.chat-tool-args.chat-tool-args-shown {
+  display: block;
+}
+.chat-tool-result-label {
+  display: none;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-brd);
+  color: var(--color-muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.chat-tool-result {
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--color-terminal);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  max-height: 14rem;
+  overflow: auto;
+}
+.chat-tool-result:empty {
+  display: none;
+}
+
+/* Error bubble — red, pinned-left, no markdown rendering. */
+.chat-msg-error {
+  background: rgba(255, 63, 65, 0.12);
+  border: 1px solid rgba(255, 63, 65, 0.4);
+  color: #fecaca;
+  align-self: flex-start;
+  padding: 8px 10px;
+  border-radius: 8px;
+  max-width: 85%;
+  word-break: break-word;
+  font-size: 0.85rem;
+}
+
+/* DEEP-mode environment-agent block — wraps a delegated agent's activity
+ * (nested tool cards correlated by toolUseId, command/file lines, prose,
+ * status) under a collapsible header with a status indicator. Renders in
+ * place of the suppressed delegate_task tool card, mirroring native Quix AI. */
+.chat-env-agent {
+  align-self: stretch;
+  border: 1px solid var(--color-brd);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  transition: border-color 0.4s ease;
+}
+.chat-env-running {
+  border-color: var(--color-accent-light);
+}
+.chat-env-done {
+  border-color: var(--color-brd);
+}
+.chat-env-failed {
+  border-color: var(--color-red);
+}
+.chat-env-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--color-head-bg);
+  color: var(--color-txt2);
+  cursor: pointer;
+  user-select: none;
+}
+.chat-env-agent-head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.chat-env-agent-indicator {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+.chat-env-running .chat-env-agent-indicator::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-brd-light);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: chat-spin 0.8s linear infinite;
+}
+.chat-env-done .chat-env-agent-indicator::before {
+  content: "✓";
+  color: var(--color-green);
+}
+.chat-env-failed .chat-env-agent-indicator::before {
+  content: "✕";
+  color: var(--color-red);
+}
+.chat-env-agent-name {
+  flex: 1 1 auto;
+  font-family: var(--mono);
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-env-agent-count {
+  flex: none;
+  font-family: var(--mono);
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+.chat-env-agent-chevron {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+.chat-env-agent-chevron::before {
+  content: "▲";
+}
+.chat-env-collapsed .chat-env-agent-chevron::before {
+  content: "▼";
+}
+.chat-env-collapsed .chat-env-agent-body {
+  display: none;
+}
+/* Body — native's near-black panel, capped + scrollable; children get their
+ * own side padding so nested tool cards can inset like native (margin 0 8px). */
+.chat-env-agent-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-brd);
+  max-height: 300px;
+  overflow-y: auto;
+}
+.chat-env-agent-body > .chat-tool-card {
+  margin: 0 8px;
+}
+/* Same flex-shrink trap as the root list: pin children so a nested tool card
+ * keeps its height (the body scrolls) instead of being squished to a sliver. */
+.chat-env-agent-body > * {
+  flex-shrink: 0;
+}
+.chat-env-agent-task-toggle {
+  padding: 0 16px;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+.chat-env-agent-task-toggle::before {
+  content: "▼ ";
+}
+.chat-env-agent-task-toggle-open::before {
+  content: "▲ ";
+}
+.chat-env-agent-task {
+  display: none;
+  margin: 0 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-txt2);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.chat-env-agent-task.chat-env-agent-task-shown {
+  display: block;
+}
+.chat-env-line {
+  padding: 0 16px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-env-cmd {
+  color: var(--color-txt2);
+}
+.chat-env-file {
+  color: var(--color-muted);
+}
+.chat-env-statusmsg {
+  color: var(--color-muted);
+  font-style: italic;
+  font-family: inherit;
+}
+.chat-env-text {
+  padding: 0 16px;
+  color: var(--color-txt2);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.chat-env-error {
+  margin: 0 16px;
+  background: rgba(255, 64, 64, 0.12);
+  border: 1px solid rgba(255, 64, 64, 0.4);
+  color: #fecaca;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+.chat-env-agent-summary {
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-brd);
+  background: var(--color-head-bg);
+  color: var(--color-txt2);
+  font-size: 0.75rem;
+}

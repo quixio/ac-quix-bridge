@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Telemetry Explorer</title>
+
+    <!-- Plotly (unchanged) -->
+    <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+
+    <!-- Tailwind via Play CDN (dev mode; no build step). JIT scans the DOM on
+         mutation so dynamically inserted class strings are fine, provided the
+         class names appear as whole literals somewhere the JIT can see them. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              // Mirror :root in styles.css. Aligned with Test Manager + Quix Cloud
+              // so the iframe embed has no visual seam.
+              bg: '#1a1a1a',
+              surface: '#222229',
+              brd: '#3e3e46',
+              muted: '#a8b1c0',
+              accent: '#0064ff',
+              ok: '#059669',
+              warn: '#f59e0b',
+              danger: '#ff3f41',
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- interact.js — drag + resize for the floating video overlay -->
+    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+
+    <!-- Self-hosted markdown-it for chat answer rendering. Importmap lets
+         ES modules `import MarkdownIt from "markdown-it"` resolve to the
+         local vendor bundle without a CDN dep. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "markdown-it": "/static/vendor/markdown-it.js"
+        }
+      }
+    </script>
+
+    <!-- Inter + IBM Plex Mono for the embedded AI chat, matching native Quix AI.
+         Scoped to #chat-panel in styles.css; the rest of the Explorer is unaffected. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Trimmed stylesheet: keyframes, scrollbar, Plotly overrides only. -->
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body data-video-mode="docked" class="min-h-screen bg-bg text-slate-200 font-sans text-sm flex flex-col">
+    <!-- =====================================================================
+         TOP BAR — flex child (not fixed). Collapses vertically to 1 column
+         below the lg breakpoint so laptops don't get crushed.
+
+         In docked mode the topbar is a 65/35 grid hosting #video-dock-slot,
+         which contains the new #combined-panel wrapper enclosing both the
+         video pane (#video-panel) and the map pane (#topbar-map). In floating
+         mode #combined-panel reparents into #video-float-slot and the topbar
+         collapses to the #topbar-placeholder.
+         ===================================================================== -->
+    <header
+      id="topbar"
+      class="grid grid-cols-1 lg:grid-cols-[65fr_35fr] gap-3 p-3 border-b border-brd bg-bg shadow-[0_4px_12px_rgba(0,0,0,0.4)] lg:h-[clamp(288px,32vh,378px)] xl:h-[clamp(342px,36vh,450px)] 2xl:h-[clamp(396px,40vh,522px)]"
+    >
+      <!-- ---------- VIDEO DOCK SLOT (combined panel lives here when docked) ----
+           Note: despite the name, this slot now wraps the WHOLE combined unit
+           (video + map), not just the video panel. The ID is preserved so
+           existing CSS rules and the video-overlay controller keep working
+           without further renames. -->
+      <div id="video-dock-slot" class="min-w-0 min-h-0 flex col-span-1 lg:col-span-2" data-hidden-when-floating>
+        <!-- COMBINED PANEL: owns both the video pane and the map pane. In docked
+             mode it is a horizontal flex splitting 65/35 between #video-panel
+             and #topbar-map. In floating mode it shows only the active-tab pane. -->
+        <section id="combined-panel" data-active-tab="video" class="w-full min-w-0 min-h-0 flex flex-col">
+          <!-- Combined panel head: hidden in docked mode, visible when floating.
+               Hosts the tab switcher, relocated video controls, and the
+               Dock button. The per-pane headers (#video-panel-head,
+               #topbar-map > header) stay visible in docked mode, so the
+               docked UX is pixel-identical to before. -->
+          <header
+            id="combined-panel-head"
+            class="hidden items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-brd select-none bg-surface rounded-t-[10px]"
+          >
+            <div
+              id="combined-tabs"
+              class="flex items-center gap-1 text-[1.08rem] uppercase tracking-[0.07em] font-semibold"
+            >
+              <button
+                data-tab="video"
+                class="combined-tab bg-transparent border border-brd rounded px-3 py-1 text-muted cursor-pointer hover:border-accent hover:text-accent"
+                onclick="setCombinedTab('video')"
+              >
+                Video
+              </button>
+              <button
+                data-tab="map"
+                class="combined-tab bg-transparent border border-brd rounded px-3 py-1 text-muted cursor-pointer hover:border-accent hover:text-accent"
+                onclick="setCombinedTab('map')"
+              >
+                Map
+              </button>
+            </div>
+            <!-- Named wrapper so _relocateVideoControls() has a stable
+                 insertion anchor. Nitpicker R1 called out that the previous
+                 `dockBtn.parentNode` lookup broke silently if the structure
+                 changed. Using a dedicated ID is self-documenting and
+                 survives future markup edits. -->
+            <div id="combined-panel-head-right" class="flex gap-1.5 items-center flex-nowrap shrink-0">
+              <!-- Floating-mode video controls mirror the docked ones by moving
+                   the same #video-controls element into this header on float.
+                   app.js targets controls by ID, so relocation is safe. -->
+              <button
+                id="btn-combined-dock"
+                class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
+                title="Dock"
+                onclick="toggleVideoFloat()"
+              >
+                Dock
+              </button>
+            </div>
+          </header>
+
+          <!-- Combined panel body: in docked mode a horizontal 65/35 flex row
+               hosting the two panes side-by-side. In floating mode one of the
+               two panes is display:none'd via the data-active-tab attribute. -->
+          <div id="combined-panel-body" class="flex-1 min-h-0 flex flex-row gap-3">
+            <!-- VIDEO PANE ----------------------------------------------------
+                 Everything that used to live directly inside #video-dock-slot
+                 is now inside this pane. IDs preserved: #video-panel,
+                 #video-panel-head, #video-panel-body, #video-player,
+                 #video-empty, #video-controls, #video-lap-select, #video-speed,
+                 #video-status, #btn-video-float. -->
+            <section
+              id="video-panel"
+              class="w-full min-w-0 min-h-0 flex-[65] flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden relative"
+            >
+              <header
+                id="video-panel-head"
+                class="flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-brd select-none"
+              >
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold shrink-0">Video</div>
+                  <!-- Track position readout. video-overlay.js reparents this
+                       element between here (docked) and #combined-panel-head
+                       (floating) so it remains visible in both modes.
+                       sync.js:updateReadout() targets #readout-pos-text by ID. -->
+                  <span id="track-readout" class="font-mono text-[0.68rem] text-accent tabular-nums"
+                    ><span id="readout-pos-text">0.0%</span></span
+                  >
+                </div>
+                <div class="flex gap-1.5 items-center flex-wrap">
+                  <div id="video-controls" class="hidden items-center gap-2 text-[0.7rem] text-muted">
+                    <select
+                      id="video-lap-select"
+                      class="bg-bg text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem] disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled
+                      onchange="onVideoLapChange(this.value)"
+                    >
+                      <option value="">&mdash; pick laps and Plot &mdash;</option>
+                    </select>
+                    <label class="float-speed-control flex items-center gap-1.5">
+                      Speed
+                      <select
+                        id="video-speed"
+                        class="bg-bg text-slate-200 border border-brd rounded-[5px] px-1.5 py-[0.22rem] text-[0.72rem]"
+                        onchange="onVideoSpeedChange(this.value)"
+                      >
+                        <option value="1" selected>Realtime</option>
+                        <option value="2">2x</option>
+                        <option value="5">5x</option>
+                      </select>
+                    </label>
+                    <div id="video-status" class="text-[0.62rem] text-muted leading-tight min-h-[0.9rem]"></div>
+                  </div>
+                  <button
+                    id="btn-video-float"
+                    class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
+                    title="Float video"
+                    onclick="toggleVideoFloat()"
+                  >
+                    Float
+                  </button>
+                </div>
+              </header>
+              <div
+                id="video-panel-body"
+                class="relative flex-1 min-h-0 px-3 pt-2 pb-2.5 flex flex-col gap-2 items-center justify-center"
+              >
+                <video
+                  id="video-player"
+                  class="hidden bg-bg rounded-md object-contain w-auto h-auto max-w-full max-h-full aspect-video"
+                  controls
+                  preload="metadata"
+                ></video>
+                <div
+                  id="video-empty"
+                  class="aspect-video max-w-full max-h-full w-auto h-auto bg-bg border border-dashed border-brd rounded-lg flex items-center justify-center text-muted text-center p-2 text-[0.7rem] leading-tight"
+                >
+                  No lap selected
+                </div>
+                <!-- Loading overlay: shown while a video fetch/buffer is in flight.
+                     Positioned absolute over the panel body so it covers both
+                     #video-player (frozen old frame) and #video-empty alike.
+                     Managed exclusively by showVideoLoading() / hideVideoLoading()
+                     in video.js; starts hidden. -->
+                <div
+                  id="video-loading-overlay"
+                  class="hidden absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 rounded-md z-10"
+                  aria-live="polite"
+                  aria-label="Video loading"
+                >
+                  <div class="loading-spinner loading-spinner--xl"></div>
+                  <span id="video-loading-label" class="text-[0.75rem] font-medium" style="color: var(--text-muted)"
+                    >Loading video…</span
+                  >
+                </div>
+              </div>
+            </section>
+
+            <!-- MAP PANE ------------------------------------------------------
+                 #topbar-map retained as the pane ID so track-map.js and the
+                 :has() collapse reflow rule both keep matching. In docked
+                 mode its flex-[35] sibling position reproduces the old 35%
+                 column; in floating Map-tab mode it fills the whole panel. -->
+            <section
+              id="topbar-map"
+              data-collapsible
+              class="min-w-0 min-h-0 flex-[35] flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden"
+            >
+              <header class="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-brd">
+                <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">Track Map</div>
+                <button
+                  id="btn-collapse-map"
+                  class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
+                  title="Collapse"
+                  onclick="toggleTopbarPanel('topbar-map', this)"
+                >
+                  -
+                </button>
+              </header>
+              <div data-collapsible-body class="flex-1 min-h-0 px-2 pt-1.5 pb-2 flex flex-col gap-1">
+                <div class="flex flex-1 min-h-0 gap-1.5">
+                  <div id="track-map" class="flex-1 min-h-0 min-w-0"></div>
+                  <div
+                    id="corner-legend"
+                    class="w-[160px] shrink-0 overflow-y-auto border-l border-brd px-1.5 py-1 text-[10px] leading-[1.6]"
+                  ></div>
+                </div>
+                <div class="flex items-center gap-2 px-1 text-[0.65rem] text-muted">
+                  <span>Zoom</span>
+                  <input
+                    type="range"
+                    id="track-zoom"
+                    class="flex-1 accent-accent"
+                    min="1"
+                    max="8"
+                    step="0.1"
+                    value="1"
+                    oninput="onZoomChange(this.value)"
+                  />
+                  <span id="track-zoom-val" class="text-slate-200 min-w-[2.2rem] text-right tabular-nums">1.0x</span>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
+
+      <!-- ---------- TOPBAR PLACEHOLDER (visible only when floating) ----------
+           Compact strip that gives the user a stable Dock button even if the
+           floating window is dragged off-screen. -->
+      <div
+        id="topbar-placeholder"
+        class="hidden col-span-1 lg:col-span-2 items-center justify-center gap-3 text-[0.72rem] text-muted bg-surface border border-brd rounded-[10px] px-3 py-2"
+      >
+        <span class="uppercase tracking-[0.07em] font-semibold">Video + Map floating</span>
+        <button
+          id="btn-placeholder-dock"
+          class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
+          title="Dock"
+          onclick="toggleVideoFloat()"
+        >
+          Dock
+        </button>
+      </div>
+    </header>
+
+    <!-- =====================================================================
+         VIDEO FLOAT SLOT — hidden until user clicks "Float". interact.js
+         drags/resizes this container; combined panel lives inside it when
+         floating. The ID name predates the "combined" refactor but the slot
+         now hosts the whole video+map unit.
+         ===================================================================== -->
+    <div
+      id="video-float-slot"
+      class="hidden fixed z-40 touch-none"
+      style="top: 16px; right: 16px; width: 480px; height: 270px"
+    ></div>
+
+    <!-- =====================================================================
+         SCROLLING CONTENT + RIGHT-SIDEBAR DOCK SLOT.
+         #main-row is a flex-row so the docked chat sidebar lives next to
+         <main> only (topbar untouched). When chat is floating, the slot is
+         hidden and <main> takes the full row width.
+         ===================================================================== -->
+    <div id="main-row" class="flex flex-1 min-h-0 w-full">
+      <main class="flex-1 min-w-0 px-4 md:px-6 xl:px-8 py-4 pb-10">
+        <h1 class="text-[1.15rem] font-semibold mb-[0.9rem]">Telemetry <span class="text-accent">Explorer</span></h1>
+
+        <!-- Session/Lap selection -->
+        <section
+          id="panel-sessions"
+          data-collapsible
+          class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4"
+        >
+          <header class="flex justify-between items-center mb-3">
+            <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">
+              Select sessions and laps to overlay
+            </div>
+            <button
+              class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
+              onclick="togglePanel('panel-sessions', this)"
+            >
+              -
+            </button>
+          </header>
+          <div data-collapsible-body>
+            <div id="selections" class="flex flex-col gap-3"></div>
+            <div class="mt-3 flex gap-2">
+              <button
+                class="bg-ok hover:bg-[#047857] border-0 rounded-md px-[0.7rem] py-[0.3rem] text-white text-[0.78rem] font-semibold cursor-pointer transition-colors"
+                onclick="addRow()"
+              >
+                + Add Session
+              </button>
+              <button
+                id="btn-plot"
+                class="bg-accent hover:bg-[#3a7ae4] border-0 rounded-md px-[0.7rem] py-[0.3rem] text-white text-[0.78rem] font-semibold cursor-pointer transition-colors disabled:bg-brd disabled:cursor-wait"
+                onclick="plot()"
+              >
+                Plot
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Signal picker -->
+        <section
+          id="panel-signals"
+          data-collapsible
+          class="bg-surface border border-brd rounded-[10px] p-4 md:px-5 mb-4"
+        >
+          <header class="flex justify-between items-center mb-3">
+            <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">Signals</div>
+            <button
+              class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"
+              onclick="togglePanel('panel-signals', this)"
+            >
+              -
+            </button>
+          </header>
+          <div data-collapsible-body>
+            <input
+              id="signal-filter"
+              class="signal-filter-input"
+              type="search"
+              placeholder="Filter signals…"
+              autocomplete="off"
+              oninput="filterSignals(this.value)"
+            />
+            <div id="signal-container">Loading channels...</div>
+          </div>
+        </section>
+
+        <!-- Charts -->
+        <div id="charts" class="flex flex-col gap-1"></div>
+        <div id="status" class="text-[0.78rem] text-muted mt-3"></div>
+      </main>
+
+      <!-- Chat sidebar slot — chat-overlay.js reparents #chat-panel here in
+         docked mode. Hidden when floating; fixed width handled in CSS. -->
+      <aside id="chat-dock-slot" class="hidden shrink-0" role="complementary" aria-label="AI chat dock">
+        <div id="chat-dock-resizer" aria-hidden="true"></div>
+      </aside>
+    </div>
+
+    <!-- Toast stack — fixed top-center, above the floating video (z-40). -->
+    <div
+      id="toasts"
+      class="fixed top-3 left-0 right-0 z-[10000] flex flex-col items-center gap-2 pointer-events-none"
+    ></div>
+
+    <!-- AI Chat — floating panel + bottom-right toggle. Geometry is set by
+         chat-overlay.js (transform/width/height), defaults to hidden until
+         user clicks the toggle. -->
+    <button id="chat-toggle" type="button" aria-label="Toggle AI chat" aria-expanded="false" title="Ask Quix AI">
+      <img class="quix-icon quix-icon-dark" src="/static/quix-icon-dark.svg" alt="" />
+      <img class="quix-icon quix-icon-light" src="/static/quix-icon-light.svg" alt="" />
+    </button>
+    <div id="chat-float-slot" class="hidden" role="dialog" aria-label="AI chat panel">
+      <section id="chat-panel">
+        <header id="chat-panel-head">
+          <span class="chat-title">
+            <img class="quix-icon quix-icon-light" src="/static/quix-icon-light.svg" alt="" />
+            Quix AI
+          </span>
+          <div class="chat-head-actions">
+            <button id="chat-new" type="button" class="chat-mode-btn" aria-label="New chat" title="New chat">
+              + New
+            </button>
+            <button
+              id="chat-mode-toggle"
+              type="button"
+              class="chat-mode-btn"
+              aria-label="Toggle dock/float"
+              title="Dock"
+            >
+              Dock
+            </button>
+            <button
+              type="button"
+              class="chat-close"
+              aria-label="Close chat"
+              onclick="document.getElementById('chat-toggle').click()"
+            >
+              ×
+            </button>
+          </div>
+        </header>
+        <div id="chat-messages" aria-live="polite"></div>
+        <div id="chat-input-row">
+          <div class="chat-prompt-wrap">
+            <textarea
+              id="chat-input"
+              rows="1"
+              placeholder="Ask Quix AI…"
+              autocomplete="off"
+              aria-label="Message"
+            ></textarea>
+            <button id="chat-send" type="button" aria-label="Send">
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Auth gate — PAT dialog for standalone mode. Hidden by default; shown
+         by auth.js when no token is available (or the stored one expired). -->
+    <div
+      id="auth-dialog"
+      role="dialog"
+      aria-modal="true"
+      style="display: none"
+      class="fixed inset-0 z-[10000] items-center justify-center bg-black/70 backdrop-blur-sm"
+    >
+      <div class="w-full max-w-md rounded-lg border border-brd bg-surface p-5 shadow-2xl">
+        <h2 class="text-base font-semibold text-white">Authentication required</h2>
+        <p class="mt-2 text-sm text-muted">Paste a Quix Personal Access Token (PAT) to access Telemetry Explorer.</p>
+        <input
+          id="auth-token-input"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          class="mt-3 w-full rounded border border-brd bg-bg px-3 py-2 text-sm text-white outline-none focus:border-accent"
+          placeholder="pat_..."
+        />
+        <p id="auth-token-error" class="mt-1.5 text-xs text-danger min-h-[1em]"></p>
+        <button
+          id="auth-token-submit"
+          type="button"
+          class="mt-3 w-full rounded bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+        >
+          Sign in
+        </button>
+      </div>
+    </div>
+
+    <!-- Non-module scripts in dependency order. All share global scope so
+         inline onclick= handlers resolve without imports. -->
+    <script src="/static/modules/toast.js"></script>
+    <script src="/static/modules/track-map.js"></script>
+    <script src="/static/modules/video-overlay.js"></script>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

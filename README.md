@@ -11,7 +11,7 @@ Live telemetry bridge from **Assetto Corsa** (original) to **Quix Cloud** via sh
 └──────────────┘                    └───────────────────┘           └────────────┘
 ```
 
-The Python source connector reads AC's physics shared memory at a configurable sample rate (default 50 Hz) and publishes telemetry messages to a Kafka topic managed by Quix Cloud.
+The Python source connector reads AC's physics shared memory at a configurable sample rate (default 60 Hz) and publishes telemetry messages to a Kafka topic managed by Quix Cloud.
 
 ## Telemetry Channels
 
@@ -53,7 +53,7 @@ Edit `.env`:
 ```
 Quix__Sdk__Token=<your Quix Cloud SDK token>
 Quix__Portal__Api=https://portal-api.platform.quix.io
-SAMPLE_RATE_HZ=50
+SAMPLE_RATE_HZ=60
 ```
 
 The `Quix__Sdk__Token` and `Quix__Portal__Api` variables are automatically picked up by QuixStreams to connect to your Quix Cloud workspace.

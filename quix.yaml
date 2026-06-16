@@ -4,29 +4,779 @@
 metadata:
   version: 1.0
 
+# This section describes the Deployments of the data pipeline
 deployments:
-  - name: AC Telemetry Source
-    application: ac-telemetry-source
+  - name: Telemetry Dashboard
+    application: telemetry-dashboard
     version: latest
     deploymentType: Service
     resources:
-      cpu: 200
-      memory: 500
-      replicas: 1
+      limits:
+        cpu: 200
+        memory: 500
+    publicAccess:
+      enabled: true
+      urlPrefix: telemetrydashboard
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
     variables:
-      - name: output
-        inputType: OutputTopic
-        description: Name of the output topic to write telemetry into
+      - name: input
+        inputType: InputTopic
+        description: Kafka topic to consume telemetry from
         required: true
         value: ac-telemetry-raw
-      - name: SAMPLE_RATE_HZ
+      - name: config_input
+        inputType: InputTopic
+        description: Config topic to resolve the current driver from (DCM change events)
+        required: true
+        value: ac-telemetry-config
+      - name: CONFIG_MANAGER_URL
         inputType: FreeText
-        description: Telemetry sample rate in Hz
-        value: 50
+        description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
+        value: ''
+      - name: LEADERBOARD_SQL
+        inputType: FreeText
+        multiline: true
+        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Defaults to all-time fastest lap per driver from ac_telemetry.
+        value: ''
+      - name: LEADERBOARD_TTL_SECONDS
+        inputType: FreeText
+        description: Server-side cache TTL for the leaderboard query (seconds)
+        value: 15
+      - name: DATALAKE_INSECURE_SSL
+        inputType: FreeText
+        description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
+        value: ''
+    blobStorage:
+      bind: true
+  - name: MongoDB
+    group: Test Manager
+    application: mongodb
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 800
+    state:
+      enabled: true
+      size: 3
+    network:
+      serviceName: mongodb
+      ports:
+        - port: 27017
+          targetPort: 27017
+    variables:
+      - name: MONGO_INITDB_ROOT_USERNAME
+        inputType: FreeText
+        description: The root username to initialize MongoDB with
+        required: true
+        value: admin
+      - name: MONGO_INITDB_ROOT_PASSWORD
+        inputType: ProjectVariable
+        description: The root password to initialize MongoDB with
+        required: true
+        secret: true
+        variableKey: MONGO_PASSWORD
+  - name: Session Config Bridge
+    group: Ingestion
+    application: session-config-bridge
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 300
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Topic to consume AC session data from
+        required: true
+        value: ac-telemetry-session
+      - name: CONFIG_MANAGER_URL
+        inputType: FreeText
+        description: URL of the Dynamic Configuration Manager API
+        required: true
+        value: http://dynamic-configuration-manager
+      - name: CONFIG_TYPE
+        inputType: FreeText
+        description: Config type for session data
+        required: true
+        value: session
+      - name: TEST_MANAGER_URL
+        inputType: FreeText
+        description: Test Manager backend URL (in-cluster service name by default)
+        value: http://test-manager-backend
+  - name: AC Post-Race Trigger
+    group: Ingestion
+    application: ac-postrace-trigger
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 300
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Topic of test-completed events (session-end signals)
+        required: true
+        value: test-completed
+      - name: TEST_MANAGER_URL
+        inputType: FreeText
+        description: Test Manager backend URL (in-cluster service name by default)
+        value: http://test-manager-backend
+      - name: TRIGGER_SECRET
+        inputType: ProjectVariable
+        description: Optional shared secret proving auto-analysis POSTs come from this service. Must match the Test Manager backend's TRIGGER_SECRET. Unset = gate disabled.
+        secret: true
+        variableKey: TRIGGER_SECRET
+  - name: Dynamic Configuration Manager
+    group: Ingestion
+    application: DynamicConfiguration
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 500
+        memory: 1000
+    publicAccess:
+      enabled: true
+      urlPrefix: config-api-svc
+    network:
+      serviceName: dynamic-configuration-manager
+    configuration:
+      topic: ac-telemetry-config
+      mongoHost: mongodb
+      mongoPort: 27017
+      mongoUser: admin
+      mongoPasswordSecret: MONGO_PASSWORD
+      mongoDatabase: ac_telemetry
+      mongoCollection: experiment_configs
+    plugin:
+      embeddedView:
+        enabled: true
+        default: true
+  - name: AC Telemetry Lake sink
+    group: Ingestion
+    application: ac-telemetry-lake
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 1000
+        memory: 4000
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Name of the Kafka input topic to consume from
+        required: true
+        value: ac-telemetry-raw
+      - name: config_topic
+        inputType: InputTopic
+        description: Dynamic Configuration Manager topic for enrichment
+        required: true
+        value: ac-telemetry-config
+      - name: TABLE_NAME
+        inputType: FreeText
+        description: Table name for data organization and registration, else defaults to topic name
+        value: ac_telemetry
+      - name: HIVE_COLUMNS
+        inputType: FreeText
+        description: Comma-separated list of columns for Hive partitioning. Include year/month/day/hour to extract from TIMESTAMP_COLUMN (e.g., location,year,month,day,sensor_type)
+        value: environment,test_rig,experiment,driver,track,carModel,session_id,lap
+      - name: TIMESTAMP_COLUMN
+        inputType: FreeText
+        description: Column containing timestamp values to extract year/month/day/hour from
+        value: timestamp_ms
+      - name: AUTO_DISCOVER
+        inputType: Options
+        description: Automatically register table in REST Catalog on first write
+        value: true
+      - name: CATALOG_NAMESPACE
+        inputType: FreeText
+        description: Catalog namespace for table registration
+        value: default
+      - name: BATCH_SIZE
+        inputType: FreeText
+        description: Number of messages to batch before writing to storage
+        value: 10000
+      - name: COMMIT_INTERVAL
+        inputType: FreeText
+        description: Kafka commit interval in seconds
+        value: 30
+      - name: KAFKA_KEY_DESERIALIZER
+        inputType: FreeText
+        description: The key deserializer to use
+        value: str
+      - name: KAFKA_VALUE_DESERIALIZER
+        inputType: FreeText
+        description: the value deserializer to use
+        value: json
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        description: Kafka consumer group name
+        value: s3_direct_sink_v1.7
+      - name: AUTO_OFFSET_RESET
+        inputType: Options
+        description: Where to start consuming if no offset exists
+        value: earliest
+      - name: LOGLEVEL
+        inputType: Options
+        description: Application logging level
+        value: INFO
+      - name: MAX_WRITE_WORKERS
+        inputType: FreeText
+        description: How many files can be written in parallel to storage at once (based on partitioning + batch size)
+        value: 10
+      - name: STREAM_TIMEOUT_MS
+        inputType: FreeText
+        description: Per-key silence threshold in milliseconds. When a Kafka message key has not published for this duration, a warning is logged (sensor drop-out detection). Leave empty to disable.
+        value: 10000
+      - name: TEST_COMPLETED_TOPIC
+        inputType: OutputTopic
+        description: Topic to publish test-completed events when a stream key goes silent
+        value: test-completed
+    blobStorage:
+      bind: true
+  - name: Test Manager - Backend
+    group: Test Manager
+    application: test-manager-backend
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 500
+    publicAccess:
+      enabled: true
+      urlPrefix: test-manager-api
+    network:
+      serviceName: test-manager-backend
+      ports:
+        - port: 80
+          targetPort: 8080
+    variables:
+      - name: MONGO_USER
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_USER
+      - name: MONGO_PASSWORD
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_ROOT_PASSWORD
+      - name: MONGO_HOST
+        inputType: FreeText
+        required: true
+        value: mongodb
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        required: true
+        value: http://dynamic-configuration-manager
+      - name: LAKE_TABLE
+        inputType: FreeText
+        description: Lake table the leaderboard queries (e.g. ac_telemetry, ac_telemetry_leaderboard)
+        value: ac_telemetry
+      - name: LAKE_COL_CURRENT_TIME
+        inputType: FreeText
+        description: Lap-relative current-time column on LAKE_TABLE (e.g. iCurrentTime on ac_telemetry, currentTime on derived tables)
+        value: iCurrentTime
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        description: Best-lap-time column on LAKE_TABLE (e.g. iBestTime or bestTime)
+        value: iBestTime
+      - name: LAKE_COL_NORMALIZED_POSITION
+        inputType: FreeText
+        description: 0..1 normalized position column on LAKE_TABLE
+        value: normalizedCarPosition
+      - name: LOCAL_DEV_MODE
+        inputType: FreeText
+        value: false
+      - name: LIVE_TELEMETRY_ENABLED
+        inputType: FreeText
+        value: true
+      - name: GATE_COUNT
+        inputType: FreeText
+        description: Number of checkpoint gates the lap is split into for live sector comparison.
+        value: 650
+      - name: POST_RACE_AGENT_ID
+        inputType: ProjectVariable
+        description: Agent configuration ID of the Post-Race Analyzer agent. Per-environment project variable — each portal (dev/byox) holds its own agent GUID. Empty disables the AI summary runner.
+        variableKey: POST_RACE_AGENT_ID
+      - name: PAT_TOKEN
+        inputType: ProjectVariable
+        description: User-scoped Personal Access Token authenticating Quix.AI agent sessions for the post-race summary runner. Required for the headless/auto-trigger path — the workspace service-account SDK token cannot use Quix AI.
+        required: true
+        secret: true
+        variableKey: PAT_TOKEN
+      - name: TESTMANAGER_MCP_API_KEY
+        inputType: ProjectVariable
+        description: X-API-Key gating the Test Manager /mcp endpoint. Must match the key registered for this MCP server on the Quix.AI agent(s).
+        required: true
+        secret: true
+        variableKey: TESTMANAGER_MCP_API_KEY
+      - name: TRIGGER_SECRET
+        inputType: ProjectVariable
+        description: Optional shared secret gating auto-triggered analyses. When set, an auto POST must carry a matching X-Trigger-Secret header (sent by AC Post-Race Trigger). Unset = gate disabled. Set the SAME value here and on AC Post-Race Trigger.
+        secret: true
+        variableKey: TRIGGER_SECRET
+      - name: SMTP_HOST
+        inputType: FreeText
+        description: SMTP server host for emailing completed post-race analyses (F4). Unset = email disabled (analysis still completes; emailing is best-effort).
+        value: smtp.gmail.com
+      - name: SMTP_PORT
+        inputType: FreeText
+        description: SMTP server port (STARTTLS submission default).
+        value: "587"
+      - name: SMTP_USER
+        inputType: ProjectVariable
+        description: SMTP auth username (the sending address). Set per-env in the Portal so the address stays out of the public repo.
+        variableKey: SMTP_USER
+      - name: SMTP_PASSWORD
+        inputType: ProjectVariable
+        description: SMTP auth password / app-password. Secret.
+        secret: true
+        variableKey: SMTP_PASSWORD
+      - name: SMTP_FROM
+        inputType: ProjectVariable
+        description: From address for analysis emails (defaults to SMTP_USER). Set in the Portal to keep it out of the public repo.
+        variableKey: SMTP_FROM
+      - name: SMTP_STARTTLS
+        inputType: FreeText
+        description: Issue STARTTLS before auth on port 587 (true/false). Ignored when SMTP_SSL=true.
+        value: "true"
+      - name: SMTP_SSL
+        inputType: FreeText
+        description: Use implicit TLS (port 465) instead of STARTTLS (true/false).
+        value: "false"
+  - name: Test Manager - Frontend
+    group: Test Manager
+    application: test-manager-frontend
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 500
+    publicAccess:
+      enabled: true
+      urlPrefix: test-manager
+    network:
+      serviceName: test-manager-frontend
+      ports:
+        - port: 80
+          targetPort: 3000
+    variables:
+      - name: API_URL
+        inputType: FreeText
+        description: Backend API URL for server-side requests (internal Kubernetes service name)
+        required: true
+        value: http://test-manager-backend
+      - name: NODE_ENV
+        inputType: FreeText
+        description: Node environment
+        required: true
+        value: production
+      - name: NEXT_TELEMETRY_DISABLED
+        inputType: FreeText
+        description: Disable Next.js telemetry
+        value: 1
+      - name: NEXT_PUBLIC_TELEMETRY_EXPLORER_URL
+        inputType: ProjectVariable
+        description: Public URL of the Telemetry Explorer deployment
+        required: true
+        variableKey: TELEMETRY_EXPLORER_URL
+      - name: NEXT_PUBLIC_FREEZE_MS
+        inputType: FreeText
+        description: Live-positions blue-freeze window duration in ms after a gate crossing.
+        value: 200
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: Test Manager
+        icon: data_thresholding
+        order: 1
+      globalItem:
+        show: true
+        label: Test Manager
+        order: 0
+  - name: AC Video Browser
+    group: Analysis
+    application: ac-video-browser
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 2000
+    publicAccess:
+      enabled: true
+      urlPrefix: acvideobrowser
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: BLOB_VIDEO_PREFIX
+        inputType: FreeText
+        description: Blob storage path prefix where MP4 recordings are stored
+        value: ac_video
+    blobStorage:
+      bind: true
+  - name: Telemetry Explorer
+    group: Analysis
+    application: telemetry-comparison
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 1000
+        memory: 1000
+    publicAccess:
+      enabled: true
+      urlPrefix: telemetryexplorer
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: TABLE_NAME
+        inputType: FreeText
+        description: QuixLake table name for telemetry data
+        value: ac_telemetry
+      - name: BLOB_VIDEO_PREFIX
+        inputType: FreeText
+        description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
+        value: ac_video
+      - name: AC_TELEMETRY_AGENT_ID
+        inputType: ProjectVariable
+        description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Per-environment project variable — each portal (dev/byox) holds its own agent GUID.
+        variableKey: AC_TELEMETRY_AGENT_ID
+      - name: TELEMETRY_COMPARISON_MCP_API_KEY
+        inputType: ProjectVariable
+        description: X-API-Key gating the /mcp endpoint (plot_data tool). Must match the key registered for this MCP server on the AC Telemetry Agent.
+        required: true
+        secret: true
+        variableKey: TELEMETRY_COMPARISON_MCP_API_KEY
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      globalItem:
+        show: true
+        label: Telemetry Explorer
+        icon: data_usage
+        order: 0
+    blobStorage:
+      bind: true
+  - name: MongoDB Backup Manager
+    group: Test Manager
+    application: mongodb-backup-manager
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 1000
+    publicAccess:
+      enabled: true
+      urlPrefix: backup-manager
+    state:
+      enabled: true
+      size: 1
+    network:
+      serviceName: backup-manager
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: METADATA_BACKEND
+        inputType: Options
+        description: "Metadata storage backend: 'mongo' or 'json'"
+        required: true
+        value: json
+      - name: METADATA_MONGO_HOST
+        inputType: FreeText
+        description: Metadata MongoDB hostname (only when METADATA_BACKEND=mongo)
+        value: ''
+      - name: METADATA_MONGO_PORT
+        inputType: FreeText
+        description: Metadata MongoDB port (only when METADATA_BACKEND=mongo)
+        value: 27017
+      - name: METADATA_MONGO_USERNAME
+        inputType: FreeText
+        description: Metadata MongoDB username (only when METADATA_BACKEND=mongo)
+        value: ''
+      - name: METADATA_MONGO_PASSWORD
+        inputType: ProjectVariable
+        description: Metadata MongoDB password (only when METADATA_BACKEND=mongo)
+        variableKey: MONGO_PASSWORD
+      - name: SECRET_KEY
+        inputType: ProjectVariable
+        description: Encryption key for stored server passwords (Fernet)
+        required: true
+        variableKey: MONGO_BACKUP_SECRET_KEY
+      - name: BLOB_BASE_PATH
+        inputType: FreeText
+        description: Base path in Quix blob storage for backup archives
+        required: true
+        value: backups/mongodb
+      - name: BACKUP_RETENTION_DAYS
+        inputType: FreeText
+        description: Default retention period for backups in days
+        required: true
+        value: 30
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: Backup Manager
+        icon: save
+        order: 0
+    blobStorage:
+      bind: true
+  - name: QuixLab
+    group: Analysis
+    application: quixlab
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 2000
+    publicAccess:
+      enabled: true
+      urlPrefix: quixlab
+    state:
+      enabled: true
+      size: 1
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: QUIXLAB_NOTEBOOK
+        inputType: FreeText
+        description: Notebook file to open on startup (leave empty for the file picker)
+        value: main.py
+      - name: QUIXLAB_MODE
+        inputType: FreeText
+        description: "Run mode: 'app' (view only) or 'edit' (full editor)"
+        value: edit
+      - name: QUIXLAB_MCP_KEY
+        inputType: ProjectVariable
+        description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent.
+        required: true
+        secret: true
+        variableKey: QUIXLAB_MCP_KEY
+      - name: QUIXLAB_AGENT_ID
+        inputType: ProjectVariable
+        description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent.
+        required: true
+        variableKey: QUIXLAB_AGENT_ID
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: QuixLab
+        icon: grid_view
+        order: 1
+      globalItem:
+        show: true
+        label: QuixLab
+        icon: find_in_page
+        order: 1
+    blobStorage:
+      bind: true
+  - name: Quix DataLake Raw Sink
+    group: Ingestion
+    application: DataLake.Sink
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 500
+        memory: 1500
+    configuration:
+      topic: ac-telemetry-raw
+  - name: leaderboard-service
+    application: leaderboard-service
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 1000
+        memory: 2000
+    publicAccess:
+      enabled: true
+      urlPrefix: leaderboard-service-9cb716a
+    state:
+      enabled: true
+      size: 1
+    network:
+      serviceName: leaderboard-service
+      ports:
+        - port: 80
+          targetPort: 8080
+    variables:
+      - name: MONGO_USER
+        inputType: ProjectVariable
+        required: true
+        variableKey: MONGO_USER
+      - name: MONGO_PASSWORD
+        inputType: ProjectVariable
+        required: true
+        variableKey: MONGO_ROOT_PASSWORD
+      - name: MONGO_HOST
+        inputType: FreeText
+        required: true
+        value: mongodb
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        required: true
+        value: http://dynamic-configuration-manager
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session)
+        required: true
+        value: ac-telemetry-session
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry
+      - name: LAKE_COL_CURRENT_TIME
+        inputType: FreeText
+        value: iCurrentTime
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: LAKE_COL_NORMALIZED_POSITION
+        inputType: FreeText
+        value: normalizedCarPosition
+      - name: GATE_COUNT
+        inputType: FreeText
+        value: 10
+      - name: LOCAL_DEV_MODE
+        inputType: FreeText
+        value: false
+      - name: LIVE_TELEMETRY_ENABLED
+        inputType: FreeText
+        value: true
+    blobStorage:
+      bind: true
+  - name: leaderboard-ui
+    application: leaderboard-ui
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 500
+    publicAccess:
+      enabled: true
+      urlPrefix: leaderboard
+    network:
+      serviceName: leaderboard-ui
+      ports:
+        - port: 80
+          targetPort: 3000
+    variables:
+      - name: API_URL
+        inputType: FreeText
+        description: Internal k8s service URL for server-side Next.js requests (unused — no rewrites; kept for parity)
+        value: http://leaderboard-service
+      - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
+        inputType: ProjectVariable
+        description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
+        required: true
+        variableKey: LEADERBOARD_SERVICE_URL
+      - name: NEXT_PUBLIC_FREEZE_MS
+        inputType: FreeText
+        description: Blue-freeze window duration in ms after a gate crossing.
+        value: 200
+      - name: NODE_ENV
+        inputType: FreeText
+        required: true
+        value: production
+      - name: NEXT_TELEMETRY_DISABLED
+        inputType: FreeText
+        value: 1
+  - name: Speed Dashboard
+    application: speed-dashboard
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 300
+    publicAccess:
+      enabled: true
+      urlPrefix: speed-dashboard
+    desiredStatus: Running
+    variables:
+      - name: input
+        inputType: InputTopic
+        description: Kafka topic to consume AC telemetry from
+        required: true
+        value: ac-telemetry-raw
+      - name: WINDOW_SECONDS
+        inputType: FreeText
+        description: Rolling window size in seconds to display on the chart
+        value: 30
+  - name: ac-telemetry-raw
+    application: DataLake.Replay
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 500
+        memory: 500
+    configuration:
+      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
+      sourceTopic: ac-telemetry-raw
+      sourceKeys: QUIX-GAMING
+      destinationTopic: ac-telemetry-raw
+      fromTimestamp: 2026-06-08T15:52:21.569Z
+      toTimestamp: 2026-06-08T16:01:15.856Z
+    disabled: true
 
+# This section describes the Topics of the data pipeline
 topics:
   - name: ac-telemetry-raw
     configuration:
       partitions: 1
       replicationFactor: 1
-      retentionInMinutes: 1440
+      retentionInMinutes: -1
+      retentionInBytes: 1048576000
+  - name: ac-telemetry-session
+    configuration:
+      partitions: 1
+      replicationFactor: 1
+      retentionInMinutes: -1
+      cleanupPolicy: Delete
+  - name: ac-video-frames
+  - name: ac-telemetry-config
+  - name: test-completed
+  - name: ac-telemetry-raw-replay
+  - name: ac-telemetry-raw-replay2
+    configuration:
+      retentionInBytes: 524288000

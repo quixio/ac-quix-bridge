@@ -1,0 +1,74 @@
+"""Unit tests for the build_point helper in main.py."""
+
+import os
+import unittest
+from unittest.mock import patch
+
+# Provide the required env var before importing main (module-level code reads it).
+os.environ.setdefault("input", "test-topic")
+
+from main import build_point  # noqa: E402
+
+
+class TestBuildPoint(unittest.TestCase):
+    def test_speed_and_accgx_returned(self):
+        row = {"timestamp_ms": 1000, "speedKmh": 100.0, "accG_x": 0.5}
+        point = build_point(row)
+        self.assertEqual(point, {"t": 1000.0, "v": 100.0, "a": 0.5})
+
+    def test_no_accgx_defaults_to_none(self):
+        row = {"timestamp_ms": 2000, "speedKmh": 150.0}
+        point = build_point(row)
+        self.assertEqual(point, {"t": 2000.0, "v": 150.0, "a": None})
+
+    def test_no_speed_returns_none(self):
+        row = {"timestamp_ms": 3000, "accG_x": 1.2}
+        point = build_point(row)
+        self.assertIsNone(point)
+
+    def test_empty_row_returns_none(self):
+        point = build_point({})
+        self.assertIsNone(point)
+
+    def test_alternate_field_names(self):
+        """SpeedKmh (capital K) should be accepted as a fallback for speed."""
+        row = {"Timestamp": 4000, "SpeedKmh": 200.0, "accG_x": -1.0}
+        point = build_point(row)
+        self.assertEqual(point, {"t": 4000.0, "v": 200.0, "a": -1.0})
+
+    def test_negative_accgx(self):
+        row = {"timestamp_ms": 5000, "speedKmh": 80.0, "accG_x": -2.5}
+        point = build_point(row)
+        self.assertEqual(point, {"t": 5000.0, "v": 80.0, "a": -2.5})
+
+    def test_accgx_zero_not_treated_as_absent(self):
+        """accG_x == 0.0 is a valid measurement and must not be replaced with None."""
+        row = {"timestamp_ms": 6000, "speedKmh": 90.0, "accG_x": 0.0}
+        point = build_point(row)
+        self.assertEqual(point, {"t": 6000.0, "v": 90.0, "a": 0.0})
+
+    def test_returned_values_are_floats(self):
+        row = {"timestamp_ms": 7000, "speedKmh": 120, "accG_x": 1}  # integer inputs
+        point = build_point(row)
+        self.assertIsInstance(point["t"], float)
+        self.assertIsInstance(point["v"], float)
+        self.assertIsInstance(point["a"], float)
+
+    def test_accgx_none_when_key_missing(self):
+        row = {"timestamp_ms": 8000, "speedKmh": 55.0}
+        point = build_point(row)
+        self.assertIsNone(point["a"])
+
+    def test_timestamp_fallback_uses_current_time(self):
+        """When neither timestamp_ms nor Timestamp is present, time.time() is used."""
+        fake_secs = 1_000_000.0
+        with patch("main.time") as mock_time:
+            mock_time.time.return_value = fake_secs
+            row = {"speedKmh": 100.0}
+            point = build_point(row)
+        self.assertIsNotNone(point)
+        self.assertAlmostEqual(point["t"], fake_secs * 1000, places=1)
+
+
+if __name__ == "__main__":
+    unittest.main()

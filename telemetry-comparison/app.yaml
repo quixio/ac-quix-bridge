@@ -1,0 +1,25 @@
+name: telemetry-comparison
+language: docker
+variables:
+  # QuixLake URL + auth token are auto-injected by byox as
+  # Quix__Lakehouse__Query__Url + Quix__Lakehouse__Query__AuthToken.
+  # config.py falls back to legacy QUIXLAKE_URL / QUIX_LAKE_TOKEN for local dev.
+  - name: TABLE_NAME
+    inputType: FreeText
+    description: QuixLake table name for telemetry data
+    defaultValue: ac_telemetry
+  - name: BLOB_VIDEO_PREFIX
+    inputType: FreeText
+    description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
+    defaultValue: ac_video
+  - name: AC_TELEMETRY_AGENT_ID
+    inputType: FreeText
+    description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Must exist in the target environment's portal; byox/dev hold different GUIDs.
+    defaultValue: d578e2f5-c2b7-461a-90d2-70dfac450fb0
+  - name: TELEMETRY_COMPARISON_MCP_API_KEY
+    inputType: Secret
+    description: X-API-Key gating the /mcp endpoint (plot_data tool). Must match the key registered for this MCP server on the AC Telemetry Agent.
+    required: true
+    secretKey: mcp_api_key
+dockerfile: dockerfile
+defaultFile: main.py

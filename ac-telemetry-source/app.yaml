@@ -6,10 +6,15 @@ variables:
     description: Name of the output topic to write telemetry into
     defaultValue: ac-telemetry-raw
     required: true
+  - name: session_output
+    inputType: OutputTopic
+    description: Topic to write session metadata into
+    defaultValue: ac-telemetry-session
+    required: true
   - name: SAMPLE_RATE_HZ
     inputType: FreeText
     description: Telemetry sample rate in Hz
-    defaultValue: 50
+    defaultValue: 60
     required: false
 dockerfile: dockerfile
 runEntryPoint: main.py

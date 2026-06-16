@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AC Telemetry — Live Dashboard</title>
+
+<!--
+  Production dashboard, served at / by telemetry-dashboard (main.py).
+  Built on SciChart.js (https://www.scichart.com).
+
+  What it shows: SciChart's reason to exist — real-time streaming line charts on
+  the GPU (WebGL + WASM). It consumes the SAME /ws telemetry feed as the live
+  dashboard and renders rolling time-series traces that the current dashboard
+  doesn't have (speed/RPM, throttle/brake, tyre temps over time).
+
+  No build step: the library is loaded from CDN as a UMD bundle that exposes a
+  global `SciChart` and auto-loads its .wasm/.data from the same CDN.
+
+  Licensing: with no key set, SciChart auto-selects its free Community Edition
+  (valid ~6 months per release) and paints a small "SciCHART" watermark on each
+  chart. Fine for a preview; production needs Community attribution or a purchased
+  key applied via SciChartSurface.setRuntimeLicenseKey(...).
+-->
+<script src="https://cdn.jsdelivr.net/npm/scichart@5/index.min.js" crossorigin="anonymous"></script>
+
+<style>
+  :root {
+    --bg: #08080f;
+    --card: #12121f;
+    --border: #23233f;
+    --text: #f0f0f5;
+    --dim: #6a6a85;
+    --cyan: #00d4ff;
+    --green: #00ff88;
+    --amber: #ffaa00;
+    --red: #ff3355;
+    --purple: #c14bff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 1vh 1vw;
+    gap: 1vh;
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 1.4vw;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1vh 1.4vw;
+  }
+  .brand-logo { height: 3.4vh; width: auto; display: block; flex-shrink: 0; }
+  .title { font-size: 2.2vh; font-weight: 800; white-space: nowrap; }
+  .title small { color: var(--dim); font-weight: 600; font-size: 1.4vh; }
+  .spacer { flex: 1; }
+  .driver-block { display: flex; flex-direction: column; align-items: center; gap: .3vh; }
+  .driver-label { font-size: 1.2vh; font-weight: 700; letter-spacing: .12vw; text-transform: uppercase; color: var(--dim); }
+  .driver { font-size: 2.8vh; font-weight: 800; line-height: 1; white-space: nowrap; text-transform: capitalize; }
+  .toggle { display: flex; align-items: center; gap: .5vw; font-size: 1.4vh; color: var(--dim); cursor: pointer; user-select: none; white-space: nowrap; }
+  .toggle input { width: 1.5vh; height: 1.5vh; accent-color: var(--cyan); cursor: pointer; }
+
+  /* ---------- Settings popover (gear icon → driver / window / pin / demo) ---------- */
+  .settings-wrap { position: relative; flex-shrink: 0; }
+  .gear-btn {
+    background: transparent; border: 1.5px solid var(--border); color: var(--dim);
+    width: 3.6vh; height: 3.6vh; border-radius: 8px; cursor: pointer;
+    font-size: 2vh; line-height: 1; display: flex; align-items: center; justify-content: center;
+    transition: color .15s, border-color .15s;
+  }
+  .gear-btn:hover { color: var(--text); border-color: var(--cyan); }
+  .gear-btn.open { color: var(--cyan); border-color: var(--cyan); }
+  .settings-pop {
+    position: absolute; top: calc(100% + 1vh); right: 0; z-index: 50;
+    width: 20vw; min-width: 250px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.6vh 1.4vw; display: flex; flex-direction: column; gap: 1.4vh;
+    box-shadow: 0 .8vh 3vh rgba(0,0,0,.55);
+  }
+  .settings-pop[hidden] { display: none; }
+  .settings-title { font-size: 1.3vh; text-transform: uppercase; letter-spacing: .2vw; color: var(--dim); font-weight: 800; }
+  .set-row { display: flex; align-items: center; justify-content: space-between; gap: 1vw; font-size: 1.55vh; color: var(--text); }
+  .set-row > span { display: flex; align-items: baseline; gap: .5vw; }
+  .set-row small { color: var(--cyan); font-weight: 700; font-size: 1.35vh; }
+  .set-input {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: .5vh .7vw; font-size: 1.45vh; width: 9vw; min-width: 120px;
+    font-family: inherit; text-align: right;
+  }
+  .set-input:focus { outline: none; border-color: var(--cyan); }
+  .set-range { width: 11vw; min-width: 140px; accent-color: var(--cyan); cursor: pointer; }
+  .toggle-row input { width: 1.7vh; height: 1.7vh; accent-color: var(--cyan); cursor: pointer; }
+  .set-actions { display: flex; justify-content: flex-end; margin-top: .2vh; }
+  .set-reset {
+    background: transparent; border: 1px solid var(--border); color: var(--dim);
+    border-radius: 6px; padding: .55vh 1vw; font-size: 1.35vh; cursor: pointer; font-family: inherit;
+    transition: color .15s, border-color .15s;
+  }
+  .set-reset:hover { color: var(--text); border-color: var(--red); }
+
+  .src {
+    display: flex; align-items: center; gap: .6vw;
+    padding: .7vh 1vw; border-radius: 7px; border: 1.5px solid var(--border);
+    font-size: 1.4vh; font-weight: 800; letter-spacing: .08vw; white-space: nowrap;
+  }
+  .src .dot { width: 1.1vh; height: 1.1vh; border-radius: 50%; background: var(--dim); }
+  .src.live .dot { background: var(--green); animation: blink 1.1s ease-in-out infinite; }
+  .src.demo .dot { background: var(--amber); }
+  .src.waiting .dot { background: var(--amber); animation: blink 1.1s ease-in-out infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+  .src .hz { color: var(--dim); font-weight: 600; }
+
+  /* ---------- Charts ---------- */
+  .grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 1vh 1vw; min-height: 0; position: relative; }
+  .grid > .waiting { grid-column: 1 / -1; }
+
+  /* "Waiting for telemetry" overlay — shown when demo is off and no live frames. */
+  .waiting { position: absolute; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; pointer-events: none; }
+  .waiting-box {
+    display: flex; align-items: center; gap: 1vw; text-align: left;
+    background: rgba(8,8,15,.82); border: 1px solid var(--border); border-radius: 12px;
+    padding: 2vh 2.4vw; font-size: 2.1vh; font-weight: 700; color: var(--text);
+  }
+  .waiting-box .wdot { width: 1.3vh; height: 1.3vh; border-radius: 50%; background: var(--amber); animation: blink 1.1s ease-in-out infinite; flex-shrink: 0; }
+  .waiting-box .wsub { display: block; font-size: 1.4vh; font-weight: 500; color: var(--dim); margin-top: .5vh; }
+  .waiting-box .wsub b { color: var(--cyan); font-weight: 700; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1vh 1vw .6vh; min-height: 0; flex: 1;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .card-title {
+    font-size: 1.4vh; text-transform: uppercase; letter-spacing: .2vw;
+    color: var(--dim); margin-bottom: .6vh; flex-shrink: 0;
+  }
+  .card-title b { color: var(--text); }
+  /* "Invalid Lap" badge in the Lap Times title — hidden until isValidLap == 0. */
+  .lap-invalid { display: none; margin-left: .6vw; color: var(--red); font-weight: 800; }
+  .lap-invalid.show { display: inline; animation: blink 1.1s ease-in-out infinite; }
+  .chart { flex: 1; width: 100%; min-height: 0; position: relative; }
+
+  /* SciChart legend swatches → small squares instead of wide (30×13) rectangles.
+     The swatch is a <label> with inline background-color/width/height, so override needs !important. */
+  .scichart__legend label { width: 13px !important; height: 13px !important; flex-shrink: 0; }
+
+  /* ---------- G-Force meter (friction-circle / g-ball) + trace ---------- */
+  .gforce-body { flex: 1; min-height: 0; display: flex; gap: 1vw; }
+  .gmeter { flex-shrink: 0; min-height: 0; display: flex; align-items: center; justify-content: center; padding: .4vh 0; }
+  .gmeter svg { height: 100%; width: auto; max-width: 100%; display: block; }
+  .gchart { flex: 1; min-width: 0; min-height: 0; position: relative; }
+  .g-ring { fill: none; stroke: var(--border); stroke-width: 1; }
+  .g-ring.outer { stroke: #33335a; }
+  .g-cross { stroke: var(--border); stroke-width: 1; }
+  .g-axis-label { fill: var(--dim); font-size: 8px; font-weight: 700; letter-spacing: .5px; }
+  .g-ring-label { fill: var(--dim); font-size: 8px; font-weight: 600; }
+  .g-vector { stroke: var(--cyan); stroke-width: 2; opacity: .45; }
+  .g-dot { filter: drop-shadow(0 0 4px rgba(0,212,255,.65)); transition: fill .1s; }
+  .g-readout { flex-shrink: 0; display: flex; justify-content: space-around; font-size: 1.3vh; font-weight: 800; color: var(--dim); letter-spacing: .08vw; padding-top: .3vh; }
+  .g-readout b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Lap delta / current-lap readout ---------- */
+  .ld-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 1.2vh; padding: 0 .6vw; }
+  .ld-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1vw; }
+  .ld-label { font-size: 1.5vh; text-transform: uppercase; letter-spacing: .12vw; color: var(--dim); }
+  .ld-time { font-size: 3vh; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text); }
+
+  .hint { font-size: 1.2vh; color: var(--dim); }
+  .hint b { color: var(--cyan); }
+
+  .fatal {
+    margin: auto; max-width: 640px; text-align: center; color: var(--dim);
+    font-size: 1.8vh; line-height: 1.5; padding: 3vh;
+  }
+  .fatal b { color: var(--red); }
+  .fatal code { color: var(--cyan); background: #1a1a2c; padding: .1em .4em; border-radius: 4px; }
+
+  /* ---------- Charts + sidebar layout ---------- */
+  .content { flex: 1; display: flex; gap: 1vh 1vw; min-height: 0; }
+  .sidebar {
+    width: 22vw; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 1vh 1vw; min-height: 0;
+  }
+  .sidebar .lb-card { flex: 3; }        /* leaderboard — top of the column */
+  .sidebar .wheel-card { flex: 1.15; }  /* steering wheel — bottom (~10% taller than a 3:1 split) */
+
+  /* ---------- Steering wheel (ported from index.html) ---------- */
+  .wheel-card { align-items: center; justify-content: space-between; }
+  .wheel-head { display: flex; flex-direction: column; align-items: center; gap: .8vh; flex-shrink: 0; width: 100%; }
+  .rpm-readout { line-height: 1; }
+  .rpm-readout b { font-size: 3vh; font-weight: 800; transition: color .15s; }
+  .rpm-readout span { font-size: 1.3vh; text-transform: uppercase; letter-spacing: .15vw; color: var(--dim); }
+  .shift-lights { display: flex; gap: .45vw; justify-content: center; flex-shrink: 0; width: 70%; }
+  /* LEDs flex to fill the 70% row; aspect-ratio locks them circular so they never squash. */
+  .led { flex: 1 1 0; min-width: 0; aspect-ratio: 1 / 1; border-radius: 50%; background: #1c1c30; transition: background .05s, box-shadow .05s; }
+  .led.on.g { background: var(--green); box-shadow: 0 0 1.1vh var(--green); }
+  .led.on.a { background: var(--amber); box-shadow: 0 0 1.1vh var(--amber); }
+  .led.on.r { background: var(--red);   box-shadow: 0 0 1.1vh var(--red); }
+  .wheel-wrap { position: relative; flex: 1; width: 100%; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .wheel-img {
+    max-height: 90%; max-width: 90%; object-fit: contain;
+    will-change: transform; transition: transform .06s linear;
+    filter: drop-shadow(0 0 1.2vh rgba(0,0,0,.55));
+  }
+  .steer-readout { flex-shrink: 0; font-size: 1.7vh; font-weight: 800; color: var(--dim); letter-spacing: .1vw; }
+  .steer-readout b { color: var(--cyan); }
+
+  /* ---------- Leaderboard (ported from index.html) ---------- */
+  .lb-body { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; gap: .6vh; min-height: 0; overflow: hidden; }
+  .lb-row { display: grid; grid-template-columns: 2.6vw 1fr auto; align-items: center; gap: .8vw; padding: .35vh .5vw; border-radius: 5px; }
+  .lb-row .lb-pos { font-size: 1.7vh; font-weight: 800; color: var(--dim); text-align: center; }
+  .lb-namewrap { min-width: 0; }
+  .lb-row .lb-name { font-size: 2.1vh; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
+  /* "HOT LAP" caption under the name on the current driver's live (valid, projected) row. */
+  .lb-hot { font-size: 1.2vh; font-weight: 800; letter-spacing: .12vw; text-transform: uppercase; color: var(--amber); line-height: 1; margin-top: .2vh; }
+  .lb-row .lb-time { font-size: 1.9vh; font-weight: 800; color: var(--cyan); display: inline-flex; align-items: baseline; justify-content: flex-end; gap: .55vw; }
+  /* Time + stacked gaps: absolute lap on top, the two deltas in a smaller line beneath. */
+  .lb-timewrap { display: flex; flex-direction: column; align-items: flex-end; gap: .25vh; }
+  .lb-deltas { display: flex; gap: .7vw; font-size: 1.3vh; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .lb-gap-leader { color: #9aa0c0; }      /* gap to P1 (overall standing) */
+  .lb-gap-ahead { color: var(--cyan); }   /* interval to the car directly ahead */
+  .lb-row.me { background: #1c1c30; }
+  .lb-row.me .lb-pos, .lb-row.me .lb-name { color: var(--text); }
+  /* Live current-driver row: blinking green dot before the time = live telemetry.
+     Opacity is driven from the shared wall-clock in loop() (not a CSS animation) so the
+     blink stays a steady 1.1s — matching the top-right status LED — even though the row
+     is rebuilt on each leaderboard render, which would otherwise restart a CSS animation. */
+  .lb-live { align-self: center; width: 1vh; height: 1vh; border-radius: 50%; background: var(--green); box-shadow: 0 0 .9vh var(--green); flex-shrink: 0; }
+  /* The current driver's live in-progress lap (projected, or current valid lap) — a second
+     row distinct from their settled best (cyan): amber + italic, green blink dot, "~" prefix. */
+  .lb-time.live-lap { color: var(--amber); font-style: italic; }
+  /* New personal-best lap: time goes purple and blinks for ~4s, then stays purple. */
+  .lb-time.flash { color: var(--purple); animation: lbflash .5s ease-in-out 8; }
+  @keyframes lbflash { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
+  /* Separator between the pinned leader and the window around the current driver. */
+  .lb-gaprow { text-align: center; color: var(--dim); font-size: 1.4vh; font-weight: 800; letter-spacing: .35vw; line-height: 1; padding: .15vh 0; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<!-- ===================== TOP BAR ===================== -->
+<div class="topbar">
+  <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 438.16 132" aria-label="Quix"><g><rect x="108" y="108" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><rect x="81" y="81" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><rect x="54" y="54" width="24" height="24" rx="2.5" ry="2.5" fill="#fff"/><path d="M129.5,0H2.5C1.12,0,0,1.12,0,2.5v127c0,1.38,1.12,2.5,2.5,2.5h73c1.38,0,2.5-1.12,2.5-2.5v-19c0-1.38-1.12-2.5-2.5-2.5H24V24h84v51.5c0,1.38,1.12,2.5,2.5,2.5h19c1.38,0,2.5-1.12,2.5-2.5V2.5c0-1.38-1.12-2.5-2.5-2.5Z" fill="#fff"/><polygon points="410.55 66.29 437.18 31.38 417.48 31.38 401.65 53.85 386.24 31.38 366.11 31.38 391.98 65.79 363.16 103.15 382.72 103.15 400.81 78.13 418.04 103.15 438.16 103.15 410.55 66.29" fill="#fff"/><rect x="339.47" y="31.38" width="17.73" height="71.77" fill="#fff"/><rect x="338.62" width="19.28" height="19.56" fill="#fff"/><path d="M310.63,70.08c0,3.85-.84,7.32-2.53,10.41-1.59,3-3.8,5.35-6.61,7.04-2.72,1.69-5.91,2.53-9.57,2.53-4.03,0-7.18-1.13-9.43-3.38-2.16-2.25-3.24-5.58-3.24-9.99V31.38h-17.73v48.97c0,4.6.94,8.73,2.81,12.38,1.97,3.66,4.74,6.57,8.3,8.73,3.66,2.06,7.97,3.1,12.95,3.1,6.29,0,11.73-1.55,16.32-4.64,3.94-2.68,7-6.13,9.29-10.27v13.5h17.31V31.38h-17.87v38.7Z" fill="#fff"/><path d="M233.22,43.85c-1.42-3.64-3.7-6.64-6.9-8.95-4.41-3.28-9.99-4.93-16.75-4.93s-12.34,1.55-17.31,4.64c-4.88,3.1-8.68,7.46-11.4,13.09-2.72,5.63-4.08,12.24-4.08,19.84s1.31,14.03,3.94,19.56c2.63,5.54,6.33,9.85,11.12,12.95,4.88,3,10.6,4.5,17.17,4.5s12.06-1.55,16.75-4.64c3.07-2.08,5.31-4.66,6.9-7.62v39.71h17.87V31.38h-17.31v12.47ZM228.01,84.15c-3.38,3.94-7.97,5.91-13.79,5.91s-10.55-1.97-13.93-5.91c-3.38-3.94-5.07-9.52-5.07-16.75s1.69-12.81,5.07-16.75c3.38-4.03,7.97-6.05,13.79-6.05s10.41,1.97,13.79,5.91c3.47,3.94,5.21,9.52,5.21,16.75s-1.69,12.85-5.07,16.89Z" fill="#fff"/></g></svg>
+
+  <div class="title"><small>streaming telemetry preview</small></div>
+
+  <div class="spacer"></div>
+
+  <div class="driver-block">
+    <span class="driver-label">Current driver</span>
+    <div class="driver" id="driver-name"></div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <span class="hint" id="window-label">Rolling 20&thinsp;s window</span>
+
+  <div class="settings-wrap">
+    <button class="gear-btn" id="settings-btn" type="button" title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false">&#9881;</button>
+    <div class="settings-pop" id="settings-pop" role="dialog" aria-label="Dashboard settings" hidden>
+      <div class="settings-title">Settings</div>
+
+      <label class="set-row">
+        <span>Driver</span>
+        <input type="text" id="set-driver" class="set-input" placeholder="auto-detect" spellcheck="false" autocomplete="off">
+      </label>
+
+      <label class="set-row">
+        <span>Window <small id="set-window-val"></small></span>
+        <input type="range" id="set-window" class="set-range" min="2" max="120" step="1">
+      </label>
+
+      <label class="set-row toggle-row">
+        <span>Pin values</span>
+        <input type="checkbox" id="set-pin">
+      </label>
+
+      <label class="set-row toggle-row">
+        <span>Demo data</span>
+        <input type="checkbox" id="set-demo">
+      </label>
+
+      <div class="set-actions">
+        <button class="set-reset" id="set-reset" type="button">Reset to defaults</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="src" id="src">
+    <span class="dot"></span><span id="src-label">starting…</span><span class="hz" id="hz"></span>
+  </div>
+</div>
+
+<!-- ===================== CHARTS + SIDEBAR ===================== -->
+<div class="content">
+<div class="grid" id="grid">
+  <div id="waiting" class="waiting">
+    <div class="waiting-box">
+      <span class="wdot"></span>
+      <span>Waiting for live telemetry…<span class="wsub">No frames on <b>/ws</b> yet — start an AC session, or add <b>?demo=1</b> to preview.</span></span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Speed <b>km/h</b> &nbsp;·&nbsp; RPM</div>
+    <div class="chart" id="chart-sr"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Pedals &amp; Aids &nbsp;·&nbsp; throttle / brake <b>%</b> · steer <b>°</b> · bias <b id="bias-val">--%</b> · TC / ABS</div>
+    <div class="chart" id="chart-in"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Tyre Temps <b>°C</b> &nbsp;·&nbsp; FL / FR / RL / RR</div>
+    <div class="chart" id="chart-tt"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Tyre Pressure <b>psi</b> &nbsp;·&nbsp; FL / FR / RL / RR</div>
+    <div class="chart" id="chart-tp"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Brake Temps <b>°C</b> &nbsp;·&nbsp; FL / FR / RL / RR</div>
+    <div class="chart" id="chart-bt"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">G-Force <b>g</b> &nbsp;·&nbsp; lateral / longitudinal</div>
+    <div class="gforce-body">
+      <div class="gmeter">
+        <svg viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet">
+          <circle class="g-ring" cx="0" cy="0" r="30"></circle>
+          <circle class="g-ring" cx="0" cy="0" r="60"></circle>
+          <circle class="g-ring outer" cx="0" cy="0" r="90"></circle>
+          <line class="g-cross" x1="-90" y1="0" x2="90" y2="0"></line>
+          <line class="g-cross" x1="0" y1="-90" x2="0" y2="90"></line>
+          <text class="g-axis-label" x="0" y="-93" text-anchor="middle">ACCEL</text>
+          <text class="g-axis-label" x="0" y="99" text-anchor="middle">BRAKE</text>
+          <text class="g-ring-label" x="30" y="-3" text-anchor="middle">1</text>
+          <text class="g-ring-label" x="60" y="-3" text-anchor="middle">2</text>
+          <text class="g-ring-label" x="90" y="-3" text-anchor="middle">3</text>
+          <line id="g-vector" class="g-vector" x1="0" y1="0" x2="0" y2="0"></line>
+          <circle id="g-dot" class="g-dot" cx="0" cy="0" r="6.5" fill="#00d4ff"></circle>
+        </svg>
+      </div>
+      <div class="gchart" id="chart-g"></div>
+    </div>
+    <div class="g-readout">
+      <span>LAT <b id="g-lat">0.0</b></span>
+      <span>G <b id="g-tot">0.0</b></span>
+      <span>LON <b id="g-lon">0.0</b></span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Engine &amp; Fuel &nbsp;·&nbsp; water / exhaust <b>°C</b> · fuel <b>L</b> / est. laps</div>
+    <div class="chart" id="chart-eng"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Lap Times <span class="lap-invalid" id="lap-invalid">Invalid Lap</span></div>
+    <div class="ld-body">
+      <div class="ld-row"><span class="ld-label">Last</span><span class="ld-time" id="ld-last">--:--.---</span></div>
+      <div class="ld-row"><span class="ld-label">Current</span><span class="ld-time" id="ld-cur">--:--.---</span></div>
+      <div class="ld-row"><span class="ld-label">Estimated</span><span class="ld-time" id="ld-est">--:--.---</span></div>
+      <div class="ld-row"><span class="ld-label">Delta</span><span class="ld-time" id="ld-delta">--</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SIDEBAR: leaderboard (top 3/4) + steering wheel (bottom 1/4) ===================== -->
+<aside class="sidebar">
+  <div class="card lb-card">
+    <div class="card-title">Leaderboard</div>
+    <div class="lb-body" id="sb-lb-body"></div>
+  </div>
+  <div class="card wheel-card">
+    <div class="wheel-head">
+      <div class="shift-lights" id="sb-shift-lights"></div>
+      <div class="rpm-readout"><b id="sb-rpm-val">0</b> <span>rpm</span></div>
+    </div>
+    <div class="wheel-wrap">
+      <img id="sb-wheel" class="wheel-img" src="steering-wheel.png" alt="steering wheel">
+    </div>
+    <div class="steer-readout">STEER <b id="sb-steer-val">0°</b></div>
+  </div>
+</aside>
+</div>
+
+<script>
+// ============================================================
+//  SciChart.js streaming preview
+//  - Same /ws feed as the live dashboard.
+//  - Rolling line series, head-trimmed each frame (the streaming use case SciChart is built for).
+//  - Live by default: shows real telemetry, or a "waiting" state when none is
+//    arriving. Synthetic demo data is opt-in (?demo=1 or the "Demo data" toggle),
+//    so a deployed page never silently shows fake values.
+// ============================================================
+
+const now = () => performance.now();
+
+// --- Guard: did the CDN bundle load? ---
+if (typeof SciChart === 'undefined') {
+  document.getElementById('grid').innerHTML =
+    '<div class="fatal"><b>SciChart failed to load.</b><br>' +
+    'The library is fetched from <code>cdn.jsdelivr.net/npm/scichart@5</code> ' +
+    '(plus its WebAssembly files). Check this machine has internet access to that CDN, ' +
+    'then reload.</div>';
+  throw new Error('SciChart global not present');
+}
+
+const {
+  SciChartSurface, NumericAxis, FastLineRenderableSeries, XyDataSeries,
+  XyScatterRenderableSeries, SquarePointMarker,
+  NumberRange, EAutoRange, EAxisAlignment, SciChartJsNavyTheme,
+  LegendModifier, RolloverModifier, MouseWheelZoomModifier, ZoomExtentsModifier,
+  Point, ELineDrawMode,
+} = SciChart;
+
+// --- RolloverModifier that "auto-hovers" the live edge ---------------------
+// The value popups are the head-turning bit, but SciChart only draws them on a
+// real mouse hover. Internally RolloverModifier.update() (called by the base
+// onParentSurfaceRendered every frame) draws ONLY when two fields are set: a
+// `mousePoint` (canvas space) AND `mousePosition === "SeriesArea"` — otherwise it
+// hides the line + tooltips and returns. So each render we set both, aiming at the
+// far-right of the plot (the latest sample), and the popups park on the right edge
+// tracking live values with no cursor. A real cursor takes over while it's over
+// the chart (modifierMouseMove); we re-pin once it leaves (modifierMouseLeave).
+const SERIES_AREA =
+  (SciChart.EMousePosition && SciChart.EMousePosition.SeriesArea) || 'SeriesArea';
+
+// ---------- Viewer settings: URL param → localStorage → default ---------------
+// A small set of preferences (driver / window / pin / demo) surfaced in the gear
+// popover. The resolution order lets a bookmarked/kiosk URL always win, while a
+// casual change persists across reloads via localStorage (shared per-origin, so
+// leaderboard.html sees the same values). writeSetting keeps localStorage AND the
+// URL in sync (replaceState, no reload) so the next load resolves identically and
+// links stay shareable. asBool treats a bare flag (?pin, ?demo) as enabled.
+const LS_PREFIX = 'acdash:';
+const _params = new URLSearchParams(location.search);
+function readSetting(key, dflt) {
+  if (_params.has(key)) return _params.get(key);
+  try {
+    const v = localStorage.getItem(LS_PREFIX + key);
+    if (v !== null) return v;
+  } catch (e) { /* storage blocked (private mode) — fall through to default */ }
+  return dflt;
+}
+function writeSetting(key, value) {
+  try { localStorage.setItem(LS_PREFIX + key, String(value)); } catch (e) { /* ignore */ }
+  const url = new URL(location.href);
+  url.searchParams.set(key, String(value));
+  history.replaceState(null, '', url);
+}
+const asBool = (v) => v === '' || v === '1' || String(v).toLowerCase() === 'true';
+
+// Pinned tooltips: park the value popups on the live edge even with no cursor (read
+// live each frame in onParentSurfaceRendered, so the toggle takes effect at once).
+// OFF by default; enable in the settings popover or with ?pin=1.
+let pinTooltips = asBool(readSetting('pin', '0'));
+
+class PinnedRollover extends RolloverModifier {
+  constructor(options) {
+    super(options);
+    this.pinned = true;
+  }
+  modifierMouseMove(args) { this.pinned = false; super.modifierMouseMove(args); }
+  modifierMouseLeave(args) { super.modifierMouseLeave(args); this.pinned = true; }
+
+  onParentSurfaceRendered() {
+    const r = this.parentSurface && this.parentSurface.seriesViewRect;
+    if (pinTooltips && this.pinned && r && r.width > 0) {
+      // Auto-park the popups on the live edge (latest sample) — no cursor needed.
+      this.mousePoint = new Point(r.right - 2, r.y + r.height / 2);
+      this.mousePosition = SERIES_AREA;
+    } else if (!pinTooltips && this.pinned) {
+      // Pinning off and no cursor over this chart (pinned===true): clear the parked
+      // position so the base class hides the tooltip instead of freezing it on the
+      // edge. While a real cursor IS over the chart, pinned===false and we leave the
+      // base class to manage hover tooltips normally.
+      this.mousePoint = undefined;
+      this.mousePosition = undefined;
+    }
+    super.onParentSurfaceRendered();
+  }
+}
+
+// Rolling time window (seconds). The x-axis maps by timestamp (seconds since page
+// load), and every frame we pin its visibleRange to exactly [now-WINDOW_S, now] off the
+// wall clock. Consequences: each pixel is always the same time slice (constant
+// ms/pixel) regardless of sample rate; the trace scrolls left at a constant rate;
+// and if data stalls you get a growing gap on the right rather than a stretched line.
+// A narrower window scrolls faster / shows more detail; a wider one shows more context.
+// Default 20 s; override live with ?window=<seconds> (e.g. ?window=15 or ?window=60).
+// Clamped to a sane range so a typo can't break the axis.
+const clampWindow = (v) => Math.min(Math.max(v, 2), 600);
+const _winSeed = parseFloat(readSetting('window', ''));
+let WINDOW_S = isFinite(_winSeed) && _winSeed > 0 ? clampWindow(_winSeed) : 20;
+// Reflect the actual window in the topbar label (kept in sync with ?window=).
+const winLabel = document.getElementById('window-label');
+function applyWindow(seconds) {
+  WINDOW_S = clampWindow(seconds);
+  if (winLabel) winLabel.textContent = 'Rolling ' + WINDOW_S + ' s window';
+}
+applyWindow(WINDOW_S);   // set the initial topbar label
+// Memory is bounded by trimming old samples off the head each frame (see trimOld /
+// loop), NOT by SciChart's circular FIFO buffer. fifoCapacity is deliberately avoided:
+// its wrap-around seam draws a spurious line from the newest point back to the oldest
+// once the buffer fills (~after the window's worth of data). A plain monotonic series
+// trimmed with removeRange() has no such seam. Keep a small margin beyond the visible
+// window so points aren't culled while still on-screen.
+const TRIM_MARGIN_S = 5;
+
+// A gap longer than this (seconds) between consecutive samples is treated as a stall
+// (WS reconnect, sim paused, tab backgrounded) and breaks the line — see onFrame.
+// Well above any normal inter-sample spacing (60 Hz ≈ 0.017 s, 30 Hz ≈ 0.033 s).
+const GAP_S = 0.5;
+let lastFrameT = null;   // x (s) of the last appended sample, for stall detection
+
+// Bottom-lane y positions (on the 0–105% axis) for the TC / ABS on/off square markers.
+const AID_TC_Y = 9;
+const AID_ABS_Y = 4;
+const biasEl = document.getElementById('bias-val');   // live brake-bias % in the card title
+
+const theme = new SciChartJsNavyTheme();
+theme.sciChartBackground = '#12121f';
+theme.loadingAnimationBackground = '#12121f';
+
+// Shared, monotonically-increasing x clock (seconds since page load).
+const t0 = now();
+
+function makeYAxis(wasm, s) {
+  return new NumericAxis(wasm, {
+    id: s.axisId,
+    axisAlignment: s.align,
+    autoRange: s.range ? EAutoRange.Never : EAutoRange.Always,
+    visibleRange: s.range ? new NumberRange(s.range[0], s.range[1]) : undefined,
+    growBy: new NumberRange(s.grow ? s.grow[0] : 0.1, s.grow ? s.grow[1] : 0.1),
+    // A hidden axis still maps coordinates (so its series renders in its own band) but
+    // draws no labels/ticks — used by the gear trace to avoid a cluttering third axis.
+    isVisible: !s.hidden,
+    drawMinorGridLines: false,
+    axisTitle: s.title,
+    axisTitleStyle: { fontSize: 11, color: s.color || '#9a9ab5' },
+    labelStyle: { fontSize: 10, color: '#8a8aa5' },
+  });
+}
+
+async function buildChart(divId, yAxes, series, markers = []) {
+  const { sciChartSurface, wasmContext } = await SciChartSurface.create(divId, { theme });
+
+  const xAxis = new NumericAxis(wasmContext, {
+    autoRange: EAutoRange.Never,                  // visibleRange is driven manually
+    visibleRange: new NumberRange(-WINDOW_S, 0),
+    drawLabels: false,
+    drawMajorTickLines: false,
+    drawMinorGridLines: false,
+  });
+  sciChartSurface.xAxes.add(xAxis);
+  yAxes.forEach((ys) => sciChartSurface.yAxes.add(makeYAxis(wasmContext, ys)));
+
+  const ds = {};
+  series.forEach((s) => {
+    const d = new XyDataSeries(wasmContext, { dataSeriesName: s.name });
+    ds[s.key] = d;
+    const line = new FastLineRenderableSeries(wasmContext, {
+      dataSeries: d,
+      stroke: s.color,
+      strokeThickness: 2.5,
+      yAxisId: s.yAxisId,
+      // Step line for discrete signals (e.g. gear): hold then jump, no diagonal interp.
+      isDigitalLine: !!s.digital,
+    });
+    // Render NaN samples as a break (DiscontinuousLine), not bridged across, so a data
+    // stall leaves a gap instead of one long segment spanning the chart. The enum member
+    // is DiscontinuousLine (NOT "Gaps"); set on the instance so it definitely applies.
+    if (ELineDrawMode && ELineDrawMode.DiscontinuousLine !== undefined) {
+      line.drawNaNAs = ELineDrawMode.DiscontinuousLine;
+    }
+    // Optional per-series tooltip text (e.g. map raw gear → R/N/1…). Guarded so an API
+    // shape difference just falls back to the default numeric tooltip.
+    if (s.tooltip && line.rolloverModifierProps) {
+      line.rolloverModifierProps.tooltipDataTemplate = (info) => [s.tooltip(info.yValue)];
+    }
+    sciChartSurface.renderableSeries.add(line);
+  });
+
+  // Optional on/off square markers (e.g. TC / ABS) drawn as a lane near the bottom.
+  // Append the marker's y when active and NaN when not — scatter skips NaN, so a
+  // square appears only while the flag is on. Guarded so a missing type can't kill init.
+  markers.forEach((m) => {
+    if (!XyScatterRenderableSeries || !SquarePointMarker) return;
+    const d = new XyDataSeries(wasmContext, { dataSeriesName: m.name });
+    ds[m.key] = d;
+    sciChartSurface.renderableSeries.add(
+      new XyScatterRenderableSeries(wasmContext, {
+        dataSeries: d,
+        yAxisId: m.yAxisId,
+        // The legend swatch reads the series `stroke` — without it the key shows grey
+        // even though the square's fill is coloured. Set it to the marker colour.
+        stroke: m.color,
+        pointMarker: new SquarePointMarker(wasmContext, {
+          width: m.size || 5, height: m.size || 5,
+          fill: m.color, stroke: m.color, strokeThickness: 0,
+        }),
+      }),
+    );
+  });
+
+  const rollover = new PinnedRollover({ showTooltip: true, showRolloverLine: true });
+  sciChartSurface.chartModifiers.add(
+    new MouseWheelZoomModifier(),
+    new ZoomExtentsModifier(),
+    rollover,
+    new LegendModifier({ showCheckboxes: false, showSeriesMarkers: true }),
+  );
+
+  return { sciChartSurface, xAxis, ds, rollover };
+}
+
+const fin = (v, d = 0) => (typeof v === 'number' && isFinite(v) ? v : d);
+const pct = (v) => Math.max(0, Math.min(100, fin(v) * 100));
+const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, fin(v)));
+// Raw AC gear → label: 0=R, 1=N, 2+ = numbered gears (g-1). Mirrors index.html.
+const gearDisplay = (g) => (g === 0 ? 'R' : g === 1 ? 'N' : String(g - 1));
+
+// Manual FIFO: drop samples older than `cutoff` off the head of a data series. X is
+// appended strictly increasing, so just count the leading points below the cutoff and
+// remove them in one go. Called every frame for every series — replaces fifoCapacity's
+// circular buffer (whose wrap seam drew a line from the live edge back to the start).
+function trimOld(ds, cutoff) {
+  const xs = ds.getNativeXValues();
+  const n = xs.size();
+  let r = 0;
+  while (r < n && xs.get(r) < cutoff) r++;
+  if (r > 0) ds.removeRange(0, r);
+}
+
+let C = null;          // built charts
+let sampleCount = 0;   // total appended frames (for the Hz readout)
+
+// ============================================================
+//  Sidebar: leaderboard (top) + steering wheel (bottom)
+//  Ported from the live dashboard (index.html). Driven by the same /ws frames
+//  via updateSidebar(), independent of the SciChart surfaces — so the wheel and
+//  board keep live-updating even while the charts are paused.
+// ============================================================
+const STEER_VISUAL_GAIN = 3;   // exaggerate the visual rim rotation; readout shows true angle
+const LED_COUNT = 15;          // shift lights: 9 green / 3 amber / 3 red
+// Leaderboard sizing: with up to LB_WINDOW_MIN entries the whole board is shown.
+// Past that it switches to "pin the leader + a window around the current driver",
+// capping the visible rows at LB_VISIBLE.
+const LB_WINDOW_MIN = 12;      // show everyone until there are MORE than this many
+const LB_VISIBLE = 12;         // rows shown at once once windowing kicks in
+const INT_MAX = 2147483647;    // AC's "no time set" sentinel for lap-time fields
+let sbRpmMax = 8000;           // auto-calibrated per session
+let driverName = readSetting('driver', 'Tomas');
+const rpmColor = (p) => (p < 0.7 ? '#00d4ff' : p < 0.88 ? '#ffaa00' : '#ff3355');
+
+const sbRpmVal = document.getElementById('sb-rpm-val');
+const sbSteerVal = document.getElementById('sb-steer-val');
+const wheelImg = document.getElementById('sb-wheel');
+const lbBody = document.getElementById('sb-lb-body');
+const driverEl = document.getElementById('driver-name');
+
+// Single source of truth for the current driver — keeps the title-bar display and
+// the leaderboard "me" match in sync. Obtained exactly like the root dashboard:
+// ?driver= URL param (seeded above) → live frame's driverName/playerName → a
+// {type:"driver"} WS message.
+function setDriver(name) {
+  // When the driver genuinely changes (not the initial seed), reload the page so all
+  // charts/state reset cleanly for the new driver. Persist the new name into the URL
+  // so the post-reload seed matches it — otherwise the live frame would differ from
+  // the ?driver= seed again and we'd reload in a loop.
+  const norm = (s) => (s || '').trim().toLowerCase();
+  if (name && norm(name) !== norm(driverName)) {
+    const url = new URL(location.href);
+    url.searchParams.set('driver', name);
+    location.replace(url.toString());
+    return;
+  }
+  driverName = name;
+  driverEl.textContent = name;
+}
+setDriver(driverName);   // seed from the URL param / 'Tomas' default
+
+const leds = [];
+(function buildLeds() {
+  const wrap = document.getElementById('sb-shift-lights');
+  for (let i = 0; i < LED_COUNT; i++) {
+    const el = document.createElement('div');
+    el.className = 'led ' + (i < 9 ? 'g' : i < 12 ? 'a' : 'r');
+    wrap.appendChild(el);
+    leds.push(el);
+  }
+})();
+
+// The current (demo) driver races around P18 in a full field: their settled best is
+// the board row below, their live hot-lap weaves through the neighbours (see demoFrame).
+// One source of truth for the pace so the board placement and the synthetic telemetry
+// can't drift apart.
+const DEMO_DRIVER_LAP_MS = 87480;   // ~1:27.480 -> lands the current driver at P18 below
+
+// Placeholder standings until the /leaderboard proxy answers. ms = lap time in ms.
+// A full 30-car field (> LB_WINDOW_MIN) so the pin-leader + window behaviour is the
+// default view: P1 pinned, a "..." gap, then the window centred on the current driver.
+let LEADERBOARD = [
+  { name: 'Mika',   ms: 81950 },
+  { name: 'Sergio', ms: 82210 },
+  { name: 'Elena',  ms: 82480 },
+  { name: 'Bruno',  ms: 82760 },
+  { name: 'Dan',    ms: 83050 },
+  { name: 'Yuki',   ms: 83320 },
+  { name: 'Carlos', ms: 83600 },
+  { name: 'Noah',   ms: 83910 },
+  { name: 'Lena',   ms: 84250 },
+  { name: 'Omar',   ms: 84580 },
+  { name: 'Priya',  ms: 84920 },
+  { name: 'Pavel',  ms: 85280 },
+  { name: 'Nora',   ms: 85640 },
+  { name: 'Hugo',   ms: 86010 },
+  { name: 'Ivan',   ms: 86390 },
+  { name: 'Sara',   ms: 86780 },
+  { name: 'Tariq',  ms: 87140 },
+  { name: 'Tomas',  ms: DEMO_DRIVER_LAP_MS },   // P18 — the current driver
+  { name: 'Leo',    ms: 87810 },
+  { name: 'Mei',    ms: 88150 },
+  { name: 'Wei',    ms: 88500 },
+  { name: 'Kai',    ms: 88860 },
+  { name: 'Ana',    ms: 89230 },
+  { name: 'Diego',  ms: 89610 },
+  { name: 'Theo',   ms: 90000 },
+  { name: 'Iris',   ms: 90400 },
+  { name: 'Otto',   ms: 90810 },
+  { name: 'Finn',   ms: 91230 },
+  { name: 'Rhys',   ms: 91660 },
+  { name: 'Zara',   ms: 92100 },
+];
+
+// A lap is valid (has a real time) when it isn't AC's "no time set" sentinel. Single
+// source of truth for both the time formatter and the gap/badge logic below.
+const hasLap = (ms) => typeof ms === 'number' && ms > 0 && ms < INT_MAX;
+
+function fmtLap(ms) {
+  if (!hasLap(ms)) return '--:--.---';
+  const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), mm = ms % 1000;
+  return m + ':' + String(s).padStart(2, '0') + '.' + String(mm).padStart(3, '0');
+}
+
+// --- Live leaderboard: the current driver gets TWO rows -----------------------
+// 1) their settled best lap (ranked like everyone else's best), and
+// 2) a live in-progress row — their projected lap (best + live delta) while the current
+//    lap is valid, else the running current-lap time — shown with the green blink dot in
+//    a distinct colour. The live row re-sorts as the estimate evolves, so it climbs on a
+//    hot lap and slides back on a slow one. Dropped (no row) on an invalid lap.
+let posSessionId = null, lastBestMs = null;   // lastBestMs: session best (PB flash + best row)
+let lbFlashUntil = 0;                          // flash the driver's best row until this time (new PB)
+let lbLastOrder = '', lbLastRender = 0;        // render throttle: on order change or ~5 Hz
+let lbLiveUntil = 0;                           // live row + dot shown while now() < this
+let liveLapMs = null;                          // current driver's live lap (projected/current); null = none
+
+// Combine the settled best laps (LEADERBOARD) with the current driver's live in-progress
+// row and re-sort by time — the FULL field, not yet trimmed. The live row is a second
+// entry for the same driver, ranked by its own (projected/current) time, shown only while
+// telemetry is fresh. computeVisible() decides which of these rows actually get rendered.
+function buildRows() {
+  const rows = LEADERBOARD.map(r => ({ name: r.name, ms: r.ms, live: false }));
+  if (now() < lbLiveUntil && liveLapMs != null) rows.push({ name: driverName, ms: liveLapMs, live: true });
+  rows.sort((a, b) => a.ms - b.ms);
+  return rows;
+}
+
+// Decide which rows to show. Small field (≤ LB_WINDOW_MIN): show everyone. Large field:
+// pin the leader (P1) and show a window of rows centred on the current driver, so you
+// always see who's winning plus your own neighbourhood of the order. Returns display
+// items carrying each row's TRUE rank; {gap:true} marks a discontinuity (rendered as ⋯).
+function computeVisible(full) {
+  const n = full.length;
+  if (n <= LB_WINDOW_MIN) return full.map((row, rank) => ({ row, rank }));
+
+  const me = (driverName || '').toLowerCase();
+  // Centre on the current driver's live (hot-lap) row if present, else their best row.
+  let meIdx = full.findIndex(r => r.live && r.name.toLowerCase() === me);
+  if (meIdx < 0) meIdx = full.findIndex(r => r.name.toLowerCase() === me);
+  if (meIdx < 0) meIdx = Math.floor(LB_VISIBLE / 2);   // no current driver → window near the top
+
+  // Budget: LB_VISIBLE rows. Reserve one for the pinned leader and one for the gap
+  // marker, then size the window from what's left and centre it on me over ranks
+  // [1 … n-1]. Clamping keeps meIdx inside the window, so it's never trimmed.
+  const winSize = LB_VISIBLE - 2;
+  let start = meIdx - Math.floor(winSize / 2);
+  start = Math.max(1, Math.min(start, n - winSize));
+  let end = start + winSize - 1;
+  // If the window butts up against the leader there's no gap — spend that freed slot
+  // on one more row at the bottom instead.
+  if (start === 1 && end < n - 1) end += 1;
+
+  const items = [{ row: full[0], rank: 0 }];     // pinned leader (P1)
+  if (start > 1) items.push({ gap: true });      // discontinuity between P1 and the window
+  for (let i = start; i <= end; i++) items.push({ row: full[i], rank: i });
+  return items;
+}
+
+// Gap as a signed seconds string, e.g. "+0.420". Gaps off the sorted board are always ≥ 0.
+const fmtGap = (ms) => '+' + (ms / 1000).toFixed(3);
+
+function renderLeaderboard(flashName) {
+  const me = (driverName || '').toLowerCase();
+  // Explicit name wins; otherwise flash the driver's own best row during the post-PB window.
+  const flash = flashName ? flashName.toLowerCase() : (now() < lbFlashUntil ? me : null);
+  const full = buildRows();
+  const leaderMs = full.length ? full[0].ms : 0;
+  lbBody.innerHTML = computeVisible(full).map((it) => {
+    if (it.gap) return '<div class="lb-gaprow">···</div>';
+    const r = it.row, rank = it.rank;
+    const isMe = r.name.toLowerCase() === me;
+    // No valid lap yet (AC sentinel) → first lap in progress. Sorts last, so it's never P1.
+    const noLap = !hasLap(r.ms);
+    // Live in-progress row: green blink dot + amber "~" time. Best/other rows render
+    // as settled times; only a settled best row can flash on a new PB.
+    const timeCls = 'lb-time' + (r.live ? ' live-lap' : (flash && r.name.toLowerCase() === flash ? ' flash' : ''));
+    // Stacked under the time (smaller): gap to leader + interval to the car ahead. Both
+    // use the TRUE rank into the full field, so they stay correct across the pinned gap.
+    // A driver still on their first lap has no time to diff against, so show dashes instead of nonsense from the sentinel.
+    const deltas = rank === 0 ? '' :
+      '<div class="lb-deltas">' +
+        '<span class="lb-gap-leader">' + (noLap ? '—' : fmtGap(r.ms - leaderMs)) + '</span>' +
+        '<span class="lb-gap-ahead">' + (noLap ? '—' : fmtGap(r.ms - full[rank - 1].ms)) + '</span>' +
+      '</div>';
+    return '<div class="lb-row' + (isMe ? ' me' : '') + '">' +
+      '<div class="lb-pos">' + (rank + 1) + '</div>' +
+      '<div class="lb-namewrap">' +
+        '<div class="lb-name">' + r.name + '</div>' +
+        (r.live ? '<div class="lb-hot">Hot Lap</div>' : (noLap ? '<div class="lb-hot">First Lap</div>' : '')) +
+      '</div>' +
+      '<div class="lb-timewrap">' +
+        '<div class="' + timeCls + '">' +
+          (r.live ? '<span class="lb-live"></span>~' : '') + fmtLap(r.ms) +
+        '</div>' + deltas +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+renderLeaderboard();
+
+function updateDriverPosition(d) {
+  if (d.session_id !== posSessionId) { posSessionId = d.session_id; lastBestMs = null; lbFlashUntil = 0; }
+
+  // Track this driver's session-best lap (AC's iBestTime is session-scoped, not all-time).
+  const best = (typeof d.iBestTime === 'number' && d.iBestTime > 0 && d.iBestTime < INT_MAX) ? d.iBestTime : null;
+  if (best !== null && (lastBestMs === null || best < lastBestMs)) lastBestMs = best;
+
+  const name = (driverName || '').trim();
+
+  // Entry #1 — the driver's settled best lap row. The board row holds their ALL-TIME best
+  // (from the lake poll); the session best only updates it when it's actually faster. Flash
+  // purple ONLY when the shown time genuinely improves — not on a session best that's still
+  // slower than their all-time PB (which would flash a record they didn't set).
+  if (lastBestMs !== null) {
+    const row = LEADERBOARD.find(r => r.name.toLowerCase() === name.toLowerCase());
+    if (row) {
+      if (lastBestMs < row.ms) { row.ms = lastBestMs; lbFlashUntil = now() + 4000; }
+    } else {
+      LEADERBOARD.push({ name, ms: lastBestMs });
+    }
+  }
+
+  // Entry #2 — the live in-progress lap: shown ONLY when AC provides a projected time
+  // (best + live delta) and the current lap is valid. With no projection (e.g. first lap
+  // with no reference, or an invalid lap) there's no live row — just the best row above.
+  const lapValid = d.isValidLap !== 0;        // 0 = invalidated; 1 or missing = valid
+  const est = (typeof d.iEstimatedLapTime === 'number' && d.iEstimatedLapTime > 0 && d.iEstimatedLapTime < INT_MAX) ? d.iEstimatedLapTime : null;
+  liveLapMs = (lapValid && est !== null) ? est : null;
+
+  lbLiveUntil = now() + 2000;   // live row + blink dot shown while telemetry is fresh
+
+  // Render immediately on a position/order change; otherwise throttle to ~5 Hz so the ms
+  // digits stay readable and the PB flash animation can play. '*' tags the live row so a
+  // change in its time alone (same names/order) still refreshes.
+  const order = buildRows().map(r => (r.live ? '*' : '') + r.name).join('|');
+  const tn = now();
+  if (order !== lbLastOrder || tn - lbLastRender > 200) {
+    lbLastOrder = order;
+    lbLastRender = tn;
+    renderLeaderboard();
+  }
+}
+
+// Poll the backend /leaderboard proxy (Data Lake-backed). Falls back silently to the
+// placeholder + live best if it's not configured or errors.
+const LB_POLL_MS = 20000;
+async function pollLeaderboard() {
+  try {
+    const res = await fetch('/leaderboard', { cache: 'no-store' });
+    if (!res.ok) return;
+    const j = await res.json();
+    if (!Array.isArray(j.rows) || !j.rows.length) return;
+    LEADERBOARD = j.rows.map(r => ({ name: r.name, ms: r.ms }));
+    if (lastBestMs != null) {
+      const me = (driverName || '').trim();
+      const mine = LEADERBOARD.find(r => r.name.toLowerCase() === me.toLowerCase());
+      if (mine) { if (lastBestMs < mine.ms) mine.ms = lastBestMs; }
+      else LEADERBOARD.push({ name: me, ms: lastBestMs });
+    }
+    LEADERBOARD.sort((a, b) => a.ms - b.ms);
+    renderLeaderboard();
+  } catch { /* keep current board */ }
+}
+setInterval(pollLeaderboard, LB_POLL_MS);
+pollLeaderboard();
+
+// Update wheel rotation, shift lights, RPM readout, and the leaderboard from a frame.
+function updateSidebar(d) {
+  const rpm = fin(d.rpms);
+  if (rpm > sbRpmMax * 0.99) sbRpmMax = Math.ceil(rpm / 500) * 500;
+  const rpmPct = rpm / sbRpmMax;
+  sbRpmVal.textContent = Math.round(rpm).toLocaleString();
+  sbRpmVal.style.color = rpmColor(rpmPct);
+  const lit = Math.round(Math.min(rpmPct, 1) * LED_COUNT);
+  for (let i = 0; i < LED_COUNT; i++) leds[i].classList.toggle('on', i < lit);
+
+  const steerDeg = fin(d.steerAngle) * 180 / Math.PI;
+  wheelImg.style.transform = 'rotate(' + (steerDeg * STEER_VISUAL_GAIN).toFixed(1) + 'deg)';
+  sbSteerVal.textContent = (steerDeg > 0 ? '+' : '') + Math.round(steerDeg) + '°';
+
+  if (d.driverName || d.playerName) setDriver(d.driverName || d.playerName);
+  updateDriverPosition(d);
+}
+
+// --- G-Force friction-circle meter ---------------------------------------
+// The dot moves out from centre: x = lateral g (accG_x), y = longitudinal g
+// (accG_y, accel pushes UP). Position is clamped to the outer 3 g ring; the dot
+// + vector are coloured by total g magnitude. SVG viewBox is -100..100, so a g
+// maps to G_PX px and the rings sit at 1/2/3 g (30/60/90).
+const G_MAX = 3;            // outer ring
+const G_PX = 30;           // px (viewBox units) per g
+const gDot = document.getElementById('g-dot');
+const gVec = document.getElementById('g-vector');
+const gLat = document.getElementById('g-lat');
+const gLon = document.getElementById('g-lon');
+const gTot = document.getElementById('g-tot');
+const gColor = (m) => (m < 1 ? '#00d4ff' : m < 2 ? '#ffaa00' : '#ff3355');
+
+function updateGMeter(d) {
+  const lat = cl(d.accG_x, -4, 4);   // crash spikes hit ±40 — clamp like the old chart did
+  const lon = cl(d.accG_y, -4, 4);
+  let x = lat * G_PX;
+  let y = -lon * G_PX;                // SVG y grows downward; accel (lon > 0) should go up
+  const r = Math.hypot(x, y), max = G_MAX * G_PX;
+  if (r > max) { const s = max / r; x *= s; y *= s; }   // keep the dot inside the outer ring
+  const mag = Math.hypot(lat, lon);
+  const col = gColor(mag);
+  gDot.setAttribute('cx', x.toFixed(1));
+  gDot.setAttribute('cy', y.toFixed(1));
+  gDot.setAttribute('fill', col);
+  gVec.setAttribute('x2', x.toFixed(1));
+  gVec.setAttribute('y2', y.toFixed(1));
+  gVec.setAttribute('stroke', col);
+  gLat.textContent = lat.toFixed(1);
+  gLon.textContent = lon.toFixed(1);
+  gTot.textContent = mag.toFixed(1);
+}
+
+// --- Lap times readout: last / current / estimated / delta ----------------
+// Times are formatted from their ms fields; AC's int-max sentinel (no time set,
+// e.g. before a lap completes) renders as a dash. The delta (− ahead / + behind)
+// is only meaningful once a reference lap exists, so it shows '--' until then.
+// (INT_MAX is declared once near the top, alongside the leaderboard constants.)
+const ldLast = document.getElementById('ld-last');
+const ldCur = document.getElementById('ld-cur');
+const ldEst = document.getElementById('ld-est');
+const ldDelta = document.getElementById('ld-delta');
+const lapInvalid = document.getElementById('lap-invalid');
+const fmtLapOrDash = (v) => (typeof v === 'number' && v > 0 && v < INT_MAX) ? fmtLap(v) : '--:--.---';
+
+function updateLapDelta(d) {
+  // AC invalidates the in-progress lap (off-track, cut corner) → isValidLap == 0.
+  lapInvalid.classList.toggle('show', d.isValidLap === 0);
+
+  ldLast.textContent = fmtLapOrDash(d.iLastTime);
+  ldCur.textContent = fmtLapOrDash(d.iCurrentTime);
+  ldEst.textContent = fmtLapOrDash(d.iEstimatedLapTime);
+
+  // Delta needs a valid reference (best) lap; otherwise iDeltaLapTime is meaningless.
+  const best = d.iBestTime;
+  const hasRef = typeof best === 'number' && best > 0 && best < INT_MAX;
+  if (hasRef && typeof d.iDeltaLapTime === 'number') {
+    const s = d.iDeltaLapTime / 1000;                // seconds: − ahead, + behind
+    ldDelta.textContent = (s > 0 ? '+' : '') + s.toFixed(3);
+    ldDelta.style.color = s > 0 ? '#ff3355' : s < 0 ? '#00ff88' : 'var(--text)';
+  } else {
+    ldDelta.textContent = '--';
+    ldDelta.style.color = 'var(--dim)';
+  }
+}
+
+function onFrame(d) {
+  updateSidebar(d);          // wheel + leaderboard — independent of the chart surfaces
+  updateGMeter(d);           // friction-circle g-meter — also independent of the chart surfaces
+  updateLapDelta(d);         // lap delta / current-lap readout — also DOM, not a chart
+  if (paused || !C) return;
+  const t = (now() - t0) / 1000;
+  // If telemetry stalled (WS reconnect, sim paused, tab backgrounded), break every
+  // series with a NaN before the new sample so the renderer leaves a gap rather than
+  // bridging the old left-hand point to the new right-hand one with a long line.
+  if (lastFrameT !== null && t - lastFrameT > GAP_S) {
+    const gapX = lastFrameT + 0.001;
+    for (const k in C) { const ds = C[k].ds; for (const key in ds) ds[key].append(gapX, NaN); }
+  }
+  lastFrameT = t;
+  C.sr.ds.speed.append(t, fin(d.speedKmh));
+  C.sr.ds.rpm.append(t, fin(d.rpms));
+  // Gear: append raw value (step line); NaN when missing so it gaps instead of faking "R".
+  C.sr.ds.gear.append(t, typeof d.gear === 'number' ? d.gear : NaN);
+  C.in.ds.gas.append(t, pct(d.gas));
+  C.in.ds.brake.append(t, pct(d.brake));
+  C.in.ds.steer.append(t, fin(d.steerAngle) * 180 / Math.PI);   // steering angle in degrees
+  // TC / ABS: a square in the bottom lane while active, nothing (NaN) when off.
+  C.in.ds.tc.append(t, fin(d.tc) > 0.01 ? AID_TC_Y : NaN);
+  C.in.ds.abs.append(t, fin(d.abs) > 0.01 ? AID_ABS_Y : NaN);
+  // Brake bias is a continuous setting, not on/off — show it as a live % readout.
+  biasEl.textContent = Math.round(pct(d.brakeBias)) + '%';
+  C.tt.ds.fl.append(t, fin(d.tyreTempFL));
+  C.tt.ds.fr.append(t, fin(d.tyreTempFR));
+  C.tt.ds.rl.append(t, fin(d.tyreTempRL));
+  C.tt.ds.rr.append(t, fin(d.tyreTempRR));
+  // --- additional populated channels (discovered from the lake) ---
+  C.tp.ds.fl.append(t, fin(d.wheelsPressureFL));
+  C.tp.ds.fr.append(t, fin(d.wheelsPressureFR));
+  C.tp.ds.rl.append(t, fin(d.wheelsPressureRL));
+  C.tp.ds.rr.append(t, fin(d.wheelsPressureRR));
+  C.bt.ds.fl.append(t, fin(d.brakeTempFL));
+  C.bt.ds.fr.append(t, fin(d.brakeTempFR));
+  C.bt.ds.rl.append(t, fin(d.brakeTempRL));
+  C.bt.ds.rr.append(t, fin(d.brakeTempRR));
+  C.g.ds.lat.append(t, cl(d.accG_x, -4, 4));   // crash spikes hit ±40 — clamp
+  C.g.ds.lon.append(t, cl(d.accG_y, -4, 4));
+  C.eng.ds.water.append(t, fin(d.waterTemp));
+  C.eng.ds.exh.append(t, fin(d.exhaustTemperature));
+  C.eng.ds.fuel.append(t, fin(d.fuel));
+  C.eng.ds.laps.append(t, fin(d.fuelEstimatedLaps));
+  sampleCount++;
+}
+
+// --- Synthetic telemetry: a believable lap-like oscillation so the preview is
+// alive without AC. corner≈0 at an apex (slow, braking), corner≈1 on a straight.
+function demoFrame(t) {
+  const phase = t * 0.45;
+  const corner = (Math.sin(phase) + 1) / 2;
+  const speed = 70 + corner * 230 + Math.sin(t * 3.1) * 5;
+  const rpm = 2800 + corner * 4800 + Math.sin(t * 9) * 250;
+  const gas = Math.min(1, Math.max(0, corner * 1.35 - 0.12));
+  const brake = Math.max(0, (0.45 - corner) * 1.9);
+  const warm = Math.min(1, t / 25);          // tyres warm up over the first ~25 s
+  const base = 70 + warm * 22;
+  const load = Math.sin(phase);              // outer/loaded tyres run hotter in corners
+  // Plausible gear shifting with speed (raw AC value; display = raw-1, so 1st = 2).
+  const dgear = speed < 80 ? 1 : speed < 120 ? 2 : speed < 160 ? 3 : speed < 205 ? 4 : speed < 255 ? 5 : 6;
+  const lapDelta = Math.round(Math.sin(t * 0.3) * 1200);   // +/- vs best -> live row weaves around P18
+  return {
+    speedKmh: speed, rpms: rpm, gas, brake,
+    gear: dgear + 1,
+    steerAngle: -load * 0.4,            // ± ~23° steering, correlated with cornering load
+    tyreTempFL: base + load * 9 + 4,
+    tyreTempFR: base + load * 12,
+    tyreTempRL: base + load * 6 + 2,
+    tyreTempRR: base + load * 8,
+    wheelsPressureFL: 26.5 + load * 1.2 + 0.4,
+    wheelsPressureFR: 26.7 + load * 1.5,
+    wheelsPressureRL: 26.2 + load * 0.9 + 0.3,
+    wheelsPressureRR: 26.4 + load * 1.1,
+    brakeTempFL: 220 + brake * 360 + Math.max(0, load) * 60,
+    brakeTempFR: 230 + brake * 380 + Math.max(0, load) * 55,
+    brakeTempRL: 180 + brake * 300 + Math.max(0, load) * 40,
+    brakeTempRR: 190 + brake * 320 + Math.max(0, load) * 45,
+    accG_x: load * 2.6,                 // lateral ~ cornering
+    accG_y: (gas - brake) * 2.3,        // longitudinal ~ accel/brake
+    waterTemp: 80 + warm * 9,
+    exhaustTemperature: 300 + corner * 250,
+    fuel: Math.max(0, 60 - t * 0.04),
+    fuelEstimatedLaps: Math.max(0, 18 - t * 0.015),
+    iCurrentTime: Math.round((t % 95) * 1000),                 // running lap clock (ms)
+    iLastTime: t > 6 ? 87900 : 2147483647,                     // a 1:27.9 last lap once rolling
+    iBestTime: t > 6 ? DEMO_DRIVER_LAP_MS : 2147483647,        // no reference for ~6 s, then the P18 best
+    iDeltaLapTime: lapDelta,
+    // Live projected lap = best + delta; weaves the leaderboard row around P18
+    // (+/-1.2 s, ~ +/-4 positions through the neighbours either side).
+    iEstimatedLapTime: t > 6 ? DEMO_DRIVER_LAP_MS + lapDelta : 2147483647,
+    isValidLap: 1,
+    brakeBias: 0.62,
+    tc: (gas > 0.9 && corner < 0.35) ? 1 : 0,
+    abs: brake > 0.55 ? 1 : 0,
+  };
+}
+
+// --- Controls + source indicator ---
+let paused = false;
+// Demo is OFF by default in production: the page shows live data, or a clear
+// "waiting" state when none is arriving — never synthetic data unless asked.
+// Enable with the "Demo data" toggle in settings or a ?demo=1 (bare ?demo) param.
+let forceDemo = asBool(readSetting('demo', '0'));
+let lastLive = -1e9;     // timestamp of the last real telemetry frame
+let consumer = 'starting';
+
+const waitingEl = document.getElementById('waiting');
+const srcEl = document.getElementById('src');
+const srcLabel = document.getElementById('src-label');
+const hzEl = document.getElementById('hz');
+
+// ---------- Settings popover --------------------------------------------------
+// Single gear-icon entry point for the viewer preferences. Each control writes
+// through writeSetting (localStorage + URL) so the choice persists and the URL stays
+// shareable. pin / window / demo apply live; driver reloads via setDriver so all
+// chart state resets cleanly for the new driver.
+const gearBtn = document.getElementById('settings-btn');
+const settingsPop = document.getElementById('settings-pop');
+const setPin = document.getElementById('set-pin');
+const setDemo = document.getElementById('set-demo');
+const setWindow = document.getElementById('set-window');
+const setWindowVal = document.getElementById('set-window-val');
+const setDriverInput = document.getElementById('set-driver');
+const setReset = document.getElementById('set-reset');
+
+// Seed the controls from the resolved current values.
+setPin.checked = pinTooltips;
+setDemo.checked = forceDemo;
+setWindow.value = WINDOW_S;
+setWindowVal.textContent = WINDOW_S + ' s';
+setDriverInput.value = driverName;
+
+setPin.onchange = () => {
+  pinTooltips = setPin.checked;                 // live flag read by the rollover each frame
+  writeSetting('pin', pinTooltips ? '1' : '0');
+};
+setDemo.onchange = () => {
+  forceDemo = setDemo.checked;                  // loop picks this up on the next frame
+  writeSetting('demo', forceDemo ? '1' : '0');
+};
+setWindow.oninput = () => {                      // live preview as the slider drags
+  applyWindow(parseFloat(setWindow.value));
+  setWindowVal.textContent = WINDOW_S + ' s';
+};
+setWindow.onchange = () => writeSetting('window', WINDOW_S);   // persist on release
+setDriverInput.onchange = () => {                // fires on Enter / blur → reloads via setDriver
+  const name = setDriverInput.value.trim();
+  if (!name) return;
+  writeSetting('driver', name);
+  setDriver(name);
+};
+setReset.onclick = () => {
+  const keys = ['pin', 'window', 'demo', 'driver'];
+  try { keys.forEach((k) => localStorage.removeItem(LS_PREFIX + k)); } catch (e) { /* ignore */ }
+  const url = new URL(location.href);
+  keys.forEach((k) => url.searchParams.delete(k));
+  location.replace(url.toString());              // reload clean → everything back to defaults
+};
+
+// Open/close: toggle on the gear, dismiss on outside-click or Escape.
+function toggleSettings(open) {
+  const show = open === undefined ? settingsPop.hidden : open;
+  settingsPop.hidden = !show;
+  gearBtn.classList.toggle('open', show);
+  gearBtn.setAttribute('aria-expanded', String(show));
+}
+gearBtn.onclick = (e) => { e.stopPropagation(); toggleSettings(); };
+document.addEventListener('click', (e) => {
+  if (!settingsPop.hidden && !settingsPop.contains(e.target) && e.target !== gearBtn) toggleSettings(false);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !settingsPop.hidden) toggleSettings(false); });
+
+function setSource(state) {
+  // state: 'live' | 'demo' | 'waiting'
+  srcEl.className = 'src ' + state;
+  srcLabel.textContent = state.toUpperCase();
+}
+
+// --- Drive loop: window scroll + Hz meter (+ demo generator when enabled). Live
+// frames append directly from the socket; synthetic frames only when demo is on.
+let hzT = now();
+let hzCount = 0;
+function loop() {
+  const tn = now();
+  const liveRecent = tn - lastLive < 2500;
+  // Synthetic frames only when demo is explicitly enabled; otherwise the charts
+  // stay empty (and the "waiting" overlay shows) until real frames arrive.
+  if (!paused && forceDemo) onFrame(demoFrame((tn - t0) / 1000));
+
+  // Slide the fixed 60 s window with wall-clock time. Same NumberRange width every
+  // frame ⇒ constant ms/pixel; right edge = now ⇒ a stall leaves a gap, not a stretch.
+  if (!paused && C) {
+    const right = (tn - t0) / 1000;
+    const win = new NumberRange(right - WINDOW_S, right);
+    const cutoff = right - WINDOW_S - TRIM_MARGIN_S;
+    // Slide EVERY chart's window — not just the first few — or the rest keep their
+    // initial [-60, 0] range while data appends at growing t and scrolls out of view.
+    // Trim aged-out samples off each series here too (manual FIFO; the ds object holds
+    // both line and marker series, so the inner loop covers both).
+    for (const k in C) {
+      C[k].xAxis.visibleRange = win;
+      const ds = C[k].ds;
+      for (const key in ds) trimOld(ds[key], cutoff);
+    }
+  }
+
+  if (tn - hzT > 500) {
+    const hz = Math.round(((sampleCount - hzCount) * 1000) / (tn - hzT));
+    hzCount = sampleCount;
+    hzT = tn;
+    const state = forceDemo ? 'demo' : liveRecent ? 'live' : 'waiting';
+    setSource(state);
+    if (waitingEl) waitingEl.style.display = state === 'waiting' ? 'flex' : 'none';
+    hzEl.textContent = paused ? '· paused' : '· ' + hz + ' Hz';
+  }
+
+  // Blink the leaderboard live dot off the shared clock so it pulses at the same 1.1s
+  // rate as the top-right status LED. Cosine between 1.0 and 0.2 matches the `blink`
+  // keyframes' range and ease-in-out feel; period 1100ms = the LED's 1.1s.
+  const liveDot = lbBody.querySelector('.lb-live');
+  if (liveDot) liveDot.style.opacity = (0.6 + 0.4 * Math.cos((tn / 1100) * 2 * Math.PI)).toFixed(3);
+
+  requestAnimationFrame(loop);
+}
+
+// --- WebSocket: same envelope contract as the live dashboard. ---
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(proto + '//' + location.host + '/ws');
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg && msg.type === 'status') { consumer = msg.status; return; }
+    if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); renderLeaderboard(); } return; }
+    lastLive = now();
+    if (!forceDemo) onFrame(msg);   // demo loop stands down while live data flows
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+// --- Boot ---
+(async function init() {
+  try {
+    C = {
+      sr: await buildChart(
+        'chart-sr',
+        [
+          { axisId: 'speed', align: EAxisAlignment.Left, title: 'km/h', color: '#00d4ff' },
+          { axisId: 'rpm', align: EAxisAlignment.Right, title: 'rpm', color: '#ffaa00', range: [0, 9000] },
+          // Hidden axis for the gear step line. Range generous (> max gear) so the trace
+          // sits in the lower band instead of spanning the full height; tune if needed.
+          { axisId: 'gear', align: EAxisAlignment.Right, range: [0, 16], hidden: true },
+        ],
+        [
+          { key: 'speed', name: 'Speed', color: '#00d4ff', yAxisId: 'speed' },
+          { key: 'rpm', name: 'RPM', color: '#ffaa00', yAxisId: 'rpm' },
+          // Gear: pink step line on its own hidden axis; value shown in the tooltip (R/N/1…).
+          { key: 'gear', name: 'Gear', color: '#ff5ccd', yAxisId: 'gear', digital: true,
+            tooltip: (v) => 'Gear ' + gearDisplay(Math.round(v)) },
+        ],
+      ),
+      in: await buildChart(
+        'chart-in',
+        [
+          { axisId: 'pct', align: EAxisAlignment.Left, title: '%', range: [0, 105] },
+          { axisId: 'steer', align: EAxisAlignment.Right, title: '°', color: '#00d4ff', range: [-50, 50] },
+        ],
+        [
+          { key: 'gas', name: 'Throttle', color: '#00ff88', yAxisId: 'pct' },
+          { key: 'brake', name: 'Brake', color: '#ff3355', yAxisId: 'pct' },
+          { key: 'steer', name: 'Steering', color: '#00d4ff', yAxisId: 'steer' },
+        ],
+        // TC / ABS as on/off squares in a lane at the bottom (y = AID_TC_Y / AID_ABS_Y).
+        [
+          { key: 'tc', name: 'TC', color: '#ffaa00', yAxisId: 'pct', size: 5 },
+          { key: 'abs', name: 'ABS', color: '#c14bff', yAxisId: 'pct', size: 5 },
+        ],
+      ),
+      tt: await buildChart(
+        'chart-tt',
+        [{ axisId: 'temp', align: EAxisAlignment.Left, title: '°C' }],
+        [
+          { key: 'fl', name: 'FL', color: '#00d4ff', yAxisId: 'temp' },
+          { key: 'fr', name: 'FR', color: '#ffaa00', yAxisId: 'temp' },
+          { key: 'rl', name: 'RL', color: '#00ff88', yAxisId: 'temp' },
+          { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'temp' },
+        ],
+      ),
+      tp: await buildChart(
+        'chart-tp',
+        [{ axisId: 'psi', align: EAxisAlignment.Left, title: 'psi' }],
+        [
+          { key: 'fl', name: 'FL', color: '#00d4ff', yAxisId: 'psi' },
+          { key: 'fr', name: 'FR', color: '#ffaa00', yAxisId: 'psi' },
+          { key: 'rl', name: 'RL', color: '#00ff88', yAxisId: 'psi' },
+          { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'psi' },
+        ],
+      ),
+      bt: await buildChart(
+        'chart-bt',
+        [{ axisId: 'btemp', align: EAxisAlignment.Left, title: '°C' }],
+        [
+          { key: 'fl', name: 'FL', color: '#00d4ff', yAxisId: 'btemp' },
+          { key: 'fr', name: 'FR', color: '#ffaa00', yAxisId: 'btemp' },
+          { key: 'rl', name: 'RL', color: '#00ff88', yAxisId: 'btemp' },
+          { key: 'rr', name: 'RR', color: '#c14bff', yAxisId: 'btemp' },
+        ],
+      ),
+      // G-Force: the friction-circle meter (SVG, updateGMeter) sits left in the card;
+      // this trace of lateral / longitudinal g over time sits to its right (#chart-g).
+      g: await buildChart(
+        'chart-g',
+        [{ axisId: 'g', align: EAxisAlignment.Left, title: 'g', range: [-3.5, 3.5] }],
+        [
+          { key: 'lat', name: 'Lat', color: '#00d4ff', yAxisId: 'g' },
+          { key: 'lon', name: 'Lon', color: '#ffaa00', yAxisId: 'g' },
+        ],
+      ),
+      // Engine & Fuel — temps share a °C axis (left); fuel litres + est. laps share
+      // an "L / laps" axis (right). Four slow-moving powertrain channels in one card.
+      eng: await buildChart(
+        'chart-eng',
+        [
+          { axisId: 'degC', align: EAxisAlignment.Left, title: '°C', color: '#9a9ab5' },
+          { axisId: 'fl', align: EAxisAlignment.Right, title: 'L / laps', color: '#9a9ab5', grow: [0.1, 0.3] },
+        ],
+        [
+          { key: 'water', name: 'Water °C', color: '#00d4ff', yAxisId: 'degC' },
+          { key: 'exh', name: 'Exhaust °C', color: '#ff3355', yAxisId: 'degC' },
+          { key: 'fuel', name: 'Fuel L', color: '#00ff88', yAxisId: 'fl' },
+          { key: 'laps', name: 'Est. laps', color: '#ffaa00', yAxisId: 'fl' },
+        ],
+      ),
+      // Lap Delta is a numeric readout (DOM), not a SciChart surface — see updateLapDelta().
+    };
+  } catch (err) {
+    document.getElementById('grid').innerHTML =
+      '<div class="fatal"><b>Could not initialise SciChart.</b><br>' +
+      String(err && err.message ? err.message : err) + '</div>';
+    throw err;
+  }
+
+  connect();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

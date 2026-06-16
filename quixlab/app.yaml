@@ -1,0 +1,14 @@
+name: quixlab
+language: docker
+variables:
+  - name: QUIXLAB_NOTEBOOK
+    inputType: FreeText
+    description: Notebook file to open on startup (leave empty for the file picker)
+    defaultValue: main.py
+  - name: QUIXLAB_MODE
+    inputType: FreeText
+    description: "Run mode: 'app' (view only) or 'edit' (full editor)"
+    defaultValue: edit
+dockerfile: dockerfile
+defaultFile: dockerfile
+libraryItemId: quixlab

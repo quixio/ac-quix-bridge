@@ -1,0 +1,65 @@
+[project]
+name = "telemetry-comparison"
+description = "FastAPI service for cross-run/lap telemetry visualization over QuixLake."
+requires-python = ">=3.13"
+version = "0.1.0"
+
+authors = [
+	{ name = "Quix Analytics Ltd", email = "devs@quix.io" },
+]
+
+# NOTE: kept in sync with requirements.txt, which is what the Docker image
+# installs via pip. If you add a runtime dep, add it both here and there.
+dependencies = [
+	"fastapi[standard]",
+	"quixlake-sdk",
+	"quixportal[all]==2.0.1",
+	"python-dotenv",
+	"pydantic>=2.13.2",
+	"mcp>=1.26",
+]
+
+[dependency-groups]
+dev = [
+	"pytest",
+	"pytest-asyncio",
+	"pytest-playwright",
+	"httpx",  # for FastAPI TestClient
+	"ruff",
+	"ty",
+	"respx>=0.23.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+asyncio_mode = "auto"
+# E2E tests hit a real running dev server (http://localhost:8765 by default)
+# and a real QuixLake. They are SLOW and FLAKY compared to unit tests, so
+# they're gated behind a marker: `uv run pytest -m e2e` to run them.
+# `uv run pytest` (default) excludes them.
+markers = [
+	"e2e: browser-driven tests against a running dev server (slow; opt-in)",
+	"real_auth: run with the real Bearer-token middleware (conftest skips its bypass)",
+]
+addopts = "-m 'not e2e'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+exclude = ["scripts", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ty.src]
+include = ["main.py", "tests"]
+exclude = ["scripts", ".venv"]
+
+[tool.uv.sources]
+quixportal = { index = "quix-public" }
+
+[[tool.uv.index]]
+name = "quix-public"
+url = "https://pkgs.dev.azure.com/quix-analytics/53f7fe95-59fe-4307-b479-2473b96de6d1/_packaging/public/pypi/simple/"
+explicit = true

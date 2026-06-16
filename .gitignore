@@ -4,3 +4,38 @@ __pycache__/
 .venv/
 *.egg-info/
 dist/
+compose.local.yaml
+.secrets
+certificates/
+.quix.yaml.variables
+ac-machine-secrets/
+recordings/
+.DS_Store
+.claude/settings.local.json
+
+
+# Playwright MCP artifacts (smoke tests, agent screenshots, MCP cache)
+.playwright-mcp/
+*.png
+# ...but keep real static image assets served by apps
+!telemetry-dashboard/static/*.png
+
+# Mock server for local UI testing
+telemetry-comparison/mock/
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Node tooling (prettier + eslint for telemetry-comparison/static)
+node_modules/
+
+# Planning / scratch docs
+dev-planning/
+
+# scratch
+.tmp/
+
+# quix-ai-config writes script-state to its own per-env .env files
+quix-ai-config/.env
+quix-ai-config/.env.*
+!quix-ai-config/.env.example

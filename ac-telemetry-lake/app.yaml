@@ -1,0 +1,79 @@
+name: ac-telemetry-lake
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: Name of the Kafka input topic to consume from
+    defaultValue: ac-telemetry-raw
+    required: true
+  - name: config_topic
+    inputType: InputTopic
+    description: Dynamic Configuration Manager topic for enrichment
+    defaultValue: ac-telemetry-config
+    required: true
+  - name: TABLE_NAME
+    inputType: FreeText
+    description: Table name for data organization and registration, else defaults to topic name
+    defaultValue: ac_telemetry
+  - name: HIVE_COLUMNS
+    inputType: FreeText
+    multiline: false
+    description: Comma-separated list of columns for Hive partitioning. Include year/month/day/hour to extract from TIMESTAMP_COLUMN (e.g., location,year,month,day,sensor_type)
+    defaultValue: environment,test_rig,experiment,driver,track,carModel,session_id,lap
+  - name: TIMESTAMP_COLUMN
+    inputType: FreeText
+    description: Column containing timestamp values to extract year/month/day/hour from
+    defaultValue: timestamp_ms
+  - name: AUTO_DISCOVER
+    inputType: Options
+    description: Automatically register table in REST Catalog on first write
+    defaultValue: true
+  - name: CATALOG_NAMESPACE
+    inputType: FreeText
+    description: Catalog namespace for table registration
+    defaultValue: default
+  - name: BATCH_SIZE
+    inputType: FreeText
+    description: Number of messages to batch before writing to storage
+    defaultValue: 1000
+  - name: COMMIT_INTERVAL
+    inputType: FreeText
+    description: Kafka commit interval in seconds
+    defaultValue: 30
+  - name: KAFKA_KEY_DESERIALIZER
+    inputType: FreeText
+    description: The key deserializer to use
+    defaultValue: str
+  - name: KAFKA_VALUE_DESERIALIZER
+    inputType: FreeText
+    description: the value deserializer to use
+    defaultValue: json
+  - name: CONSUMER_GROUP
+    inputType: FreeText
+    description: Kafka consumer group name
+    defaultValue: s3_direct_sink_v1.0
+  - name: AUTO_OFFSET_RESET
+    inputType: Options
+    description: Where to start consuming if no offset exists
+    defaultValue: earliest
+  - name: LOGLEVEL
+    inputType: Options
+    description: Application logging level
+    defaultValue: INFO
+  - name: MAX_WRITE_WORKERS
+    inputType: FreeText
+    description: How many files can be written in parallel to storage at once (based on partitioning + batch size)
+    defaultValue: 10
+  - name: STREAM_TIMEOUT_MS
+    inputType: FreeText
+    description: Per-key silence threshold in milliseconds. When a Kafka message key has not published for this duration, a warning is logged (sensor drop-out detection). Leave empty to disable.
+    defaultValue: ""
+  - name: TEST_COMPLETED_TOPIC
+    inputType: OutputTopic
+    description: Topic to publish test-completed events when a stream key goes silent
+    defaultValue: test-completed
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
+libraryItemId: quixlake-timeseries-destination
