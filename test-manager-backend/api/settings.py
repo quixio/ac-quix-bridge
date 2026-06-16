@@ -46,15 +46,6 @@ class Settings(BaseSettings):
     # Configuration API settings
     config_api_url: str = Field(..., description="Configuration API URL")
 
-    # Integration services URLs
-    measurements_workspace_id: str | None = Field(
-        None,
-        description="Workspace ID for measurements services (defaults to current workspace)",
-    )
-    measurements_topic_name: str | None = Field(
-        None, description="Topic/table name for test measurements in the Data Lake"
-    )
-
     # Shared secret for the /mcp endpoint (X-API-Key). Empty disables /mcp.
     testmanager_mcp_api_key: str = Field(
         "",

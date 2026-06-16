@@ -4,21 +4,12 @@
  */
 
 import { apiGet, apiPut } from "./client";
-import type { DeploymentReference, TopicReference } from "../types/portal";
+import type { DeploymentReference } from "../types/portal";
 
 export interface IntegrationSettings {
   // Configurations - Dynamic Configuration Manager
   config_api_deployment: DeploymentReference | null;
   config_api_is_fallback: boolean;
-
-  // Measurements - Query UI deployment and topic
-  measurements_deployment: DeploymentReference | null;
-  measurements_topic: TopicReference | null;
-  measurements_is_fallback: boolean;
-
-  // Analytics - Marimo/Analytics deployment
-  analytics_deployment: DeploymentReference | null;
-  analytics_is_fallback: boolean;
 
   updated_at: string | null;
   updated_by: string | null;
@@ -27,13 +18,6 @@ export interface IntegrationSettings {
 export interface IntegrationSettingsUpdate {
   // Config API
   config_api_deployment?: DeploymentReference | null;
-
-  // Measurements
-  measurements_deployment?: DeploymentReference | null;
-  measurements_topic?: TopicReference | null;
-
-  // Analytics
-  analytics_deployment?: DeploymentReference | null;
 }
 
 export interface Topic {

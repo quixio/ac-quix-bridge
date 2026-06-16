@@ -281,15 +281,6 @@ class IntegrationSettings(BaseModel):
     config_api_deployment: "DeploymentReference | None" = None
     config_api_is_fallback: bool = False
 
-    # Measurements - Query UI deployment and topic
-    measurements_deployment: "DeploymentReference | None" = None  # Query UI
-    measurements_topic: "TopicReference | None" = None  # Selected topic with workspace
-    measurements_is_fallback: bool = False
-
-    # Analytics - Marimo/Analytics deployment
-    analytics_deployment: "DeploymentReference | None" = None
-    analytics_is_fallback: bool = False
-
     updated_at: datetime | None = None
     updated_by: str | None = None
 
@@ -299,13 +290,6 @@ class IntegrationSettingsUpdate(BaseModel):
 
     # Config API
     config_api_deployment: "DeploymentReference | None" = None
-
-    # Measurements
-    measurements_deployment: "DeploymentReference | None" = None
-    measurements_topic: "TopicReference | None" = None
-
-    # Analytics
-    analytics_deployment: "DeploymentReference | None" = None
 
 
 class Topic(BaseModel):
@@ -331,14 +315,6 @@ class TopicInfo(BaseModel):
     status: str | None = None
 
     model_config = {"populate_by_name": True}
-
-
-class TopicReference(BaseModel):
-    """Reference to a selected topic stored in settings."""
-
-    topic_name: str
-    workspace_id: str
-    workspace_name: str | None = None
 
 
 # ============================================================================

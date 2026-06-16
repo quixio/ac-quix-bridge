@@ -22,13 +22,11 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useSettingsApi, usePortalApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
-import { Loader2, Rocket, ArrowLeftRight } from "lucide-react";
+import { Loader2, Rocket } from "lucide-react";
 import type { IntegrationSettings } from "@/lib/api/settings";
-import type { DeploymentReference, TopicReference } from "@/lib/types/portal";
+import type { DeploymentReference } from "@/lib/types/portal";
 import { DeploymentPickerDialog } from "@/components/settings/deployment-picker-dialog";
-import { TopicPickerDialog } from "@/components/settings/topic-picker-dialog";
 import { DeploymentDisplay } from "@/components/settings/deployment-display";
-import { TopicDisplay } from "@/components/settings/topic-display";
 import { FallbackIndicator } from "@/components/settings/fallback-indicator";
 
 export default function SettingsPage() {
@@ -45,32 +43,18 @@ export default function SettingsPage() {
   // Form state - deployment references
   const [configApiDeployment, setConfigApiDeployment] =
     useState<DeploymentReference | null>(null);
-  const [measurementsDeployment, setMeasurementsDeployment] =
-    useState<DeploymentReference | null>(null);
-  const [measurementsTopic, setMeasurementsTopic] =
-    useState<TopicReference | null>(null);
-  const [analyticsDeployment, setAnalyticsDeployment] =
-    useState<DeploymentReference | null>(null);
 
   // Fallback flags
   const [configApiIsFallback, setConfigApiIsFallback] = useState(false);
-  const [measurementsIsFallback, setMeasurementsIsFallback] = useState(false);
-  const [topicIsFallback, setTopicIsFallback] = useState(false);
-  const [analyticsIsFallback, setAnalyticsIsFallback] = useState(false);
 
   // Refresh states
   const [refreshingConfig, setRefreshingConfig] = useState(false);
-  const [refreshingMeasurements, setRefreshingMeasurements] = useState(false);
-  const [refreshingAnalytics, setRefreshingAnalytics] = useState(false);
 
   // Clearing state - tracks which field is being cleared
   const [clearingField, setClearingField] = useState<string | null>(null);
 
   // Dialog states
   const [configPickerOpen, setConfigPickerOpen] = useState(false);
-  const [measurementsPickerOpen, setMeasurementsPickerOpen] = useState(false);
-  const [topicPickerOpen, setTopicPickerOpen] = useState(false);
-  const [analyticsPickerOpen, setAnalyticsPickerOpen] = useState(false);
 
   // Avoid hydration mismatch
   useEffect(() => {
@@ -87,21 +71,9 @@ export default function SettingsPage() {
 
         // Set deployment references
         setConfigApiDeployment(data.config_api_deployment || null);
-        setMeasurementsDeployment(data.measurements_deployment || null);
-        setMeasurementsTopic(data.measurements_topic || null);
-        setAnalyticsDeployment(data.analytics_deployment || null);
 
         // Set fallback flags
         setConfigApiIsFallback(data.config_api_is_fallback || false);
-        setMeasurementsIsFallback(data.measurements_is_fallback || false);
-        setAnalyticsIsFallback(data.analytics_is_fallback || false);
-
-        // Topic is fallback if it exists but workspace_name is null (from env var)
-        // The backend sets workspace_name only when user explicitly selects
-        setTopicIsFallback(
-          data.measurements_topic !== null &&
-            data.measurements_topic.workspace_name === null,
-        );
       } catch (error) {
         console.error("Failed to load settings:", error);
         toast({
@@ -124,9 +96,7 @@ export default function SettingsPage() {
 
   // Save a field and reload settings
   const saveAndReload = useCallback(
-    async (
-      updates: Record<string, DeploymentReference | TopicReference | null>,
-    ) => {
+    async (updates: Record<string, DeploymentReference | null>) => {
       try {
         await settingsApi.updateSettings(updates);
         await loadSettings(false);
@@ -200,13 +170,7 @@ export default function SettingsPage() {
 
   // Clear a field and reload to show fallback
   const clearAndReload = useCallback(
-    async (
-      field:
-        | "config_api_deployment"
-        | "measurements_deployment"
-        | "measurements_topic"
-        | "analytics_deployment",
-    ) => {
+    async (field: "config_api_deployment") => {
       try {
         setClearingField(field);
         await settingsApi.updateSettings({ [field]: null });
@@ -238,40 +202,6 @@ export default function SettingsPage() {
       setConfigApiDeployment(deployment);
       setConfigApiIsFallback(false);
       saveAndReload({ config_api_deployment: deployment });
-    }
-  };
-
-  const handleMeasurementsDeploymentConfirm = (
-    deployment: DeploymentReference | null,
-  ) => {
-    if (deployment === null) {
-      clearAndReload("measurements_deployment");
-    } else {
-      setMeasurementsDeployment(deployment);
-      setMeasurementsIsFallback(false);
-      saveAndReload({ measurements_deployment: deployment });
-    }
-  };
-
-  const handleTopicConfirm = (topic: TopicReference | null) => {
-    if (topic === null) {
-      clearAndReload("measurements_topic");
-    } else {
-      setMeasurementsTopic(topic);
-      setTopicIsFallback(false);
-      saveAndReload({ measurements_topic: topic });
-    }
-  };
-
-  const handleAnalyticsDeploymentConfirm = (
-    deployment: DeploymentReference | null,
-  ) => {
-    if (deployment === null) {
-      clearAndReload("analytics_deployment");
-    } else {
-      setAnalyticsDeployment(deployment);
-      setAnalyticsIsFallback(false);
-      saveAndReload({ analytics_deployment: deployment });
     }
   };
 
@@ -336,8 +266,7 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>Integrations</CardTitle>
               <CardDescription>
-                Configure external service connections for configurations,
-                measurements, and analytics
+                Configure external service connections for configurations
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
@@ -368,7 +297,6 @@ export default function SettingsPage() {
                     {configApiDeployment ? (
                       <DeploymentDisplay
                         deployment={configApiDeployment}
-                        variant="config"
                         isFallback={configApiIsFallback}
                         isRefreshing={refreshingConfig}
                         isClearing={clearingField === "config_api_deployment"}
@@ -391,149 +319,6 @@ export default function SettingsPage() {
                       >
                         <Rocket className="mr-2 h-4 w-4" />
                         Select Configuration API Deployment
-                      </Button>
-                    )}
-                  </div>
-
-                  <Separator />
-
-                  {/* ═══════════════════════════════════════════════════════════
-                      MEASUREMENTS SECTION
-                      ═══════════════════════════════════════════════════════════ */}
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                        Measurements
-                      </h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Configure Timeseries Data Lake service and data source
-                        topic
-                      </p>
-                    </div>
-
-                    {/* Query UI (Timeseries Data Lake Service) */}
-                    <div className="space-y-3">
-                      <Label className="text-sm font-medium">
-                        Timeseries Data Lake Service (Query UI)
-                      </Label>
-
-                      <FallbackIndicator
-                        isFallback={measurementsIsFallback}
-                        message={`Auto-detected "${measurementsDeployment?.deployment_name}" from current workspace`}
-                      />
-
-                      {measurementsDeployment ? (
-                        <DeploymentDisplay
-                          deployment={measurementsDeployment}
-                          variant="measurements"
-                          isFallback={measurementsIsFallback}
-                          isRefreshing={refreshingMeasurements}
-                          isClearing={
-                            clearingField === "measurements_deployment"
-                          }
-                          onClear={() =>
-                            handleMeasurementsDeploymentConfirm(null)
-                          }
-                          onChange={() => setMeasurementsPickerOpen(true)}
-                          onRefresh={() =>
-                            refreshDeployment(
-                              measurementsDeployment,
-                              setMeasurementsDeployment,
-                              setRefreshingMeasurements,
-                              "measurements_deployment",
-                            )
-                          }
-                        />
-                      ) : (
-                        <Button
-                          variant="outline"
-                          onClick={() => setMeasurementsPickerOpen(true)}
-                          className="w-full justify-start"
-                        >
-                          <Rocket className="mr-2 h-4 w-4" />
-                          Select Query UI Deployment
-                        </Button>
-                      )}
-                    </div>
-
-                    {/* Data Source (Topic) */}
-                    <div className="space-y-3">
-                      <Label className="text-sm font-medium">
-                        Data Source (Topic)
-                      </Label>
-
-                      <FallbackIndicator
-                        isFallback={topicIsFallback}
-                        message={`Using default topic "${measurementsTopic?.topic_name}" from environment configuration`}
-                      />
-
-                      {measurementsTopic ? (
-                        <TopicDisplay
-                          topic={measurementsTopic}
-                          isFallback={topicIsFallback}
-                          isClearing={clearingField === "measurements_topic"}
-                          onChange={() => setTopicPickerOpen(true)}
-                          onClear={() => handleTopicConfirm(null)}
-                        />
-                      ) : (
-                        <Button
-                          variant="outline"
-                          onClick={() => setTopicPickerOpen(true)}
-                          className="w-full justify-start"
-                        >
-                          <ArrowLeftRight className="mr-2 h-4 w-4" />
-                          Select Measurements Topic
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* ═══════════════════════════════════════════════════════════
-                      ANALYTICS SECTION
-                      ═══════════════════════════════════════════════════════════ */}
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                        Analytics
-                      </h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Analytics and notebook service for data analysis
-                      </p>
-                    </div>
-
-                    <FallbackIndicator
-                      isFallback={analyticsIsFallback}
-                      message={`Auto-detected "${analyticsDeployment?.deployment_name}" from current workspace`}
-                    />
-
-                    {analyticsDeployment ? (
-                      <DeploymentDisplay
-                        deployment={analyticsDeployment}
-                        variant="analytics"
-                        isFallback={analyticsIsFallback}
-                        isRefreshing={refreshingAnalytics}
-                        isClearing={clearingField === "analytics_deployment"}
-                        onClear={() => handleAnalyticsDeploymentConfirm(null)}
-                        onChange={() => setAnalyticsPickerOpen(true)}
-                        onRefresh={() =>
-                          refreshDeployment(
-                            analyticsDeployment,
-                            setAnalyticsDeployment,
-                            setRefreshingAnalytics,
-                            "analytics_deployment",
-                          )
-                        }
-                      />
-                    ) : (
-                      <Button
-                        variant="outline"
-                        onClick={() => setAnalyticsPickerOpen(true)}
-                        className="w-full justify-start"
-                      >
-                        <Rocket className="mr-2 h-4 w-4" />
-                        Select Analytics Deployment
                       </Button>
                     )}
                   </div>
@@ -587,37 +372,6 @@ export default function SettingsPage() {
         isFallback={configApiIsFallback}
         title="Select Configuration API"
         description="Select the Dynamic Configuration Manager deployment for test configurations."
-      />
-
-      <DeploymentPickerDialog
-        open={measurementsPickerOpen}
-        onOpenChange={setMeasurementsPickerOpen}
-        selectedDeployment={measurementsDeployment}
-        onConfirm={handleMeasurementsDeploymentConfirm}
-        isFallback={measurementsIsFallback}
-        title="Select Query UI"
-        description="Select the Query UI deployment for viewing test measurements."
-      />
-
-      <DeploymentPickerDialog
-        open={analyticsPickerOpen}
-        onOpenChange={setAnalyticsPickerOpen}
-        selectedDeployment={analyticsDeployment}
-        onConfirm={handleAnalyticsDeploymentConfirm}
-        isFallback={analyticsIsFallback}
-        title="Select Analytics Service"
-        description="Select the analytics or notebook deployment for data analysis."
-      />
-
-      {/* Topic Picker Dialog */}
-      <TopicPickerDialog
-        open={topicPickerOpen}
-        onOpenChange={setTopicPickerOpen}
-        selectedTopic={measurementsTopic}
-        onConfirm={handleTopicConfirm}
-        isFallback={topicIsFallback}
-        title="Select Measurements Topic"
-        description="Navigate through projects and workspaces to select the topic for test measurement data."
       />
     </MainLayout>
   );

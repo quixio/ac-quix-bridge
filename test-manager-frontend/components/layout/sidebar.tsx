@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   Settings,
   Sliders,
-  BarChart3,
   Users,
   TrendingUp,
 } from "lucide-react";
@@ -33,7 +32,6 @@ const navItems: NavItem[] = [
 
 const integrationItems: NavItem[] = [
   { href: "/config-manager", icon: Sliders, label: "Configurations" },
-  { href: "/measurements", icon: BarChart3, label: "Measurements" },
   { href: "/analysis", icon: TrendingUp, label: "Analysis" },
 ];
 
