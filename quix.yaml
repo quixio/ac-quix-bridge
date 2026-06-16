@@ -331,7 +331,7 @@ deployments:
       - name: SMTP_PORT
         inputType: FreeText
         description: SMTP server port (STARTTLS submission default).
-        value: "587"
+        value: 587
       - name: SMTP_USER
         inputType: ProjectVariable
         description: SMTP auth username (the sending address). Set per-env in the Portal so the address stays out of the public repo.
@@ -348,11 +348,11 @@ deployments:
       - name: SMTP_STARTTLS
         inputType: FreeText
         description: Issue STARTTLS before auth on port 587 (true/false). Ignored when SMTP_SSL=true.
-        value: "true"
+        value: true
       - name: SMTP_SSL
         inputType: FreeText
         description: Use implicit TLS (port 465) instead of STARTTLS (true/false).
-        value: "false"
+        value: false
   - name: Test Manager - Frontend
     group: Test Manager
     application: test-manager-frontend
@@ -780,3 +780,4 @@ topics:
   - name: ac-telemetry-raw-replay2
     configuration:
       retentionInBytes: 524288000
+  - name: demo-acquixbridge-dev-ac-telemetry-raw
