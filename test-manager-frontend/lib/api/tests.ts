@@ -128,8 +128,9 @@ export const testsApi = {
       test_rig: string;
       experiment: string;
       driver: string;
-      track: string;
-      carModel: string;
+      // null when the test has no sessions yet (no track/car to pin).
+      track: string | null;
+      carModel: string | null;
     }>(`/tests/${testId}/telemetry-params`, undefined, token, refreshToken);
   },
 

@@ -390,6 +390,10 @@ deployments:
         description: Public URL of the Telemetry Explorer deployment
         required: true
         variableKey: TELEMETRY_EXPLORER_URL
+      - name: NEXT_PUBLIC_LAKEHOUSE_UI_URL
+        inputType: ProjectVariable
+        description: Public URL of the Lakehouse Query UI deployment (lh-ui-*). Embedded for the "View Data" link on tests/sessions; unset disables the feature.
+        variableKey: LAKEHOUSE_UI_URL
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: Live-positions blue-freeze window duration in ms after a gate crossing.
