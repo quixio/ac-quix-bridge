@@ -113,6 +113,10 @@ function LakehouseView() {
         </div>
       ) : (
         <iframe
+          // key by the URL so navigating test→test remounts a fresh iframe
+          // (a fresh Lakehouse SPA session) instead of reusing one and piling
+          // up SQL tabs / showing the previous query.
+          key={iframeUrl}
           ref={iframeRef}
           src={iframeUrl}
           className="h-[calc(100vh-8rem)] w-full rounded-md border"
