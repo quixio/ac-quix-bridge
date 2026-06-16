@@ -184,7 +184,7 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         description: Kafka consumer group name
-        value: s3_direct_sink_v1.7
+        value: s3_direct_sink_v1.8
       - name: AUTO_OFFSET_RESET
         inputType: Options
         description: Where to start consuming if no offset exists
@@ -728,15 +728,11 @@ deployments:
     group: Test Manager
     application: track-importer
     version: latest
-    # One-shot job: runs to completion then exits (not a long-running Service).
-    # deploymentType Job per Quix pipeline-descriptor schema; no network block
-    # (ports are ignored for Job deployments).
     deploymentType: Job
     resources:
       limits:
         cpu: 200
         memory: 500
-        replicas: 1
     variables:
       - name: MONGO_USER
         inputType: ProjectVariable
@@ -824,14 +820,11 @@ deployments:
     group: Test Manager
     application: track-viewer
     version: latest
-    # Read-only Service with public ingress so a browser can confirm the
-    # track-importer Job's track_layouts docs are present and loadable.
     deploymentType: Service
     resources:
       limits:
         cpu: 200
         memory: 400
-        replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: track-viewer
