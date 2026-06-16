@@ -780,6 +780,7 @@ deployments:
       sourceTopic: ac-telemetry-raw
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw-replay2
+      suffixReplayedKeysWithTimestamp: false
       fromTimestamp: 2026-06-08T15:52:21.569Z
       toTimestamp: 2026-06-08T18:39:24.747Z
   - name: Speed Dashboard
