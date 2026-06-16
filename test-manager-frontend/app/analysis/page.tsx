@@ -175,24 +175,32 @@ function CompareTab({
     );
   }
 
-  if (error) {
-    return (
-      <div className="mb-2 text-sm text-amber-500">
-        Note: Could not load test parameters — showing unfiltered view.
+  if (!iframeUrl) {
+    // Params failed AND no fallback URL could be built (e.g. no session in the
+    // link) — nothing to embed.
+    return error ? (
+      <div className="text-sm text-amber-500">
+        Could not load test parameters.
       </div>
-    );
+    ) : null;
   }
 
-  if (!iframeUrl) return null;
-
   return (
-    <iframe
-      ref={iframeRef}
-      src={iframeUrl}
-      className="w-full border-0 rounded-lg"
-      style={{ height: "calc(100vh - 12rem)" }}
-      title="Telemetry Explorer"
-    />
+    <>
+      {error && (
+        <div className="mb-2 text-sm text-amber-500">
+          Note: could not load test parameters — showing the session deep-link
+          only.
+        </div>
+      )}
+      <iframe
+        ref={iframeRef}
+        src={iframeUrl}
+        className="w-full border-0 rounded-lg"
+        style={{ height: "calc(100vh - 12rem)" }}
+        title="Telemetry Explorer"
+      />
+    </>
   );
 }
 
