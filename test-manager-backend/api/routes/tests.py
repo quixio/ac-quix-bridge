@@ -17,6 +17,7 @@ from ..models import (
     TestFullData,
     SessionInfo,
     LogbookEntry,
+    LastRequirements,
     PaginatedResponse,
 )
 
@@ -524,3 +525,19 @@ def get_drivers(
 ) -> list[str]:
     drivers = mongo.tests.distinct("driver")
     return sorted([d for d in drivers if d])
+
+
+@router.get("/tests/filters/last-requirements", response_model=LastRequirements)
+def get_last_requirements(
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    _: None = Depends(read_permission),
+) -> LastRequirements:
+    """Requirements of the most recently created test, for create-form prefill.
+
+    Skips blank requirements so a newer empty test doesn't clear the suggestion.
+    """
+    doc = mongo.tests.find_one(
+        {"requirements": {"$nin": [None, ""]}},
+        sort=[("created_at", -1), ("_id", -1)],
+    )
+    return LastRequirements(requirements=doc["requirements"] if doc else "")

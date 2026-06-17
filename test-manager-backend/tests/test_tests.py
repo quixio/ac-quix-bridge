@@ -882,6 +882,37 @@ def test_filter_drivers(create_test: TestFactory, client: TestClient) -> None:
     assert sorted(response.json()) == ["Alice", "Bob"]
 
 
+def test_last_requirements_empty_when_none(client: TestClient) -> None:
+    """No tests at all → empty string."""
+    response = client.get("/api/v1/tests/filters/last-requirements")
+    assert response.status_code == 200
+    assert response.json() == {"requirements": ""}
+
+
+def test_last_requirements_returns_latest(
+    create_test: TestFactory, client: TestClient
+) -> None:
+    """Returns the requirements of the most recently created test."""
+    create_test(requirements="first reqs")
+    create_test(requirements="second reqs")
+
+    response = client.get("/api/v1/tests/filters/last-requirements")
+    assert response.status_code == 200
+    assert response.json() == {"requirements": "second reqs"}
+
+
+def test_last_requirements_skips_empty(
+    create_test: TestFactory, client: TestClient
+) -> None:
+    """A newer test with blank requirements is skipped for the last non-empty one."""
+    create_test(requirements="real reqs")
+    create_test(requirements="")  # newer but blank — must not win
+
+    response = client.get("/api/v1/tests/filters/last-requirements")
+    assert response.status_code == 200
+    assert response.json() == {"requirements": "real reqs"}
+
+
 # ============================================================================
 # Pagination
 # ============================================================================

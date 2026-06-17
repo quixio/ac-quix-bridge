@@ -139,6 +139,12 @@ class TestUpdate(BaseModel):
     mode: TestMode | None = None
 
 
+class LastRequirements(BaseModel):
+    """Most recent non-empty test requirements, for prefilling the create form."""
+
+    requirements: str = ""
+
+
 class TestQuery(PaginationParams):
     """Query parameters for filtering Tests."""
 
