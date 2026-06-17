@@ -456,7 +456,8 @@ deployments:
         value: ac_video
       - name: AC_TELEMETRY_AGENT_ID
         inputType: ProjectVariable
-        description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Per-environment project variable — each portal (dev/byox) holds its own agent GUID.
+        description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Per-environment project variable — each portal (dev/byox) holds its own agent GUID. Required — if unset, config.py silently falls back to the dev GUID and AI chat hits a non-existent agent on byox/prod.
+        required: true
         variableKey: AC_TELEMETRY_AGENT_ID
       - name: TELEMETRY_COMPARISON_MCP_API_KEY
         inputType: ProjectVariable
