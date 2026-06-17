@@ -722,6 +722,65 @@ deployments:
         secret: true
     blobStorage:
       bind: true
+  - name: best-laps-cache
+    application: best-laps-cache
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 1000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: best-laps-cache
+    state:
+      enabled: true
+      size: 1
+    network:
+      serviceName: best-laps-cache
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session)
+        required: false
+        value: ac-telemetry-session
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config)
+        required: false
+        value: ac-telemetry-config
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        description: DCM base URL for session/experiment enrichment
+        value: http://dynamic-configuration-manager
+      - name: LAKE_TABLE
+        inputType: ProjectVariable
+        description: Lakehouse table to scan for best laps. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: RECONCILE_INTERVAL_S
+        inputType: FreeText
+        value: 300
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: 80
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: best-laps-cache
+    blobStorage:
+      bind: true
   - name: track-importer
     group: Test Manager
     application: track-importer

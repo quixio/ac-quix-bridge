@@ -1,0 +1,18 @@
+[project]
+name = "best-laps-cache"
+requires-python = ">=3.13"
+version = "0.1.0"
+
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "quixstreams",
+    "pandas",
+    "httpx",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
