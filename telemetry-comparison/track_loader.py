@@ -20,6 +20,7 @@ import bisect
 import csv
 import logging
 import math
+import re
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -278,20 +279,33 @@ def _transform_mongo_doc(doc: dict) -> dict:
     }
 
 
+def _ci_exact(value: str) -> dict:
+    """Anchored, case-insensitive equality match for a Mongo string field.
+
+    The lake supplies `track` in its own casing (e.g. `Spa`) while Mongo
+    `track_layouts` keys are lowercase AC folder names (`spa`). An anchored
+    `$regex` with the `i` option matches across that casing gap without
+    assuming the lake value is a pure lowercase of the folder. The value flows
+    from a query param, so it is `re.escape`-d before interpolation.
+    """
+    return {"$regex": f"^{re.escape(value)}$", "$options": "i"}
+
+
 def _resolve_mongo_doc(track: str, layout: str) -> dict | None:
     """Read-only resolution of a track_layouts doc.
 
-    - `layout` present → find_one by `_id = "<track>/<layout>"`.
-    - `layout` absent → query `{track}`; if exactly one doc use it, if multiple
-      pick the deterministic first by sorted `layout`.
+    - `layout` present → match `_id == "<track>/<layout>"` case-insensitively
+      (both `_id` halves are lowercase in Mongo; the lake casing may differ).
+    - `layout` absent → query `{track}` case-insensitively; if exactly one doc
+      use it, if multiple pick the deterministic first by sorted `layout`.
     Returns the doc (or None if no match). Raises PyMongoError on unreachable
     Mongo (caller falls back to CSV).
     """
     db = mongo.get_mongo()
     coll = db[mongo_settings.TRACK_LAYOUTS_COLLECTION]
     if layout:
-        return coll.find_one({"_id": f"{track}/{layout}"})
-    cursor = coll.find({"track": track}).sort([("layout", 1)]).limit(1)
+        return coll.find_one({"_id": _ci_exact(f"{track}/{layout}")})
+    cursor = coll.find({"track": _ci_exact(track)}).sort([("layout", 1)]).limit(1)
     docs = list(cursor)
     return docs[0] if docs else None
 
@@ -354,7 +368,7 @@ async def get_track_layouts(track: str = ""):
             db = mongo.get_mongo()
             coll = db[mongo_settings.TRACK_LAYOUTS_COLLECTION]
             cursor = coll.find(
-                {"track": track},
+                {"track": _ci_exact(track)},
                 {"layout": 1, "length_m": 1, "n_corners": 1},
             ).sort([("layout", 1)])
             layouts = [
