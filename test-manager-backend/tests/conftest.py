@@ -17,6 +17,7 @@ TestFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 DeviceFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 EnvironmentFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 DriverFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
+ExperimentFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 
 PORTAL_API_PORT = find_free_port()
 
@@ -52,7 +53,7 @@ def pytest_collection_modifyitems(
     if _WEASYPRINT_OK:
         return
     skip = pytest.mark.skip(
-        reason='WeasyPrint native libs not loadable — run scripts/test-backend.sh '
+        reason="WeasyPrint native libs not loadable — run scripts/test-backend.sh "
         'or set DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib" (macOS)'
     )
     for item in items:
@@ -208,6 +209,20 @@ def create_environment(client: TestClient) -> EnvironmentFactory:
         return input_data, response.json()
 
     return _create_environment
+
+
+@pytest.fixture
+def create_experiment(client: TestClient) -> ExperimentFactory:
+    """Helper fixture to create an Experiment for testing."""
+
+    def _create_experiment(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        input_data = {"name": "Test Experiment"}
+        input_data.update(kwargs)
+        response = client.post("/api/v1/experiments", json=input_data)
+        assert response.status_code == 200
+        return input_data, response.json()
+
+    return _create_experiment
 
 
 @pytest.fixture

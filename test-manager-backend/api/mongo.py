@@ -114,6 +114,18 @@ def connect(settings: MongoSettings) -> None:
     _mongo.environments.create_index("location")
     _mongo.environments.create_index([("name", "text"), ("location", "text")])
 
+    # Experiments collection — name is the unique lake partition identity.
+    _mongo.experiments.create_index([("name", "text")])
+    try:
+        _mongo.experiments.create_index("name", unique=True)
+    except OperationFailure as exc:
+        if exc.code not in (11000, 85):
+            raise
+        logger.warning(
+            "Experiment unique name index failed (degrading to app-level 409): %s",
+            exc,
+        )
+
     # Drivers collection — backfill name_key before building its unique index.
     backfill_driver_name_keys(_mongo)
     ensure_driver_indexes(_mongo)

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
 from enum import Enum
@@ -466,6 +467,55 @@ class EnvironmentQuery(PaginationParams):
     name: str | None = None
     location: str | None = None
     status: EnvironmentStatus | None = None
+    q: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Experiment
+# ---------------------------------------------------------------------------
+
+# Chars that would corrupt the Hive partition path the name is written into
+# verbatim: path separators and control chars. Spaces/case/hyphens are safe
+# (proven by existing lake data) and intentionally allowed.
+_EXPERIMENT_NAME_FORBIDDEN = re.compile(r"[/\\\x00-\x1f]")
+
+
+class Experiment(BaseModel):
+    """A managed experiment name bound into `Test.experiment_id`.
+
+    `name` is the lake partition identity (written verbatim) and is immutable
+    after create — hence there is no `ExperimentUpdate` / PUT route.
+    """
+
+    experiment_id: str = Field(..., alias="_id")
+    name: str
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)
+
+
+class ExperimentCreate(BaseModel):
+    """Request model for creating an Experiment. ID is auto-generated."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="Experiment name")
+
+    @field_validator("name")
+    @classmethod
+    def validate_partition_safe(cls, v: str) -> str:
+        """Trim and reject names that would break the Hive partition path."""
+        v = v.strip()
+        if not v:
+            raise PydanticCustomError("value_error", "name must not be blank")
+        if _EXPERIMENT_NAME_FORBIDDEN.search(v):
+            raise PydanticCustomError(
+                "value_error", r"name must not contain '/', '\' or control characters"
+            )
+        return v
+
+
+class ExperimentQuery(PaginationParams):
+    """Query parameters for filtering Experiments."""
+
+    name: str | None = None
     q: str | None = None
 
 
