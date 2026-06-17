@@ -371,10 +371,10 @@ deployments:
         inputType: ProjectVariable
         description: Public URL of the Lakehouse Query UI deployment (lh-ui-*). Embedded for the "View Data" link on tests/sessions; unset disables the feature.
         variableKey: LAKEHOUSE_UI_URL
-      - name: NEXT_PUBLIC_FREEZE_MS
-        inputType: FreeText
-        description: Live-positions blue-freeze window duration in ms after a gate crossing.
-        value: 200
+      - name: NEXT_PUBLIC_LEADERBOARD_UI_URL
+        inputType: ProjectVariable
+        description: Public URL of the leaderboard-service deployment. Embedded as the Analysis Leaderboard tab; unset disables the tab.
+        variableKey: LEADERBOARD_UI_URL
     plugin:
       embeddedView:
         enabled: true

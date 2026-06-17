@@ -6,10 +6,11 @@ import { MainLayout } from "@/components/layout/main-layout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-import { GitCompare, Sparkles } from "lucide-react";
+import { GitCompare, Trophy, Sparkles } from "lucide-react";
 import { useTestsApi } from "@/lib/hooks/use-api";
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
 import { AiSummaryTab } from "./ai-summary/ai-summary-tab";
+import { LEADERBOARD_UI_URL, LEADERBOARD_ORIGIN } from "@/lib/leaderboard";
 
 // Telemetry Explorer deployment URL — baked at build time. `_ORIGIN` is the
 // scheme+host+port part, used to gate the auth-token postMessage handshake
@@ -31,6 +32,14 @@ const ANALYSIS_TABS = [
     title: "Compare Runs",
     description:
       "Compare laps across multiple tests to find performance tradeoffs. Overlay speed, tire temperatures, and driver inputs by track position.",
+  },
+  {
+    value: "leaderboard",
+    label: "Leaderboard",
+    icon: Trophy,
+    title: "Leaderboard",
+    description:
+      "Live multi-driver sector comparison and historical best laps, served by the leaderboard service.",
   },
   {
     value: "ai-summary",
@@ -195,6 +204,56 @@ function CompareTab({
   );
 }
 
+function LeaderboardTab() {
+  const { token } = useQuixAuth();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Forward the auth token to the leaderboard-service iframe on request — same
+  // REQUEST_AUTH_TOKEN/AUTH_TOKEN handshake as the Telemetry Explorer embed,
+  // origin- AND source-gated so the token never leaks to another window.
+  useEffect(() => {
+    if (!token || !LEADERBOARD_ORIGIN) return;
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== LEADERBOARD_ORIGIN) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.data?.type !== "REQUEST_AUTH_TOKEN") return;
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: "AUTH_TOKEN", token },
+        LEADERBOARD_ORIGIN,
+      );
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [token]);
+
+  if (!LEADERBOARD_UI_URL) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-4 rounded-full bg-primary/10 p-4">
+            <Trophy className="h-8 w-8 text-primary" />
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Leaderboard</h2>
+          <p className="text-sm text-muted-foreground max-w-md mb-4">
+            Leaderboard URL is not configured. Set the
+            NEXT_PUBLIC_LEADERBOARD_UI_URL environment variable.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <iframe
+      ref={iframeRef}
+      src={LEADERBOARD_UI_URL}
+      className="w-full border-0 rounded-lg"
+      style={{ height: "calc(100vh - 12rem)" }}
+      title="Leaderboard"
+    />
+  );
+}
+
 function AnalysisPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -241,6 +300,10 @@ function AnalysisPageContent() {
               sessionTrack={sessionTrack}
               sessionCarModel={sessionCarModel}
             />
+          </TabsContent>
+
+          <TabsContent value="leaderboard">
+            <LeaderboardTab />
           </TabsContent>
 
           <TabsContent value="ai-summary">
