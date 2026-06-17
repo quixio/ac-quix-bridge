@@ -4,12 +4,28 @@ import { Fragment, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
-import { CheckCircle2, Download, HelpCircle, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  HelpCircle,
+  Mail,
+  XCircle,
+} from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useAnalysesApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
-import type { Analysis } from "@/types/analysis";
+import type { Analysis, AnalysisRecipient } from "@/types/analysis";
 
 function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "—";
@@ -97,6 +113,47 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
   const analysesApi = useAnalysesApi();
   const { toast } = useToast();
   const [isDownloading, setIsDownloading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [recipient, setRecipient] = useState<AnalysisRecipient | null>(null);
+  const [recipientError, setRecipientError] = useState(false);
+  const [loadingRecipient, setLoadingRecipient] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
+  // Open the confirm dialog and resolve the driver email to show in it.
+  const openSendDialog = async () => {
+    setRecipient(null);
+    setRecipientError(false);
+    setConfirmOpen(true);
+    setLoadingRecipient(true);
+    try {
+      setRecipient(await analysesApi.getRecipient(analysis.id));
+    } catch {
+      // A fetch failure is distinct from "driver has no email" — surface it.
+      setRecipientError(true);
+    } finally {
+      setLoadingRecipient(false);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    try {
+      setIsSending(true);
+      const res = await analysesApi.sendEmail(analysis.id);
+      toast({
+        title: "Email sent",
+        description: `Report sent to ${res.email}`,
+      });
+      setConfirmOpen(false);
+    } catch (error) {
+      toast({
+        title: "Failed to send email",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   const handleDownloadPdf = async () => {
     try {
@@ -107,7 +164,10 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `analysis-${analysis.test_id}-${analysis.id.slice(0, 8)}.pdf`;
+      a.download = `analysis-${analysis.test_id}-${analysis.id.slice(
+        0,
+        8,
+      )}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -132,151 +192,202 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
         <img src="/quix-logo.svg" alt="Quix" className="h-5 w-auto" />
       </div>
       <div className="space-y-6 p-6">
-      <header className="flex items-start justify-between gap-4">
-        <div className="space-y-0.5">
-          <h2 className="text-lg font-semibold">Post-Race Summary</h2>
-          <p className="text-sm text-muted-foreground">
-            {[
-              analysis.test_id,
-              analysis.session_id
-                ? `Session ${formatSessionDate(analysis.session_id)}`
-                : "Test-wide",
-              subtitleExtras(analysis.extra),
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        </div>
-        {analysis.status === "complete" && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDownloadPdf}
-            disabled={isDownloading}
-            className="shrink-0"
-          >
-            <Download className="mr-2 h-4 w-4" />
-            {isDownloading ? "Downloading…" : "Download PDF"}
-          </Button>
-        )}
-      </header>
-
-      {/* KPI grid */}
-      {analysis.kpis.length > 0 && (
-        <section>
-          <SectionHeading>KPIs</SectionHeading>
-          <div
-            className="grid gap-3"
-            style={{
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-            }}
-          >
-            {analysis.kpis.map((k) => (
-              <div
-                key={`${k.session_id ?? "_"}::${k.name}`}
-                className="rounded-lg border border-border border-l-2 border-l-primary bg-background p-3"
+        <header className="flex items-start justify-between gap-4">
+          <div className="space-y-0.5">
+            <h2 className="text-lg font-semibold">Post-Race Summary</h2>
+            <p className="text-sm text-muted-foreground">
+              {[
+                analysis.test_id,
+                analysis.session_id
+                  ? `Session ${formatSessionDate(analysis.session_id)}`
+                  : "Test-wide",
+                subtitleExtras(analysis.extra),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </div>
+          {analysis.status === "complete" && (
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadPdf}
+                disabled={isDownloading}
               >
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {k.name}
-                </div>
-                {k.session_id && (
-                  <div className="mt-0.5">
-                    <SessionBadge sessionId={k.session_id} />
+                <Download className="mr-2 h-4 w-4" />
+                {isDownloading ? "Downloading…" : "Download PDF"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openSendDialog}
+                disabled={loadingRecipient || isSending}
+              >
+                <Mail className="mr-2 h-4 w-4" />
+                Send to driver
+              </Button>
+            </div>
+          )}
+        </header>
+
+        <AlertDialog
+          open={confirmOpen}
+          onOpenChange={(open) => {
+            // Don't let a backdrop/Escape dismiss interrupt an in-flight send.
+            if (!isSending) setConfirmOpen(open);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Send report to driver?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {loadingRecipient
+                  ? "Resolving the driver's email…"
+                  : recipientError
+                    ? "Couldn't load the driver's email — please try again."
+                    : recipient?.has_email
+                      ? `This will email the post-race PDF to ${recipient.email}.`
+                      : "This test's driver has no email on file, so the report can't be sent."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isSending}>Cancel</AlertDialogCancel>
+              {recipient?.has_email && (
+                <AlertDialogAction
+                  onClick={(e) => {
+                    // Keep the dialog open until the async send resolves.
+                    e.preventDefault();
+                    void handleSendEmail();
+                  }}
+                  disabled={isSending}
+                  aria-busy={isSending}
+                >
+                  {isSending ? "Sending…" : "Send"}
+                </AlertDialogAction>
+              )}
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* KPI grid */}
+        {analysis.kpis.length > 0 && (
+          <section>
+            <SectionHeading>KPIs</SectionHeading>
+            <div
+              className="grid gap-3"
+              style={{
+                gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+              }}
+            >
+              {analysis.kpis.map((k) => (
+                <div
+                  key={`${k.session_id ?? "_"}::${k.name}`}
+                  className="rounded-lg border border-border border-l-2 border-l-primary bg-background p-3"
+                >
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {k.name}
                   </div>
-                )}
-                <div className="mt-1 flex items-baseline gap-1">
-                  <span className="text-xl font-semibold tabular-nums">
-                    {k.value}
-                  </span>
-                  {k.unit && (
-                    <span className="text-xs text-muted-foreground">
-                      {k.unit}
-                    </span>
+                  {k.session_id && (
+                    <div className="mt-0.5">
+                      <SessionBadge sessionId={k.session_id} />
+                    </div>
                   )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Requirements pills */}
-      {analysis.requirements_check.length > 0 && (
-        <section>
-          <SectionHeading>Requirements</SectionHeading>
-          <div className="grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-2 text-sm">
-            {analysis.requirements_check.map((r) => (
-              <Fragment key={r.requirement}>
-                <MetVerdict met={r.met} />
-                <div className="min-w-0">
-                  <span className="font-medium">{r.requirement}</span>
-                  {r.evidence && (
-                    <span className="text-muted-foreground">
-                      {" — "}
-                      {r.evidence}
+                  <div className="mt-1 flex items-baseline gap-1">
+                    <span className="text-xl font-semibold tabular-nums">
+                      {k.value}
                     </span>
-                  )}
+                    {k.unit && (
+                      <span className="text-xs text-muted-foreground">
+                        {k.unit}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </Fragment>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Anomalies */}
-      {analysis.anomalies.length > 0 && (
-        <section>
-          <SectionHeading>Anomalies</SectionHeading>
-          <ul className="space-y-2.5">
-            {analysis.anomalies.map((a) => (
-              <li
-                key={`${a.session_id ?? "_"}:${a.kind}:${a.lap ?? "_"}:${a.description.slice(0, 40)}`}
-                className="space-y-0.5 text-sm"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                      SEVERITY_STYLES[a.severity] ?? SEVERITY_FALLBACK
-                    }`}
-                  >
-                    {a.severity}
-                  </span>
-                  <span className="font-medium">{a.kind}</span>
-                  {a.lap !== null && a.lap !== undefined && (
-                    <span className="text-xs text-muted-foreground">
-                      L{a.lap}
-                    </span>
-                  )}
-                </div>
-                <p className="min-w-0 break-words pl-0.5 text-muted-foreground">
-                  {a.description}
-                  <SessionBadge sessionId={a.session_id} />
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Markdown narrative */}
-      {analysis.summary_md && (
-        <section className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:text-foreground">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeSanitize]}
-          >
-            {analysis.summary_md}
-          </ReactMarkdown>
-        </section>
-      )}
-
-      {/* Footer */}
-      <footer className="text-xs text-muted-foreground border-t pt-3 flex flex-wrap gap-3">
-        {analysis.model && <span>{analysis.model}</span>}
-        {analysis.duration_ms != null && (
-          <span>Generated in {formatDuration(analysis.duration_ms)}</span>
+              ))}
+            </div>
+          </section>
         )}
-      </footer>
+
+        {/* Requirements pills */}
+        {analysis.requirements_check.length > 0 && (
+          <section>
+            <SectionHeading>Requirements</SectionHeading>
+            <div className="grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-2 text-sm">
+              {analysis.requirements_check.map((r) => (
+                <Fragment key={r.requirement}>
+                  <MetVerdict met={r.met} />
+                  <div className="min-w-0">
+                    <span className="font-medium">{r.requirement}</span>
+                    {r.evidence && (
+                      <span className="text-muted-foreground">
+                        {" — "}
+                        {r.evidence}
+                      </span>
+                    )}
+                  </div>
+                </Fragment>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Anomalies */}
+        {analysis.anomalies.length > 0 && (
+          <section>
+            <SectionHeading>Anomalies</SectionHeading>
+            <ul className="space-y-2.5">
+              {analysis.anomalies.map((a) => (
+                <li
+                  key={`${a.session_id ?? "_"}:${a.kind}:${
+                    a.lap ?? "_"
+                  }:${a.description.slice(0, 40)}`}
+                  className="space-y-0.5 text-sm"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                        SEVERITY_STYLES[a.severity] ?? SEVERITY_FALLBACK
+                      }`}
+                    >
+                      {a.severity}
+                    </span>
+                    <span className="font-medium">{a.kind}</span>
+                    {a.lap !== null && a.lap !== undefined && (
+                      <span className="text-xs text-muted-foreground">
+                        L{a.lap}
+                      </span>
+                    )}
+                  </div>
+                  <p className="min-w-0 break-words pl-0.5 text-muted-foreground">
+                    {a.description}
+                    <SessionBadge sessionId={a.session_id} />
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Markdown narrative */}
+        {analysis.summary_md && (
+          <section className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:text-foreground">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeSanitize]}
+            >
+              {analysis.summary_md}
+            </ReactMarkdown>
+          </section>
+        )}
+
+        {/* Footer */}
+        <footer className="text-xs text-muted-foreground border-t pt-3 flex flex-wrap gap-3">
+          {analysis.model && <span>{analysis.model}</span>}
+          {analysis.duration_ms != null && (
+            <span>Generated in {formatDuration(analysis.duration_ms)}</span>
+          )}
+        </footer>
       </div>
     </Card>
   );
