@@ -1,0 +1,2 @@
+# No runtime deps — the probe reads os.environ only. byox injects the env vars
+# regardless of installed packages, so nothing to install here.

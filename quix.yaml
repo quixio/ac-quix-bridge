@@ -755,6 +755,22 @@ deployments:
         inputType: FreeText
         description: Target DB for track_layouts (the DB the backend connects to).
         value: test_manager
+  - name: env-probe
+    application: env-probe
+    version: latest
+    # Throwaway one-shot diagnostic: prints byox-injected env (lakehouse + blob
+    # tokens) to stdout, then exits. blobStorage.bind:true triggers the
+    # injection we want to observe. Delete this deployment + env-probe/ after
+    # reading the Job logs.
+    deploymentType: Job
+    resources:
+      limits:
+        cpu: 100
+        memory: 200
+        replicas: 1
+    variables: []
+    blobStorage:
+      bind: true
   - name: Quix DataLake Raw Sink 2
     application: DataLake.Sink
     version: latest
