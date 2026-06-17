@@ -3,12 +3,6 @@ const nextConfig = {
   // Output standalone for Docker production builds
   output: "standalone",
 
-  // TODO: remove once the post-race-AI ai-summary tab is re-merged with its
-  // missing deps and `useAnalysesApi` hook. A standing merge gap forces these
-  // ignores so the rest of the app can build/deploy.
-  typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
-
   // Enable React strict mode to catch bugs in development
   // Note: StrictMode intentionally double-invokes effects and renders to help identify side effects
   // Note: Telemetry is disabled via NEXT_TELEMETRY_DISABLED=1 environment variable
