@@ -778,19 +778,6 @@ deployments:
       toTimestamp: 2026-06-17T11:48:17.653Z
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
-  - name: Quix DataLake Raw Sink 2
-    application: DataLake.Sink
-    version: latest
-    deploymentType: Managed
-    resources:
-      limits:
-        cpu: 500
-        memory: 1500
-      replicas: 1
-    configuration:
-      topic: ac-telemetry-raw
-      consumerGroup: v1.1
-      autoOffsetReset: earliest
 
 # This section describes the Topics of the data pipeline
 topics:
