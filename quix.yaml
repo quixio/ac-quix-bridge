@@ -769,10 +769,11 @@ deployments:
         memory: 500
       replicas: 1
     configuration:
-      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
+      sourceWorkspaceId: demo-acquixbridge-dev
       sourceTopic: ac-telemetry-raw
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw
+      suffixReplayedKeysWithTimestamp: false
       fromTimestamp: 2026-06-08T15:52:21.569Z
       toTimestamp: 2026-06-08T16:01:15.856Z
   - name: Quix DataLake Raw Sink 2
