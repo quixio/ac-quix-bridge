@@ -18,29 +18,13 @@ variables:
     required: false
   - name: BEST_LAPS_CACHE_URL
     inputType: FreeText
-    description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Leave blank to fall back to the legacy Data Lake /query path (LEADERBOARD_SQL).
+    description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
     defaultValue: http://best-laps-cache
-    required: false
-  - name: TABLE_NAME
-    inputType: FreeText
-    description: Lakehouse table the default leaderboard query reads (legacy fallback). Ignored when LEADERBOARD_SQL is set explicitly.
-    defaultValue: ac_telemetry
-    required: false
-  - name: LEADERBOARD_SQL
-    inputType: FreeText
-    multiline: true
-    description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Leave blank to use the built-in all-time fastest-lap-per-driver query against TABLE_NAME.
-    defaultValue: ""
     required: false
   - name: LEADERBOARD_TTL_SECONDS
     inputType: FreeText
     description: Server-side cache TTL for the leaderboard query (seconds)
     defaultValue: "15"
-    required: false
-  - name: DATALAKE_INSECURE_SSL
-    inputType: FreeText
-    description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
-    defaultValue: ""
     required: false
 dockerfile: dockerfile
 runEntryPoint: main.py

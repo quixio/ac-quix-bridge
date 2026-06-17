@@ -4,16 +4,12 @@ Telemetry Dashboard — FastAPI + QuixStreams consumer + WebSocket broadcast.
 Consumes telemetry from a Kafka topic and pushes it to browser clients
 over WebSocket for real-time visualization.
 """
-import os
-print(os.environ)
-
-
 import asyncio
 import csv
 import io
 import json
 import logging
-import re
+import os
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -157,7 +153,7 @@ def _fetch_config_driver(config_id, content_url, version):
     token = os.environ.get("Quix__Sdk__Token", "")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
-        r = httpx.get(url, headers=headers, timeout=10, verify=_datalake_verify())
+        r = httpx.get(url, headers=headers, timeout=10, verify=_http_verify())
         r.raise_for_status()
         return r.json().get("driver")
     except Exception:
@@ -251,48 +247,20 @@ async def health():
     }
 
 
-# --- Leaderboard: all-time fastest-lap-per-driver. Default source is the
+# --- Leaderboard: all-time fastest-lap-per-driver. The sole source is the
 # best-laps-cache service (GET {BEST_LAPS_CACHE_URL}/best-laps, in-cluster
-# http://best-laps-cache). When BEST_LAPS_CACHE_URL is unset/empty we fall back
-# to proxying a Data Lake /query call (legacy path): token stays server-side
-# (env var), the full SQL is an env var so the table/columns can be tuned without
-# a code change, defaulting to the lake table named by TABLE_NAME (per-environment)
-# with `driver` / `iBestTime` columns.
-_LEADERBOARD_TABLE = os.environ.get("TABLE_NAME", "ac_telemetry")
-if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", _LEADERBOARD_TABLE):
-    raise ValueError(f"TABLE_NAME must be a bare SQL identifier, got {_LEADERBOARD_TABLE!r}")
-DEFAULT_LEADERBOARD_SQL = (
-    'SELECT driver AS name, MIN("iBestTime") AS ms '
-    f"FROM {_LEADERBOARD_TABLE} "
-    "WHERE \"iBestTime\" > 0 AND driver IS NOT NULL AND driver <> '' "
-    "GROUP BY driver ORDER BY ms ASC LIMIT 100"
-)
+# http://best-laps-cache). Results are TTL-cached in-process. There is no
+# lakehouse fallback: if the cache is unavailable we serve stale rows when we
+# have them and otherwise an empty board. The live current-driver overlay is a
+# separate path (the /ws topic feed), not part of these standings.
 _lb_cache: dict = {"ts": 0.0, "rows": []}
 
 
-def _datalake_verify():
-    """TLS verification for the lake call. Honour the platform CA bundle when set
-    (in-cluster REQUESTS_CA_BUNDLE / SSL_CERT_FILE); allow an explicit insecure
-    override (DATALAKE_INSECURE_SSL=true) for self-signed internal/edge certs."""
-    if os.environ.get("DATALAKE_INSECURE_SSL", "").lower() in ("1", "true", "yes"):
-        return False
+def _http_verify():
+    """TLS verification for outbound HTTP (best-laps-cache + DCM driver lookup).
+    Honour the platform CA bundle when set (in-cluster REQUESTS_CA_BUNDLE /
+    SSL_CERT_FILE); otherwise verify normally."""
     return os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE") or True
-
-
-def _parse_leaderboard_csv(text: str) -> list[dict]:
-    """Parse the streamed CSV (columns: name, ms) into [{name, ms}], skipping a
-    trailing `# ERROR: ...` line if the stream failed mid-flight."""
-    rows: list[dict] = []
-    for row in csv.DictReader(io.StringIO(text)):
-        name = (row.get("name") or "").strip()
-        if not name or name.startswith("# ERROR"):
-            continue
-        try:
-            ms = int(float(row["ms"]))
-        except (TypeError, ValueError, KeyError):
-            continue
-        rows.append({"name": name, "ms": ms})
-    return rows
 
 
 def _parse_cache_csv(text: str) -> list[dict]:
@@ -328,7 +296,7 @@ async def _fetch_from_cache(base_url: str) -> list[dict]:
     target = f"{base_url.rstrip('/')}/best-laps"
     logger.info("Leaderboard: GET %s (filters: none)", target)
     t0 = time.monotonic()
-    async with httpx.AsyncClient(timeout=20, verify=_datalake_verify()) as client:
+    async with httpx.AsyncClient(timeout=20, verify=_http_verify()) as client:
         r = await client.get(target)
     r.raise_for_status()
     rows = _parse_cache_csv(r.text)
@@ -340,39 +308,15 @@ async def _fetch_from_cache(base_url: str) -> list[dict]:
     return rows
 
 
-async def _fetch_from_quixlake() -> list[dict]:
-    """Fallback: query the Data Lake /query API directly (legacy path)."""
-    url = os.environ.get("DATALAKE_API_URL") or os.environ.get("Quix__Lakehouse__Query__Url")
-    token = os.environ.get("DATALAKE_API_TOKEN") or os.environ.get("Quix__Lakehouse__Query__AuthToken")
-    if not url or not token:
-        raise RuntimeError("datalake not configured")
-
-    sql = os.environ.get("LEADERBOARD_SQL") or DEFAULT_LEADERBOARD_SQL
-    logger.info("Leaderboard: POST %s/query (quixlake fallback)", url.rstrip("/"))
-    t0 = time.monotonic()
-    async with httpx.AsyncClient(timeout=20, verify=_datalake_verify()) as client:
-        r = await client.post(
-            f"{url.rstrip('/')}/query",
-            content=sql.encode("utf-8"),
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
-        )
-    r.raise_for_status()
-    rows = _parse_leaderboard_csv(r.text)
-    logger.info(
-        "Leaderboard served from quixlake-fallback: %d rows in %.0fms",
-        len(rows),
-        (time.monotonic() - t0) * 1000,
-    )
-    return rows
-
-
 @api.get("/leaderboard")
 async def leaderboard():
-    """All-time fastest lap per driver.
+    """All-time fastest lap per driver, sourced solely from best-laps-cache.
 
-    Default source is the best-laps-cache service (BEST_LAPS_CACHE_URL); when
-    that var is unset/empty we fall back to the legacy Data Lake /query path.
-    Results are TTL-cached (LEADERBOARD_TTL_SECONDS).
+    Source is the best-laps-cache service (BEST_LAPS_CACHE_URL). Results are
+    TTL-cached (LEADERBOARD_TTL_SECONDS). There is no lakehouse fallback: on a
+    fetch error we serve the last good (stale) rows when present, otherwise an
+    empty board. A blank BEST_LAPS_CACHE_URL is a misconfiguration, not a
+    fallback trigger.
     """
     ttl = float(os.environ.get("LEADERBOARD_TTL_SECONDS", "15"))
     now = time.monotonic()
@@ -380,20 +324,20 @@ async def leaderboard():
         return {"rows": _lb_cache["rows"], "cached": True}
 
     cache_url = os.environ.get("BEST_LAPS_CACHE_URL", "").strip()
-    source = "cache" if cache_url else "quixlake-fallback"
+    if not cache_url:
+        logger.warning("Leaderboard: BEST_LAPS_CACHE_URL not configured — serving empty board")
+        return {"rows": [], "error": "BEST_LAPS_CACHE_URL not configured"}
+
     try:
-        if cache_url:
-            rows = await _fetch_from_cache(cache_url)
-        else:
-            rows = await _fetch_from_quixlake()
+        rows = await _fetch_from_cache(cache_url)
         _lb_cache.update(ts=now, rows=rows)
-        return {"rows": rows, "source": source}
+        return {"rows": rows, "source": "cache"}
     except Exception as e:
-        logger.exception("Leaderboard query failed (source=%s)", source)
-        # Serve stale cache if we have one; otherwise surface the error.
+        logger.exception("Leaderboard cache fetch failed")
+        # Stale-then-empty: serve last good rows if we have any, else empty.
         if _lb_cache["rows"]:
-            return {"rows": _lb_cache["rows"], "stale": True, "source": source, "error": str(e)}
-        return {"rows": [], "source": source, "error": str(e)}
+            return {"rows": _lb_cache["rows"], "stale": True, "source": "cache", "error": str(e)}
+        return {"rows": [], "source": "cache", "error": str(e)}
 
 
 @api.get("/{full_path:path}")

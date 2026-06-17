@@ -39,26 +39,12 @@ deployments:
         value: ''
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
-        description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Leave blank to fall back to the legacy Data Lake /query path (LEADERBOARD_SQL).
+        description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
         value: http://best-laps-cache
-      - name: TABLE_NAME
-        inputType: ProjectVariable
-        description: Lakehouse table the default leaderboard query reads (legacy fallback). Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment. Ignored when LEADERBOARD_SQL is set explicitly.
-        required: true
-        variableKey: AC_TELEMETRY_TABLE_NAME
-      - name: LEADERBOARD_SQL
-        inputType: FreeText
-        multiline: true
-        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Leave blank to use the built-in all-time fastest-lap-per-driver query against TABLE_NAME.
-        value: ''
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
         value: 15
-      - name: DATALAKE_INSECURE_SSL
-        inputType: FreeText
-        description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
-        value: ''
     blobStorage:
       bind: true
   - name: MongoDB
