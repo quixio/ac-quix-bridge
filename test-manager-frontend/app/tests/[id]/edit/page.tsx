@@ -5,7 +5,6 @@ import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/main-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -22,13 +21,16 @@ import {
   useDevicesApi,
   useDriversApi,
   useEnvironmentsApi,
+  useExperimentsApi,
 } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
 import { AddDriverDialog } from "@/components/drivers/add-driver-dialog";
+import { AddExperimentDialog } from "@/components/experiments/add-experiment-dialog";
 import { DeviceCategory } from "@/types/device";
 import type { Device } from "@/types/device";
 import type { Driver } from "@/types/driver";
 import type { Environment } from "@/types/environment";
+import type { Experiment } from "@/types/experiment";
 import type { TestMode } from "@/types/test";
 
 export default function EditTestPage() {
@@ -39,12 +41,19 @@ export default function EditTestPage() {
   const devicesApi = useDevicesApi();
   const driversApi = useDriversApi();
   const environmentsApi = useEnvironmentsApi();
+  const experimentsApi = useExperimentsApi();
   const testId = params.id as string;
   const { test, loading } = useTest(testId);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Form state (null = not yet edited, use test value)
+  // Form state (null = not yet edited, use test value). Experiment is editable
+  // here like driver/environment — reassigning a test to a different experiment
+  // is the same partition-affecting action. The experiment NAME itself stays
+  // immutable (no rename) at the entity level.
   const [experimentId, setExperimentId] = useState<string | null>(null);
+  const [pendingExperiment, setPendingExperiment] = useState<string | null>(
+    null,
+  );
   const [pcDeviceId, setPcDeviceId] = useState<string | null>(null);
   const [testRigDeviceId, setTestRigDeviceId] = useState<string | null>(null);
   const [environmentId, setEnvironmentId] = useState<string | null>(null);
@@ -58,11 +67,12 @@ export default function EditTestPage() {
   const [testRigDevices, setTestRigDevices] = useState<Device[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [pcRes, rigRes, drvRes, envRes] = await Promise.all([
+        const [pcRes, rigRes, drvRes, envRes, expRes] = await Promise.all([
           devicesApi.list({ category: DeviceCategory.PC, page_size: 100 }),
           devicesApi.list({
             category: DeviceCategory.TEST_RIG,
@@ -70,11 +80,13 @@ export default function EditTestPage() {
           }),
           driversApi.list({ page_size: 100 }),
           environmentsApi.list({ page_size: 100 }),
+          experimentsApi.list({ page_size: 100 }),
         ]);
         setPcDevices(pcRes.items);
         setTestRigDevices(rigRes.items);
         setDrivers(drvRes.items);
         setEnvironments(envRes.items);
+        setExperiments(expRes.items);
       } catch (error) {
         console.error("Failed to fetch dropdown data:", error);
       }
@@ -91,6 +103,16 @@ export default function EditTestPage() {
       setPendingDriver(null);
     }
   }, [drivers, pendingDriver]);
+  // Same preselect-race guard for a just-created experiment.
+  useEffect(() => {
+    if (
+      pendingExperiment &&
+      experiments.some((x) => x.name === pendingExperiment)
+    ) {
+      setExperimentId(pendingExperiment);
+      setPendingExperiment(null);
+    }
+  }, [experiments, pendingExperiment]);
 
   const formExperimentId = experimentId ?? test?.experiment_id ?? "";
   const formPcDeviceId = pcDeviceId ?? test?.pc_device_id ?? "";
@@ -119,6 +141,20 @@ export default function EditTestPage() {
     } catch (error) {
       console.error("Failed to refetch drivers:", error);
     }
+  };
+
+  const refetchExperiments = async () => {
+    try {
+      const res = await experimentsApi.list({ page_size: 100 });
+      setExperiments(res.items);
+    } catch (error) {
+      console.error("Failed to refetch experiments:", error);
+    }
+  };
+
+  const handleExperimentCreated = async (created: Experiment) => {
+    setPendingExperiment(created.name);
+    await refetchExperiments();
   };
 
   const handleDriverCreated = async (created: Driver) => {
@@ -242,14 +278,27 @@ export default function EditTestPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="experiment_id">Experiment *</Label>
-                <Input
-                  id="experiment_id"
-                  value={formExperimentId}
-                  onChange={(e) => setExperimentId(e.target.value)}
-                  placeholder="e.g. tyre_pressure_comparison"
-                  disabled={isSubmitting}
-                />
+                <Label>Experiment *</Label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <Select
+                      value={formExperimentId}
+                      onValueChange={setExperimentId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select experiment" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {experiments.map((x) => (
+                          <SelectItem key={x.experiment_id} value={x.name}>
+                            {x.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AddExperimentDialog onCreated={handleExperimentCreated} />
+                </div>
               </div>
 
               <div className="space-y-2">

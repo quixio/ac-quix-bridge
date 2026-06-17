@@ -5,7 +5,6 @@ import { useState, useEffect, useRef } from "react";
 import { MainLayout } from "@/components/layout/main-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -20,13 +19,16 @@ import {
   useDevicesApi,
   useDriversApi,
   useEnvironmentsApi,
+  useExperimentsApi,
 } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
 import { AddDriverDialog } from "@/components/drivers/add-driver-dialog";
+import { AddExperimentDialog } from "@/components/experiments/add-experiment-dialog";
 import { DeviceCategory } from "@/types/device";
 import type { Device } from "@/types/device";
 import type { Driver } from "@/types/driver";
 import type { Environment } from "@/types/environment";
+import type { Experiment } from "@/types/experiment";
 import type { TestMode } from "@/types/test";
 
 export default function AddTestPage() {
@@ -36,8 +38,14 @@ export default function AddTestPage() {
   const devicesApi = useDevicesApi();
   const driversApi = useDriversApi();
   const environmentsApi = useEnvironmentsApi();
+  const experimentsApi = useExperimentsApi();
 
+  // Bound to the experiment NAME (path A): Test.experiment_id stores the name
+  // string verbatim, which is what flows to DCM + the lake partition.
   const [experimentId, setExperimentId] = useState("");
+  const [pendingExperiment, setPendingExperiment] = useState<string | null>(
+    null,
+  );
   const [pcDeviceId, setPcDeviceId] = useState("");
   const [testRigDeviceId, setTestRigDeviceId] = useState("");
   const [environmentId, setEnvironmentId] = useState("");
@@ -55,11 +63,12 @@ export default function AddTestPage() {
   const [testRigDevices, setTestRigDevices] = useState<Device[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [pcRes, rigRes, drvRes, envRes] = await Promise.all([
+        const [pcRes, rigRes, drvRes, envRes, expRes] = await Promise.all([
           devicesApi.list({ category: DeviceCategory.PC, page_size: 100 }),
           devicesApi.list({
             category: DeviceCategory.TEST_RIG,
@@ -67,11 +76,13 @@ export default function AddTestPage() {
           }),
           driversApi.list({ page_size: 100 }),
           environmentsApi.list({ page_size: 100 }),
+          experimentsApi.list({ page_size: 100 }),
         ]);
         setPcDevices(pcRes.items);
         setTestRigDevices(rigRes.items);
         setDrivers(drvRes.items);
         setEnvironments(envRes.items);
+        setExperiments(expRes.items);
       } catch (error) {
         console.error("Failed to fetch dropdown data:", error);
       }
@@ -128,6 +139,22 @@ export default function AddTestPage() {
       setEnvironmentId(environments[0].environment_id);
     }
   }, [environments, environmentId]);
+  useEffect(() => {
+    if (experiments.length > 0 && !experimentId) {
+      setExperimentId(experiments[0].name);
+    }
+  }, [experiments, experimentId]);
+  // Select a just-created experiment once the refetched list contains it (same
+  // Radix preselect race as the driver picker).
+  useEffect(() => {
+    if (
+      pendingExperiment &&
+      experiments.some((x) => x.name === pendingExperiment)
+    ) {
+      setExperimentId(pendingExperiment);
+      setPendingExperiment(null);
+    }
+  }, [experiments, pendingExperiment]);
 
   const refetchDrivers = async () => {
     try {
@@ -141,6 +168,20 @@ export default function AddTestPage() {
   const handleDriverCreated = async (created: Driver) => {
     setPendingDriver(created.name);
     await refetchDrivers();
+  };
+
+  const refetchExperiments = async () => {
+    try {
+      const res = await experimentsApi.list({ page_size: 100 });
+      setExperiments(res.items);
+    } catch (error) {
+      console.error("Failed to refetch experiments:", error);
+    }
+  };
+
+  const handleExperimentCreated = async (created: Experiment) => {
+    setPendingExperiment(created.name);
+    await refetchExperiments();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -259,14 +300,27 @@ export default function AddTestPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="experiment_id">Experiment *</Label>
-                <Input
-                  id="experiment_id"
-                  value={experimentId}
-                  onChange={(e) => setExperimentId(e.target.value)}
-                  placeholder="e.g. tyre_pressure_comparison"
-                  disabled={isSubmitting}
-                />
+                <Label>Experiment *</Label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <Select
+                      value={experimentId}
+                      onValueChange={setExperimentId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select experiment" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {experiments.map((x) => (
+                          <SelectItem key={x.experiment_id} value={x.name}>
+                            {x.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AddExperimentDialog onCreated={handleExperimentCreated} />
+                </div>
               </div>
 
               <div className="space-y-2">
