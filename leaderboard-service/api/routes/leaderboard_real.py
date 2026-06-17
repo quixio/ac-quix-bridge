@@ -245,21 +245,31 @@ def _query_best_laps_min(
     (`live_telemetry`) so the diff step can map folded keys back to the
     raw strings the narrowed Query B `driver IN (...)` clause needs.
 
-    When `settings.lake_server_aggregation` is true (default), runs the
-    aggregated `MIN(...) GROUP BY driver` SQL. On a lake error or HTTP
-    failure it logs a warning and falls through to the raw-scan shape
-    (`_build_best_laps_sql` + Python MIN) — the known-safe path when the
-    configured table is a derived one where GROUP BY stalls
-    (`feedback_quixlake_aggregation_slow`).
+    Resolves best laps via a **raw scan + Python MIN** as the primary
+    path: `SELECT driver, {best_col} ... WHERE <partitions> AND
+    {best_col} > 0` (no `GROUP BY`/`MIN`), reduced per driver in Python.
+    The server-side `MIN(...) GROUP BY driver` aggregation is left behind
+    the off-by-default `settings.lake_server_aggregation` opt-in only: on
+    the slow byox lake it hits the 30s client timeout, and that timeout
+    propagates to *every* caller of this function — both the `/best-laps`
+    route and the TTL-refresh `_run_one` tick — leaving the best-laps
+    cache empty (`feedback_quixlake_aggregation_slow`). The raw scan runs
+    in ~9s and partition-prunes via the full WHERE.
 
-    Raises on failure of the raw-scan path (caller applies per-group
-    stale-on-error).
+    When the opt-in flag is set, the aggregation is attempted as a
+    fast-path; any lake error, HTTP error, or timeout transparently falls
+    back to the raw scan **inside this function**, so no caller can ever
+    see the bare timeout. With the flag off (the default) the scan runs
+    directly.
+
+    Raises only on failure of the raw-scan path itself (caller applies
+    per-group stale-on-error).
     """
     client = LakehouseClient(base_url=quixlake_url, token=quix_lake_token)
 
     if get_settings().lake_server_aggregation:
         sql = _build_best_laps_min_sql(track, car, experiment, environment)
-        logger.info("best-laps MIN SQL: %s", sql)
+        logger.info("best-laps MIN SQL (fast-path attempt): %s", sql)
         try:
             df = client.query(sql)
             df = df.fillna("")
@@ -291,10 +301,13 @@ def _query_best_laps_min(
                 e,
             )
 
-    # Raw-scan fallback: same rows `_query_best_laps` reads, but reduced
-    # to RAW driver keys (no folding) so both paths return the same shape.
+    # Raw-scan primary (and guaranteed fallback): same rows
+    # `_query_best_laps` reads, but reduced to RAW driver keys (no
+    # folding) so both paths return the same shape. No `GROUP BY`/`MIN`
+    # is issued here, so neither the route nor the TTL tick can hit the
+    # timing-out server-side aggregation.
     sql = _build_best_laps_sql(track, car, experiment, environment)
-    logger.info("best-laps scan SQL (fallback): %s", sql)
+    logger.info("best-laps scan SQL: %s", sql)
     df = client.query(sql)
     df = df.fillna("")
     scan_rows: list[dict[str, Any]] = df.to_dict("records")

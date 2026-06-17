@@ -210,12 +210,16 @@ class Settings(BaseSettings):
         ),
     )
     lake_server_aggregation: bool = Field(
-        True,
+        False,
         alias="LAKE_SERVER_AGGREGATION",
         description=(
-            "Use server-side MIN(...) GROUP BY driver for best laps. Set "
-            "false to force the raw-scan + Python-MIN fallback (needed if "
-            "LAKE_TABLE points at a derived table where GROUP BY stalls)"
+            "Attempt server-side MIN(...) GROUP BY driver for best laps as "
+            "a fast-path before the raw-scan + Python-MIN reduction. Off by "
+            "default: on the slow byox lake the aggregation hits the 30s "
+            "client timeout, which propagated to every best-laps caller and "
+            "emptied the cache. With this flag set, a timeout/error "
+            "transparently falls back to the raw scan inside "
+            "_query_best_laps_min, so the failure mode is bounded either way"
         ),
     )
 
