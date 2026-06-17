@@ -470,6 +470,27 @@ deployments:
         required: true
         secret: true
         variableKey: TELEMETRY_COMPARISON_MCP_API_KEY
+      - name: MONGO_USER
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_USER
+      - name: MONGO_PASSWORD
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_ROOT_PASSWORD
+      - name: MONGO_HOST
+        inputType: FreeText
+        required: true
+        value: mongodb
+      - name: MONGO_PORT
+        inputType: FreeText
+        value: 27017
+      - name: MONGO_DATABASE
+        inputType: FreeText
+        description: DB holding track_layouts (same DB track-importer writes to).
+        value: test_manager
     plugin:
       embeddedView:
         enabled: true
