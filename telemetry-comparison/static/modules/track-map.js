@@ -16,6 +16,11 @@
  */
 
 function renderTrackMap() {
+  console.info(
+    '[track-map] render: track_file=%s points=%d',
+    (window.trackData || {}).track_file,
+    ((window.trackData || {}).points || []).length,
+  );
   if (!trackData || !trackConfig) return;
   const pts = trackData.points;
   if (!pts.length) return;

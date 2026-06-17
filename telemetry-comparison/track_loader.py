@@ -324,11 +324,18 @@ async def get_track(track: str = "", layout: str = ""):
     regardless of source; `track_file` carries provenance (`mongo:<_id>` vs the
     CSV path).
     """
+    logger.info("track request: track=%r layout=%r", track, layout)
     if track:
         try:
             doc = _resolve_mongo_doc(track, layout)
             if doc is not None:
                 data = _transform_mongo_doc(doc)
+                logger.info(
+                    "track resolved: mongo:%s (%d points, %d corners)",
+                    doc.get("_id"),
+                    len(data.get("points", [])),
+                    len(data.get("corners", [])),
+                )
                 return JSONResponse(content={"track_file": f"mongo:{doc.get('_id')}", **data})
             logger.warning(
                 "No track_layouts doc for track=%r layout=%r — falling back to CSV",
@@ -347,6 +354,7 @@ async def get_track(track: str = "", layout: str = ""):
     try:
         rel_path = config.DEFAULT_TRACK_CSV
         data = _load_track_csv(rel_path)
+        logger.info("track resolved: CSV fallback %s", rel_path)
         return JSONResponse(content={"track_file": rel_path, **data})
     except Exception as e:
         logger.exception("Failed to load track (CSV fallback)")
@@ -362,6 +370,7 @@ async def get_track_layouts(track: str = ""):
     no docs (never 500) so the frontend simply hides the LAYOUT dropdown and
     uses the CSV fallback.
     """
+    logger.info("track layouts request: track=%r", track)
     layouts: list[dict] = []
     if track:
         try:
@@ -383,6 +392,7 @@ async def get_track_layouts(track: str = ""):
         except (PyMongoError, RuntimeError) as e:
             logger.warning("Mongo layouts lookup failed for track=%r (%s)", track, e)
             layouts = []
+    logger.info("track layouts resolved: track=%r (%d layouts)", track, len(layouts))
     return JSONResponse(content={"track": track, "layouts": layouts})
 
 

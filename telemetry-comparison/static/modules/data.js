@@ -57,12 +57,18 @@ export async function fetchTrack(track = '', layout = '') {
     if (track) p.set('track', track);
     if (layout) p.set('layout', layout);
     const qs = p.toString();
+    console.info('[track] request /api/track?track=%s layout=%s', track, layout);
     const [tRes, cRes] = await Promise.all([
       fetch('/api/track' + (qs ? '?' + qs : '')),
       fetch('/api/track/config'),
     ]);
     const trackJson = await tRes.json();
     const configJson = await cRes.json();
+    console.info(
+      '[track] response track_file=%s points=%d',
+      trackJson.track_file,
+      (trackJson.points || []).length,
+    );
     // Stale-fetch guard: a newer selection already superseded this load.
     if (myToken !== _trackLoadToken) return;
     setTrackData(trackJson);

@@ -52,6 +52,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 from fastapi import WebSocket
@@ -62,6 +63,13 @@ logger = logging.getLogger(__name__)
 # Maximum broadcast rate (per client). 50 ms ≈ 20 Hz — fast enough for a
 # smooth lap clock, slow enough to spare React + the wire.
 THROTTLE_MS = 50
+
+# Diagnostic-logging throttle (logging only, no control-flow impact).
+# ``publish_snapshot`` is a hot path (~20 Hz out), so the snapshot INFO line
+# is gated to ~once/second. ``publish_live_session`` is low-frequency and is
+# NOT throttled.
+_LAST_SNAPSHOT_LOG_EPOCH: float = 0.0
+_SNAPSHOT_LOG_INTERVAL_S: float = 1.0
 
 
 # Idle keepalive interval. Quix ingress (and most cloud LBs) drop idle WS
@@ -258,6 +266,20 @@ def publish_snapshot(snapshot: dict[str, Any]) -> None:
     """
     if _loop is None or _queue is None:
         return
+    # Diagnostic (logging only): a snapshot is being handed to the broadcaster.
+    # Throttled to ~once/second so the ~20 Hz hot path can't flood the logs.
+    global _LAST_SNAPSHOT_LOG_EPOCH
+    _now = time.time()
+    if _now - _LAST_SNAPSHOT_LOG_EPOCH >= _SNAPSHOT_LOG_INTERVAL_S:
+        _LAST_SNAPSHOT_LOG_EPOCH = _now
+        logger.info(
+            "publish snapshot -> WS: driver=%r track=%r car=%r last_gate=%s clients=%d",
+            snapshot.get("driver"),
+            snapshot.get("track"),
+            snapshot.get("car"),
+            snapshot.get("last_gate_index"),
+            len(_clients),
+        )
     try:
         asyncio.run_coroutine_threadsafe(_enqueue_snapshot(snapshot), _loop)
     except RuntimeError:
@@ -331,6 +353,9 @@ def publish_live_session(envelope: dict[str, Any]) -> None:
     """
     if _loop is None:
         return
+    # Diagnostic (logging only): a live_session envelope is being broadcast.
+    # Low-frequency (session adopt / change / stale-clear), so NOT throttled.
+    logger.info("publish live_session -> WS: %s", envelope)
     try:
         asyncio.run_coroutine_threadsafe(_broadcast_envelope(envelope), _loop)
     except RuntimeError:

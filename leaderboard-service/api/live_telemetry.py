@@ -726,6 +726,13 @@ _last_live_session_envelope: dict[str, Any] | None = None
 # with the per-message lock churn in `_record_message` for no benefit.
 _last_raw_tick_epoch: float = 0.0
 
+# Diagnostic-logging throttle (logging only, no control-flow impact). Raw is
+# ~50 msg/s, so logging every recorded tick would flood the deployment logs.
+# We gate the "raw tick" INFO line to at most ~once/second via this epoch.
+# Enrichment-DROP events are NOT throttled (low-frequency, the key signal).
+_LAST_RAW_LOG_EPOCH: float = 0.0
+_RAW_LOG_INTERVAL_S: float = 1.0
+
 
 def _live_session_ttl_s() -> float:
     from .settings import get_settings
@@ -1002,6 +1009,13 @@ def _adopt_live_session(hostname: str, track: str, car: str) -> None:
         # broadcast a live envelope (would flip the button on open tabs).
         # `current_live_session()` will surface this session the instant a
         # raw tick lands; until then the wire stays as-is.
+        logger.info(
+            "publish live_session SUPPRESSED (raw feed not live): "
+            "hostname=%r track=%r car=%r",
+            hostname,
+            track,
+            car,
+        )
         return
     _publish_live_session_if_changed(_build_live_session_envelope(session))
 
@@ -1085,6 +1099,15 @@ def _record_message(payload: dict[str, Any]) -> None:
     car = payload.get("carModel") or payload.get("car")
     driver = payload.get("driver")
     if not (track and car and driver):
+        # Diagnostic (logging only): a raw tick was dropped because enrichment
+        # is incomplete. This is the key "live not showing" signal, so it is
+        # NOT throttled — every drop logs.
+        logger.info(
+            "raw tick DROPPED (missing enrichment): track=%r car=%r driver=%r",
+            track,
+            car,
+            driver,
+        )
         return
     # Real raw feed is flowing — stamp the global liveness clock that gates
     # the live-session flag (see `current_live_session`). This is the ONLY
@@ -1095,6 +1118,21 @@ def _record_message(payload: dict[str, Any]) -> None:
         i_current = int(payload.get("iCurrentTime") or 0)
         completed = int(payload.get("completedLaps") or 0)
         norm_pos = float(payload.get("normalizedCarPosition") or 0.0)
+        # Diagnostic (logging only): a raw tick was recorded. Throttled to
+        # ~once/second via the module-level epoch gate so the ~50 msg/s feed
+        # cannot flood the deployment logs.
+        global _LAST_RAW_LOG_EPOCH
+        _now = time.time()
+        if _now - _LAST_RAW_LOG_EPOCH >= _RAW_LOG_INTERVAL_S:
+            _LAST_RAW_LOG_EPOCH = _now
+            logger.info(
+                "raw tick: track=%r car=%r driver=%r normPos=%.3f lap=%s",
+                track,
+                car,
+                driver,
+                norm_pos,
+                completed,
+            )
         entry_partial: dict[str, Any] = {
             "last_seen_epoch": time.time(),
             "experiment": str(payload.get("experiment") or ""),

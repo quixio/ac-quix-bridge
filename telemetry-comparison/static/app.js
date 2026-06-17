@@ -140,7 +140,10 @@ window.onPartChange = function (rowIdx, changedCol) {
   const firstRow = document.querySelector('.selection-row');
   if (!firstRow || parseInt(firstRow.dataset.rowIdx) !== rowIdx) return;
   const newTrack = getActiveTrack();
-  if (newTrack !== _activeTrack) refreshTrackForActive(newTrack);
+  if (newTrack !== _activeTrack) {
+    console.info('[track] active change %s -> %s, refreshing', _activeTrack, newTrack);
+    refreshTrackForActive(newTrack);
+  }
 };
 
 // ---------------------------------------------------------------------------
