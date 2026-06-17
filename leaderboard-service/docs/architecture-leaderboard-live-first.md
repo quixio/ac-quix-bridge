@@ -23,9 +23,20 @@ On a cold cache that meant the first paint waited on
 with a 30 s timeout that times out (`httpcore.ReadTimeout`) on the byox lake.
 
 The fix keeps the proven live path untouched and removes the lake from the
-connect path only. We did **not** rewrite enumeration to the fast catalog
-`/manifest` endpoint — that is a separate follow-up. This change is purely the
-ordering / non-blocking guarantee.
+connect path only; this change is purely the ordering / non-blocking guarantee.
+
+**Update (follow-up landed):** `partition_index.enumerate_groups()` no longer
+runs the per-environment `SELECT … GROUP BY` on its primary path. When a
+catalog URL/token is configured (`Quix__Lakehouse__Catalog__Url` /
+`__AuthToken`, falling back to `CATALOG_URL` / `CATALOG_TOKEN`) it now reads the
+Iceberg catalog `/manifest` endpoint once (~130 ms, size-independent) and
+dedupes `partition_values` in Python — the same metadata path the Telemetry
+Explorer uses (`telemetry-comparison/partition_walker.py`). The 30 s
+`GROUP BY` is now only reachable as a fallback when no catalog is configured.
+The completed-lap filter (`iBestTime > 0`) can't be expressed in partition
+metadata, so the manifest path approximates it by requiring a real numbered
+lap partition (`lap >= 1`). See `partition_index.py`'s module docstring for the
+full path-preference order and rationale.
 
 ## Blocking point that was fixed
 
@@ -228,6 +239,7 @@ delay the *resolved-experiment* broadcast for a newly-adopted session. The
 fast envelope already carries track/car (and DCM-cached experiment), so the
 live table and the live-session indicator are unaffected; only the lake-aligned
 experiment for the Best Laps panel of a brand-new bare session waits — and it
-patches in when the enumeration answers or its TTL cache warms. Switching
-enumeration to the catalog `/manifest` endpoint (the separate follow-up) would
-remove this last slow call entirely.
+patches in when the enumeration answers or its TTL cache warms. Enumeration has
+since been switched to the catalog `/manifest` endpoint (see the "follow-up
+landed" note above), so this last call is now a sub-second metadata read rather
+than a multi-second `GROUP BY` whenever a catalog is configured.

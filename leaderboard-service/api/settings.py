@@ -76,6 +76,29 @@ class Settings(BaseSettings):
         description="Bearer token for the Lakehouse Query API",
     )
 
+    # Iceberg catalog API (metadata-only). Used by the partition-group
+    # enumeration's primary path: one `/manifest` call returns every file's
+    # partition_values, deduped in Python — no aggregation SQL, sub-second.
+    # Mirrors how telemetry-comparison resolves these (see its `config.py`):
+    # canonical `Quix__Lakehouse__Catalog__*` first, then legacy
+    # `CATALOG_URL` / `CATALOG_TOKEN` for local dev / older deployments.
+    lakehouse_catalog_url: str | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "Quix__Lakehouse__Catalog__Url",
+            "CATALOG_URL",
+        ),
+        description="Base URL of the Iceberg catalog API (for /manifest)",
+    )
+    lakehouse_catalog_token: str | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "Quix__Lakehouse__Catalog__AuthToken",
+            "CATALOG_TOKEN",
+        ),
+        description="Bearer token for the Iceberg catalog API",
+    )
+
     # Kafka topic names for the live leaderboard consumer.
     kafka_raw_topic: str = Field(
         "demo-acquixbridge-dev-ac-telemetry-raw",

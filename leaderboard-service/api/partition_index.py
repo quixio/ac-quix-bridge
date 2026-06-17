@@ -7,38 +7,54 @@ unions this with its live-session/DCM-derived groups so the historical
 leaderboard populates straight from the lake, with no live AC session,
 no DCM config, and no Mongo data required.
 
-Two enumeration paths, both against the QuixLake API the service
-already has credentials for (`Quix__Lakehouse__Query__Url` / `__AuthToken`):
+Three enumeration paths, in preference order:
 
-  1. **Primary — partitions endpoint + pruned fan-out.**
-     `GET {base}/partitions?table={table}` (QuixLake's Iceberg-catalog-
-     backed partition-tree endpoint; metadata only, no data rows scanned)
-     discovers the distinct `environment` values, then one
+  1. **Primary — Iceberg catalog `/manifest` (metadata only, one call).**
+     `GET {catalog}/namespaces/default/tables/{table}/manifest` returns
+     one entry per data file, each carrying the file's full
+     `partition_values` dict (`environment`, `track`, `carModel`,
+     `experiment`, `driver`, `session_id`, `lap`, ...). We dedupe those
+     in Python into the distinct `(track, carModel, experiment,
+     environment)` group tuples. This is the same call (and the same
+     dedupe-in-Python shape) the Telemetry Explorer uses
+     (`telemetry-comparison/partition_walker.py`) and it answers in
+     ~130 ms regardless of lake size. **No aggregation SQL runs.** This is
+     the path that replaced the per-environment `GROUP BY` fan-out, which
+     scanned data and hit the 30 s client timeout on the byox lake
+     (`enumeration failed; serving empty group list`).
+
+     Best-lap / completed-lap filter: `iBestTime > 0` is a *data* column,
+     not a partition value, so it cannot be expressed in catalog metadata.
+     We approximate the intent by requiring the partition combo to have at
+     least one real lap (`lap >= 1`) — the lake sink partitions every
+     completed lap by its number, so a combo with a lap partition has
+     recorded telemetry for that lap. A combo that genuinely has no flying
+     lap time (e.g. an out-lap only) can't be distinguished without a data
+     scan; such a combo would surface here but render empty best-laps
+     downstream, which the best-laps cache already tolerates.
+
+  2. **Fallback A — `/partitions` endpoint + pruned per-env fan-out**
+     (used only when the catalog is not configured). QuixLake's
+     `GET {base}/partitions?table={table}` returns one partition *level*
+     per call (`[{"name": "environment=<v>"}, ...]`), so it discovers the
+     distinct `environment` values; then one
      `SELECT experiment, track, carModel FROM {table}
       WHERE environment = '<env>' AND {best_col} > 0
       GROUP BY experiment, track, carModel`
-     per environment, run in parallel. The equality predicate triggers
-     server-side partition pruning, so a stray non-partitioned
-     `data.parquet` at the table root (present in at least one lake
-     instance, intentionally not deleted) never enters the scan list.
-  2. **Fallback — single dashboard-shape global GROUP BY** when the
-     `/partitions` endpoint is unavailable (older QuixLake builds).
-     The same query shape the telemetry-dashboard runs in production
-     (`telemetry-dashboard/main.py`), widened with the group columns:
-     `SELECT environment, experiment, track, carModel, driver,
-      MIN({best_col}) AS ms FROM {table}
-      WHERE {best_col} > 0 AND driver IS NOT NULL AND driver <> ''
-      GROUP BY environment, experiment, track, carModel, driver`,
-     reduced to distinct group tuples in Python. Un-pruned, so on a lake
-     with the stray root parquet it fails at bind time with
-     `Binder Error: Hive partition mismatch` — that error is swallowed
-     by the caching layer (stale-on-error / `[]`), which is the accepted
-     degradation on such lakes; the cloud-global lake binds it fine.
+     per environment, run in parallel. **This GROUP BY is the path that
+     timed out** — it is now only reachable when no catalog URL/token is
+     configured (no metadata alternative available).
+  3. **Fallback B — single dashboard-shape global GROUP BY** when the
+     `/partitions` endpoint is also unavailable. The same query shape the
+     telemetry-dashboard runs in production, widened with the group
+     columns, reduced to distinct group tuples in Python.
 
-Why not pyiceberg against `Quix__Lakehouse__Catalog__Url`: the
-`/partitions` endpoint reads the same Iceberg catalog metadata, uses
-credentials that are provably configured (the `/query` calls already
-work), needs no new dependency, and is verifiable outside the cloud.
+Why the catalog `/manifest` over the `/partitions` tree walk: `/partitions`
+is one level deep per call, so building full group tuples from it requires
+a D-deep recursive walk (D × ~150 ms; see
+`quix-ai-config/ac-telemetry-agent/make_kb_files.py:walk`). The catalog's
+indexed manifest returns every file's partition_values in a single
+size-independent call instead.
 
 Caching: module-level TTL cache (`settings.partition_index_ttl_seconds`,
 default 60 s) with stale-on-error (a failed refresh serves the previous
@@ -62,8 +78,8 @@ from .settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Metadata-endpoint timeout. The partition tree read is catalog metadata
-# only, so it answers in well under a second when healthy.
+# Metadata-endpoint timeout. The partition tree / manifest reads are
+# catalog metadata only, so they answer in well under a second when healthy.
 _PARTITIONS_TIMEOUT_S = 10.0
 
 _lock = threading.Lock()  # guards the three cache fields below
@@ -115,6 +131,69 @@ def _fetch_environments_via_partitions_endpoint(
         if prefix == "environment" and sep and value.strip():
             envs.append(value.strip())
     return envs
+
+
+def _fetch_groups_via_catalog_manifest(
+    catalog_url: str, catalog_token: str, lake_table: str
+) -> list[tuple[str, str, str, str]]:
+    """Distinct `(track, carModel, experiment, environment)` tuples via
+    the Iceberg catalog `/manifest` endpoint.
+
+    One metadata-only HTTP call (size-independent, ~130 ms). Each manifest
+    entry carries the file's full `partition_values`; we dedupe them in
+    Python — no aggregation SQL, no data scan. Mirrors
+    `telemetry-comparison/partition_walker.py`.
+
+    Completed-lap filter: `lap` is a partition value, but `iBestTime > 0`
+    is not, so we require `lap >= 1` (a combo with at least one recorded
+    lap partition). A combo missing any of the four group fields, or with
+    no real lap, is dropped. `NA` placeholder partitions surface as the
+    literal string `"NA"` here (the JSON response preserves it), matching
+    the existing per-env path's treatment of `environment=NA`; combos
+    whose track/car/experiment is empty are dropped by the field guard.
+
+    Raises on any transport/shape problem so the caller can fall through
+    to the `/partitions` + GROUP BY path.
+    """
+    url = (
+        f"{catalog_url.rstrip('/')}/namespaces/default/tables/"
+        f"{lake_table}/manifest"
+    )
+    # verify=False: demo Box Cloud self-signed certs — same TODO(ssl) as
+    # `LakehouseClient.query`.
+    with httpx.Client(verify=False) as client:
+        r = client.get(
+            url,
+            headers={"Authorization": f"Bearer {catalog_token}"},
+            timeout=_PARTITIONS_TIMEOUT_S,
+        )
+    r.raise_for_status()
+    body = r.json()
+    entries = body.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError(f"unexpected /manifest response shape: {body!r}")
+
+    seen: set[tuple[str, str, str, str]] = set()
+    groups: list[tuple[str, str, str, str]] = []
+    for entry in entries:
+        pv = entry.get("partition_values") or {}
+        if not isinstance(pv, dict):
+            continue
+        # Completed-lap proxy: require a real numbered lap partition.
+        lap_val = pv.get("lap")
+        if lap_val is None or not str(lap_val).isdigit() or int(lap_val) < 1:
+            continue
+        track = str(pv.get("track") or "").strip()
+        car = str(pv.get("carModel") or "").strip()
+        experiment = str(pv.get("experiment") or "").strip()
+        environment = str(pv.get("environment") or "").strip()
+        if not (track and car and experiment and environment):
+            continue
+        key = (track, car, experiment, environment)
+        if key not in seen:
+            seen.add(key)
+            groups.append(key)
+    return groups
 
 
 def _build_global_groups_sql(lake_table: str, best_col: str) -> str:
@@ -211,12 +290,38 @@ def _enumerate_from_lake() -> list[tuple[str, str, str, str]]:
     nothing with stale-on-error is the safer contract.
     """
     settings = get_settings()
+    lake_table = settings.lake_table
+    best_col = settings.col_best_time
+    catalog_url = settings.lakehouse_catalog_url
+    catalog_token = settings.lakehouse_catalog_token
+
+    # Primary: the catalog `/manifest` metadata call — one round-trip, no
+    # aggregation SQL, no data scan. This is the path that replaces the
+    # per-env GROUP BY fan-out that hit the 30 s timeout.
+    if catalog_url and catalog_token:
+        groups = _fetch_groups_via_catalog_manifest(
+            catalog_url, catalog_token, lake_table
+        )
+        logger.info(
+            "partition-index: enumerated %d group(s) via catalog /manifest "
+            "(metadata-only, no GROUP BY)",
+            len(groups),
+        )
+        return groups
+
+    # No catalog configured — fall back to the query API. Both fallbacks
+    # below run aggregation SQL and exist only for deployments without
+    # catalog credentials.
+    logger.warning(
+        "partition-index: no catalog URL/token configured; falling back to "
+        "the /partitions + per-env GROUP BY path (slower, may time out on "
+        "large lakes). Set Quix__Lakehouse__Catalog__Url / __AuthToken to "
+        "use the fast manifest path."
+    )
     base_url = settings.lakehouse_query_url
     token = settings.lakehouse_query_token
     if not base_url or not token:
         raise RuntimeError("Lakehouse credentials not configured")
-    lake_table = settings.lake_table
-    best_col = settings.col_best_time
     client = LakehouseClient(base_url=base_url, token=token)
 
     try:
