@@ -69,7 +69,23 @@ class LakehouseClient:
             raise LakehouseQueryError(body.strip())
         if not body.strip():
             return pd.DataFrame()
-        return pd.read_csv(io.StringIO(body))
+        # The five partition columns are strings whose values can look numeric
+        # in some chunks and not others (e.g. all-digit car/track names),
+        # which makes pandas' chunked type inference emit a
+        # ``DtypeWarning: Columns ... have mixed types``. Pin them to ``str``
+        # and disable chunked inference so the dtypes are stable and the
+        # warning never fires; ``iBestTime`` is left to numeric inference.
+        return pd.read_csv(
+            io.StringIO(body),
+            low_memory=False,
+            dtype={
+                "environment": str,
+                "experiment": str,
+                "track": str,
+                "carModel": str,
+                "driver": str,
+            },
+        )
 
     def _post_with_retry(self, url: str, sql: str) -> str:
         attempts = len(_RETRY_BACKOFFS_S) + 1

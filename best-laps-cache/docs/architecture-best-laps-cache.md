@@ -14,18 +14,35 @@ the cache + API + reconcile only — the leaderboard is not rewired.
 
 ## Why this architecture (key decisions and trade-offs)
 
-- **In-memory mirror as the queryable truth, persistent State as durable
-  backup.** QuixStreams State is RocksDB-backed and survives redeploys
-  (brief requirement), but it is partition-scoped and only reachable from
-  inside the consumer's processing context — not safely readable from the
-  HTTP or reconcile threads. So every accepted live write is mirrored into a
-  thread-safe `BestLapsStore` (`store.py`) that the API and reconcile worker
-  read/write under a lock, while the durable copy is written into the
-  persistent `best_laps` State store. Trade-off: warm State is not yet
-  re-loaded into the mirror on boot (the `_seed_mirror_from_state` hook is a
-  best-effort stub — see Caveats); the first reconcile (kicked immediately on
-  start) repopulates the mirror within one scan, so cold-start correctness is
-  preserved.
+- **In-memory `BestLapsStore` as the single queryable truth.** Every accepted
+  live write goes into a thread-safe `BestLapsStore` (`store.py`) that the
+  API and reconcile worker read/write under a lock. `update_live` itself
+  enforces the monotonic per-group/driver minimum, so the index is also the
+  authority for "have we already seen a faster lap?" — there is no separate
+  durable store to consult on the hot path. A redeploy starts cold; the first
+  reconcile (kicked immediately on start) repopulates the mirror within one
+  scan, so cold-start correctness is preserved. (An earlier design also wrote
+  a parallel RocksDB QuixStreams State store for redeploy warmth, but its
+  warm-read-on-boot hook was never implemented — the store was write-only and
+  never fed the API — so it was removed alongside the SDF; see the consumer
+  decision below.)
+
+- **Manual consumer poll loop, not `Application.run()` (off-main-thread
+  safety).** The consumer runs on a daemon thread while uvicorn owns the main
+  thread. `Application.run()` installs `SIGINT`/`SIGTERM` handlers via
+  `signal.signal` in `_setup_signal_handlers`, and `signal.signal` raises
+  `ValueError: signal only works in main thread of the main interpreter` when
+  called off the main thread — which crashed the deployed raw consumer. The
+  fix replaces the three-SDF `app.run()` model with a manual loop over
+  `app.get_consumer()` (a bare confluent consumer, no signal setup):
+  `consumer.subscribe([raw, session, config])`, then
+  `poll(timeout=0.5)` → deserialize with the matching `app.topic` →
+  `_dispatch` by topic name to the same handlers the SDFs used. This mirrors
+  the proven `leaderboard-service/api/live_telemetry.py:_consumer_loop`.
+  Offsets auto-commit (`get_consumer(auto_commit_enable=True)` default),
+  matching the SDF's commit cadence. Shutdown is the existing
+  `threading.Event`: `stop()` sets it, the loop exits within one poll timeout,
+  and the `with app.get_consumer()` block closes the consumer.
 
 - **One serialized whole-table scan (O1).** The reconcile worker is a single
   daemon thread that runs cycles one at a time; a `threading.Lock` acquired
@@ -64,11 +81,11 @@ the cache + API + reconcile only — the leaderboard is not rewired.
 ## Data flow
 
 ```
-ac-telemetry-raw ──► RawConsumer._process_raw (QuixStreams SDF, stateful)
+RawConsumer._run: with app.get_consumer() as consumer → poll(0.5s) → _dispatch
+ac-telemetry-raw ──► _process_raw
                          │  enrich(track,car,driver,exp,env) from caches
-                         │  if iBestTime>0 and faster than stored:
-                         ├──► State.set(group_key, value)      (persistent, durable)
-                         └──► BestLapsStore.update_live(...)    (in-memory mirror)
+                         │  if iBestTime>0:
+                         └──► BestLapsStore.update_live(...)  (min guard + write)
                                                                        │
 ac-telemetry-session ──► Enrichment.handle_session_message ──► session cache + DCM fetch
 ac-telemetry-config  ──► Enrichment.handle_config_event    ──► experiment cache refresh
@@ -85,8 +102,8 @@ in-memory mirror.
 
 ## State schema
 
-- **Store:** persistent QuixStreams State store `best_laps` (durable) +
-  in-memory `BestLapsStore` mirror (queryable).
+- **Store:** in-memory `BestLapsStore` (the single queryable index; no
+  durable RocksDB State store).
 - **Key:** the five Lakehouse partition keys joined with `\x1f` (ASCII unit
   separator, cannot appear in a value): `environment \x1f experiment \x1f
   track \x1f carModel \x1f driver`. `driver` stored raw (consumer folds).
@@ -113,10 +130,10 @@ in-memory mirror.
 | `main.py` | Boots consumer thread + reconcile thread + uvicorn (main thread); joins workers on shutdown. |
 | `best_laps_cache/settings.py` | Env-driven `Settings` snapshot; validates `LAKE_TABLE`/`LAKE_COL_BEST_TIME` as SQL identifiers. |
 | `best_laps_cache/store.py` | `BestLapsStore` — thread-safe mirror; key encode/decode; `update_live` (min), `merge_reconcile` (min), `query`. |
-| `best_laps_cache/lakehouse_client.py` | Ported `/query` client: `verify=False`, bounded retry, CSV parse. |
+| `best_laps_cache/lakehouse_client.py` | Ported `/query` client: `verify=False`, bounded retry, CSV parse (`read_csv(low_memory=False, dtype=str)` on the five partition columns to suppress pandas `DtypeWarning` from chunked type inference). |
 | `best_laps_cache/enrichment.py` | Session cache + DCM resolution; `enrich()` for the hot path. |
 | `best_laps_cache/reconcile.py` | `ReconcileWorker` (serialized daemon), `build_reconcile_sql`, `reduce_rows`. |
-| `best_laps_cache/consumer.py` | `RawConsumer` — QuixStreams Application, three SDFs, persistent State updater. |
+| `best_laps_cache/consumer.py` | `RawConsumer` — QuixStreams Application + manual `get_consumer()` poll loop (no `app.run()`, no signal handlers) dispatching raw/session/config to the in-memory index + enrichment. |
 | `best_laps_cache/api.py` | FastAPI app, `GET /best-laps` (CSV/JSON), `GET /healthz`. |
 | `app.yaml` / `dockerfile` / `pyproject.toml` / `.dockerignore` | Quix deployment + container. |
 | `tests/` | `test_store.py`, `test_reconcile.py`, `test_api.py`. |
@@ -137,13 +154,12 @@ in-memory mirror.
 
 ## Caveats
 
-- `_seed_mirror_from_state` is a best-effort stub: it does not yet replay the
-  persistent State store into the in-memory mirror on boot, so immediately
-  after a restart the API serves whatever the first reconcile (kicked on
-  start) and live ticks have populated. Durability of the State store itself
-  is intact; only the warm-read-on-boot optimisation is deferred. Completing
-  it requires iterating the partition stores via the QuixStreams state
-  manager once partitions are assigned.
+- **No warm start across redeploys.** There is no durable State store; on a
+  restart the API serves an empty index until the first reconcile (kicked on
+  start) and incoming live ticks repopulate it — one full scan, seconds. If
+  redeploy warmth is later required, add it on the `BestLapsStore` side (e.g.
+  a periodic snapshot to blob), not by reintroducing a partition-scoped
+  RocksDB store that the HTTP/reconcile threads can't safely read.
 - The session-topic handler keys the enrichment cache by a `hostname` field
   if the payload carries one, else a constant `"default"` — adequate for the
   single-sim deployment (most-recent-entry resolution), matching the
