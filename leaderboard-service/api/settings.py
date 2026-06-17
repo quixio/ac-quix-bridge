@@ -167,6 +167,25 @@ class Settings(BaseSettings):
             "from the session topic) is no longer considered live"
         ),
     )
+    # Raw-telemetry liveness gate. The live-session flag is suppressed
+    # unless an actual RAW tick arrived within this window — regardless of
+    # how recently a session/config announcement was (re-)adopted. This
+    # closes the redeploy phantom: on (re)start the session + config topics
+    # are rewound to OFFSET_BEGINNING, so a retained announcement replays
+    # and adopts a "live" session even though no raw feed exists. Default
+    # 15 s comfortably exceeds the raw cadence gap (raw is ~50 msg/s; the
+    # per-driver active window `STALE_AFTER_S` is 10 s) while still clearing
+    # the flag within seconds of a real feed stopping.
+    raw_liveness_window_s: float = Field(
+        15.0,
+        alias="RAW_LIVENESS_WINDOW_S",
+        description=(
+            "Max age (seconds) of the last raw telemetry tick for the "
+            "adopted live session to count as live. Suppresses the "
+            "redeploy phantom where a rewound session announcement adopts "
+            "a 'live' session with no raw feed."
+        ),
+    )
     lake_server_aggregation: bool = Field(
         True,
         alias="LAKE_SERVER_AGGREGATION",

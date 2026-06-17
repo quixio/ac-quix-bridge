@@ -1270,6 +1270,8 @@ def _solo_active_group(
 
 def build_live_positions(
     mongo: Database[dict[str, Any]],
+    *,
+    allow_cold_refresh: bool = True,
 ) -> list[dict[str, object]]:
     """Build the real-mode `/live-positions` payload.
 
@@ -1278,6 +1280,18 @@ def build_live_positions(
     cold (`None`). "No data" is *not* an error: an empty-but-refreshed
     cache (`{}`) and a missing-or-stale live driver both serve a
     historical-only payload — possibly `[]` — with 200 OK.
+
+    `allow_cold_refresh` (default `True`) controls the cold-cache
+    behaviour. When the best-laps cache is still `None` (no refresh has
+    run yet) and this is `True`, a one-shot SYNCHRONOUS lake refresh runs
+    so the polled `/live-positions` endpoint can serve data on the first
+    request after boot. When `False`, a cold cache is treated as empty
+    (`{}`) and NO lake call is made — this is the WebSocket-connect path,
+    where the initial snapshot must paint the live table immediately
+    without ever blocking on the 30 s lake enumeration. The background
+    TTL tick (consumer thread) fills the cache and rebroadcasts a full
+    snapshot once historicals arrive; the active driver streams over WS
+    regardless of cache state.
 
     Step 1: reads `live_telemetry.get_best_laps_cache()` (per-driver
     best-lap dict, keyed by `(track, car, experiment, environment)`).
@@ -1294,22 +1308,28 @@ def build_live_positions(
     # event. The per-request path here is lake-free in the common case.
     best_laps_cache = live_telemetry.get_best_laps_cache()
     if best_laps_cache is None:
-        # Cold start: no refresh has run yet (consumer thread might be
-        # disabled or hasn't reached its warm-up). Do one synchronous
-        # refresh so the first poll after backend boot still serves data.
-        try:
-            live_telemetry.refresh_best_laps_cache(
-                settings.lakehouse_query_url, settings.lakehouse_query_token
-            )
-        except Exception as e:  # defensive — refresh already swallows
-            logger.exception("Lakehouse query failed")
-            raise LeaderboardError(str(e)) from e
-        best_laps_cache = live_telemetry.get_best_laps_cache()
-        if best_laps_cache is None:
-            # Still `None` after a refresh means every group query failed
-            # (genuine lake error) — a refresh that found no groups or no
-            # rows leaves `{}` instead, which serves as 200 below.
-            raise LeaderboardError("Lakehouse query failed; see backend logs")
+        if not allow_cold_refresh:
+            # WS-connect path: never block the first snapshot on the lake.
+            # Serve an empty historicals set now; the background refresh
+            # will rebroadcast a populated snapshot when it lands.
+            best_laps_cache = {}
+        else:
+            # Cold start: no refresh has run yet (consumer thread might be
+            # disabled or hasn't reached its warm-up). Do one synchronous
+            # refresh so the first poll after backend boot still serves data.
+            try:
+                live_telemetry.refresh_best_laps_cache(
+                    settings.lakehouse_query_url, settings.lakehouse_query_token
+                )
+            except Exception as e:  # defensive — refresh already swallows
+                logger.exception("Lakehouse query failed")
+                raise LeaderboardError(str(e)) from e
+            best_laps_cache = live_telemetry.get_best_laps_cache()
+            if best_laps_cache is None:
+                # Still `None` after a refresh means every group query failed
+                # (genuine lake error) — a refresh that found no groups or no
+                # rows leaves `{}` instead, which serves as 200 below.
+                raise LeaderboardError("Lakehouse query failed; see backend logs")
     driver_name_lookup = _build_driver_name_lookup(mongo)
 
     try:

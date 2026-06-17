@@ -73,16 +73,18 @@ STALE_AFTER_S = 10.0
 # happening right now" — we don't care about history.
 #
 # We subscribe to BOTH the raw topic (for live ticks) AND the session topic
-# (for track/car/driver enrichment). The raw topic honors
-# `auto_offset_reset="latest"` — it is high-volume (~50 msg/s, 200k+
-# retained) and replaying it would lag the consumer for minutes. The
-# SESSION and CONFIG topics, however, are tiny metadata streams produced
-# once per session / config change, and the caches need the MOST-RECENT
-# message on every (re)start ("take last message"). So the `on_assign`
-# rebalance callback in `_consumer_loop` rewinds exactly those two topics'
-# partitions to `OFFSET_BEGINNING` (overriding any committed offsets) and
-# replays the small backlog into the per-hostname caches; raw partitions
-# keep their committed/latest position.
+# (for track/car/driver enrichment). The raw topic is high-volume
+# (~50 msg/s, 200k+ retained); replaying its backlog would lag the consumer
+# for minutes AND — worse — those fast old ticks keep `_raw_feed_is_live()`
+# true, so a stale session would show as live after a restart. The SESSION
+# and CONFIG topics, by contrast, are tiny metadata streams produced once
+# per session / config change, and the caches need the MOST-RECENT message
+# on every (re)start ("take last message"). So the `on_assign` rebalance
+# callback in `_consumer_loop` rewinds the SESSION + CONFIG partitions to
+# `OFFSET_BEGINNING` (replaying their small backlog into the caches) AND
+# seeks the RAW partitions to `OFFSET_END` on every (re)assign — any
+# committed raw offset is ignored, so raw always resumes at the tail and
+# only genuinely-new ticks flip the feed live.
 CONSUMER_GROUP = "leaderboard-service-ghost-lap"
 
 # Number of equally-sized checkpoint gates the lap is split into for the
@@ -712,6 +714,18 @@ _live_session: dict[str, Any] | None = None
 # replay re-announces the same session every iteration).
 _last_live_session_envelope: dict[str, Any] | None = None
 
+# Wall-clock epoch of the last ACTUAL raw telemetry tick recorded by
+# `_record_message`. This is the real-feed liveness signal that gates the
+# live-session flag: a session/config announcement re-adopted from the
+# rewound metadata topics on (re)start no longer counts as "live" unless
+# raw is genuinely flowing. Written by the consumer thread (one site,
+# inside `_record_message`); read by the FastAPI broadcaster thread via
+# `current_live_session()` / `sweep_stale_live_session()`. A bare float
+# load/store is atomic under CPython's GIL, so no lock is needed for this
+# scalar — taking `_live_session_lock` around it would risk pairing it
+# with the per-message lock churn in `_record_message` for no benefit.
+_last_raw_tick_epoch: float = 0.0
+
 
 def _live_session_ttl_s() -> float:
     from .settings import get_settings
@@ -719,11 +733,46 @@ def _live_session_ttl_s() -> float:
     return get_settings().live_session_stale_after_s
 
 
+def _raw_liveness_window_s() -> float:
+    from .settings import get_settings
+
+    return get_settings().raw_liveness_window_s
+
+
+def _raw_feed_is_live(now: float | None = None) -> bool:
+    """True when a raw telemetry tick arrived within `raw_liveness_window_s`.
+
+    This is the authoritative "is the feed actually flowing right now"
+    check. It is independent of the per-driver active state and of the
+    session-announcement TTL — both of which can read live after a
+    redeploy replays a retained announcement with no raw behind it.
+    """
+    if now is None:
+        now = time.time()
+    return now - _last_raw_tick_epoch < _raw_liveness_window_s()
+
+
 def current_live_session() -> dict[str, Any] | None:
     """Return the most-recently-adopted session (`{hostname, track, car,
-    last_seen_epoch}`) if still inside the liveness TTL, else `None`.
+    last_seen_epoch}`) if it is genuinely live, else `None`.
+
+    "Genuinely live" requires BOTH:
+      1. a RAW telemetry tick within `raw_liveness_window_s` (the feed is
+         actually flowing right now), AND
+      2. the announcement is still inside `live_session_stale_after_s`
+         (the adopted track/car metadata hasn't aged out).
+
+    The raw-feed gate (1) is what closes the redeploy phantom: on (re)start
+    the session + config topics are rewound to OFFSET_BEGINNING, so a
+    retained announcement replays and adopts a session even though no raw
+    feed exists. Without raw flowing, this returns `None` and the UI shows
+    no live session / the button stays off. `_adopt_live_session` and the
+    metadata enrichment caches are untouched — once raw resumes, the
+    adopted session immediately labels the live flag with track/car/driver.
     """
     now = time.time()
+    if not _raw_feed_is_live(now):
+        return None
     with _live_session_lock:
         sess = _live_session
         if sess is None:
@@ -840,6 +889,69 @@ def current_live_session_envelope() -> dict[str, Any]:
     return _build_live_session_envelope(current_live_session())
 
 
+def _build_live_session_envelope_fast(
+    session: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Lake-free projection of a live-session record to the wire envelope.
+
+    Unlike `_build_live_session_envelope`, this NEVER calls
+    `partition_index.enumerate_groups()` (the 30 s lake round-trip).
+    Experiment / environment come solely from the DCM `_experiment_cache`
+    for the session's hostname; when DCM hasn't been consulted yet they
+    stay `None`. The authoritative lake-aligned resolution is broadcast
+    a moment later by `current_live_session_envelope()` off the connect
+    path — so a slow/timing-out lake can never delay the first
+    `live_session` frame (and therefore the live view) on connect.
+    """
+    if session is None:
+        return {
+            "type": "live_session",
+            "track": None,
+            "car": None,
+            "experiment": None,
+            "environment": None,
+        }
+    with _state_lock:
+        entry = _experiment_cache.get(session["hostname"])
+    experiment = str(entry.get("experiment") or "").strip() if entry else ""
+    environment = str(entry.get("environment") or "").strip() if entry else ""
+    return {
+        "type": "live_session",
+        "track": session["track"],
+        "car": session["car"],
+        "experiment": experiment or None,
+        "environment": environment or None,
+    }
+
+
+def current_live_session_envelope_fast() -> dict[str, Any]:
+    """Lake-free wire envelope for the current live session.
+
+    Sent by the WS endpoint on connect so the `live_session` frame ships
+    immediately, without the partition-index lake call. `current_live_session()`
+    itself is lake-free (a raw-tick freshness check + an in-memory record),
+    so the only blocking risk — `enumerate_groups()` inside
+    `_resolve_session_experiment` — is sidestepped here. The fully-resolved
+    envelope is rebroadcast asynchronously afterwards.
+    """
+    return _build_live_session_envelope_fast(current_live_session())
+
+
+def resolve_and_publish_live_session() -> None:
+    """Compute the lake-aligned live-session envelope and broadcast it if it
+    differs from the last one sent.
+
+    Runs off the WS-connect path (a worker thread / background task) so the
+    seconds-long `enumerate_groups()` call inside `_resolve_session_experiment`
+    never delays the connect handshake or the initial snapshot. The
+    `_publish_live_session_if_changed` dedupe means this is a no-op on the
+    wire when the fast envelope already carried the right experiment.
+    """
+    _publish_live_session_if_changed(
+        _build_live_session_envelope(current_live_session())
+    )
+
+
 def _publish_live_session_if_changed(envelope: dict[str, Any]) -> None:
     """Broadcast a `live_session` envelope unless identical to the last one."""
     global _last_live_session_envelope
@@ -853,13 +965,28 @@ def _publish_live_session_if_changed(envelope: dict[str, Any]) -> None:
 
 
 def _adopt_live_session(hostname: str, track: str, car: str) -> None:
-    """Record (and broadcast) the most-recently-adopted live session.
+    """Record the most-recently-adopted live session and broadcast a
+    non-null `live_session` envelope ONLY when the raw feed is genuinely
+    flowing.
 
     Called from the session-topic handler, the DCM session prewarm, and
     the DCM session config-event path — always AFTER the experiment cache
     has been force-refreshed for the hostname, so the DCM-preferred
     resolution path sees fresh data. `last_seen_epoch` refreshes on every
     call; the broadcast is deduped on the resulting envelope.
+
+    Raw-feed gate (the redeploy-phantom fix): a session/config announcement
+    re-adopted from the rewound metadata topics on (re)start — or a stale
+    retained announcement looping under replay — must NEVER light the
+    active-stream button on connected tabs without raw behind it. So we
+    still record `_live_session` (the metadata is valid and labels the flag
+    the moment raw resumes via `current_live_session()`), but we only
+    broadcast a NON-NULL envelope when `_raw_feed_is_live(now)`. When raw
+    is quiet we broadcast nothing — matching `sweep_stale_live_session`,
+    which already keeps `_live_session` and only pushes the cleared envelope
+    when the wire diverges from the gate. This keeps the broadcast path in
+    lockstep with `current_live_session()` (also raw-gated), so the
+    adopt-time push can never out-run the connect-time / sweep view.
     """
     global _live_session
     with _live_session_lock:
@@ -870,6 +997,12 @@ def _adopt_live_session(hostname: str, track: str, car: str) -> None:
             "last_seen_epoch": time.time(),
         }
         session = dict(_live_session)
+    if not _raw_feed_is_live():
+        # No raw behind this announcement — update the record only. Do NOT
+        # broadcast a live envelope (would flip the button on open tabs).
+        # `current_live_session()` will surface this session the instant a
+        # raw tick lands; until then the wire stays as-is.
+        return
     _publish_live_session_if_changed(_build_live_session_envelope(session))
 
 
@@ -884,19 +1017,36 @@ def _touch_live_session(hostname: str) -> None:
 
 
 def sweep_stale_live_session() -> None:
-    """Clear the live session once it outlives the TTL and broadcast the
-    all-null envelope. Called from the WS keepalive loop, same hook as
+    """Broadcast the all-null `live_session` envelope once the session is no
+    longer genuinely live. Called from the WS keepalive loop, same hook as
     `sweep_stale_active_state` (the consumer thread can't signal staleness
     on its own — by definition it has stopped receiving messages).
+
+    "No longer live" mirrors `current_live_session()`: the raw feed has gone
+    quiet (no tick within `raw_liveness_window_s`) OR the announcement aged
+    past `live_session_stale_after_s`. The raw-feed condition is what makes
+    an already-connected tab clear the phantom within ~`raw_liveness_window_s`
+    of the feed stopping — and prevents the redeploy phantom from sitting
+    "live" on open tabs for the full announcement TTL.
+
+    Only `_live_session` itself is dropped once the announcement TTL is
+    exceeded; when merely the raw feed is quiet we keep `_live_session`
+    (the metadata is still valid and re-adopting on the next tick should be
+    cheap) and just push the null envelope so the wire matches the gate.
     """
     global _live_session
     now = time.time()
     with _live_session_lock:
         if _live_session is None:
             return
-        if now - _live_session["last_seen_epoch"] < _live_session_ttl_s():
+        announcement_stale = (
+            now - _live_session["last_seen_epoch"] >= _live_session_ttl_s()
+        )
+        raw_quiet = not _raw_feed_is_live(now)
+        if not announcement_stale and not raw_quiet:
             return
-        _live_session = None
+        if announcement_stale:
+            _live_session = None
     _publish_live_session_if_changed(_build_live_session_envelope(None))
 
 
@@ -936,6 +1086,11 @@ def _record_message(payload: dict[str, Any]) -> None:
     driver = payload.get("driver")
     if not (track and car and driver):
         return
+    # Real raw feed is flowing — stamp the global liveness clock that gates
+    # the live-session flag (see `current_live_session`). This is the ONLY
+    # write site; the session/config announcement paths never reach here.
+    global _last_raw_tick_epoch
+    _last_raw_tick_epoch = time.time()
     try:
         i_current = int(payload.get("iCurrentTime") or 0)
         completed = int(payload.get("completedLaps") or 0)
@@ -2608,6 +2763,39 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _apply_assign_offsets(
+    assigned_consumer: Any,
+    partitions: list[Any],
+    *,
+    rewind_topics: set[str],
+    raw_topic_name: str,
+) -> tuple[set[str], set[str]]:
+    """Override start offsets on a fresh partition assignment, then assign.
+
+    SESSION + CONFIG (`rewind_topics`) → `OFFSET_BEGINNING` (replay the tiny
+    retained backlog into the caches). RAW (`raw_topic_name`) → `OFFSET_END`
+    so the high-volume tick stream resumes at the tail regardless of any
+    committed offset — no backlog replay, only genuinely-new ticks flip the
+    feed live. Calls `assign()` exactly once with all offsets set.
+
+    Returns `(rewound_topics, tailed_topics)` for logging. Extracted to
+    module scope so the offset logic is unit-testable without a live broker.
+    """
+    from confluent_kafka import OFFSET_BEGINNING, OFFSET_END
+
+    rewound: set[str] = set()
+    tailed: set[str] = set()
+    for tp in partitions:
+        if tp.topic in rewind_topics:
+            tp.offset = OFFSET_BEGINNING
+            rewound.add(tp.topic)
+        elif tp.topic == raw_topic_name:
+            tp.offset = OFFSET_END
+            tailed.add(tp.topic)
+    assigned_consumer.assign(partitions)
+    return rewound, tailed
+
+
 def _consumer_loop() -> None:
     """Run QuixStreams' consumer until `_stop_event` is set.
 
@@ -2693,9 +2881,15 @@ def _consumer_loop() -> None:
     def _on_assign(assigned_consumer: Any, partitions: list[Any]) -> None:
         """Rebalance callback: seek SESSION + CONFIG partitions to
         `OFFSET_BEGINNING` so the handful of retained metadata messages
-        replay into the caches on every (re)start; RAW partitions are left
-        untouched (committed offset, falling back to
-        `auto_offset_reset="latest"`).
+        replay into the caches on every (re)start, and seek RAW partitions
+        to `OFFSET_END` so the high-volume tick stream always resumes at
+        the tail (any committed raw offset is ignored).
+
+        Why raw → end: resuming raw from a lagging committed offset replays
+        old high-frequency ticks, and those fast old ticks keep
+        `_raw_feed_is_live()` true — so a stale session (e.g. a legacy
+        Huracan lap) shows as live after a restart. Seeking to the tail
+        means only genuinely-new ticks flip the feed live.
 
         Mutating each `TopicPartition.offset` and then calling `assign()`
         is the standard confluent-kafka pattern for overriding start
@@ -2705,23 +2899,22 @@ def _consumer_loop() -> None:
         can stall the consumer.
         """
         try:
-            from confluent_kafka import OFFSET_BEGINNING
-
-            rewound: set[str] = set()
-            for tp in partitions:
-                if tp.topic in rewind_topics:
-                    tp.offset = OFFSET_BEGINNING
-                    rewound.add(tp.topic)
-            assigned_consumer.assign(partitions)
-            if rewound:
+            rewound, tailed = _apply_assign_offsets(
+                assigned_consumer,
+                partitions,
+                rewind_topics=rewind_topics,
+                raw_topic_name=raw_topic.name,
+            )
+            if rewound or tailed:
                 logger.info(
-                    "rebalance: rewound %s to beginning; raw stays at "
-                    "committed/latest",
+                    "rebalance: rewound %s to beginning; raw %s sought to "
+                    "end (latest)",
                     sorted(rewound),
+                    sorted(tailed),
                 )
         except Exception:
             logger.exception(
-                "on_assign rewind failed; default assignment applies"
+                "on_assign offset override failed; default assignment applies"
             )
 
     try:
