@@ -21,13 +21,16 @@ function formatDuration(ms: number | null | undefined): string {
 function formatSessionDate(sessionId: string): string {
   const d = new Date(sessionId);
   if (Number.isNaN(d.getTime())) return sessionId.slice(0, 16);
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return (
+    d.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+    }) + " UTC"
+  );
 }
 
 function subtitleExtras(extra: Record<string, unknown>): string {
@@ -136,7 +139,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
             {[
               analysis.test_id,
               analysis.session_id
-                ? formatSessionDate(analysis.session_id)
+                ? `Session ${formatSessionDate(analysis.session_id)}`
                 : "Test-wide",
               subtitleExtras(analysis.extra),
             ]
