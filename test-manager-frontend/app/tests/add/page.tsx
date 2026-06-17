@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { MainLayout } from "@/components/layout/main-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,9 @@ export default function AddTestPage() {
   const [driver, setDriver] = useState("");
   const [pendingDriver, setPendingDriver] = useState<string | null>(null);
   const [requirements, setRequirements] = useState("");
+  // Synchronous "user has edited requirements" guard — set in onChange before
+  // the prefill fetch can return, so a keystroke always beats the seed.
+  const requirementsTouched = useRef(false);
   const [mode, setMode] = useState<TestMode | "">("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -74,6 +77,22 @@ export default function AddTestPage() {
       }
     };
     fetchData();
+  }, []);
+
+  // Prefill requirements from the most recent test, but only if the user
+  // hasn't started typing by the time the request returns.
+  useEffect(() => {
+    const prefillRequirements = async () => {
+      try {
+        const { requirements: last } = await testsApi.getLastRequirements();
+        if (last && !requirementsTouched.current) {
+          setRequirements(last);
+        }
+      } catch (error) {
+        console.error("Failed to prefill requirements:", error);
+      }
+    };
+    prefillRequirements();
   }, []);
 
   // Preselect first option once items mount. Must run AFTER the render that
@@ -293,7 +312,10 @@ export default function AddTestPage() {
                 <Textarea
                   id="requirements"
                   value={requirements}
-                  onChange={(e) => setRequirements(e.target.value)}
+                  onChange={(e) => {
+                    requirementsTouched.current = true;
+                    setRequirements(e.target.value);
+                  }}
                   placeholder={`e.g.
 The driver shall finish Monza under 55.250s.
 The car shall not exceed 3.5G longitudinal.

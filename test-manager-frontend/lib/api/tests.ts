@@ -261,4 +261,20 @@ export const testsApi = {
       refreshToken,
     );
   },
+
+  /**
+   * Get the most recently created test's requirements, for prefilling the
+   * create form. Returns an empty string when no prior test has requirements.
+   */
+  getLastRequirements: (
+    token?: string | null,
+    refreshToken?: () => Promise<string | null>,
+  ) => {
+    return apiGet<{ requirements: string }>(
+      "/tests/filters/last-requirements",
+      undefined,
+      token,
+      refreshToken,
+    );
+  },
 };
