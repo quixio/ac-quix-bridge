@@ -29,6 +29,8 @@ export function LeaderboardTab() {
     rows: liveRows,
     isLive,
     liveCombo,
+    hasLiveSession,
+    sessionCombo,
     freezeEvent,
   } = useLiveStream()
 
@@ -64,14 +66,20 @@ export function LeaderboardTab() {
     }
   }, [])
 
-  const dropdownsDisabled = isLive && followLive
+  // Active lapping driver wins; with only a bare live session (track+car
+  // announced, nobody lapping yet) the session combo drives the best-laps
+  // panel instead. Manual dropdowns stay usable when neither resolves a
+  // full combo or followLive is OFF.
+  const followedCombo = liveCombo ?? sessionCombo
+  const anyLive = isLive || hasLiveSession
+  const dropdownsDisabled = followLive && followedCombo !== null
   const effectiveExperiment = dropdownsDisabled
-    ? (liveCombo?.experiment ?? null)
+    ? (followedCombo?.experiment ?? null)
     : experiment
   const effectiveTrack = dropdownsDisabled
-    ? (liveCombo?.track ?? null)
+    ? (followedCombo?.track ?? null)
     : track
-  const effectiveCar = dropdownsDisabled ? (liveCombo?.car ?? null) : car
+  const effectiveCar = dropdownsDisabled ? (followedCombo?.car ?? null) : car
 
   const [bestLaps, setBestLaps] = useState<BestLapRow[]>([])
 
@@ -189,10 +197,10 @@ export function LeaderboardTab() {
         onTrack={handleTrack}
         onCar={handleCar}
         disabledOverride={dropdownsDisabled}
-        isLive={isLive}
+        isLive={anyLive}
         followLive={followLive}
         onFollowLiveChange={handleFollowLiveChange}
-        liveCombo={liveCombo}
+        liveCombo={followedCombo}
       />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr] lg:gap-8">
         <LivePositionsTable
@@ -208,7 +216,7 @@ export function LeaderboardTab() {
           loading={bestLapsLoading}
           error={bestLapsError}
           rows={bestLaps}
-          isLive={isLive}
+          isLive={anyLive}
           followLive={followLive}
         />
       </div>

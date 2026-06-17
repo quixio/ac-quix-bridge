@@ -31,6 +31,11 @@ variables:
     inputType: InputTopic
     description: Kafka topic for AC session events (ac-telemetry-session)
     required: true
+  - name: config_input
+    inputType: InputTopic
+    description: DCM config events topic (ac-telemetry-config) — declared so the pipeline view shows this service consuming it
+    required: true
+    defaultValue: ac-telemetry-config
   - name: LAKE_TABLE
     inputType: FreeText
     defaultValue: ac_telemetry
@@ -55,6 +60,14 @@ variables:
   - name: Quix__Portal__Api
     inputType: FreeText
     defaultValue: https://portal-api.dev.quix.io
+  - name: NEXT_PUBLIC_FREEZE_MS
+    inputType: FreeText
+    description: "Build-time: blue-freeze window ms (baked into UI bundle)"
+    defaultValue: "200"
+  - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
+    inputType: Secret
+    description: "Build-time: standalone-mode fallback PAT baked into UI bundle"
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

@@ -29,7 +29,11 @@ export interface LivePositionsTableProps {
   isLive?: boolean
 }
 
-const FREEZE_MS = Number(process.env.NEXT_PUBLIC_FREEZE_MS) || 200
+// Respect an explicit 0 (freeze disabled). `Number(x) || 200` treated 0 as
+// falsy and silently fell back to 200ms, so NEXT_PUBLIC_FREEZE_MS=0 never
+// actually disabled the freeze. Only fall back to 200 when unset/invalid.
+const _freezeParsed = Number(process.env.NEXT_PUBLIC_FREEZE_MS)
+const FREEZE_MS = Number.isFinite(_freezeParsed) ? _freezeParsed : 200
 
 type FreezeMode = "live" | "frozen"
 
@@ -162,32 +166,17 @@ export function LivePositionsTable({
         </TableHeader>
         <TableBody ref={bodyRef}>
           {visible.map((row, idx) => {
-            const aboveDriver = idx > 0 ? visible[idx - 1].driver : null
-            const belowDriver =
-              idx < visible.length - 1 ? visible[idx + 1].driver : null
             const aboveRow = idx > 0 ? visible[idx - 1] : null
             const belowRow =
               idx < visible.length - 1 ? visible[idx + 1] : null
-            const aboveAtCrossingMs =
-              aboveDriver != null && crossingSnapshot
-                ? crossingSnapshot.historicalAtMs[aboveDriver] ??
-                  aboveRow?.current_lap_time_ms ??
-                  null
-                : aboveRow?.current_lap_time_ms ?? null
-            const belowAtCrossingMs =
-              belowDriver != null && crossingSnapshot
-                ? crossingSnapshot.historicalAtMs[belowDriver] ??
-                  belowRow?.current_lap_time_ms ??
-                  null
-                : belowRow?.current_lap_time_ms ?? null
             return (
               <LeaderRow
                 key={`${row.driver}|${row.track}|${row.car}|${row.experiment}|${row.is_active ? "live" : "ghost"}`}
                 row={row}
                 freezeState={freezeState}
                 crossingSnapshot={crossingSnapshot}
-                aboveAtCrossingMs={aboveAtCrossingMs}
-                belowAtCrossingMs={belowAtCrossingMs}
+                aboveDelta={aboveRow?.delta_at_last_gate_ms ?? null}
+                belowDelta={belowRow?.delta_at_last_gate_ms ?? null}
               />
             )
           })}
@@ -224,36 +213,31 @@ function LeaderRow({
   row,
   freezeState,
   crossingSnapshot,
-  aboveAtCrossingMs,
-  belowAtCrossingMs,
+  aboveDelta,
+  belowDelta,
 }: {
   row: LivePositionEntry
   freezeState: FreezeState
   crossingSnapshot: CrossingSnapshot | null
-  aboveAtCrossingMs: number | null
-  belowAtCrossingMs: number | null
+  aboveDelta: number | null
+  belowDelta: number | null
 }) {
-  const isFrozen = freezeState.mode === "frozen"
   const displayMs = rowDisplayMs(row, freezeState, crossingSnapshot)
   const atPosLabel = formatLapTime(displayMs)
 
-  let atPosClass = ""
-  if (row.is_active && isFrozen) {
-    atPosClass = "font-semibold text-blue-400"
-  }
-
-  const activeRef =
-    crossingSnapshot?.activeAtGateMs ??
-    crossingSnapshot?.activeAtMs ??
-    (row.is_active ? row.current_lap_time_ms : null)
+  // Gap chips come straight from the backend's same-gate per-historical
+  // delta (`delta_at_last_gate_ms` = active_gate[i*] - neighbour_gate[i*]),
+  // NOT a client recompute. The above neighbour is faster, so a positive
+  // delta is the seconds the active is BEHIND (red "+"); the below neighbour
+  // is slower, so a negative delta is the seconds AHEAD (green "-"). Null
+  // (no gate crossed on this lap) ⇒ no chip — which also avoids the
+  // post-rollover transient garbage. Comparing the active's live between-
+  // gates time to a historical's gate time (the old approach) inflated the
+  // gap; same-gate delta is the correct racing gap.
   const gapAbove =
-    row.is_active && activeRef != null && aboveAtCrossingMs != null
-      ? Math.max(0, activeRef - aboveAtCrossingMs)
-      : null
+    row.is_active && aboveDelta != null && aboveDelta > 0 ? aboveDelta : null
   const gapBelow =
-    row.is_active && activeRef != null && belowAtCrossingMs != null
-      ? Math.max(0, belowAtCrossingMs - activeRef)
-      : null
+    row.is_active && belowDelta != null && belowDelta < 0 ? -belowDelta : null
 
   return (
     <TableRow
@@ -291,7 +275,7 @@ function LeaderRow({
       </TableCell>
       <TableCell className="text-right tabular-nums">
         <div className="flex items-center justify-end gap-2">
-          <span className={cn(atPosClass)}>{atPosLabel}</span>
+          <span className="tabular-nums">{atPosLabel}</span>
           {row.is_active && gapAbove != null && gapAbove > 0 && (
             <span className="text-xs font-semibold tabular-nums text-rose-400">
               {formatGapMs(gapAbove, "+")}

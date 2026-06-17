@@ -1,9 +1,12 @@
+import logging
 from typing import Any
 
 from pymongo import MongoClient
 from pymongo.database import Database
 
 from .settings import MongoSettings
+
+logger = logging.getLogger(__name__)
 
 _mongo: Database[dict[str, Any]]
 
@@ -21,6 +24,22 @@ def connect(settings: MongoSettings) -> None:
         serverSelectionTimeoutMS=5000,
     ).get_database(settings.database)
 
+    # Index creation is the first real I/O against Mongo. The leaderboard
+    # treats Mongo as an optional driver-name prettifier, so an
+    # unreachable Mongo must not abort startup — the lazy `MongoClient`
+    # handle above stays valid and per-operation errors degrade at the
+    # call sites (`_build_driver_name_lookup` and friends return `{}`).
+    try:
+        _create_indexes()
+    except Exception:
+        logger.warning(
+            "Mongo index creation failed (Mongo unreachable?); continuing — "
+            "driver-name lookups will degrade to folded names",
+            exc_info=True,
+        )
+
+
+def _create_indexes() -> None:
     # Tests collection
     _mongo.tests.create_index("experiment_id")
     _mongo.tests.create_index("environment_id")

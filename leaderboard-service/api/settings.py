@@ -87,10 +87,23 @@ class Settings(BaseSettings):
         alias="session_output",
         description="Kafka topic for AC session events",
     )
+    kafka_config_topic: str = Field(
+        "ac-telemetry-config",
+        alias="config_input",
+        description=(
+            "Kafka topic for DCM config events. Declared as a deployment "
+            "InputTopic so the Quix pipeline view shows the leaderboard "
+            "consuming it (the subscription was previously hardcoded and "
+            "thus invisible in the topology)."
+        ),
+    )
 
-    # Lake table the leaderboard SQL builders read from.
+    # Lake table the leaderboard SQL builders read from. Default matches
+    # the deployed `LAKE_TABLE=ac_telemetry` (the previous
+    # `ac_telemetry_leadboard` default was a typo'd footgun — it only ever
+    # worked because the deployment overrode it).
     lake_table: str = Field(
-        "ac_telemetry_leadboard",
+        "ac_telemetry",
         alias="LAKE_TABLE",
         description="Lake table name used by leaderboard SQL builders",
     )
@@ -109,6 +122,59 @@ class Settings(BaseSettings):
         "normalizedCarPosition",
         alias="LAKE_COL_NORMALIZED_POSITION",
         description="Column name for the 0..1 lap position",
+    )
+
+    # Best-laps TTL cache + gate-vector rebuild knobs
+    # (dev-planning/leaderboard-bestlaps-gates/spec.md §6.1).
+    best_laps_ttl_seconds: float = Field(
+        15.0,
+        alias="BEST_LAPS_TTL_SECONDS",
+        description=(
+            "Age (seconds) after which a per-group best-laps cache entry "
+            "is refreshed from the lake"
+        ),
+    )
+    best_lap_match_tolerance_ms: int = Field(
+        1500,
+        alias="BEST_LAP_MATCH_TOLERANCE_MS",
+        description=(
+            "Max |lap_ms - iBestTime| (ms) for a per-lap scan row to be "
+            "identified as the lap the best time was set on"
+        ),
+    )
+    # Lake-first partition enumeration (api/partition_index.py): how long
+    # one enumeration result is served before the lake is re-asked. Keep
+    # this >= best_laps_ttl_seconds — the enumeration feeds `_known_groups`
+    # which the best-laps TTL tick consults every poll iteration.
+    partition_index_ttl_seconds: float = Field(
+        60.0,
+        alias="PARTITION_INDEX_TTL_SECONDS",
+        description=(
+            "Age (seconds) after which the lake partition-group enumeration "
+            "is refreshed (also the failure backoff window)"
+        ),
+    )
+    # Live-session liveness window. A session announced on the session
+    # topic (or via DCM prewarm / session config event) counts as "live"
+    # for this long after the last announcement / raw tick — generous on
+    # purpose so a replay-announced session keeps the leaderboard's
+    # best-laps panel populated between telemetry bursts.
+    live_session_stale_after_s: float = Field(
+        600.0,
+        alias="LIVE_SESSION_STALE_AFTER_S",
+        description=(
+            "Age (seconds) after which the adopted live session (track+car "
+            "from the session topic) is no longer considered live"
+        ),
+    )
+    lake_server_aggregation: bool = Field(
+        True,
+        alias="LAKE_SERVER_AGGREGATION",
+        description=(
+            "Use server-side MIN(...) GROUP BY driver for best laps. Set "
+            "false to force the raw-scan + Python-MIN fallback (needed if "
+            "LAKE_TABLE points at a derived table where GROUP BY stalls)"
+        ),
     )
 
     @field_validator(

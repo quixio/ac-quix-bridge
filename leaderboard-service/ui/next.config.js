@@ -1,10 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: "standalone",
+  output: "export",
   reactStrictMode: true,
-  images: {
-    remotePatterns: [],
-  },
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.watchOptions = {

@@ -1,0 +1,10 @@
+# Build context = this app directory (Quix Cloud and local builds alike).
+# Keep host-side artifacts out of the context: Windows node_modules must not
+# overlay the Linux `npm ci` output in the UI build stage, and /app must not
+# pick up local venvs/bytecode.
+ui/node_modules
+ui/.next
+ui/out
+.venv
+**/__pycache__
+**/*.pyc

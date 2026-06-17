@@ -20,21 +20,16 @@ export class ApiError extends Error {
 
 /**
  * Get the API base URL.
- * Client-side: use NEXT_PUBLIC_LEADERBOARD_SERVICE_URL so calls go to
- * leaderboard-service's public URL (no Next.js rewrites in this app).
- * Server-side: use API_URL for internal k8s resolution.
- * Falls back to empty string (relative URLs) for local dev when env is unset.
+ * Production (static export served by leaderboard-service): always "" —
+ * same-origin relative URLs, no baked public URL.
+ * Development (`next dev`): NEXT_PUBLIC_LEADERBOARD_SERVICE_URL may point at
+ * a locally running FastAPI (e.g. http://localhost:8082).
  */
 export function getApiUrl(): string {
-  if (typeof window !== "undefined") {
+  if (process.env.NODE_ENV === "development") {
     return process.env.NEXT_PUBLIC_LEADERBOARD_SERVICE_URL ?? "";
   }
-
-  if (process.env.API_URL) {
-    return process.env.API_URL;
-  }
-
-  return "http://localhost:8082";
+  return ""; // same-origin, relative URLs
 }
 
 function getAuthToken(providedToken?: string | null): string | null {
