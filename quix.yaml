@@ -775,6 +775,17 @@ deployments:
       destinationTopic: ac-telemetry-raw
       fromTimestamp: 2026-06-08T15:52:21.569Z
       toTimestamp: 2026-06-08T16:01:15.856Z
+  - name: Quix DataLake Raw Sink 2
+    application: DataLake.Sink
+    version: latest
+    deploymentType: Managed
+    resources:
+      limits:
+        cpu: 500
+        memory: 1500
+      replicas: 1
+    configuration:
+      topic: ac-telemetry-raw
 
 # This section describes the Topics of the data pipeline
 topics:
