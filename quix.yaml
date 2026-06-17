@@ -37,10 +37,15 @@ deployments:
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
         value: ''
+      - name: TABLE_NAME
+        inputType: ProjectVariable
+        description: Lakehouse table the default leaderboard query reads. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment. Ignored when LEADERBOARD_SQL is set explicitly.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: LEADERBOARD_SQL
         inputType: FreeText
         multiline: true
-        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Defaults to all-time fastest lap per driver from ac_telemetry.
+        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Leave blank to use the built-in all-time fastest-lap-per-driver query against TABLE_NAME.
         value: ''
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
@@ -186,9 +191,10 @@ deployments:
         required: true
         value: ac-telemetry-config
       - name: TABLE_NAME
-        inputType: FreeText
-        description: Table name for data organization and registration, else defaults to topic name
-        value: ac_telemetry
+        inputType: ProjectVariable
+        description: Lakehouse table this sink WRITES. Per-environment project variable (e.g. ac_telemetry_dev / ac_telemetry_nurem / ac_telemetry_prod). Every lake reader (Telemetry Explorer, leaderboard-service, Telemetry Dashboard) must resolve the SAME value for that environment. Required — if unset the sink silently falls back to the input topic name (ac-telemetry-raw) and readers query ac_telemetry, splitting writes from reads.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: HIVE_COLUMNS
         inputType: FreeText
         description: Comma-separated list of columns for Hive partitioning. Include year/month/day/hour to extract from TIMESTAMP_COLUMN (e.g., location,year,month,day,sensor_type)
@@ -440,9 +446,10 @@ deployments:
           targetPort: 80
     variables:
       - name: TABLE_NAME
-        inputType: FreeText
-        description: QuixLake table name for telemetry data
-        value: ac_telemetry
+        inputType: ProjectVariable
+        description: Lakehouse table to query. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
@@ -682,8 +689,10 @@ deployments:
         required: true
         value: ac-telemetry-config
       - name: LAKE_TABLE
-        inputType: FreeText
-        value: ac_telemetry
+        inputType: ProjectVariable
+        description: Lakehouse table to query for rankings. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: LAKE_COL_CURRENT_TIME
         inputType: FreeText
         value: iCurrentTime
