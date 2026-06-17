@@ -708,43 +708,6 @@ deployments:
         value: true
     blobStorage:
       bind: true
-  - name: leaderboard-ui
-    application: leaderboard-ui
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 200
-        memory: 500
-    publicAccess:
-      enabled: true
-      urlPrefix: leaderboard
-    network:
-      serviceName: leaderboard-ui
-      ports:
-        - port: 80
-          targetPort: 3000
-    variables:
-      - name: API_URL
-        inputType: FreeText
-        description: Internal k8s service URL for server-side Next.js requests (unused — no rewrites; kept for parity)
-        value: http://leaderboard-service
-      - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
-        inputType: ProjectVariable
-        description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
-        required: true
-        variableKey: LEADERBOARD_SERVICE_URL
-      - name: NEXT_PUBLIC_FREEZE_MS
-        inputType: FreeText
-        description: Blue-freeze window duration in ms after a gate crossing.
-        value: 200
-      - name: NODE_ENV
-        inputType: FreeText
-        required: true
-        value: production
-      - name: NEXT_TELEMETRY_DISABLED
-        inputType: FreeText
-        value: 1
   - name: track-importer
     group: Test Manager
     application: track-importer
