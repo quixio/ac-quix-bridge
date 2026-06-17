@@ -76,6 +76,29 @@ class Settings(BaseSettings):
         description="Bearer token for the Lakehouse Query API",
     )
 
+    # Iceberg catalog API (metadata-only). Used by the partition-group
+    # enumeration's primary path: one `/manifest` call returns every file's
+    # partition_values, deduped in Python — no aggregation SQL, sub-second.
+    # Mirrors how telemetry-comparison resolves these (see its `config.py`):
+    # canonical `Quix__Lakehouse__Catalog__*` first, then legacy
+    # `CATALOG_URL` / `CATALOG_TOKEN` for local dev / older deployments.
+    lakehouse_catalog_url: str | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "Quix__Lakehouse__Catalog__Url",
+            "CATALOG_URL",
+        ),
+        description="Base URL of the Iceberg catalog API (for /manifest)",
+    )
+    lakehouse_catalog_token: str | None = Field(
+        None,
+        validation_alias=AliasChoices(
+            "Quix__Lakehouse__Catalog__AuthToken",
+            "CATALOG_TOKEN",
+        ),
+        description="Bearer token for the Iceberg catalog API",
+    )
+
     # Kafka topic names for the live leaderboard consumer.
     kafka_raw_topic: str = Field(
         "demo-acquixbridge-dev-ac-telemetry-raw",
@@ -87,10 +110,23 @@ class Settings(BaseSettings):
         alias="session_output",
         description="Kafka topic for AC session events",
     )
+    kafka_config_topic: str = Field(
+        "ac-telemetry-config",
+        alias="config_input",
+        description=(
+            "Kafka topic for DCM config events. Declared as a deployment "
+            "InputTopic so the Quix pipeline view shows the leaderboard "
+            "consuming it (the subscription was previously hardcoded and "
+            "thus invisible in the topology)."
+        ),
+    )
 
-    # Lake table the leaderboard SQL builders read from.
+    # Lake table the leaderboard SQL builders read from. Default matches
+    # the deployed `LAKE_TABLE=ac_telemetry` (the previous
+    # `ac_telemetry_leadboard` default was a typo'd footgun — it only ever
+    # worked because the deployment overrode it).
     lake_table: str = Field(
-        "ac_telemetry_leadboard",
+        "ac_telemetry",
         alias="LAKE_TABLE",
         description="Lake table name used by leaderboard SQL builders",
     )
@@ -109,6 +145,117 @@ class Settings(BaseSettings):
         "normalizedCarPosition",
         alias="LAKE_COL_NORMALIZED_POSITION",
         description="Column name for the 0..1 lap position",
+    )
+
+    # Best-laps TTL cache + gate-vector rebuild knobs
+    # (dev-planning/leaderboard-bestlaps-gates/spec.md §6.1).
+    best_laps_ttl_seconds: float = Field(
+        15.0,
+        alias="BEST_LAPS_TTL_SECONDS",
+        description=(
+            "Age (seconds) after which a per-group best-laps cache entry "
+            "is refreshed from the lake"
+        ),
+    )
+    best_lap_match_tolerance_ms: int = Field(
+        1500,
+        alias="BEST_LAP_MATCH_TOLERANCE_MS",
+        description=(
+            "Max |lap_ms - iBestTime| (ms) for a per-lap scan row to be "
+            "identified as the lap the best time was set on"
+        ),
+    )
+    # Lake-first partition enumeration (api/partition_index.py): how long
+    # one enumeration result is served before the lake is re-asked. Keep
+    # this >= best_laps_ttl_seconds — the enumeration feeds `_known_groups`
+    # which the best-laps TTL tick consults every poll iteration.
+    partition_index_ttl_seconds: float = Field(
+        60.0,
+        alias="PARTITION_INDEX_TTL_SECONDS",
+        description=(
+            "Age (seconds) after which the lake partition-group enumeration "
+            "is refreshed (also the failure backoff window)"
+        ),
+    )
+    # Live-session liveness window. A session announced on the session
+    # topic (or via DCM prewarm / session config event) counts as "live"
+    # for this long after the last announcement / raw tick — generous on
+    # purpose so a replay-announced session keeps the leaderboard's
+    # best-laps panel populated between telemetry bursts.
+    live_session_stale_after_s: float = Field(
+        600.0,
+        alias="LIVE_SESSION_STALE_AFTER_S",
+        description=(
+            "Age (seconds) after which the adopted live session (track+car "
+            "from the session topic) is no longer considered live"
+        ),
+    )
+    # Raw-telemetry liveness gate. The live-session flag is suppressed
+    # unless an actual RAW tick arrived within this window — regardless of
+    # how recently a session/config announcement was (re-)adopted. This
+    # closes the redeploy phantom: on (re)start the session + config topics
+    # are rewound to OFFSET_BEGINNING, so a retained announcement replays
+    # and adopts a "live" session even though no raw feed exists. Default
+    # 15 s comfortably exceeds the raw cadence gap (raw is ~50 msg/s; the
+    # per-driver active window `STALE_AFTER_S` is 10 s) while still clearing
+    # the flag within seconds of a real feed stopping.
+    raw_liveness_window_s: float = Field(
+        15.0,
+        alias="RAW_LIVENESS_WINDOW_S",
+        description=(
+            "Max age (seconds) of the last raw telemetry tick for the "
+            "adopted live session to count as live. Suppresses the "
+            "redeploy phantom where a rewound session announcement adopts "
+            "a 'live' session with no raw feed."
+        ),
+    )
+    lake_server_aggregation: bool = Field(
+        False,
+        alias="LAKE_SERVER_AGGREGATION",
+        description=(
+            "Attempt server-side MIN(...) GROUP BY driver for best laps as "
+            "a fast-path before the raw-scan + Python-MIN reduction. Off by "
+            "default: on the slow byox lake the aggregation hits the 30s "
+            "client timeout, which propagated to every best-laps caller and "
+            "emptied the cache. With this flag set, a timeout/error "
+            "transparently falls back to the raw scan inside "
+            "_query_best_laps_min, so the failure mode is bounded either way"
+        ),
+    )
+
+    # Degraded-mode enrichment fallbacks. When raw telemetry is flowing but
+    # the DCM/session enrichment can't resolve a usable (track, car, driver)
+    # — e.g. replaying old data with no live session/DCM experiment config —
+    # the active-row build would otherwise drop EVERY tick at the
+    # `(track, car, driver)` guard in `_record_message`, so the live stream
+    # never opens. These fallbacks substitute clearly-labelled placeholder
+    # values so a degraded live row still renders; the primary fully-enriched
+    # path is unchanged when DCM/session DO resolve. Each substitution is
+    # logged (never silently masked).
+    fallback_driver_name: str = Field(
+        "John Doe",
+        alias="FALLBACK_DRIVER_NAME",
+        description=(
+            "Driver name used for the live active row when DCM/session yields "
+            "no driver (degraded mode). Clearly a placeholder so it's obvious "
+            "the row is not real enrichment."
+        ),
+    )
+    fallback_track: str = Field(
+        "Unknown",
+        alias="FALLBACK_TRACK",
+        description=(
+            "Track name used for the live active row when no session is cached "
+            "(degraded mode, paired with fallback_car). Placeholder value."
+        ),
+    )
+    fallback_car: str = Field(
+        "Unknown",
+        alias="FALLBACK_CAR",
+        description=(
+            "Car model used for the live active row when no session is cached "
+            "(degraded mode, paired with fallback_track). Placeholder value."
+        ),
     )
 
     @field_validator(

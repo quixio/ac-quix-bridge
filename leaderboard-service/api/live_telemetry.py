@@ -55,6 +55,11 @@ logger = logging.getLogger(__name__)
 # `ac-telemetry-session` remains the source of truth for track / carModel
 # / playerName (DCM only mirrors those after `session-config-bridge` has
 # run, which may not have happened yet for an unlinked sim PC).
+#
+# NOTE: `ac-telemetry-config` is intentionally consumed here without being
+# declared as an InputTopic on this deployment in app.yaml / quix.yaml —
+# the subscription is code-level only. Keep that in mind when auditing
+# topic ACLs or deployment wiring.
 TOPIC = "ac-telemetry-raw"
 SESSION_TOPIC = "ac-telemetry-session"
 CONFIG_EVENTS_TOPIC = "ac-telemetry-config"
@@ -68,15 +73,18 @@ STALE_AFTER_S = 10.0
 # happening right now" — we don't care about history.
 #
 # We subscribe to BOTH the raw topic (for live ticks) AND the session topic
-# (for track/car/driver enrichment). Session messages are produced once per
-# AC session, so on restart we won't have a cached session yet — until the
-# next session change, raw ticks for an unknown hostname are dropped with a
-# debug log. The session topic uses the source's hostname as Kafka key, so
-# `auto_offset_reset="latest"` is acceptable: as long as the bridge is
-# running when the user starts/restarts AC, the next session message will
-# populate the cache before any noticeable amount of raw data flows. If
-# this proves too lossy in practice we can switch the session subscription
-# to `earliest` independently (different consumer or seek-on-assign).
+# (for track/car/driver enrichment). The raw topic is high-volume
+# (~50 msg/s, 200k+ retained); replaying its backlog would lag the consumer
+# for minutes AND — worse — those fast old ticks keep `_raw_feed_is_live()`
+# true, so a stale session would show as live after a restart. The SESSION
+# and CONFIG topics, by contrast, are tiny metadata streams produced once
+# per session / config change, and the caches need the MOST-RECENT message
+# on every (re)start ("take last message"). So the `on_assign` rebalance
+# callback in `_consumer_loop` rewinds the SESSION + CONFIG partitions to
+# `OFFSET_BEGINNING` (replaying their small backlog into the caches) AND
+# seeks the RAW partitions to `OFFSET_END` on every (re)assign — any
+# committed raw offset is ignored, so raw always resumes at the tail and
+# only genuinely-new ticks flip the feed live.
 CONSUMER_GROUP = "leaderboard-service-ghost-lap"
 
 # Number of equally-sized checkpoint gates the lap is split into for the
@@ -86,6 +94,12 @@ CONSUMER_GROUP = "leaderboard-service-ghost-lap"
 # and `[GATE_COUNT-1]` to the lap line. Override via `GATE_COUNT` env var.
 GATE_COUNT = int(os.environ.get("GATE_COUNT", "650"))
 
+# normalizedCarPosition below this after a lap rollover marks the genuine
+# start of the new lap — the point at which gate stamping may resume. Guards
+# against the post-rollover tail where the lap clock has reset but position
+# still reads ~1.0 (finish line) before wrapping to ~0.0.
+_LAP_START_POS_THRESHOLD = 0.5
+
 # DCM experiment lookups: timeouts and a cache TTL fence. The TTL only
 # matters as a safety net — the primary invalidation event is a new session
 # message for the same hostname (which triggers a fresh fetch). 5 s timeout
@@ -93,6 +107,18 @@ GATE_COUNT = int(os.environ.get("GATE_COUNT", "650"))
 # happens on session-message arrival only, not on every tick.
 DCM_TIMEOUT_S = 5.0
 EXPERIMENT_CACHE_TTL_S = 300.0
+
+# TTL for the hostname-AGNOSTIC "latest DCM config" fallback resolver
+# (`_get_latest_dcm_config`). This path lists all DCM configurations and
+# picks the most-recent experiment config (driver) and most-recent session
+# config (track/car) across ALL target_keys — "the last config message" —
+# regardless of which hostname the live raw tick is keyed under. It is the
+# enrichment source of last resort BEFORE the `"John Doe"` / `"Unknown"`
+# placeholder fallbacks, used only when the per-hostname / latest-session
+# resolution comes up empty. Short TTL so a config change in Test Manager
+# propagates within ~30 s even with no AC session boundary; the call runs
+# off the hot path (TTL-cached, refreshed lazily on the consumer thread).
+LATEST_DCM_CONFIG_TTL_S = 30.0
 
 
 def _update_gate_times(
@@ -130,30 +156,155 @@ def _update_gate_times(
 _state_lock = threading.RLock()
 _state: dict[tuple[str, str, str], dict[str, Any]] = {}
 
-# Per-hostname enrichment caches, guarded by `_state_lock` (the same lock as
+# Metadata enrichment caches, guarded by `_state_lock` (the same lock as
 # `_state` — keeps the locking story trivial; sessions update is rare enough
 # that contention with the hot raw-tick path is negligible).
 #
-# `_session_cache[hostname]` = {"track": ..., "carModel": ..., "playerName": ...}
-# populated on every session message (one per AC session).
+# `_session_cache[key]` = {"track": ..., "carModel": ..., "playerName": ...,
+#                          "updated_epoch": float}
+# populated on every session message (one per AC session). Keys are the
+# session topic's Kafka keys (e.g. `QUIX-GAMING_<epoch>`) or DCM session
+# `target_key`s.
 #
-# `_experiment_cache[hostname]` = {"experiment": str, "driver": str,
-#                                  "environment": str, "fetched_epoch": float}
+# `_experiment_cache[key]` = {"experiment": str, "driver": str,
+#                             "environment": str, "fetched_epoch": float,
+#                             "updated_epoch": float}
 # populated synchronously when a session message arrives (one DCM HTTP call
-# per session change); refreshed if older than EXPERIMENT_CACHE_TTL_S. All
-# three of `experiment` (content.experiment_id), `driver` (content.driver,
-# the canonical "who is driving this test" set by Test Manager), and
-# `environment` (content.environment, the lake's `environment` Hive
-# partition) come from the same DCM experiment-config fetch — no extra HTTP
-# calls vs the prior two-field cache. The environment value is required by
-# the best-laps lake query (`environment` partitions the lake and missing
-# it from the WHERE clause caused the previous "scans-too-wide / only-2-rows"
-# bug).
-_session_cache: dict[str, dict[str, str]] = {}
+# per session change) and on DCM experiment config events; refreshed if older
+# than EXPERIMENT_CACHE_TTL_S. All three of `experiment`
+# (content.experiment_id), `driver` (content.driver, the canonical "who is
+# driving this test" set by Test Manager), and `environment`
+# (content.environment, the lake's `environment` Hive partition) come from
+# the same DCM experiment-config fetch. Keys are DCM `target_key`s — for
+# experiment configs the target_key is the DRIVER NAME (e.g. `"Walter"`),
+# NOT a hostname.
+#
+# IMPORTANT — the three topics use UNRELATED key namespaces: raw ticks are
+# keyed `QUIX-GAMING_<epochA>`, session messages `QUIX-GAMING_<epochB>` (a
+# different epoch under replay), and experiment configs by driver name. So
+# raw-tick enrichment cannot pair caches by hostname; it takes the
+# MOST-RECENT entry of each cache instead (max `updated_epoch` — correct
+# for the single-sim deployment, where exactly one session and one
+# experiment config are active at a time). See `_handle_raw_message`.
+_session_cache: dict[str, dict[str, Any]] = {}
 _experiment_cache: dict[str, dict[str, Any]] = {}
+
+# Hostname-AGNOSTIC "latest DCM config" fallback cache (see
+# `_get_latest_dcm_config`). Holds the most-recent experiment config's
+# `driver` + `experiment` and the most-recent session config's `track` +
+# `car`, each picked across ALL target_keys by (valid_from, version) — i.e.
+# "the last config message" irrespective of hostname. Distinct from the
+# per-hostname `_experiment_cache`: that keys on `target_key == hostname`
+# and so misses entirely when the live tick's hostname doesn't match any
+# config's target_key. Guarded by its own `_latest_dcm_lock` (NOT
+# `_state_lock`) because the fetch does network I/O and we must never hold
+# the hot-path lock across an HTTP call. Shape:
+#   {"driver": str, "experiment": str, "track": str, "car": str,
+#    "environment": str, "fetched_monotonic": float} | None (never fetched)
+_latest_dcm_lock = threading.RLock()
+_latest_dcm_config: dict[str, Any] | None = None
+
+# One-shot flag: INFO-log "raw ticks arriving but nothing cached" only once
+# per process instead of at 50 Hz. Guarded by `_state_lock`.
+_no_metadata_logged = False
+
+# Rate limiter for the "active enriched" INFO line: maps the resulting
+# (track, car, driver, experiment) tuple → last log epoch. Guarded by
+# `_state_lock`. Gives operators an end-to-end heartbeat that the
+# latest-session+config enrichment path is feeding `_record_message`
+# without per-tick spam.
+_enriched_log_epochs: dict[tuple[str, str, str, str], float] = {}
+ENRICHED_LOG_INTERVAL_S = 5.0
+
+
+def _latest_entry(
+    cache: dict[str, dict[str, Any]],
+) -> tuple[str, dict[str, Any]] | None:
+    """Return the most-recently-updated `(key, entry)` of a metadata cache.
+
+    "Most recent" = max `updated_epoch` (falling back to `fetched_epoch`
+    for entries written before `updated_epoch` existed); ties broken by
+    sorted-last key so the pick is deterministic. Caller must hold
+    `_state_lock`.
+    """
+    if not cache:
+        return None
+    return max(
+        cache.items(),
+        key=lambda kv: (
+            float(kv[1].get("updated_epoch") or kv[1].get("fetched_epoch") or 0.0),
+            kv[0],
+        ),
+    )
+
+
+def _latest_session() -> tuple[str, dict[str, Any]] | None:
+    """Most-recent session-cache `(key, entry)`. Caller holds `_state_lock`."""
+    return _latest_entry(_session_cache)
+
+
+def _latest_experiment() -> tuple[str, dict[str, Any]] | None:
+    """Most-recent experiment-cache `(key, entry)`. Caller holds `_state_lock`."""
+    return _latest_entry(_experiment_cache)
+
+
+def _latest_experiment_driver() -> str:
+    """Most-recent DCM driver across experiment-cache entries that actually
+    carry one.
+
+    `_get_cached_experiment(hostname)` writes an entry for every session
+    hostname (e.g. `QUIX-GAMING_<epoch>`), refreshed on each session message
+    — but those entries have an EMPTY `driver` when no DCM config matches
+    that hostname. Picking the plain most-recent entry (`_latest_experiment`)
+    therefore lets that empty, constantly-touched entry shadow a real
+    experiment config's driver (e.g. `Walter` → "LordSiderius"), so the live
+    row falls back to the session `playerName`. Selecting the most-recent
+    entry that has a NON-EMPTY driver fixes that. Caller holds `_state_lock`.
+    """
+    best_key: tuple[float, str] | None = None
+    best_driver = ""
+    for k, e in _experiment_cache.items():
+        drv = str(e.get("driver") or "").strip()
+        if not drv:
+            continue
+        epoch = float(e.get("updated_epoch") or e.get("fetched_epoch") or 0.0)
+        if best_key is None or (epoch, k) > best_key:
+            best_key = (epoch, k)
+            best_driver = drv
+    return best_driver
 
 _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
+
+# ---------------------------------------------------------------------------
+# Lake-work executor (keeps ALL lake I/O off the Kafka consumer / live path)
+# ---------------------------------------------------------------------------
+#
+# The Kafka consumer thread runs the poll loop that feeds raw ticks into
+# `_record_message` → `live_stream.publish_snapshot` — the live active-driver
+# stream. Lake-backed *historical* work (best-laps refresh, gate-vector
+# rebuild, partition enumeration) used to run inline on that same thread
+# (the TTL tick, the per-session/per-config-event refresh, the lap-complete
+# refresh). A slow/hung lake query there blocked the poll loop, so raw ticks
+# stopped being processed and the live stream stalled.
+#
+# Fix: a single dedicated daemon worker thread drains a bounded job queue.
+# The consumer thread *submits* lake jobs (non-blocking) and immediately
+# returns to `consumer.poll()`. Single-threaded by design — best-laps and
+# gate-vector refreshes already serialise on `_best_laps_refresh_lock`, and
+# running them one-at-a-time off the hot path is exactly the desired
+# behaviour (a backlog of triggers collapses; see `submit_lake_job`).
+#
+# `maxsize` is small: lake jobs are idempotent refreshes, so when the worker
+# is busy (e.g. a query is timing out) we coalesce — a full queue drops the
+# new job rather than unbounded-buffering. The next trigger (TTL tick fires
+# every 0.5 s) re-submits, so nothing is permanently lost.
+import queue as _queue_mod  # noqa: E402 — grouped with executor state
+
+_LAKE_QUEUE_MAXSIZE = 4
+_lake_job_queue: _queue_mod.Queue[tuple[str, Any]] | None = None
+_lake_worker_thread: threading.Thread | None = None
+_lake_worker_stop = threading.Event()
 
 # ---------------------------------------------------------------------------
 # Best-laps cache (Right-table source: Best Laps panel)
@@ -221,12 +372,40 @@ _gate_vectors_cache: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | N
     None
 )
 
-# Best-laps cache: per-driver best lap in milliseconds, keyed by the full
-# (track, car, experiment, environment) tuple to match the new lake WHERE
-# clause exactly. `None` until the first refresh runs (distinct from
-# empty-but-refreshed). See spec acceptance for the trigger list.
+# Best-laps cache: per-group entries `(refreshed_monotonic, {folded_driver:
+# best_lap_ms})`, keyed by the full (track, car, experiment, environment)
+# tuple to match the lake WHERE clause exactly. The monotonic timestamp
+# drives the TTL refresh (`settings.best_laps_ttl_seconds`); `None` until
+# the first refresh runs (distinct from empty-but-refreshed). Per-key
+# stale-on-error: a failed Query A keeps the previous entry and records a
+# failure timestamp (below) so the TTL tick backs off instead of hammering
+# the lake every poll iteration.
 _best_laps_lock = threading.RLock()
-_best_laps_cache: dict[tuple[str, str, str, str], dict[str, int]] | None = None
+_best_laps_cache: (
+    dict[tuple[str, str, str, str], tuple[float, dict[str, int]]] | None
+) = None
+# Last failed-refresh monotonic time per group (guarded by _best_laps_lock).
+_best_laps_failure_ts: dict[tuple[str, str, str, str], float] = {}
+# Single-flight guard: overlapping refresh triggers queue behind the
+# in-flight one and then no-op (their due-group selection finds fresh
+# entries). Deliberately NOT reentrant — nothing inside a refresh may
+# trigger another refresh.
+_best_laps_refresh_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class _GroupDiff:
+    """Per-group outcome of a best-laps refresh (spec §6.4 step 3).
+
+    * `changed_raw` — `{raw_lake_driver: best_ms}` for drivers that are
+      new or whose best lap changed; raw strings because Query B's
+      `driver IN (...)` clause must match the lake byte-for-byte.
+    * `removed_folded` — folded keys present before but absent now; their
+      gate vectors are dropped during the merge.
+    """
+
+    changed_raw: dict[str, int]
+    removed_folded: frozenset[str]
 
 
 # Fold→display driver-name lookup. Cached at module level so the per-tick
@@ -571,6 +750,420 @@ def sweep_stale_active_state() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Live-session tracking (session-only liveness — no active driver required)
+# ---------------------------------------------------------------------------
+#
+# `_live_session` records the most-recently-adopted session from the
+# session-topic consumer, the DCM session prewarm, or a DCM session
+# config event — independent of raw telemetry. One sim PC / one replay
+# per deployment, so "current live session" = latest adopted. Freshness
+# is governed by `settings.live_session_stale_after_s` (generous default:
+# a replay-announced session must stay live between telemetry bursts).
+#
+# Wire envelope: `{"type": "live_session", "track", "car", "experiment",
+# "environment"}` — all null when nothing is live. Deliberately separate
+# from `active_state`: active-driver semantics (gate freeze, live row)
+# stay keyed to raw ticks only and are untouched by this path.
+
+_live_session_lock = threading.RLock()
+_live_session: dict[str, Any] | None = None
+# Last envelope actually broadcast — dedupes transitions (a looping
+# replay re-announces the same session every iteration).
+_last_live_session_envelope: dict[str, Any] | None = None
+
+# Wall-clock epoch of the last ACTUAL raw telemetry tick recorded by
+# `_record_message`. This is the real-feed liveness signal that gates the
+# live-session flag: a session/config announcement re-adopted from the
+# rewound metadata topics on (re)start no longer counts as "live" unless
+# raw is genuinely flowing. Written by the consumer thread (one site,
+# inside `_record_message`); read by the FastAPI broadcaster thread via
+# `current_live_session()` / `sweep_stale_live_session()`. A bare float
+# load/store is atomic under CPython's GIL, so no lock is needed for this
+# scalar — taking `_live_session_lock` around it would risk pairing it
+# with the per-message lock churn in `_record_message` for no benefit.
+_last_raw_tick_epoch: float = 0.0
+
+# Diagnostic-logging throttle (logging only, no control-flow impact). Raw is
+# ~50 msg/s, so logging every recorded tick would flood the deployment logs.
+# We gate the "raw tick" INFO line to at most ~once/second via this epoch.
+# Enrichment-DROP events are NOT throttled (low-frequency, the key signal).
+_LAST_RAW_LOG_EPOCH: float = 0.0
+_RAW_LOG_INTERVAL_S: float = 1.0
+
+
+def _live_session_ttl_s() -> float:
+    from .settings import get_settings
+
+    return get_settings().live_session_stale_after_s
+
+
+def _raw_liveness_window_s() -> float:
+    from .settings import get_settings
+
+    return get_settings().raw_liveness_window_s
+
+
+def _fallback_driver_name() -> str:
+    from .settings import get_settings
+
+    return get_settings().fallback_driver_name
+
+
+def _fallback_track() -> str:
+    from .settings import get_settings
+
+    return get_settings().fallback_track
+
+
+def _fallback_car() -> str:
+    from .settings import get_settings
+
+    return get_settings().fallback_car
+
+
+def _raw_feed_is_live(now: float | None = None) -> bool:
+    """True when a raw telemetry tick arrived within `raw_liveness_window_s`.
+
+    This is the authoritative "is the feed actually flowing right now"
+    check. It is independent of the per-driver active state and of the
+    session-announcement TTL — both of which can read live after a
+    redeploy replays a retained announcement with no raw behind it.
+    """
+    if now is None:
+        now = time.time()
+    return now - _last_raw_tick_epoch < _raw_liveness_window_s()
+
+
+def current_live_session() -> dict[str, Any] | None:
+    """Return the most-recently-adopted session (`{hostname, track, car,
+    last_seen_epoch}`) if it is genuinely live, else `None`.
+
+    "Genuinely live" requires BOTH:
+      1. a RAW telemetry tick within `raw_liveness_window_s` (the feed is
+         actually flowing right now), AND
+      2. the announcement is still inside `live_session_stale_after_s`
+         (the adopted track/car metadata hasn't aged out).
+
+    The raw-feed gate (1) is what closes the redeploy phantom: on (re)start
+    the session + config topics are rewound to OFFSET_BEGINNING, so a
+    retained announcement replays and adopts a session even though no raw
+    feed exists. Without raw flowing, this returns `None` and the UI shows
+    no live session / the button stays off. `_adopt_live_session` and the
+    metadata enrichment caches are untouched — once raw resumes, the
+    adopted session immediately labels the live flag with track/car/driver.
+    """
+    now = time.time()
+    if not _raw_feed_is_live(now):
+        return None
+    with _live_session_lock:
+        sess = _live_session
+        if sess is None:
+            return None
+        if now - sess["last_seen_epoch"] >= _live_session_ttl_s():
+            return None
+        return dict(sess)
+
+
+def _resolve_session_experiment(
+    hostname: str, track: str, car: str, *, blocking: bool = True
+) -> tuple[str | None, str | None]:
+    """Resolve (experiment, environment) for a live session's (track, car).
+
+    Preference order — align with lake data so the live row joins (and the
+    Best Laps panel queries) a group that actually has historical laps:
+      1. DCM `_experiment_cache[hostname]`, but ONLY when its experiment
+         also appears among the lake partition candidates for this
+         (track, carModel) — i.e. the live experiment has recorded laps
+         of its own.
+      2. Otherwise the lake candidates (`partition_index.enumerate_groups`,
+         distinct (experiment, environment) pairs whose (track, carModel)
+         match): exactly one → use it; several → deterministic sorted-first
+         pick + WARNING listing the candidates. This overrides a DCM
+         experiment with no lake data (e.g. a freshly created test) with
+         the experiment that actually has best laps for the combo.
+      3. No lake candidates at all → the DCM pair when it carries an
+         experiment (fresh combo: the live row still surfaces as its own
+         group), else (None, None) and the UI shows its "no historical
+         laps" state.
+
+    Partition-index access mode (`blocking`):
+      * `blocking=True` (default — off-hot-path callers: WS connect via
+        `asyncio.to_thread`, `resolve_and_publish_live_session` on the
+        lake-work thread) uses `partition_index.enumerate_groups()`, which
+        may do a lake round-trip when the TTL cache is cold/expired.
+      * `blocking=False` (the Kafka-consumer hot path, e.g. per-raw-tick
+        enrichment) uses `partition_index.cached_groups()` — a non-blocking,
+        lake-free read. A cold cache returns `None`, treated here as "no
+        candidates yet" so the tick falls through to the DCM pair / no-op
+        and is retried next tick once the background warmer has populated
+        the cache. This guarantees a slow lake never stalls raw consumption.
+    """
+    with _state_lock:
+        entry = _experiment_cache.get(hostname)
+    dcm_experiment = str(entry.get("experiment") or "").strip() if entry else ""
+    dcm_environment = str(entry.get("environment") or "").strip() if entry else ""
+
+    from . import partition_index
+
+    if blocking:
+        enumerated = partition_index.enumerate_groups()
+    else:
+        # Lake-free: whatever the background warmer has cached (possibly
+        # None → empty, handled below as "no candidates yet").
+        enumerated = partition_index.cached_groups() or []
+
+    candidates = sorted(
+        {
+            (exp, env)
+            for (g_track, g_car, exp, env) in enumerated
+            if g_track == track and g_car == car
+        }
+    )
+    if dcm_experiment and any(exp == dcm_experiment for exp, _env in candidates):
+        return dcm_experiment, dcm_environment or None
+    if not candidates:
+        if dcm_experiment:
+            return dcm_experiment, dcm_environment or None
+        return None, None
+    if dcm_experiment:
+        logger.warning(
+            "DCM experiment %r has no lake data for track=%s car=%s; "
+            "aligning to lake candidates=%s",
+            dcm_experiment,
+            track,
+            car,
+            candidates,
+        )
+    if len(candidates) > 1:
+        logger.warning(
+            "live-session experiment ambiguous for track=%s car=%s: "
+            "candidates=%s — picking sorted-first",
+            track,
+            car,
+            candidates,
+        )
+    experiment, environment = candidates[0]
+    return experiment or None, environment or None
+
+
+def _build_live_session_envelope(
+    session: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Project a live-session record to the wire envelope.
+
+    Resolution happens here (not at adopt time) so a WS connect after the
+    partition index warms up sees the resolved experiment even if it was
+    unknown at the moment of adoption.
+    """
+    if session is None:
+        return {
+            "type": "live_session",
+            "track": None,
+            "car": None,
+            "experiment": None,
+            "environment": None,
+        }
+    experiment, environment = _resolve_session_experiment(
+        session["hostname"], session["track"], session["car"]
+    )
+    return {
+        "type": "live_session",
+        "track": session["track"],
+        "car": session["car"],
+        "experiment": experiment,
+        "environment": environment,
+    }
+
+
+def current_live_session_envelope() -> dict[str, Any]:
+    """Wire envelope for the current live session.
+
+    Sent by the WS endpoint right after the snapshot + `active_state`
+    frames so a client connecting mid-session learns the session combo
+    without waiting for a transition. May hit the lake (cold partition
+    enumeration) — the WS route calls it via `asyncio.to_thread`.
+    """
+    return _build_live_session_envelope(current_live_session())
+
+
+def _build_live_session_envelope_fast(
+    session: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Lake-free projection of a live-session record to the wire envelope.
+
+    Unlike `_build_live_session_envelope`, this NEVER calls
+    `partition_index.enumerate_groups()` (the 30 s lake round-trip).
+    Experiment / environment come solely from the DCM `_experiment_cache`
+    for the session's hostname; when DCM hasn't been consulted yet they
+    stay `None`. The authoritative lake-aligned resolution is broadcast
+    a moment later by `current_live_session_envelope()` off the connect
+    path — so a slow/timing-out lake can never delay the first
+    `live_session` frame (and therefore the live view) on connect.
+    """
+    if session is None:
+        return {
+            "type": "live_session",
+            "track": None,
+            "car": None,
+            "experiment": None,
+            "environment": None,
+        }
+    with _state_lock:
+        entry = _experiment_cache.get(session["hostname"])
+    experiment = str(entry.get("experiment") or "").strip() if entry else ""
+    environment = str(entry.get("environment") or "").strip() if entry else ""
+    return {
+        "type": "live_session",
+        "track": session["track"],
+        "car": session["car"],
+        "experiment": experiment or None,
+        "environment": environment or None,
+    }
+
+
+def current_live_session_envelope_fast() -> dict[str, Any]:
+    """Lake-free wire envelope for the current live session.
+
+    Sent by the WS endpoint on connect so the `live_session` frame ships
+    immediately, without the partition-index lake call. `current_live_session()`
+    itself is lake-free (a raw-tick freshness check + an in-memory record),
+    so the only blocking risk — `enumerate_groups()` inside
+    `_resolve_session_experiment` — is sidestepped here. The fully-resolved
+    envelope is rebroadcast asynchronously afterwards.
+    """
+    return _build_live_session_envelope_fast(current_live_session())
+
+
+def resolve_and_publish_live_session() -> None:
+    """Compute the lake-aligned live-session envelope and broadcast it if it
+    differs from the last one sent.
+
+    Runs off the WS-connect path (a worker thread / background task) so the
+    seconds-long `enumerate_groups()` call inside `_resolve_session_experiment`
+    never delays the connect handshake or the initial snapshot. The
+    `_publish_live_session_if_changed` dedupe means this is a no-op on the
+    wire when the fast envelope already carried the right experiment.
+    """
+    _publish_live_session_if_changed(
+        _build_live_session_envelope(current_live_session())
+    )
+
+
+def _publish_live_session_if_changed(envelope: dict[str, Any]) -> None:
+    """Broadcast a `live_session` envelope unless identical to the last one."""
+    global _last_live_session_envelope
+    with _live_session_lock:
+        if _last_live_session_envelope == envelope:
+            return
+        _last_live_session_envelope = dict(envelope)
+    from . import live_stream
+
+    live_stream.publish_live_session(envelope)
+
+
+def _adopt_live_session(hostname: str, track: str, car: str) -> None:
+    """Record the most-recently-adopted live session and broadcast a
+    non-null `live_session` envelope ONLY when the raw feed is genuinely
+    flowing.
+
+    Called from the session-topic handler, the DCM session prewarm, and
+    the DCM session config-event path — always AFTER the experiment cache
+    has been force-refreshed for the hostname, so the DCM-preferred
+    resolution path sees fresh data. `last_seen_epoch` refreshes on every
+    call; the broadcast is deduped on the resulting envelope.
+
+    Raw-feed gate (the redeploy-phantom fix): a session/config announcement
+    re-adopted from the rewound metadata topics on (re)start — or a stale
+    retained announcement looping under replay — must NEVER light the
+    active-stream button on connected tabs without raw behind it. So we
+    still record `_live_session` (the metadata is valid and labels the flag
+    the moment raw resumes via `current_live_session()`), but we only
+    broadcast a NON-NULL envelope when `_raw_feed_is_live(now)`. When raw
+    is quiet we broadcast nothing — matching `sweep_stale_live_session`,
+    which already keeps `_live_session` and only pushes the cleared envelope
+    when the wire diverges from the gate. This keeps the broadcast path in
+    lockstep with `current_live_session()` (also raw-gated), so the
+    adopt-time push can never out-run the connect-time / sweep view.
+    """
+    global _live_session
+    with _live_session_lock:
+        _live_session = {
+            "hostname": hostname,
+            "track": track,
+            "car": car,
+            "last_seen_epoch": time.time(),
+        }
+        session = dict(_live_session)
+    if not _raw_feed_is_live():
+        # No raw behind this announcement — update the record only. Do NOT
+        # broadcast a live envelope (would flip the button on open tabs).
+        # `current_live_session()` will surface this session the instant a
+        # raw tick lands; until then the wire stays as-is.
+        logger.info(
+            "publish live_session SUPPRESSED (raw feed not live): "
+            "hostname=%r track=%r car=%r",
+            hostname,
+            track,
+            car,
+        )
+        return
+    # `_adopt_live_session` runs on the Kafka consumer thread (session-message
+    # handler, config-event handler, raw-tick fallback). Broadcast the
+    # LAKE-FREE envelope first (DCM cache only — never blocks), so connected
+    # clients learn the combo immediately even when the lake is slow/down.
+    # Then hand the fully lake-aligned resolution to the lake-work executor;
+    # `resolve_and_publish_live_session` rebroadcasts off-thread and the
+    # `_publish_live_session_if_changed` dedupe makes it a no-op when the fast
+    # envelope already carried the right experiment.
+    _publish_live_session_if_changed(_build_live_session_envelope_fast(session))
+    submit_lake_job("resolve_live_session")
+
+
+def _touch_live_session(hostname: str) -> None:
+    """Refresh the live session's freshness from a raw tick for the same
+    hostname — an actively-lapping driver keeps the session live without
+    waiting for the next session-topic announcement.
+    """
+    with _live_session_lock:
+        if _live_session is not None and _live_session["hostname"] == hostname:
+            _live_session["last_seen_epoch"] = time.time()
+
+
+def sweep_stale_live_session() -> None:
+    """Broadcast the all-null `live_session` envelope once the session is no
+    longer genuinely live. Called from the WS keepalive loop, same hook as
+    `sweep_stale_active_state` (the consumer thread can't signal staleness
+    on its own — by definition it has stopped receiving messages).
+
+    "No longer live" mirrors `current_live_session()`: the raw feed has gone
+    quiet (no tick within `raw_liveness_window_s`) OR the announcement aged
+    past `live_session_stale_after_s`. The raw-feed condition is what makes
+    an already-connected tab clear the phantom within ~`raw_liveness_window_s`
+    of the feed stopping — and prevents the redeploy phantom from sitting
+    "live" on open tabs for the full announcement TTL.
+
+    Only `_live_session` itself is dropped once the announcement TTL is
+    exceeded; when merely the raw feed is quiet we keep `_live_session`
+    (the metadata is still valid and re-adopting on the next tick should be
+    cheap) and just push the null envelope so the wire matches the gate.
+    """
+    global _live_session
+    now = time.time()
+    with _live_session_lock:
+        if _live_session is None:
+            return
+        announcement_stale = (
+            now - _live_session["last_seen_epoch"] >= _live_session_ttl_s()
+        )
+        raw_quiet = not _raw_feed_is_live(now)
+        if not announcement_stale and not raw_quiet:
+            return
+        if announcement_stale:
+            _live_session = None
+    _publish_live_session_if_changed(_build_live_session_envelope(None))
+
+
+# ---------------------------------------------------------------------------
 # Live-mode state access
 # ---------------------------------------------------------------------------
 
@@ -605,11 +1198,40 @@ def _record_message(payload: dict[str, Any]) -> None:
     car = payload.get("carModel") or payload.get("car")
     driver = payload.get("driver")
     if not (track and car and driver):
+        # Diagnostic (logging only): a raw tick was dropped because enrichment
+        # is incomplete. This is the key "live not showing" signal, so it is
+        # NOT throttled — every drop logs.
+        logger.info(
+            "raw tick DROPPED (missing enrichment): track=%r car=%r driver=%r",
+            track,
+            car,
+            driver,
+        )
         return
+    # Real raw feed is flowing — stamp the global liveness clock that gates
+    # the live-session flag (see `current_live_session`). This is the ONLY
+    # write site; the session/config announcement paths never reach here.
+    global _last_raw_tick_epoch
+    _last_raw_tick_epoch = time.time()
     try:
         i_current = int(payload.get("iCurrentTime") or 0)
         completed = int(payload.get("completedLaps") or 0)
         norm_pos = float(payload.get("normalizedCarPosition") or 0.0)
+        # Diagnostic (logging only): a raw tick was recorded. Throttled to
+        # ~once/second via the module-level epoch gate so the ~50 msg/s feed
+        # cannot flood the deployment logs.
+        global _LAST_RAW_LOG_EPOCH
+        _now = time.time()
+        if _now - _LAST_RAW_LOG_EPOCH >= _RAW_LOG_INTERVAL_S:
+            _LAST_RAW_LOG_EPOCH = _now
+            logger.info(
+                "raw tick: track=%r car=%r driver=%r normPos=%.3f lap=%s",
+                track,
+                car,
+                driver,
+                norm_pos,
+                completed,
+            )
         entry_partial: dict[str, Any] = {
             "last_seen_epoch": time.time(),
             "experiment": str(payload.get("experiment") or ""),
@@ -646,12 +1268,28 @@ def _record_message(payload: dict[str, Any]) -> None:
             or prev.get("completedLaps", -1) != completed
             or i_current < prev_i_current
         )
+        # A genuine lap completion = completedLaps strictly increased. Used
+        # below to re-read the best-laps DB so a freshly-completed lap (in
+        # real deployments, once the lake sink has written it) shows up in
+        # the right-hand Best Laps table. (For the replay demo the data isn't
+        # in the lake, so nothing new appears — but the trigger is wired.)
+        lap_completed = prev is not None and completed > int(
+            prev.get("completedLaps", -1)
+        )
         if rollover or prev is None:
             gate_times: list[int | None] = [None] * GATE_COUNT
-            prev_pos = 0.0
+            prev_pos = norm_pos
             last_gate_index: int | None = None
             last_gate_state: str | None = None
             last_gate_delta_ms: int | None = None
+            # After a rollover the lap clock (iCurrentTime) resets to ~0 while
+            # normalizedCarPosition often lingers at ~1.0 (the finish line)
+            # for a tick or two before it wraps to ~0.0. Stamping during that
+            # tail would record the top gate(s) at the new lap's ~0 ms time —
+            # pinning last_gate_index high with a garbage delta. Suppress all
+            # stamping until the position actually wraps low (the genuine new-
+            # lap start). Tracked across ticks via `awaiting_lap_start`.
+            awaiting_lap_start = True
         else:
             gate_times = list(prev.get("gate_times_ms") or [None] * GATE_COUNT)
             if len(gate_times) != GATE_COUNT:
@@ -660,6 +1298,15 @@ def _record_message(payload: dict[str, Any]) -> None:
             last_gate_index = prev.get("last_gate_index")
             last_gate_state = prev.get("last_gate_state")
             last_gate_delta_ms = prev.get("last_gate_delta_ms")
+            awaiting_lap_start = bool(prev.get("awaiting_lap_start"))
+
+        # While awaiting the genuine new-lap start, record no crossings (keep
+        # prev_pos == norm_pos so the sweep stamps nothing) until the position
+        # wraps below the threshold, then resume normal forward stamping.
+        if awaiting_lap_start:
+            if norm_pos < _LAP_START_POS_THRESHOLD:
+                awaiting_lap_start = False
+            prev_pos = norm_pos
 
         newly_crossed = _update_gate_times(gate_times, prev_pos, norm_pos, i_current)
 
@@ -683,6 +1330,7 @@ def _record_message(payload: dict[str, Any]) -> None:
         entry_partial["last_gate_index"] = last_gate_index
         entry_partial["last_gate_state"] = last_gate_state
         entry_partial["last_gate_delta_ms"] = last_gate_delta_ms
+        entry_partial["awaiting_lap_start"] = awaiting_lap_start
         _state[key] = entry_partial
 
     # Compute the per-historical inline deltas the active envelope carries
@@ -799,6 +1447,19 @@ def _record_message(payload: dict[str, Any]) -> None:
     from . import live_stream
 
     live_stream.publish_snapshot(snapshot)
+
+    # On a completed lap, re-read the best-laps DB so the right-hand Best
+    # Laps table picks up the driver's newly-set lap (real deployments: the
+    # lake sink has written it by the next refresh). force=True bypasses the
+    # TTL because a lap boundary is exactly when fresh data is expected.
+    #
+    # CRITICAL: submit to the lake-work executor rather than running inline.
+    # `_record_message` is on the Kafka consumer thread; a synchronous
+    # seconds-long lake query here would stall `consumer.poll()` and freeze
+    # the live stream. The executor runs it off the hot path; the next raw
+    # tick is processed without waiting.
+    if lap_completed:
+        submit_lake_job("best_laps_force")
 
 
 def get_active_driver() -> dict[str, Any] | None:
@@ -941,6 +1602,17 @@ def _fetch_latest_version_content(
     content = c_resp.json() or {}
     if not isinstance(content, dict):
         return None
+    logger.info(
+        "DCM content: config_id=%s version=%s keys=%s -> "
+        "experiment=%r driver=%r track=%r car=%r",
+        config_id,
+        version,
+        sorted(content.keys()),
+        content.get("experiment_id"),
+        content.get("driver"),
+        content.get("track"),
+        content.get("carModel"),
+    )
     return content
 
 
@@ -1042,6 +1714,175 @@ def _fetch_experiment_from_dcm(hostname: str) -> dict[str, str]:
         return dict(empty)
 
 
+def _config_recency_key(cfg: dict[str, Any]) -> tuple[Any, Any]:
+    """Sort key for "most-recent config" across target_keys.
+
+    Orders by `metadata.valid_from` then `metadata.version` (both ascending,
+    so `max(...)` yields the newest). `valid_from` is an ISO-8601 timestamp
+    string in the byox DCM payloads; lexicographic compare on ISO-8601 is
+    chronological, so no parsing is needed. Missing fields sort lowest via
+    empty-string / zero defaults so a config that carries neither never
+    shadows one that does.
+    """
+    meta = cfg.get("metadata") or {}
+    valid_from = str(meta.get("valid_from") or "")
+    version = meta.get("version") or 0
+    try:
+        version = int(version)
+    except (TypeError, ValueError):
+        version = 0
+    return (valid_from, version)
+
+
+def _fetch_latest_dcm_config() -> dict[str, Any] | None:
+    """List all DCM configurations and resolve the hostname-AGNOSTIC latest
+    experiment + session config content ("the last config message").
+
+    Returns `{"driver", "experiment", "track", "car", "environment"}` (all
+    strings, possibly empty) or `None` when the listing call fails (so the
+    caller can keep the last-good cached value — stale-on-error). An empty
+    result dict (call succeeded but no experiment/session config exists) is
+    distinct from `None` and overwrites the cache.
+
+    Selection is across ALL target_keys, NOT keyed by hostname:
+      * latest experiment config (`metadata.type == "experiment"`) by
+        `_config_recency_key` → `driver` (content.driver) + `experiment`
+        (content.experiment_id) + `environment` (content.environment).
+      * latest session config (`metadata.type == "session"`) by the same
+        key → `track` (content.track) + `car` (content.carModel).
+
+    Reuses the existing DCM client / header / version-pick helpers
+    (`_dcm_auth_headers`, `_fetch_latest_version_content`). Network-blocking
+    but called only off the hot path (TTL-gated via `_get_latest_dcm_config`,
+    on the consumer thread). All exceptions are caught and surface as `None`.
+    """
+    import httpx
+
+    from .settings import get_settings
+
+    settings = get_settings()
+    config_api_url = settings.config_api_url
+    if not config_api_url:
+        logger.debug("skipping latest-DCM-config fetch: config_api_url not configured")
+        return None
+
+    base = f"{config_api_url.rstrip('/')}/api/v1"
+    headers = _dcm_auth_headers(settings.sdk_token)
+
+    try:
+        with httpx.Client(timeout=DCM_TIMEOUT_S) as client:
+            resp = client.get(f"{base}/configurations", headers=headers)
+            if resp.status_code != 200:
+                logger.warning(
+                    "DCM list returned %d during latest-config fetch",
+                    resp.status_code,
+                )
+                return None
+            data = resp.json()
+            configs = (
+                data
+                if isinstance(data, list)
+                else data.get("data", data.get("items", []))
+            )
+
+            experiment_cfgs = [
+                c for c in configs if (c.get("metadata") or {}).get("type") == "experiment"
+            ]
+            session_cfgs = [
+                c for c in configs if (c.get("metadata") or {}).get("type") == "session"
+            ]
+
+            result = {
+                "driver": "",
+                "experiment": "",
+                "track": "",
+                "car": "",
+                "environment": "",
+            }
+
+            if experiment_cfgs:
+                latest_exp = max(experiment_cfgs, key=_config_recency_key)
+                exp_id = latest_exp.get("id") or latest_exp.get("_id")
+                if exp_id:
+                    content = _fetch_latest_version_content(
+                        client, base, exp_id, headers
+                    )
+                    if content:
+                        result["driver"] = str(content.get("driver") or "")
+                        result["experiment"] = str(content.get("experiment_id") or "")
+                        result["environment"] = str(content.get("environment") or "")
+
+            if session_cfgs:
+                latest_sess = max(session_cfgs, key=_config_recency_key)
+                sess_id = latest_sess.get("id") or latest_sess.get("_id")
+                if sess_id:
+                    content = _fetch_latest_version_content(
+                        client, base, sess_id, headers
+                    )
+                    if content:
+                        result["track"] = str(content.get("track") or "")
+                        result["car"] = str(content.get("carModel") or "")
+
+            logger.info(
+                "latest DCM config (hostname-agnostic): driver=%r experiment=%r "
+                "track=%r car=%r env=%r",
+                result["driver"],
+                result["experiment"],
+                result["track"],
+                result["car"],
+                result["environment"],
+            )
+            return result
+    except Exception:
+        logger.exception("latest-DCM-config fetch failed; keeping last-good cache")
+        return None
+
+
+def _get_latest_dcm_config(force_refresh: bool = False) -> dict[str, Any]:
+    """Return the TTL-cached hostname-agnostic latest DCM config.
+
+    Refreshes via `_fetch_latest_dcm_config` when the cache is empty, older
+    than `LATEST_DCM_CONFIG_TTL_S`, or `force_refresh=True`. Stale-on-error:
+    a failed fetch (returns `None`) keeps the last-good cached value rather
+    than blanking it. Always returns a dict with the five string keys (empty
+    strings until the first successful fetch).
+
+    The network fetch happens OUTSIDE `_latest_dcm_lock` so a slow DCM never
+    blocks a concurrent reader; the lock only guards the read of the staleness
+    check and the final cache swap. Intended to be called on the consumer
+    thread (off the FastAPI request / WS path).
+    """
+    global _latest_dcm_config
+    empty = {
+        "driver": "",
+        "experiment": "",
+        "track": "",
+        "car": "",
+        "environment": "",
+    }
+    now = time.monotonic()
+    with _latest_dcm_lock:
+        cached = _latest_dcm_config
+        if (
+            not force_refresh
+            and cached is not None
+            and now - float(cached.get("fetched_monotonic") or 0.0)
+            < LATEST_DCM_CONFIG_TTL_S
+        ):
+            return dict(cached)
+
+    fetched = _fetch_latest_dcm_config()
+    if fetched is None:
+        # Stale-on-error: keep whatever we had (possibly empty defaults).
+        with _latest_dcm_lock:
+            return dict(_latest_dcm_config) if _latest_dcm_config else dict(empty)
+
+    fetched["fetched_monotonic"] = time.monotonic()
+    with _latest_dcm_lock:
+        _latest_dcm_config = fetched
+        return dict(fetched)
+
+
 def _prewarm_session_cache_from_dcm() -> None:
     """Pre-populate `_session_cache` (and `_experiment_cache`) from DCM at
     consumer startup so a backend restart mid-AC-session immediately has the
@@ -1141,26 +1982,43 @@ def _prewarm_session_cache_from_dcm() -> None:
                         "track": track,
                         "carModel": car,
                         "playerName": player,
+                        "updated_epoch": time.time(),
                     }
                 logger.info(
-                    "session cache prewarmed from DCM: hostname=%s track=%s car=%s",
+                    "session cache prewarmed from DCM: hostname=%s track=%s "
+                    "car=%s player=%r",
                     hostname,
                     track,
                     car,
+                    player,
                 )
                 prewarmed_hostnames.append(hostname)
+
+            logger.info(
+                "DCM session prewarm: %d of %d session configs cached, hostnames=%s",
+                len(prewarmed_hostnames),
+                len(session_configs),
+                prewarmed_hostnames,
+            )
 
         # Warm the experiment cache for each hostname we seeded. Outside the
         # httpx context so each lookup opens its own short-lived client —
         # consistent with `_get_cached_experiment`'s existing behaviour.
+        # Each prewarmed session is also adopted as the live session
+        # (latest wins) so a backend restart mid-session re-arms the
+        # `live_session` envelope without waiting for a new announcement.
         for hostname in prewarmed_hostnames:
             _get_cached_experiment(hostname, force_refresh=True)
+            with _state_lock:
+                session = _session_cache.get(hostname)
+            if session:
+                _adopt_live_session(hostname, session["track"], session["carModel"])
 
         # Refresh best-laps once more so per-driver bests reflect the
-        # drivers we just discovered. Cheap, atomic, one extra lake hit at
-        # boot. (Step 2 will extend this to gate vectors.)
+        # drivers we just discovered. Submitted to the lake-work executor so
+        # the consumer thread isn't blocked on a lake query during startup.
         if prewarmed_hostnames:
-            _refresh_best_laps_from_settings()
+            submit_lake_job("best_laps_force")
     except Exception:
         logger.exception("DCM session pre-warm failed; continuing without it")
 
@@ -1186,6 +2044,13 @@ def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
             and entry is not None
             and now - entry["fetched_epoch"] < EXPERIMENT_CACHE_TTL_S
         ):
+            logger.info(
+                "DCM experiment resolve: hostname=%s -> driver=%r experiment=%r "
+                "(cache hit)",
+                hostname,
+                entry.get("driver"),
+                entry.get("experiment"),
+            )
             return str(entry["experiment"])
 
     # Fetch outside the lock — `httpx` can take seconds on a slow DCM and we
@@ -1194,13 +2059,23 @@ def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
     experiment = str(config.get("experiment_id") or "")
     driver = str(config.get("driver") or "")
     environment = str(config.get("environment") or "")
+    now = time.time()
     with _state_lock:
         _experiment_cache[hostname] = {
             "experiment": experiment,
             "driver": driver,
             "environment": environment,
-            "fetched_epoch": time.time(),
+            "fetched_epoch": now,
+            "updated_epoch": now,
         }
+    logger.info(
+        "DCM experiment resolve: hostname=%s -> driver=%r experiment=%r "
+        "env=%r (cache refresh)",
+        hostname,
+        driver,
+        experiment,
+        environment,
+    )
     return experiment
 
 
@@ -1256,6 +2131,7 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
             "track": track,
             "carModel": car,
             "playerName": player,
+            "updated_epoch": time.time(),
         }
     logger.info(
         "session cache updated: hostname=%s track=%s car=%s driver=%s",
@@ -1268,13 +2144,23 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     # boundaries are the natural invalidation point — between sessions the
     # operator may have switched the active experiment via Test Manager.
     _get_cached_experiment(hostname, force_refresh=True)
+    # Same trigger for the hostname-agnostic latest-DCM-config fallback: a
+    # session boundary is when the operator may have swapped the active
+    # config in Test Manager, so warm it now (off the hot path) rather than
+    # paying the fetch on the first raw tick that needs it.
+    _get_latest_dcm_config(force_refresh=True)
+    # Adopt this session as the current live session (and broadcast the
+    # `live_session` envelope) BEFORE the seconds-long best-laps refresh
+    # below, so connected clients learn the combo promptly.
+    _adopt_live_session(hostname, track, car)
     # Same trigger for the best-laps cache — a new AC session means a
     # driver is about to set new lap times, so we want fresh per-driver
-    # best laps in cache before the next `/live-positions` poll.
-    # Synchronous is fine: this handler runs on the consumer thread, off
-    # the HTTP request path, so the seconds-long lake call doesn't hurt
-    # API users. Canonical "once per AC session" refresh trigger.
-    _refresh_best_laps_from_settings()
+    # best laps in cache before the next `/live-positions` poll. Canonical
+    # "once per AC session" refresh trigger. Submitted to the lake-work
+    # executor (NOT run inline): this handler is on the Kafka consumer
+    # thread, and a seconds-long lake query here would stall the poll loop
+    # and freeze the live stream. The refresh runs off the hot path.
+    submit_lake_job("best_laps_force")
 
 
 def _handle_config_event(payload: dict[str, Any]) -> None:
@@ -1328,6 +2214,13 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             )
             return
 
+        logger.info(
+            "DCM config event: target=%s type=%s event=%s",
+            target_key,
+            event_type,
+            event,
+        )
+
         # Deletion path: drop the cache entry and return. No HTTP needed —
         # the content URL would 404 anyway.
         if event == "deleted":
@@ -1371,6 +2264,18 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             )
             return
 
+        logger.info(
+            "DCM config event content: target=%s type=%s keys=%s -> "
+            "experiment=%r driver=%r track=%r car=%r",
+            target_key,
+            event_type,
+            sorted(content.keys()),
+            content.get("experiment_id"),
+            content.get("driver"),
+            content.get("track"),
+            content.get("carModel"),
+        )
+
         if event_type == "session":
             track = str(content.get("track") or "").strip()
             car = str(content.get("carModel") or "").strip()
@@ -1386,6 +2291,7 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
                     "track": track,
                     "carModel": car,
                     "playerName": player,
+                    "updated_epoch": time.time(),
                 }
             logger.info(
                 "config event applied: type=session hostname=%s track=%s car=%s",
@@ -1396,9 +2302,13 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             # Keep experiment+driver paired with the new session (same hook
             # `_handle_session_message` runs after a Kafka session message).
             _get_cached_experiment(target_key, force_refresh=True)
+            # A DCM session config event is a session announcement too —
+            # adopt it as the live session (same as the Kafka path).
+            _adopt_live_session(target_key, track, car)
             # And refresh best laps — a session-config change can mean a
             # different driver is about to log laps under this hostname.
-            _refresh_best_laps_from_settings()
+            # Off the hot path via the lake-work executor.
+            submit_lake_job("best_laps_force")
         else:
             # experiment-type event: update experiment_cache only. We still
             # refresh best-laps below because changing the experiment_id /
@@ -1407,12 +2317,14 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             experiment = str(content.get("experiment_id") or "")
             driver = str(content.get("driver") or "")
             environment = str(content.get("environment") or "")
+            now = time.time()
             with _state_lock:
                 _experiment_cache[target_key] = {
                     "experiment": experiment,
                     "driver": driver,
                     "environment": environment,
-                    "fetched_epoch": time.time(),
+                    "fetched_epoch": now,
+                    "updated_epoch": now,
                 }
             logger.info(
                 "config event applied: type=experiment hostname=%s "
@@ -1424,8 +2336,8 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             )
             # Refresh so the new (track, car, experiment, environment)
             # tuple gets queried — see spec acceptance: trigger 3 covers
-            # DCM experiment-type events.
-            _refresh_best_laps_from_settings()
+            # DCM experiment-type events. Off the hot path via the executor.
+            submit_lake_job("best_laps_force")
     except Exception:
         # Broad catch on purpose — handler errors must never break the loop.
         logger.exception("config event handler failed: %r", payload)
@@ -1436,33 +2348,41 @@ def get_best_laps_cache() -> dict[tuple[str, str, str, str], dict[str, int]] | N
     has run yet.
 
     Shape: `{(track, car, experiment, environment): {driver_folded:
-    best_lap_ms}}`.
+    best_lap_ms}}` — the internal per-entry refresh timestamps are
+    stripped so `build_live_positions` / `_build_group_rows` keep their
+    pre-TTL shape unchanged.
 
-    Callers must treat the returned dict as read-only — we hand back the
-    live reference (cheap) rather than a deep copy. The cache is only
-    swapped atomically via `refresh_best_laps_cache`, so a caller
-    iterating the dict will see a consistent snapshot for the duration of
-    that iteration even if a refresh races (the swap replaces the binding,
-    not the dict contents in place).
+    Callers must treat the returned dict as read-only. The outer dict is
+    rebuilt per call (cheap — a handful of groups); the inner per-driver
+    dicts are the live references, only ever replaced whole during a
+    refresh swap, never mutated in place.
     """
     with _best_laps_lock:
-        return _best_laps_cache
+        cache = _best_laps_cache
+        if cache is None:
+            return None
+        return {grp: rows for grp, (_ts, rows) in cache.items()}
 
 
 def _known_groups() -> list[tuple[str, str, str, str]]:
     """Enumerate every (track, car, experiment, environment) tuple we have
     enrichment data for.
 
-    Sources:
+    Sources (deduped union, live-derived first):
       * `_session_cache[hostname]` → (track, carModel) — populated by AC
         session messages and DCM session-prewarm.
       * `_experiment_cache[hostname]` → (experiment, environment) — populated
         by `_get_cached_experiment` from the matching DCM experiment config.
+      * `partition_index.enumerate_groups()` — groups enumerated straight
+        from the lake's partition metadata (TTL-cached, never raises).
+        This is the lake-first path: the historical leaderboard populates
+        even with no live AC session and no DCM config; live gate-state
+        layers on top when a session is active.
 
-    A hostname missing either side (e.g. session exists but experiment
-    config has no environment yet) is dropped — the lake query can't run
-    without all four filters. Each tuple appears at most once even if
-    multiple hostnames share the same combo.
+    A hostname missing either enrichment side (e.g. session exists but
+    experiment config has no environment yet) is dropped from the live
+    sources — the lake query can't run without all four filters. Each
+    tuple appears at most once even if multiple sources share the combo.
     """
     with _state_lock:
         # Snapshot under lock so we don't trip over an in-flight write.
@@ -1485,65 +2405,212 @@ def _known_groups() -> list[tuple[str, str, str, str]]:
             continue
         seen.add(key)
         groups.append(key)
+
+    # Lake-first union. Lazy import: `partition_index` is a leaf module,
+    # but keeping the import local matches this module's convention and
+    # spares the simulator/test paths the httpx import cost.
+    from . import partition_index
+
+    for key in partition_index.enumerate_groups():
+        if key not in seen:
+            seen.add(key)
+            groups.append(key)
     return groups
+
+
+def _fold_best_laps(
+    per_driver_raw: dict[str, int],
+) -> tuple[dict[str, int], dict[str, str]]:
+    """Fold raw lake driver names to the cache key shape.
+
+    Returns `(folded_best, folded_to_raw)`. Keeps the MIN best_ms when
+    two raw names fold to the same key (typical case: a driver
+    re-recorded under different casing); `folded_to_raw` then maps to
+    the raw name that holds that MIN — the one Query B must scan.
+    """
+    folded: dict[str, int] = {}
+    folded_to_raw: dict[str, str] = {}
+    for raw_driver, best_ms in per_driver_raw.items():
+        key = _fold_for_lookup(raw_driver) or raw_driver.lower()
+        prev = folded.get(key)
+        if prev is None or best_ms < prev:
+            folded[key] = best_ms
+            folded_to_raw[key] = raw_driver
+    return folded, folded_to_raw
+
+
+def _log_lake_call_failure(what: str, exc: Exception, context: str) -> None:
+    """Log a swallowed lake-call failure at the right level (spec: log-noise).
+
+    A handled *transient* lake failure (timeout / transport error / 5xx —
+    already retried-then-given-up inside `LakehouseClient.query`) logs ONE
+    WARNING line, no traceback: the lake being slow/down is an operational
+    condition, not a code bug, and a per-tick ERROR+stacktrace at the TTL
+    cadence floods the deployment logs. Any OTHER exception (a genuine bug —
+    bad SQL, a None deref) keeps the full ERROR+traceback so it's visible.
+
+    `LakehouseQueryError` (a deterministic SQL error returned by the engine)
+    is treated as non-transient → ERROR+traceback, since it signals a query
+    the code built wrong.
+    """
+    import httpx
+
+    from .lakehouse_client import _is_retryable
+
+    if _is_retryable(exc):
+        logger.warning(
+            "%s failed (transient lake error, retries exhausted): %s: %s [%s]; "
+            "keeping previous entry (stale-on-error)",
+            what,
+            type(exc).__name__,
+            exc,
+            context,
+        )
+    elif isinstance(exc, httpx.HTTPError):
+        # Non-retryable HTTP error (e.g. 4xx) — still operational, one line.
+        logger.warning(
+            "%s failed (lake HTTP error): %s: %s [%s]; keeping previous entry",
+            what,
+            type(exc).__name__,
+            exc,
+            context,
+        )
+    else:
+        logger.exception(
+            "%s failed (unexpected error): %s; keeping previous entry [%s]",
+            what,
+            type(exc).__name__,
+            context,
+        )
 
 
 def refresh_best_laps_cache(
     quixlake_url: str,
     quix_lake_token: str,
+    *,
+    force: bool = False,
 ) -> None:
-    """Query QuixLake once per known (track, car, experiment, environment)
-    group and atomically swap the result into `_best_laps_cache`.
+    """Refresh the keyed TTL best-laps cache and rebuild gate vectors for
+    drivers whose best lap changed (spec §6.4).
 
-    Discovery uses `_query_best_laps_with_lap` (an `iCurrentTime`-based
-    per-(driver, lap) scan with a 0.95-position-coverage filter), not
-    `_query_best_laps` (which filtered `iBestTime > 0` and silently
-    dropped historicals whose lake rows didn't carry a populated
-    iBestTime — the dominant cause of the round-1 "1 row only" blocker
-    in dev lake replays). Every driver with a real completed lap now
-    surfaces, regardless of whether iBestTime was being written on the
-    tick that produced their fastest lap.
+    Query A per due group: `_query_best_laps_min` — server-side
+    `MIN(iBestTime) GROUP BY driver` (dashboard pattern) with automatic
+    raw-scan fallback. A group is *due* when `force=True`, it has no
+    cache entry, or its entry is older than `BEST_LAPS_TTL_SECONDS`.
+    Failed groups keep their previous entry (per-key stale-on-error) and
+    back off one TTL before the next retry.
 
-    Group discovery: `_known_groups()` enumerates every (track, car,
-    experiment, environment) tuple we have enrichment for. We run one
-    query per group (typically 1–2 groups in practice).
+    Diff-driven follow-up: only when at least one driver's best changed
+    (new driver, different ms, or removed) do we run the targeted
+    gate-vector rebuild, invalidate the driver-name lookup, and broadcast
+    a full WS snapshot. Steady-state TTL ticks with no changes are
+    silent — no scans, no broadcasts.
+
+    Single-flight: overlapping triggers queue on
+    `_best_laps_refresh_lock`; once the in-flight refresh finishes, the
+    queued one finds nothing due and no-ops.
 
     All exceptions are caught and logged; on failure the previous cache
     value (possibly None on first run) stays valid.
-
-    After a successful swap, broadcasts a fresh full snapshot through
-    `live_stream` so every connected WebSocket client re-renders.
     """
-    try:
-        from concurrent.futures import ThreadPoolExecutor
-
-        # Discover drivers via the iCurrentTime-based lap detector so any
-        # driver with a ≥95%-coverage completed lap surfaces in the table.
-        # The earlier `_query_best_laps` (filtering `iBestTime > 0`) silently
-        # dropped historicals whose AC session never wrote a populated
-        # iBestTime — which appears to be the common case in the dev lake
-        # for older replays and was the dominant cause of round-1 blocker
-        # #1 ("only 1 row shows in Live Sector Comparison").
-        from .routes.leaderboard_real import _query_best_laps_with_lap
-
-        new_cache: dict[tuple[str, str, str, str], dict[str, int]] = {}
-        groups = _known_groups()
-        if not groups:
-            logger.info(
-                "best-laps cache refresh: no (track,car,exp,env) groups known yet "
-                "(session + experiment caches still warming) — leaving cache as-is"
+    with _best_laps_refresh_lock:
+        try:
+            changed = _refresh_best_laps_locked(
+                quixlake_url, quix_lake_token, force=force
             )
+        except Exception:
+            logger.exception("best-laps cache refresh failed; keeping previous cache")
+            return
 
-        def _run_one(
-            grp: tuple[str, str, str, str],
-        ) -> tuple[
-            tuple[str, str, str, str],
-            dict[str, tuple[int, int]],
-        ]:
-            track, car, experiment, environment = grp
-            # Returns `{raw_lake_driver: (best_ms, lap_num)}` for every
-            # driver with a completed (≥0.95-coverage) lap in the group.
-            per_driver_raw = _query_best_laps_with_lap(
+    if not changed:
+        return
+
+    # Targeted gate-vector rebuild for exactly the changed drivers, then
+    # the standard "something material changed" follow-ups. Run OUTSIDE
+    # the single-flight lock: `_broadcast_full_snapshot_safely` →
+    # `build_live_positions` may itself call `refresh_best_laps_cache`
+    # on a cold cache, and the flight lock is not reentrant.
+    refresh_gate_vectors_cache(quixlake_url, quix_lake_token, changed=changed)
+
+    # Best-laps changed → drop the driver-name lookup so a newly added
+    # driver flows to the wire envelope on the next publish without
+    # waiting for a process restart.
+    _invalidate_driver_name_lookup()
+
+    # Historicals changed → broadcast a fresh full snapshot to every WS
+    # client so the leaderboard tab updates without waiting for the next
+    # connect. Best-effort: any failure inside the broadcast helpers is
+    # logged and swallowed so the consumer thread stays alive.
+    _broadcast_full_snapshot_safely()
+
+
+def _refresh_best_laps_locked(
+    quixlake_url: str,
+    quix_lake_token: str,
+    *,
+    force: bool,
+) -> dict[tuple[str, str, str, str], _GroupDiff]:
+    """Run Query A for every due group, swap updated entries into
+    `_best_laps_cache`, and return the per-group diffs.
+
+    Caller holds `_best_laps_refresh_lock`. Returns an empty dict when
+    nothing was due or nothing changed.
+    """
+    global _best_laps_cache
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .routes.leaderboard_real import _query_best_laps_min
+    from .settings import get_settings
+
+    ttl = get_settings().best_laps_ttl_seconds
+    groups = _known_groups()
+    if not groups:
+        # A refresh that finds zero groups is a *successful* refresh of an
+        # empty lake, not a cold start: flip the `None` sentinel to `{}`
+        # so `build_live_positions` serves a historical-only 200 instead
+        # of retrying synchronously and 500ing on "no data".
+        with _best_laps_lock:
+            if _best_laps_cache is None:
+                _best_laps_cache = {}
+        logger.info(
+            "best-laps cache refresh: no (track,car,exp,env) groups known "
+            "(no live session/DCM enrichment and lake enumeration empty) — "
+            "cache is empty"
+        )
+        return {}
+
+    now = time.monotonic()
+    with _best_laps_lock:
+        cache_snapshot = dict(_best_laps_cache) if _best_laps_cache is not None else None
+        failure_snapshot = dict(_best_laps_failure_ts)
+
+    due: list[tuple[str, str, str, str]] = []
+    for grp in groups:
+        if not force:
+            entry = cache_snapshot.get(grp) if cache_snapshot else None
+            if entry is not None and now - entry[0] < ttl:
+                continue
+            last_failure = failure_snapshot.get(grp)
+            if last_failure is not None and now - last_failure < ttl:
+                continue
+        due.append(grp)
+
+    # Groups that left `_known_groups()` (e.g. DCM config deleted) are
+    # pruned; their drivers become removals so the gate-vector merge
+    # drops them too.
+    known = set(groups)
+    pruned = [g for g in (cache_snapshot or {}) if g not in known]
+
+    if not due and not pruned:
+        return {}
+
+    def _run_one(
+        grp: tuple[str, str, str, str],
+    ) -> tuple[tuple[str, str, str, str], dict[str, int] | None]:
+        track, car, experiment, environment = grp
+        try:
+            per_driver_raw = _query_best_laps_min(
                 quixlake_url,
                 quix_lake_token,
                 track=track,
@@ -1551,73 +2618,91 @@ def refresh_best_laps_cache(
                 experiment=experiment,
                 environment=environment,
             )
-            logger.info(
-                "best-laps query: track=%s car=%s exp=%s env=%s -> %d drivers",
-                track,
-                car,
-                experiment,
-                environment,
-                len(per_driver_raw),
+        except Exception as exc:
+            _log_lake_call_failure(
+                "best-laps query",
+                exc,
+                "track=%s car=%s exp=%s env=%s" % (track, car, experiment, environment),
             )
-            return grp, per_driver_raw
+            return grp, None
+        logger.info(
+            "best-laps query: track=%s car=%s exp=%s env=%s -> %d drivers",
+            track,
+            car,
+            experiment,
+            environment,
+            len(per_driver_raw),
+        )
+        return grp, per_driver_raw
 
-        if groups:
-            # Run one lake query per group in parallel. QuixLakeClient is
-            # `requests`-based (blocking), so a thread pool is the right
-            # primitive — we're already on the Kafka consumer thread, not
-            # an event loop. Cap concurrency at 8 to avoid hammering the
-            # lake on workspaces with many active drivers.
-            with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
-                for grp, per_driver_raw in pool.map(_run_one, groups):
-                    # Fold raw lake driver names to the cache key shape
-                    # `_build_group_rows` expects. Keep the MIN best_ms
-                    # when two raw names fold to the same key (typical
-                    # case: a driver re-recorded under different casing).
-                    folded: dict[str, int] = {}
-                    for raw_driver, (best_ms, _lap_num) in per_driver_raw.items():
-                        key = _fold_for_lookup(raw_driver) or raw_driver.lower()
-                        prev = folded.get(key)
-                        if prev is None or best_ms < prev:
-                            folded[key] = best_ms
-                    new_cache[grp] = folded
-    except Exception:
-        logger.exception("best-laps cache refresh failed; keeping previous cache")
-        return
+    results: dict[tuple[str, str, str, str], dict[str, int] | None] = {}
+    if due:
+        # Run one lake query per group in parallel. `LakehouseClient` is
+        # blocking httpx, so a thread pool is the right primitive — we're
+        # already on the Kafka consumer thread, not an event loop. Cap
+        # concurrency at 8 to avoid hammering the lake.
+        with ThreadPoolExecutor(max_workers=min(8, len(due))) as pool:
+            for grp, per_driver_raw in pool.map(_run_one, due):
+                results[grp] = per_driver_raw
 
-    # Only swap when we actually queried something. An empty `new_cache`
-    # because no groups were known yet is NOT a "refreshed, lake had no
-    # rows" outcome — it's "we don't know what to ask for yet". Leaving
-    # the previous cache (or `None`) intact lets `build_live_positions`
-    # retry on the next request.
-    if not new_cache:
-        return
-
+    diffs: dict[tuple[str, str, str, str], _GroupDiff] = {}
+    refreshed = 0
+    failed = 0
     with _best_laps_lock:
-        global _best_laps_cache
-        _best_laps_cache = new_cache
-    total_historicals = sum(len(g) for g in new_cache.values())
+        had_cache = _best_laps_cache is not None
+        base = dict(_best_laps_cache) if _best_laps_cache is not None else {}
+        swap_now = time.monotonic()
+        for grp in due:
+            per_driver_raw = results.get(grp)
+            if per_driver_raw is None:
+                # Stale-on-error: keep the previous entry (if any) and
+                # back off one TTL before retrying this group.
+                _best_laps_failure_ts[grp] = swap_now
+                failed += 1
+                continue
+            _best_laps_failure_ts.pop(grp, None)
+            folded, folded_to_raw = _fold_best_laps(per_driver_raw)
+            old_entry = base.get(grp)
+            old_folded = old_entry[1] if old_entry is not None else {}
+            changed_folded = {
+                k for k, v in folded.items() if old_folded.get(k) != v
+            }
+            removed_folded = frozenset(old_folded.keys() - folded.keys())
+            if changed_folded or removed_folded:
+                diffs[grp] = _GroupDiff(
+                    changed_raw={
+                        folded_to_raw[k]: folded[k] for k in changed_folded
+                    },
+                    removed_folded=removed_folded,
+                )
+            base[grp] = (swap_now, folded)
+            refreshed += 1
+        for grp in pruned:
+            _ts, old_folded = base.pop(grp)
+            _best_laps_failure_ts.pop(grp, None)
+            if old_folded:
+                diffs[grp] = _GroupDiff(
+                    changed_raw={}, removed_folded=frozenset(old_folded)
+                )
+        # Keep the `None` cold-start sentinel when nothing was ever
+        # cached successfully — `build_live_positions` uses it to retry
+        # synchronously on the next request.
+        if base or had_cache:
+            _best_laps_cache = base
+
+    total_historicals = sum(len(rows) for _ts, rows in base.values())
     logger.info(
-        "best-laps cache refreshed: %d groups, %d historicals",
-        len(new_cache),
+        "best-laps cache refreshed: %d/%d due groups ok (%d failed, %d pruned), "
+        "%d groups cached, %d historicals, %d group(s) changed",
+        refreshed,
+        len(due),
+        failed,
+        len(pruned),
+        len(base),
         total_historicals,
+        len(diffs),
     )
-
-    # Best-laps changed → drop the driver-name lookup so a newly added
-    # driver flows to the wire envelope on the next publish without
-    # waiting for a process restart.
-    _invalidate_driver_name_lookup()
-
-    # Pair with a gate-vectors refresh: the Left-table colour cue depends
-    # on per-gate cumulative-time vectors of every historical's best lap
-    # for the same `(track, car, experiment)` set. Same trigger cadence
-    # (session / config / startup), one place to keep them in sync.
-    refresh_gate_vectors_cache(quixlake_url, quix_lake_token)
-
-    # Historicals changed → broadcast a fresh full snapshot to every WS
-    # client so the leaderboard tab updates without waiting for the next
-    # connect. Best-effort: any failure inside the broadcast helpers is
-    # logged and swallowed so the consumer thread stays alive.
-    _broadcast_full_snapshot_safely()
+    return diffs
 
 
 def get_gate_vectors_cache() -> (
@@ -1639,93 +2724,218 @@ def get_gate_vectors_cache() -> (
 def refresh_gate_vectors_cache(
     quixlake_url: str,
     quix_lake_token: str,
+    *,
+    changed: dict[tuple[str, str, str, str], _GroupDiff] | None = None,
 ) -> None:
-    """Pull per-gate cumulative-time vectors for every historical best lap
-    in scope and atomically swap into `_gate_vectors_cache`.
+    """Rebuild per-gate cumulative-time vectors for the changed drivers
+    and merge into `_gate_vectors_cache` (spec §6.4).
 
-    Scope = the `(track, car, experiment, environment)` tuples enumerated
-    by `_known_groups()`. The reducer in `routes/leaderboard_real.py`
-    returns `{(track, car, experiment): {driver_folded: _HistoricalEntry}}`
-    keyed without environment because the active-row code path only knows
-    (track, car, experiment) — `environment` is a lake-side partition
-    that the assembly layer filters on but doesn't echo back to the live
-    state. The reducer naturally drops `environment` from its key on
-    output.
+    `changed` given (the normal path — diff from
+    `refresh_best_laps_cache`): for each group, Query B
+    (`_query_lap_table` narrowed with `drivers=`) identifies the lap each
+    driver's Query A `best_ms` was set on (`_match_best_lap`, tolerance
+    `BEST_LAP_MATCH_TOLERANCE_MS`; fastest-complete-lap fallback with a
+    reconciliation warning), then Query C (`_query_gate_samples`) fetches
+    only the matched `(driver, lap)` sample rows. The result is merged
+    copy-on-write into the existing cache: changed/added drivers get new
+    `_HistoricalEntry` values, removed drivers are dropped, untouched
+    drivers keep their vectors.
 
-    Triggered from:
-      * consumer startup (after `_prewarm_session_cache_from_dcm`),
-      * AC `ac-telemetry-session` Kafka message,
-      * DCM `ac-telemetry-config` event (session OR experiment type),
-      * (implicitly) every `refresh_best_laps_cache` call, since the two
-        caches always refresh together.
+    `changed=None` (cold start / explicit force): full rebuild — Query A
+    runs per known group here, every driver counts as changed, and the
+    merge replaces the whole cache (stale groups drop out). Groups whose
+    Query A fails keep their previous `(track, car, exp)` entries.
+
+    The reducer returns `{(track, car, experiment): {driver_folded:
+    _HistoricalEntry}}` keyed without environment because the active-row
+    code path only knows (track, car, experiment) — `environment` is a
+    lake-side partition the assembly layer filters on but doesn't echo
+    back to the live state.
 
     Failures are swallowed + logged; the previous cache stays valid.
     """
     try:
         from .routes.leaderboard_real import (
+            _match_best_lap,
+            _pick_fastest_complete,
+            _query_best_laps_min,
             _query_gate_samples,
+            _query_lap_table,
             _reduce_to_gate_vectors,
         )
+        from .settings import get_settings
 
-        groups = _known_groups()
-        if not groups:
-            logger.info(
-                "gate-vectors cache refresh: no groups known yet — leaving cache as-is"
-            )
-            return
+        tolerance_ms = get_settings().best_lap_match_tolerance_ms
+        full_replace = changed is None
+        failed_key3s: set[tuple[str, str, str]] = set()
 
-        # Run one discovery query per group: `{raw_lake_driver: (best_ms,
-        # lap_num)}` for every driver with a ≥0.95-coverage completed lap.
-        # The gate-samples SQL downstream needs the RAW lake driver string
-        # (its WHERE clause matches the lake byte-for-byte); folding to
-        # the wire/cache form happens at the tail of the pipeline.
-        from concurrent.futures import ThreadPoolExecutor
+        if changed is None:
+            from concurrent.futures import ThreadPoolExecutor
 
-        from .routes.leaderboard_real import _query_best_laps_with_lap
+            groups = _known_groups()
+            if not groups:
+                logger.info(
+                    "gate-vectors cache refresh: no groups known yet — "
+                    "leaving cache as-is"
+                )
+                return
 
-        def _run_one_group(
-            grp: tuple[str, str, str, str],
-        ) -> tuple[tuple[str, str, str, str], dict[str, tuple[int, int]]]:
-            track, car, experiment, environment = grp
-            per = _query_best_laps_with_lap(
-                quixlake_url,
-                quix_lake_token,
-                track=track,
-                car=car,
-                experiment=experiment,
-                environment=environment,
-            )
-            return grp, per
+            def _run_one_group(
+                grp: tuple[str, str, str, str],
+            ) -> tuple[tuple[str, str, str, str], dict[str, int] | None]:
+                track, car, experiment, environment = grp
+                try:
+                    return grp, _query_best_laps_min(
+                        quixlake_url,
+                        quix_lake_token,
+                        track=track,
+                        car=car,
+                        experiment=experiment,
+                        environment=environment,
+                    )
+                except Exception as exc:
+                    _log_lake_call_failure(
+                        "gate-vectors discovery", exc, f"group={grp}"
+                    )
+                    return grp, None
 
-        best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
-        with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
-            for (track, car, experiment, environment), per_driver_with_lap in pool.map(
-                _run_one_group, groups
-            ):
-                for lake_driver, (best_ms, lap_num) in per_driver_with_lap.items():
-                    best_per_group[(track, car, experiment, lake_driver)] = (
-                        int(best_ms),
-                        int(lap_num),
+            changed = {}
+            with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
+                for grp, per_driver_raw in pool.map(_run_one_group, groups):
+                    if per_driver_raw is None:
+                        failed_key3s.add(grp[:3])
+                        continue
+                    changed[grp] = _GroupDiff(
+                        changed_raw=per_driver_raw, removed_folded=frozenset()
                     )
 
-        if not best_per_group:
-            reduced: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
-        else:
+        # Query B per group (narrowed to the changed drivers), lap
+        # identification per spec §5, then one Query C for all matched
+        # (driver, lap) tuples. The gate-samples SQL needs the RAW lake
+        # driver string (its WHERE clause matches the lake byte-for-byte);
+        # folding to the wire/cache form happens at the reducer tail.
+        best_per_group: dict[tuple[str, str, str, str], tuple[int, int]] = {}
+        # Folded drivers to drop per (track, car, exp): removed from the
+        # best-laps cache, or no complete lap could be identified.
+        drop: dict[tuple[str, str, str], set[str]] = {}
+        for grp, diff in changed.items():
+            track, car, experiment, environment = grp
+            key3 = (track, car, experiment)
+            for folded in diff.removed_folded:
+                drop.setdefault(key3, set()).add(folded)
+            if not diff.changed_raw:
+                continue
+            try:
+                lap_table = _query_lap_table(
+                    quixlake_url,
+                    quix_lake_token,
+                    track=track,
+                    car=car,
+                    experiment=experiment,
+                    environment=environment,
+                    drivers=sorted(diff.changed_raw),
+                )
+            except Exception as exc:
+                # Stale-on-error: the changed drivers keep their previous
+                # vectors (possibly mismatched against the new best until
+                # the next refresh round succeeds).
+                _log_lake_call_failure(
+                    "gate-vectors lap scan",
+                    exc,
+                    f"group={grp} drivers={len(diff.changed_raw)}",
+                )
+                failed_key3s.add(key3)
+                continue
+            fastest_complete = _pick_fastest_complete(lap_table)
+            for raw_driver, best_ms in diff.changed_raw.items():
+                match = _match_best_lap(lap_table, raw_driver, best_ms, tolerance_ms)
+                if match is None:
+                    match = fastest_complete.get(raw_driver)
+                    if match is not None:
+                        logger.warning(
+                            "best-lap reconciliation: driver=%r best_ms=%d has "
+                            "no complete lap within %dms (closest lap rule); "
+                            "falling back to fastest complete lap "
+                            "(%dms, lap %d) for the gate vector",
+                            raw_driver,
+                            best_ms,
+                            tolerance_ms,
+                            match[0],
+                            match[1],
+                        )
+                if match is None:
+                    # No complete lap at all → graceful neutral-cue
+                    # degradation: no gate vector for this driver.
+                    logger.warning(
+                        "no complete lap found for driver=%r in %s; dropping "
+                        "gate vector",
+                        raw_driver,
+                        grp,
+                    )
+                    folded = _fold_for_lookup(raw_driver) or raw_driver.lower()
+                    drop.setdefault(key3, set()).add(folded)
+                    continue
+                _lap_ms, lap_num = match
+                best_per_group[(track, car, experiment, raw_driver)] = (
+                    int(best_ms),
+                    int(lap_num),
+                )
+
+        if best_per_group:
             sample_rows = _query_gate_samples(
                 quixlake_url, quix_lake_token, best_per_group
             )
-            reduced = _reduce_to_gate_vectors(best_per_group, sample_rows)
+            partial = _reduce_to_gate_vectors(best_per_group, sample_rows)
+        else:
+            partial = {}
+
+        # Drivers that were queried but didn't survive the reducer
+        # (partial-coverage lap, no samples) lose their stale vector too —
+        # keeping it would disagree with the new best lap.
+        for track, car, experiment, raw_driver in best_per_group:
+            key3 = (track, car, experiment)
+            folded = _fold_for_lookup(raw_driver) or raw_driver.lower()
+            if folded not in partial.get(key3, {}):
+                drop.setdefault(key3, set()).add(folded)
     except Exception:
         logger.exception("gate-vectors cache refresh failed; keeping previous cache")
         return
 
+    # Copy-on-write merge under the lock: read base, apply drops, apply
+    # updates, swap. Doing the copy inside the lock serialises concurrent
+    # merges so no update is lost.
     with _gate_vectors_lock:
         global _gate_vectors_cache
-        _gate_vectors_cache = reduced
-    total_historicals = sum(len(g) for g in reduced.values())
+        old = _gate_vectors_cache or {}
+        if full_replace:
+            # Full rebuild replaces everything except groups whose
+            # discovery query failed (stale-on-error).
+            base = {
+                key3: dict(drivers)
+                for key3, drivers in old.items()
+                if key3 in failed_key3s
+            }
+        else:
+            base = {key3: dict(drivers) for key3, drivers in old.items()}
+        for key3, folded_set in drop.items():
+            group_dict = base.get(key3)
+            if not group_dict:
+                continue
+            for folded in folded_set:
+                group_dict.pop(folded, None)
+        for key3, group_partial in partial.items():
+            base.setdefault(key3, {}).update(group_partial)
+        base = {key3: drivers for key3, drivers in base.items() if drivers}
+        _gate_vectors_cache = base
+
+    rebuilt = sum(len(g) for g in partial.values())
+    total_historicals = sum(len(g) for g in base.values())
     logger.info(
-        "gate-vectors cache refreshed: %d (track,car,exp) groups, %d historicals",
-        len(reduced),
+        "gate vectors rebuilt for %d driver(s) (%s); cache now %d "
+        "(track,car,exp) groups, %d historicals",
+        rebuilt,
+        "full rebuild" if full_replace else "targeted",
+        len(base),
         total_historicals,
     )
 
@@ -1767,15 +2977,16 @@ def _broadcast_full_snapshot_safely() -> None:
         )
 
 
-def _refresh_best_laps_from_settings() -> None:
+def _refresh_best_laps_from_settings(*, force: bool = False) -> None:
     """Internal: pull lake creds from `Settings` and refresh the best-laps
     cache.
 
     Used by the session-message handler, the DCM config-event handler,
-    and the consumer-startup warm-up so callers don't have to plumb
-    settings through. Silently no-ops when credentials are missing — in
-    that mode the route layer raises `LeaderboardError` anyway, so
-    populating the cache is moot.
+    the consumer-startup warm-up (all `force=True` — they bypass the
+    per-group TTL), and the consumer loop's TTL tick (`force=False` —
+    only groups older than `BEST_LAPS_TTL_SECONDS` refresh). Silently
+    no-ops when credentials are missing — in that mode the route layer
+    raises `LeaderboardError` anyway, so populating the cache is moot.
     """
     from .settings import get_settings
 
@@ -1785,24 +2996,184 @@ def _refresh_best_laps_from_settings() -> None:
             "skipping best-laps cache refresh: Lakehouse credentials not configured"
         )
         return
-    refresh_best_laps_cache(settings.lakehouse_query_url, settings.lakehouse_query_token)
+    refresh_best_laps_cache(
+        settings.lakehouse_query_url, settings.lakehouse_query_token, force=force
+    )
+
+
+def _maybe_refresh_on_ttl() -> None:
+    """TTL tick for the best-laps cache, piggybacked on the consumer loop.
+
+    Runs on the Kafka consumer thread on every `poll()` iteration, so it
+    must do ZERO lake I/O — otherwise a slow lake here stalls raw
+    consumption and freezes the live stream. It therefore only *submits*
+    two idempotent jobs to the lake-work executor:
+
+      * ``best_laps_ttl`` — the worker re-checks per-group due-ness (the
+        cheap dict scan that used to live here) and refreshes only stale
+        groups, respecting the TTL + failure-backoff + single-flight.
+      * ``warm_partitions`` — keeps `partition_index.enumerate_groups()`'s
+        TTL cache warm on the worker, so the hot-path
+        `_resolve_session_experiment` always finds it ready and never
+        blocks on the cold lake call.
+
+    Both are coalesced by the bounded queue: when the worker is busy (e.g.
+    a query is timing out) the new jobs are dropped, not buffered, and the
+    next tick (0.5 s later) re-submits. Submitting is a non-blocking
+    `queue.put_nowait`, so the poll loop is never delayed by the lake.
+    """
+    from .settings import get_settings
+
+    settings = get_settings()
+    if not settings.lakehouse_query_url or not settings.lakehouse_query_token:
+        return
+    submit_lake_job("best_laps_ttl")
+    submit_lake_job("warm_partitions")
+
+
+def _maybe_refresh_due_on_worker() -> None:
+    """Worker-side due-check + best-laps refresh (the body that used to run
+    inline in `_maybe_refresh_on_ttl`).
+
+    Runs on the lake-work thread, where the `_known_groups()` /
+    `enumerate_groups()` lake round-trip and the seconds-long best-laps
+    query are safe to block on. Refreshes only when at least one known
+    group is past its TTL and outside its failure-backoff window.
+    """
+    from .settings import get_settings
+
+    settings = get_settings()
+    if not settings.lakehouse_query_url or not settings.lakehouse_query_token:
+        return
+    ttl = settings.best_laps_ttl_seconds
+    groups = _known_groups()
+    if not groups:
+        return
+    now = time.monotonic()
+    with _best_laps_lock:
+        cache = _best_laps_cache
+        due = False
+        for grp in groups:
+            entry = cache.get(grp) if cache is not None else None
+            if entry is not None and now - entry[0] < ttl:
+                continue
+            last_failure = _best_laps_failure_ts.get(grp)
+            if last_failure is not None and now - last_failure < ttl:
+                continue
+            due = True
+            break
+    if due:
+        _refresh_best_laps_from_settings()
+
+
+def _log_enriched_rate_limited(enriched: dict[str, Any]) -> None:
+    """INFO-log the active enrichment result at most once per
+    `ENRICHED_LOG_INTERVAL_S` per distinct (track, car, driver, experiment)
+    — an end-to-end heartbeat in deployment logs proving the
+    latest-session+config path is feeding `_record_message`, without
+    50 Hz spam. A combo change (new driver/experiment) logs immediately.
+    """
+    key = (
+        str(enriched.get("track") or ""),
+        str(enriched.get("carModel") or ""),
+        str(enriched.get("driver") or ""),
+        str(enriched.get("experiment") or ""),
+    )
+    now = time.time()
+    with _state_lock:
+        if now - _enriched_log_epochs.get(key, 0.0) < ENRICHED_LOG_INTERVAL_S:
+            return
+        _enriched_log_epochs[key] = now
+    logger.info(
+        "active enriched: driver=%s track=%s car=%s exp=%s env=%s "
+        "(latest session+config)",
+        key[2],
+        key[0],
+        key[1],
+        key[3],
+        enriched.get("environment"),
+    )
 
 
 def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
-    """Enrich a raw-topic payload with cached (track, car, driver, experiment)
-    and delegate to `_record_message`.
+    """Enrich a raw-topic payload with the MOST-RECENT cached session +
+    experiment metadata (hostname-agnostic) and delegate to
+    `_record_message`.
 
-    Cache miss for the hostname means we haven't seen a session message yet
-    (e.g. backend started mid-session). We log debug + skip — the next AC
-    session will populate the cache. This is intentionally silent at info
-    level to avoid spamming.
+    Why latest-of-each instead of hostname pairing: the three topics use
+    unrelated key namespaces — raw ticks `QUIX-GAMING_<epochA>`, session
+    messages `QUIX-GAMING_<epochB>` (different epoch under replay), and
+    DCM experiment configs are keyed by DRIVER NAME (target_key, e.g.
+    `"Walter"`). No hostname join can connect a session to its experiment
+    config. Single-sim deployment: exactly one session and one experiment
+    config are active at a time, so most-recent-wins (max `updated_epoch`
+    per cache) is the correct pairing.
+
+    * track / carModel ← latest session-cache entry. No session cached at
+      all → drop the tick (INFO once per process).
+    * driver ← latest experiment-cache `driver` (canonical DCM/Test
+      Manager name, drives the lake's `driver` Hive partition); falls back
+      to the latest session's `playerName` when no DCM config exists.
+    * experiment / environment ← `_resolve_session_experiment`: the DCM
+      experiment is used only when it has lake data for (track, car);
+      otherwise the lake experiment that does (so the active row overlays
+      the historical best-laps group instead of forming a solo group).
+      Empty resolution would leave `experiment=""`, which
+      `build_live_positions` drops.
     """
+    global _no_metadata_logged
     with _state_lock:
-        session = _session_cache.get(hostname)
-        experiment_entry = _experiment_cache.get(hostname)
-    if session is None:
-        logger.debug("no session cache for hostname=%s; raw tick dropped", hostname)
-        return
+        latest_session = _latest_session()
+        # Degraded-mode fallback (spec: degraded-mode-fallback). With NO
+        # session cached at all, the primary path dropped every raw tick —
+        # so replaying old data (no live session / DCM context) never opened
+        # the live gate. Synthesize a clearly-placeholder session
+        # (FALLBACK_TRACK / FALLBACK_CAR) so a degraded row still renders.
+        # The values are obviously fake ("Unknown") so it's clear this is not
+        # real enrichment. Logged once per process (not silently masked).
+        if latest_session is None:
+            # No real session cached for this (or any) hostname. Before the
+            # clearly-placeholder FALLBACK_TRACK / FALLBACK_CAR, try the
+            # hostname-AGNOSTIC latest DCM session config ("the last config
+            # message") — TTL-cached, so this is cheap on steady state and
+            # only hits DCM once per LATEST_DCM_CONFIG_TTL_S. Real DCM values
+            # always beat the placeholders.
+            latest_dcm = _get_latest_dcm_config()
+            dcm_track = str(latest_dcm.get("track") or "").strip()
+            dcm_car = str(latest_dcm.get("car") or "").strip()
+            fb_track = dcm_track or _fallback_track()
+            fb_car = dcm_car or _fallback_car()
+            if not _no_metadata_logged:
+                _no_metadata_logged = True
+                logger.info(
+                    "raw ticks arriving but no session cached yet; "
+                    "using latest-DCM/degraded fallback session track=%r car=%r "
+                    "(dcm_track=%r dcm_car=%r) so the live row still renders",
+                    fb_track,
+                    fb_car,
+                    dcm_track,
+                    dcm_car,
+                )
+            session_key = "__fallback__"
+            session = {
+                "track": fb_track,
+                "carModel": fb_car,
+                "playerName": "",
+            }
+            using_fallback_session = True
+        else:
+            session_key, session = latest_session
+            using_fallback_session = False
+        # Driver name from the most-recent experiment config that actually
+        # carries a driver (not the constantly-refreshed empty session-host
+        # entry, which would otherwise shadow it). Resolved under the lock.
+        dcm_driver_name = _latest_experiment_driver()
+
+    # Raw ticks keep the adopted live session fresh — cheap lock + dict
+    # write, no broadcast. Touch under the latest SESSION key: the live
+    # session is always adopted under a session-cache key; raw Kafka keys
+    # never match it.
+    _touch_live_session(session_key)
 
     enriched = dict(payload)
     enriched["track"] = session["track"]
@@ -1812,26 +3183,262 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     #      current source doesn't set one, but leave a hook for it),
     #   2. the DCM experiment-config `driver` (canonical "who is driving this
     #      test", same value that drives the lake's `driver` Hive partition),
-    #   3. the AC `playerName` from the session topic — fallback for
-    #      hostnames that don't yet have a Test Manager experiment config
-    #      assigned (e.g. a sim PC running standalone). Keeping this fallback
-    #      means a solo lap still produces a leaderboard row instead of being
+    #   3. the AC `playerName` from the session topic — fallback for setups
+    #      that don't yet have a Test Manager experiment config assigned
+    #      (e.g. a sim PC running standalone). Keeping this fallback means a
+    #      solo lap still produces a leaderboard row instead of being
     #      dropped by `_record_message`'s `(track, car, driver)` guard.
+    #   4. degraded-mode fallback (spec: degraded-mode-fallback) — when DCM
+    #      AND `playerName` both yield nothing (e.g. replaying old data with
+    #      no live session / DCM context), substitute the clearly-placeholder
+    #      FALLBACK_DRIVER_NAME ("John Doe") so the row still passes the guard,
+    #      stamps `_last_raw_tick_epoch`, and opens the live gate. Logged at
+    #      INFO per occurrence (not silently masked).
     if not enriched.get("driver"):
-        dcm_driver = (
-            str(experiment_entry.get("driver") or "") if experiment_entry else ""
-        )
-        enriched["driver"] = dcm_driver or session["playerName"]
+        #   2. per-hostname DCM experiment-config driver (_latest_experiment_driver)
+        #   3. AC session playerName
+        #   3b. hostname-AGNOSTIC latest DCM experiment config driver ("the last
+        #       config message") — TTL-cached, resolves the byox case where the
+        #       experiment config's target_key (a driver name) never matches the
+        #       live tick's hostname, so the per-hostname cache stays empty.
+        #   4. degraded FALLBACK_DRIVER_NAME ("John Doe").
+        resolved_driver = dcm_driver_name or session["playerName"]
+        if not resolved_driver:
+            latest_dcm_driver = str(_get_latest_dcm_config().get("driver") or "").strip()
+            if latest_dcm_driver:
+                resolved_driver = latest_dcm_driver
+                logger.info(
+                    "driver unresolved per-hostname for hostname=%s — using "
+                    "latest-DCM-config driver %r",
+                    session_key,
+                    resolved_driver,
+                )
+        if not resolved_driver:
+            resolved_driver = _fallback_driver_name()
+            logger.info(
+                "driver unresolved from DCM for hostname=%s — using fallback %r",
+                session_key,
+                resolved_driver,
+            )
+        enriched["driver"] = resolved_driver
     if not enriched.get("experiment"):
-        enriched["experiment"] = (
-            str(experiment_entry["experiment"]) if experiment_entry else ""
-        )
+        # Resolve experiment/environment via the same lake-aligned resolver
+        # the `live_session` envelope uses (DCM only when its experiment has
+        # lake data for (track, car), else the lake experiment that does).
+        # This keeps the active row in the SAME group the Best Laps panel
+        # queries — a DCM experiment with no recorded laps no longer strands
+        # the live driver in a solo group. Successful resolutions are cached
+        # on the session-cache entry so steady-state ticks skip the call;
+        # misses are NOT cached — the next tick retries against the
+        # TTL-cached `enumerate_groups()` (cheap), so a late-warming
+        # partition index still gets picked up. A fresh session message
+        # replaces the cache entry wholesale, which invalidates the cached
+        # resolution.
+        with _state_lock:
+            cached_group = session.get("lake_resolved_group")
+        if cached_group is None:
+            # Hot path (Kafka consumer thread): `blocking=False` so this
+            # reads the background-warmed partition cache and NEVER does a
+            # lake round-trip. A cold cache → no resolution this tick; the
+            # next tick retries once the lake-work warmer has populated it.
+            lake_experiment, lake_environment = _resolve_session_experiment(
+                session_key,
+                session["track"],
+                session["carModel"],
+                blocking=False,
+            )
+            if lake_experiment:
+                cached_group = (lake_experiment, lake_environment or "")
+                with _state_lock:
+                    live_entry = _session_cache.get(session_key)
+                    # Only annotate if the entry is still the one we
+                    # resolved against — a concurrent session replacement
+                    # may point at a different (track, car).
+                    if live_entry is session:
+                        live_entry["lake_resolved_group"] = cached_group
+        if cached_group is not None:
+            enriched["experiment"] = cached_group[0]
+            if not enriched.get("environment"):
+                enriched["environment"] = cached_group[1]
+    if using_fallback_session:
+        # Degraded mode: no real session was ever announced, so the live
+        # session was never adopted and `current_live_session()` would report
+        # nothing live even though raw is flowing. Adopt the placeholder
+        # (track, car) so the live gate can open. `_adopt_live_session`
+        # broadcasts a non-null envelope only once `_raw_feed_is_live()` —
+        # which `_record_message` (below) stamps — so the first fallback tick
+        # records the session and subsequent ticks open the gate, matching the
+        # existing raw-gate semantics.
+        _adopt_live_session(session_key, enriched["track"], enriched["carModel"])
+    _log_enriched_rate_limited(enriched)
     _record_message(enriched)
+
+
+# ---------------------------------------------------------------------------
+# Lake-work executor plumbing
+# ---------------------------------------------------------------------------
+#
+# Job types submitted by the consumer thread. Each maps to a handler in
+# `_run_lake_job`. Payloads are kept tiny (a bool / None) — the worker reads
+# all the state it needs from the module-level caches at run time.
+#
+#   "best_laps_force"  → `_refresh_best_laps_from_settings(force=True)`
+#                        (session message, config event, lap completion,
+#                         consumer startup warm-up).
+#   "best_laps_ttl"    → `_maybe_refresh_due_on_worker()` (per-poll TTL tick;
+#                        worker re-checks due-ness and refreshes only stale
+#                        groups — the cheap scan that used to run inline).
+#   "warm_partitions"  → `partition_index.enumerate_groups()` to warm the
+#                        TTL cache so the hot-path `_resolve_session_experiment`
+#                        finds it ready (and never blocks on the cold lake call).
+#   "resolve_live_session" → `resolve_and_publish_live_session()` — rebroadcast
+#                        the lake-aligned live_session envelope off-thread
+#                        (the adopt-time push used the lake-free fast envelope).
+
+
+def start_lake_worker() -> None:
+    """Start the dedicated lake-work daemon thread + its job queue.
+
+    Idempotent: re-calling while the worker is alive is a no-op (hot reload /
+    repeated lifespan startup). Called from `start()` before the consumer
+    thread spins up so the queue exists when the first job is submitted.
+    """
+    global _lake_job_queue, _lake_worker_thread
+    if _lake_worker_thread is not None and _lake_worker_thread.is_alive():
+        return
+    _lake_worker_stop.clear()
+    if _lake_job_queue is None:
+        _lake_job_queue = _queue_mod.Queue(maxsize=_LAKE_QUEUE_MAXSIZE)
+    _lake_worker_thread = threading.Thread(
+        target=_lake_worker_loop,
+        name="ghost-lap-lake-worker",
+        daemon=True,
+    )
+    _lake_worker_thread.start()
+    logger.info("lake-work executor started (queue maxsize=%d)", _LAKE_QUEUE_MAXSIZE)
+
+
+def stop_lake_worker(timeout: float = 5.0) -> None:
+    """Signal the lake worker to exit and join with a bounded wait."""
+    global _lake_worker_thread
+    if _lake_worker_thread is None:
+        return
+    _lake_worker_stop.set()
+    # Nudge the worker off its blocking `queue.get` so it sees the stop flag.
+    if _lake_job_queue is not None:
+        try:
+            _lake_job_queue.put_nowait(("__stop__", None))
+        except _queue_mod.Full:
+            pass
+    _lake_worker_thread.join(timeout=timeout)
+    if _lake_worker_thread.is_alive():
+        logger.warning("lake-work executor didn't stop within %.1fs", timeout)
+    _lake_worker_thread = None
+
+
+def submit_lake_job(kind: str, payload: Any = None) -> None:
+    """Enqueue a lake job for the background worker (non-blocking).
+
+    The hot path (Kafka consumer thread) calls this and returns immediately
+    to `consumer.poll()`. When the worker is busy (e.g. a query is timing
+    out) the bounded queue fills and the new job is COALESCED away — dropped
+    rather than buffered — because every job is an idempotent refresh and the
+    next trigger re-submits within ~0.5 s (the TTL tick). This guarantees a
+    slow lake can never back-pressure raw consumption.
+
+    A no-op when the worker hasn't started (tests / LOCAL_DEV_MODE) so callers
+    don't need to guard.
+    """
+    q = _lake_job_queue
+    if q is None:
+        return
+    try:
+        q.put_nowait((kind, payload))
+    except _queue_mod.Full:
+        # Worker is busy; the equivalent refresh is already queued or
+        # in-flight. Dropping is correct — refreshes are idempotent.
+        logger.debug("lake job %r dropped (worker busy / queue full)", kind)
+
+
+def _run_lake_job(kind: str, payload: Any) -> None:
+    """Execute one lake job on the worker thread. Never raises."""
+    try:
+        if kind == "best_laps_force":
+            _refresh_best_laps_from_settings(force=True)
+        elif kind == "best_laps_ttl":
+            _maybe_refresh_due_on_worker()
+        elif kind == "warm_partitions":
+            from . import partition_index
+
+            partition_index.enumerate_groups()
+        elif kind == "resolve_live_session":
+            # Re-broadcast the fully lake-aligned live_session envelope off
+            # the consumer thread (the adopt-time push used the lake-free
+            # fast envelope). Deduped on the wire.
+            resolve_and_publish_live_session()
+        else:
+            logger.debug("unknown lake job kind=%r; ignoring", kind)
+    except Exception:
+        # Belt-and-braces: every refresh helper already swallows its own
+        # errors (stale-on-error), but the worker must NEVER die on a job.
+        logger.exception("lake job %r failed; worker continues", kind)
+
+
+def _lake_worker_loop() -> None:
+    """Drain the lake-job queue until stopped. One job at a time, off the
+    consumer/live path. Every job is crash-proofed by `_run_lake_job`.
+    """
+    q = _lake_job_queue
+    if q is None:
+        return
+    logger.info("lake-work executor loop running")
+    while not _lake_worker_stop.is_set():
+        try:
+            kind, payload = q.get(timeout=0.5)
+        except _queue_mod.Empty:
+            continue
+        if kind == "__stop__":
+            break
+        _run_lake_job(kind, payload)
+    logger.info("lake-work executor stopped")
 
 
 # ---------------------------------------------------------------------------
 # Background consumer thread
 # ---------------------------------------------------------------------------
+
+
+def _apply_assign_offsets(
+    assigned_consumer: Any,
+    partitions: list[Any],
+    *,
+    rewind_topics: set[str],
+    raw_topic_name: str,
+) -> tuple[set[str], set[str]]:
+    """Override start offsets on a fresh partition assignment, then assign.
+
+    SESSION + CONFIG (`rewind_topics`) → `OFFSET_BEGINNING` (replay the tiny
+    retained backlog into the caches). RAW (`raw_topic_name`) → `OFFSET_END`
+    so the high-volume tick stream resumes at the tail regardless of any
+    committed offset — no backlog replay, only genuinely-new ticks flip the
+    feed live. Calls `assign()` exactly once with all offsets set.
+
+    Returns `(rewound_topics, tailed_topics)` for logging. Extracted to
+    module scope so the offset logic is unit-testable without a live broker.
+    """
+    from confluent_kafka import OFFSET_BEGINNING, OFFSET_END
+
+    rewound: set[str] = set()
+    tailed: set[str] = set()
+    for tp in partitions:
+        if tp.topic in rewind_topics:
+            tp.offset = OFFSET_BEGINNING
+            rewound.add(tp.topic)
+        elif tp.topic == raw_topic_name:
+            tp.offset = OFFSET_END
+            tailed.add(tp.topic)
+    assigned_consumer.assign(partitions)
+    return rewound, tailed
 
 
 def _consumer_loop() -> None:
@@ -1866,6 +3473,7 @@ def _consumer_loop() -> None:
         _s = _get_settings()
         raw_topic_name = _s.kafka_raw_topic
         session_topic_name = _s.kafka_session_topic
+        config_topic_name = _s.kafka_config_topic
 
         app = Application(
             broker_address=os.environ.get("BROKER_ADDRESS") or None,
@@ -1874,7 +3482,7 @@ def _consumer_loop() -> None:
         )
         raw_topic = app.topic(raw_topic_name, value_deserializer="json")
         session_topic = app.topic(session_topic_name, value_deserializer="json")
-        config_events_topic = app.topic(CONFIG_EVENTS_TOPIC, value_deserializer="json")
+        config_events_topic = app.topic(config_topic_name, value_deserializer="json")
     except Exception:
         logger.exception("Application/topic init failed; live consumer disabled")
         return
@@ -1896,26 +3504,84 @@ def _consumer_loop() -> None:
     # best-laps refresh BEFORE the prewarm would always find 0 groups and
     # waste a lake round-trip.
     _prewarm_session_cache_from_dcm()
-    # Belt-and-braces: explicit refresh after the prewarm so the path
-    # works even if the prewarm took a degenerate route (no DCM session
-    # configs found → no internal refresh call). Failures are swallowed
-    # inside `refresh_best_laps_cache`; if the lake is unreachable the
-    # route layer's cache-miss fallback will retry on the next request.
-    _refresh_best_laps_from_settings()
+    # Belt-and-braces: explicit refresh after the prewarm so the path works
+    # even if the prewarm took a degenerate route (no DCM session configs
+    # found → no internal refresh submit). Submitted to the lake-work
+    # executor so the consumer reaches its poll loop immediately; the lake
+    # call (and its failure handling) runs off the hot path.
+    submit_lake_job("best_laps_force")
+    # Prime the partition-index TTL cache on the worker too, so the hot-path
+    # `_resolve_session_experiment(blocking=False)` finds groups ready on the
+    # very first enrichment-needing tick.
+    submit_lake_job("warm_partitions")
 
     logger.info(
         "ghost-lap consumer starting (topics=%s, %s, %s)",
         raw_topic.name,
         session_topic.name,
-        CONFIG_EVENTS_TOPIC,
+        config_events_topic.name,
     )
+
+    # Topics whose partitions are rewound to the beginning on every
+    # (re)balance: tiny metadata streams where the cache wants the
+    # most-recent message regardless of when the consumer started.
+    rewind_topics = {session_topic.name, config_events_topic.name}
+
+    def _on_assign(assigned_consumer: Any, partitions: list[Any]) -> None:
+        """Rebalance callback: seek SESSION + CONFIG partitions to
+        `OFFSET_BEGINNING` so the handful of retained metadata messages
+        replay into the caches on every (re)start, and seek RAW partitions
+        to `OFFSET_END` so the high-volume tick stream always resumes at
+        the tail (any committed raw offset is ignored).
+
+        Why raw → end: resuming raw from a lagging committed offset replays
+        old high-frequency ticks, and those fast old ticks keep
+        `_raw_feed_is_live()` true — so a stale session (e.g. a legacy
+        Huracan lap) shows as live after a restart. Seeking to the tail
+        means only genuinely-new ticks flip the feed live.
+
+        Mutating each `TopicPartition.offset` and then calling `assign()`
+        is the standard confluent-kafka pattern for overriding start
+        offsets in an eager-rebalance `on_assign` callback. Must NEVER
+        raise: an exception before `assign()` lets confluent-kafka apply
+        the default assignment, but raising out of a rebalance callback
+        can stall the consumer.
+        """
+        try:
+            rewound, tailed = _apply_assign_offsets(
+                assigned_consumer,
+                partitions,
+                rewind_topics=rewind_topics,
+                raw_topic_name=raw_topic.name,
+            )
+            if rewound or tailed:
+                logger.info(
+                    "rebalance: rewound %s to beginning; raw %s sought to "
+                    "end (latest)",
+                    sorted(rewound),
+                    sorted(tailed),
+                )
+        except Exception:
+            logger.exception(
+                "on_assign offset override failed; default assignment applies"
+            )
+
     try:
         with app.get_consumer() as consumer:
             consumer.subscribe(
-                [raw_topic.name, session_topic.name, config_events_topic.name]
+                [raw_topic.name, session_topic.name, config_events_topic.name],
+                on_assign=_on_assign,
             )
             while not _stop_event.is_set():
                 msg = consumer.poll(timeout=0.5)
+                # TTL tick (spec §6.4): cheap age check per iteration; a
+                # refresh only runs when a group's entry outlived
+                # BEST_LAPS_TTL_SECONDS (single-flight, stale-on-error,
+                # failure backoff handled inside).
+                try:
+                    _maybe_refresh_on_ttl()
+                except Exception:
+                    logger.exception("best-laps TTL tick failed")
                 if msg is None:
                     continue
                 if msg.error():
@@ -1992,6 +3658,10 @@ def start() -> None:
     if _consumer_thread and _consumer_thread.is_alive():
         return
 
+    # Start the lake-work executor BEFORE the consumer so the job queue
+    # exists when the consumer's first TTL tick / startup warm-up submits.
+    start_lake_worker()
+
     _stop_event.clear()
     _consumer_thread = threading.Thread(
         target=_consumer_loop,
@@ -2004,6 +3674,8 @@ def start() -> None:
 def stop(timeout: float = 5.0) -> None:
     """Signal the consumer to exit and join with a bounded wait."""
     global _consumer_thread
+    # Stop the lake worker first so no new lake job starts mid-shutdown.
+    stop_lake_worker(timeout=timeout)
     if not _consumer_thread:
         return
     _stop_event.set()

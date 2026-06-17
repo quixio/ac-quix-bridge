@@ -14,22 +14,27 @@ Write **insight only** — interpretation, trends, causes, recommendations, driv
 
 Suggested section headers: `## Pace`, `## Requirements`, `## Anomalies`, `## Driver feedback`, `## Recommendations`.
 
+**Optional sections — omit, don't apologise:**
+
+- **Logbook is optional.** The driver is not required to file notes. If there are no logbook entries, do NOT treat it as a gap, do NOT say you "cannot confirm" something for lack of notes, and do NOT dwell on it. Either omit the `## Driver feedback` section entirely, or add a single light encouragement to log notes next time — nothing more.
+- **Empty requirements.** If `Test.requirements` is empty, say plainly there is nothing to check against and move on. Don't invent requirements or speculate about intent.
+
 ## kpis (optional, list of KpiValue)
 
-One entry per measurable. Names are opaque strings; the UI displays whatever you emit.
+One entry per measurable. `name` is a **display label shown verbatim** in the UI.
 
 ### KpiValue shape
 
-- `name` (string, required): e.g. `best_lap`, `top_speed_kmh`, `avg_brake_temp_FR_c`
+- `name` (string, required): **Title Case prose, never snake_case.** Keep wheel suffixes `FL`/`FR`/`RL`/`RR`. Good: `Fastest Clean Lap`, `Top Speed`, `Max Brake Temp FR`, `Throttle/Brake Overlap (Lap 3)`. Bad: `fastest_clean_lap`, `top_speed_kmh`, `max_brake_temp_FR`.
 - `value` (number or string, required): e.g. `1.45321` or `"1:45.321"`. Prefer numbers when meaningful.
-- `unit` (optional string): e.g. `"s"`, `"km/h"`, `"°C"`, `"lap"`
-- `notes` (optional string): caveats, e.g. `"laps 2-12 only — lap 1 excluded as out-lap"`
+- `unit` (optional string): a **real unit of measure** only — `"s"`, `"km/h"`, `"°C"`, `"%"`, `"laps"` — or **omit it**. Never use `"lap"` as the unit of a lap *time* (the time string already carries that), and never use `"-"`/`""` as a placeholder — just leave `unit` out.
+- `notes` (optional string): caveats, e.g. `"dropped final partial lap + 1 out-of-range outlier"`
 
 ### Worked KpiValue example
 
 ```json
-{"name": "best_lap", "value": "1:45.321", "unit": "lap", "notes": "lap 6"}
-{"name": "max_brake_temp_FR", "value": 612.0, "unit": "°C", "notes": "spike lap 7 entry T1"}
+{"name": "Fastest Clean Lap", "value": "1:45.321", "notes": "lap 6, valid"}
+{"name": "Max Brake Temp FR", "value": 612.0, "unit": "°C", "notes": "spike lap 7 entry T1"}
 ```
 
 ## requirements_check (optional, list of RequirementCheck)
@@ -55,7 +60,7 @@ One entry per noteworthy event.
 ### Anomaly shape
 
 - `severity` (required): one of `info`, `warn`, `error`
-- `kind` (string, required): opaque tag, e.g. `brake_spike`, `tyre_overheat`, `telemetry_gap`, `off_track`
+- `kind` (string, required): a **short label shown verbatim** in the UI — Title Case words, never snake_case. Good: `Brake Spike`, `Tyre Overheat`, `Telemetry Gap`, `Off Track`. Bad: `brake_spike`, `off_track`.
 - `lap` (optional int): lap number
 - `time_ms` (optional int): ms from session start
 - `description` (string, required): human-readable
@@ -80,8 +85,8 @@ Backwards-compatible: pre-v2 docs read `None` for these fields and render unchan
 
 ## Test-wide payload conventions (when `Analysis.session_id` is `null`)
 
-- `kpis[]` is flat. Name each KPI in an attribution-friendly way when comparing variants:
-  - `best_lap_p32psi`, `best_lap_p35psi`, `tire_wear_p32psi_laps`, …
+- `kpis[]` is flat. Name each KPI in an attribution-friendly way when comparing variants — still Title Case, put the variant in parentheses:
+  - `Best Lap (32 psi)`, `Best Lap (35 psi)`, `Tyre Wear (32 psi)`, …
   - Also set the `session_id` field on each KPI item for the underlying source session.
 - `requirements_check[]` — one entry per stated requirement, with `evidence` citing cross-session findings.
 - `anomalies[]` — pool everything, tag each with its source `session_id`.
@@ -97,15 +102,15 @@ The frontend renders schema v1 and v2 docs identically in v1 of the UI — the `
   "analysis_id": "f47ac10b-58cc-...",
   "summary_md": "## Pace\nGood session...\n\n## Requirements\n...",
   "kpis": [
-    {"name": "best_lap", "value": "1:45.321", "unit": "lap"},
-    {"name": "top_speed_kmh", "value": 213.4, "unit": "km/h"}
+    {"name": "Fastest Clean Lap", "value": "1:45.321", "notes": "lap 6"},
+    {"name": "Top Speed", "value": 213.4, "unit": "km/h"}
   ],
   "requirements_check": [
     {"requirement": "Complete 10 laps", "met": true, "evidence": "12 racing laps recorded"},
     {"requirement": "Tyres < 95°C", "met": false, "evidence": "RR peaked 102°C laps 8-9"}
   ],
   "anomalies": [
-    {"severity": "warn", "kind": "brake_spike", "lap": 7, "time_ms": 723000,
+    {"severity": "warn", "kind": "Brake Spike", "lap": 7, "time_ms": 723000,
      "description": "Brake temp FR jumped to 612°C entering T1"}
   ],
   "logbook_refs": ["lb-uuid-abc"],

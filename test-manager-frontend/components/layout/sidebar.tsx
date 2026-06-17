@@ -10,9 +10,9 @@ import {
   ChevronLeft,
   Settings,
   Sliders,
-  BarChart3,
   Users,
   TrendingUp,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSidebar } from "@/lib/contexts/sidebar-context";
@@ -33,8 +33,8 @@ const navItems: NavItem[] = [
 
 const integrationItems: NavItem[] = [
   { href: "/config-manager", icon: Sliders, label: "Configurations" },
-  { href: "/measurements", icon: BarChart3, label: "Measurements" },
   { href: "/analysis", icon: TrendingUp, label: "Analysis" },
+  { href: "/lakehouse", icon: Database, label: "Lakehouse" },
 ];
 
 export function Sidebar() {

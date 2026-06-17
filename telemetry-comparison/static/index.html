@@ -240,7 +240,20 @@
               class="min-w-0 min-h-0 flex-[35] flex flex-col bg-surface border border-brd rounded-[10px] overflow-hidden"
             >
               <header class="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-brd">
-                <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">Track Map</div>
+                <div class="flex items-center gap-2 min-w-0">
+                  <div class="text-[0.72rem] uppercase tracking-[0.07em] text-muted font-semibold">Track Map</div>
+                  <!-- Layout picker: app-level (the map reflects ONE track =
+                       the first selection row's track). Hidden unless the
+                       active track has >1 Mongo layout; populated by
+                       data.js:fetchLayouts via app.js:refreshTrackForActive. -->
+                  <select
+                    id="layout-select"
+                    class="part-select hidden text-[0.7rem]"
+                    style="display: none"
+                    aria-label="Track layout"
+                    onchange="onLayoutChange(this.value)"
+                  ></select>
+                </div>
                 <button
                   id="btn-collapse-map"
                   class="bg-transparent border border-brd rounded text-muted cursor-pointer px-3 py-1 text-[1.08rem] leading-none hover:border-accent hover:text-accent"

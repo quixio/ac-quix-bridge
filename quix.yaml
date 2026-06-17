@@ -14,6 +14,7 @@ deployments:
       limits:
         cpu: 200
         memory: 500
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetrydashboard
@@ -36,10 +37,15 @@ deployments:
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
         value: ''
+      - name: TABLE_NAME
+        inputType: ProjectVariable
+        description: Lakehouse table the default leaderboard query reads. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment. Ignored when LEADERBOARD_SQL is set explicitly.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: LEADERBOARD_SQL
         inputType: FreeText
         multiline: true
-        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Defaults to all-time fastest lap per driver from ac_telemetry.
+        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Leave blank to use the built-in all-time fastest-lap-per-driver query against TABLE_NAME.
         value: ''
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
@@ -60,6 +66,7 @@ deployments:
       limits:
         cpu: 200
         memory: 800
+      replicas: 1
     state:
       enabled: true
       size: 3
@@ -89,6 +96,7 @@ deployments:
       limits:
         cpu: 200
         memory: 300
+      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -118,6 +126,7 @@ deployments:
       limits:
         cpu: 200
         memory: 300
+      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -142,6 +151,7 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
@@ -168,6 +178,7 @@ deployments:
       limits:
         cpu: 1000
         memory: 4000
+      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -180,9 +191,10 @@ deployments:
         required: true
         value: ac-telemetry-config
       - name: TABLE_NAME
-        inputType: FreeText
-        description: Table name for data organization and registration, else defaults to topic name
-        value: ac_telemetry
+        inputType: ProjectVariable
+        description: Lakehouse table this sink WRITES. Per-environment project variable (e.g. ac_telemetry_dev / ac_telemetry_nurem / ac_telemetry_prod). Every lake reader (Telemetry Explorer, leaderboard-service, Telemetry Dashboard) must resolve the SAME value for that environment. Required — if unset the sink silently falls back to the input topic name (ac-telemetry-raw) and readers query ac_telemetry, splitting writes from reads.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: HIVE_COLUMNS
         inputType: FreeText
         description: Comma-separated list of columns for Hive partitioning. Include year/month/day/hour to extract from TIMESTAMP_COLUMN (e.g., location,year,month,day,sensor_type)
@@ -250,6 +262,7 @@ deployments:
       limits:
         cpu: 500
         memory: 500
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager-api
@@ -277,32 +290,9 @@ deployments:
         inputType: FreeText
         required: true
         value: http://dynamic-configuration-manager
-      - name: LAKE_TABLE
-        inputType: FreeText
-        description: Lake table the leaderboard queries (e.g. ac_telemetry, ac_telemetry_leaderboard)
-        value: ac_telemetry
-      - name: LAKE_COL_CURRENT_TIME
-        inputType: FreeText
-        description: Lap-relative current-time column on LAKE_TABLE (e.g. iCurrentTime on ac_telemetry, currentTime on derived tables)
-        value: iCurrentTime
-      - name: LAKE_COL_BEST_TIME
-        inputType: FreeText
-        description: Best-lap-time column on LAKE_TABLE (e.g. iBestTime or bestTime)
-        value: iBestTime
-      - name: LAKE_COL_NORMALIZED_POSITION
-        inputType: FreeText
-        description: 0..1 normalized position column on LAKE_TABLE
-        value: normalizedCarPosition
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false
-      - name: LIVE_TELEMETRY_ENABLED
-        inputType: FreeText
-        value: true
-      - name: GATE_COUNT
-        inputType: FreeText
-        description: Number of checkpoint gates the lap is split into for live sector comparison.
-        value: 650
       - name: POST_RACE_AGENT_ID
         inputType: ProjectVariable
         description: Agent configuration ID of the Post-Race Analyzer agent. Per-environment project variable — each portal (dev/byox) holds its own agent GUID. Empty disables the AI summary runner.
@@ -362,6 +352,7 @@ deployments:
       limits:
         cpu: 500
         memory: 500
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager
@@ -390,10 +381,14 @@ deployments:
         description: Public URL of the Telemetry Explorer deployment
         required: true
         variableKey: TELEMETRY_EXPLORER_URL
-      - name: NEXT_PUBLIC_FREEZE_MS
-        inputType: FreeText
-        description: Live-positions blue-freeze window duration in ms after a gate crossing.
-        value: 200
+      - name: NEXT_PUBLIC_LAKEHOUSE_UI_URL
+        inputType: ProjectVariable
+        description: Public URL of the Lakehouse Query UI deployment (lh-ui-*). Embedded for the "View Data" link on tests/sessions; unset disables the feature.
+        variableKey: LAKEHOUSE_UI_URL
+      - name: NEXT_PUBLIC_LEADERBOARD_UI_URL
+        inputType: ProjectVariable
+        description: Public URL of the leaderboard-service deployment. Embedded as the Analysis Leaderboard tab; unset disables the tab.
+        variableKey: LEADERBOARD_UI_URL
     plugin:
       embeddedView:
         enabled: true
@@ -417,6 +412,7 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: acvideobrowser
@@ -440,6 +436,7 @@ deployments:
       limits:
         cpu: 1000
         memory: 1000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetryexplorer
@@ -449,16 +446,18 @@ deployments:
           targetPort: 80
     variables:
       - name: TABLE_NAME
-        inputType: FreeText
-        description: QuixLake table name for telemetry data
-        value: ac_telemetry
+        inputType: ProjectVariable
+        description: Lakehouse table to query. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
         value: ac_video
       - name: AC_TELEMETRY_AGENT_ID
         inputType: ProjectVariable
-        description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Per-environment project variable — each portal (dev/byox) holds its own agent GUID.
+        description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Per-environment project variable — each portal (dev/byox) holds its own agent GUID. Required — if unset, config.py silently falls back to the dev GUID and AI chat hits a non-existent agent on byox/prod.
+        required: true
         variableKey: AC_TELEMETRY_AGENT_ID
       - name: TELEMETRY_COMPARISON_MCP_API_KEY
         inputType: ProjectVariable
@@ -466,6 +465,27 @@ deployments:
         required: true
         secret: true
         variableKey: TELEMETRY_COMPARISON_MCP_API_KEY
+      - name: MONGO_USER
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_USER
+      - name: MONGO_PASSWORD
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_ROOT_PASSWORD
+      - name: MONGO_HOST
+        inputType: FreeText
+        required: true
+        value: mongodb
+      - name: MONGO_PORT
+        inputType: FreeText
+        value: 27017
+      - name: MONGO_DATABASE
+        inputType: FreeText
+        description: DB holding track_layouts (same DB track-importer writes to).
+        value: test_manager
     plugin:
       embeddedView:
         enabled: true
@@ -487,6 +507,7 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: backup-manager
@@ -556,6 +577,7 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: quixlab
@@ -586,7 +608,6 @@ deployments:
         description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent.
         required: true
         variableKey: QUIXLAB_AGENT_ID
-        
     plugin:
       embeddedView:
         enabled: true
@@ -613,6 +634,7 @@ deployments:
       limits:
         cpu: 500
         memory: 1500
+      replicas: 1
     configuration:
       topic: ac-telemetry-raw
   - name: leaderboard-service
@@ -623,6 +645,7 @@ deployments:
       limits:
         cpu: 1000
         memory: 2000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: leaderboard-service-9cb716a
@@ -661,9 +684,16 @@ deployments:
         description: Kafka topic for AC session events (ac-telemetry-session)
         required: true
         value: ac-telemetry-session
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config) — declared so the pipeline view shows this service consuming it
+        required: true
+        value: ac-telemetry-config
       - name: LAKE_TABLE
-        inputType: FreeText
-        value: ac_telemetry
+        inputType: ProjectVariable
+        description: Lakehouse table to query for rankings. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: LAKE_COL_CURRENT_TIME
         inputType: FreeText
         value: iCurrentTime
@@ -682,45 +712,48 @@ deployments:
       - name: LIVE_TELEMETRY_ENABLED
         inputType: FreeText
         value: true
+      - name: NEXT_PUBLIC_FREEZE_MS
+        inputType: FreeText
+        description: 'Build-time: blue-freeze window ms (baked into UI bundle)'
+        value: 200
+      - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
+        inputType: ProjectVariable
+        description: 'Build-time: standalone-mode fallback PAT baked into UI bundle'
+        secret: true
     blobStorage:
       bind: true
-  - name: leaderboard-ui
-    application: leaderboard-ui
+  - name: track-importer
+    group: Test Manager
+    application: track-importer
     version: latest
-    deploymentType: Service
+    deploymentType: Job
     resources:
       limits:
         cpu: 200
         memory: 500
-    publicAccess:
-      enabled: true
-      urlPrefix: leaderboard
-    network:
-      serviceName: leaderboard-ui
-      ports:
-        - port: 80
-          targetPort: 3000
+      replicas: 1
     variables:
-      - name: API_URL
-        inputType: FreeText
-        description: Internal k8s service URL for server-side Next.js requests (unused — no rewrites; kept for parity)
-        value: http://leaderboard-service
-      - name: NEXT_PUBLIC_LEADERBOARD_SERVICE_URL
+      - name: MONGO_USER
         inputType: ProjectVariable
-        description: Public HTTPS URL of leaderboard-service. Used client-side for WS + HTTP refetch.
         required: true
-        variableKey: LEADERBOARD_SERVICE_URL
-      - name: NEXT_PUBLIC_FREEZE_MS
-        inputType: FreeText
-        description: Blue-freeze window duration in ms after a gate crossing.
-        value: 200
-      - name: NODE_ENV
+        secret: true
+        variableKey: MONGO_USER
+      - name: MONGO_PASSWORD
+        inputType: ProjectVariable
+        required: true
+        secret: true
+        variableKey: MONGO_ROOT_PASSWORD
+      - name: MONGO_HOST
         inputType: FreeText
         required: true
-        value: production
-      - name: NEXT_TELEMETRY_DISABLED
+        value: mongodb
+      - name: MONGO_PORT
         inputType: FreeText
-        value: 1
+        value: 27017
+      - name: MONGO_DATABASE
+        inputType: FreeText
+        description: Target DB for track_layouts (the DB the backend connects to).
+        value: test_manager
   - name: Speed Dashboard
     application: speed-dashboard
     version: latest
@@ -729,6 +762,7 @@ deployments:
       limits:
         cpu: 200
         memory: 300
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
@@ -751,13 +785,17 @@ deployments:
       limits:
         cpu: 500
         memory: 500
+      replicas: 1
     configuration:
-      sourceWorkspaceId: quixdev-acquixbridge-nurembergdemo
+      sourceWorkspaceId: demo-acquixbridge-dev
       sourceTopic: ac-telemetry-raw
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw
-      fromTimestamp: 2026-06-08T15:52:21.569Z
-      toTimestamp: 2026-06-08T16:01:15.856Z
+      suffixReplayedKeysWithTimestamp: false
+      fromTimestamp: 2026-06-17T11:40:05.000Z
+      toTimestamp: 2026-06-17T11:48:17.653Z
+      removeGaps: true
+      maxGapSizeInMilliseconds: 10000
     disabled: true
 
 # This section describes the Topics of the data pipeline

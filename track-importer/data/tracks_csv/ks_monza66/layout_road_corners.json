@@ -1,0 +1,64 @@
+{
+  "track": "ks_monza66",
+  "layout": "road",
+  "source_csv": "tracks_csv/ks_monza66/layout_road.csv",
+  "total_length_m": 5757.22,
+  "config": {
+    "hairpin_max_m": 60,
+    "tight_max_m": 150,
+    "sweeper_max_m": 400,
+    "straight_threshold_m": 500
+  },
+  "generated_at": "2026-06-15T09:32:43Z",
+  "version": "1",
+  "corners": [
+    {
+      "id": 1,
+      "type": "sweeper",
+      "direction": "left",
+      "distance_start_m": 948.71,
+      "distance_end_m": 1380.65,
+      "length_m": 431.94,
+      "min_radius_m": 265.4,
+      "avg_radius_m": 341.37,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 2,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 2116.44,
+      "distance_end_m": 2345.47,
+      "length_m": 229.03,
+      "min_radius_m": 101.7,
+      "avg_radius_m": 131.95,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 3,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 2465.81,
+      "distance_end_m": 2665.89,
+      "length_m": 200.08,
+      "min_radius_m": 125.6,
+      "avg_radius_m": 205.51,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 4,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 4753.72,
+      "distance_end_m": 5163.73,
+      "length_m": 410.01,
+      "min_radius_m": 82.5,
+      "avg_radius_m": 169.14,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    }
+  ]
+}

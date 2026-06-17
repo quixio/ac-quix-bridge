@@ -61,15 +61,6 @@ export interface TopicInfo {
 }
 
 /**
- * Reference to a selected topic stored in settings
- */
-export interface TopicReference {
-  topic_name: string;
-  workspace_id: string;
-  workspace_name: string | null;
-}
-
-/**
  * Tree node structure for the deployment picker
  */
 export interface DeploymentTreeNode {

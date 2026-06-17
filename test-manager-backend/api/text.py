@@ -1,9 +1,8 @@
 """Shared text-normalization helpers.
 
-`fold_for_lookup` is the accent/case-insensitive fold the leaderboard uses to
-match driver names against the lake. `driver_name_key` layers whitespace
-collapsing on top of it to produce the stored uniqueness / join key for the
-Driver entity.
+`fold_for_lookup` is the accent/case-insensitive fold used to match driver
+names against the lake. `driver_name_key` layers whitespace collapsing on top
+of it to produce the stored uniqueness / join key for the Driver entity.
 """
 
 import unicodedata

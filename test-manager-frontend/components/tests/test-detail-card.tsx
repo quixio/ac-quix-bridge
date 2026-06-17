@@ -9,7 +9,7 @@ import { useTestsApi } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
 import type { SessionInfo, Test } from "@/types/test";
-import { Sliders, TrendingUp, Sparkles } from "lucide-react";
+import { Sliders, TrendingUp, Sparkles, Database } from "lucide-react";
 
 interface TestDetailCardProps {
   test: Test;
@@ -75,6 +75,17 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
     router.push(`/analysis?${params.toString()}`);
   };
 
+  const handleViewInLakehouse = (session?: SessionInfo) => {
+    const params = new URLSearchParams();
+    params.set("test_id", test.test_id);
+    if (session) {
+      params.set("session_id", session.session_id);
+      if (session.track) params.set("track", session.track);
+      if (session.car_model) params.set("carModel", session.car_model);
+    }
+    router.push(`/lakehouse?${params.toString()}`);
+  };
+
   return (
     <div className="space-y-6">
       {/* Quick Access */}
@@ -100,6 +111,14 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
             >
               <Sparkles className="mr-2 h-4 w-4" />
               AI Summary
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewInLakehouse()}
+            >
+              <Database className="mr-2 h-4 w-4" />
+              Lakehouse
             </Button>
           </div>
         </CardContent>
@@ -178,6 +197,15 @@ export function TestDetailCard({ test, resolvedNames }: TestDetailCardProps) {
                     >
                       <Sparkles className="mr-1 h-3 w-3" />
                       AI Summary
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => handleViewInLakehouse(session)}
+                    >
+                      <Database className="mr-1 h-3 w-3" />
+                      Lakehouse
                     </Button>
                   </div>
                 </div>

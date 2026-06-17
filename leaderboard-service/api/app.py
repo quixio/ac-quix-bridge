@@ -3,13 +3,14 @@ import logging
 import os
 import socket
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import httpx
 from fastapi import FastAPI, Request, status
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import live_stream, live_telemetry, mongo
 from .routes.leaderboard import router as leaderboard_router
@@ -168,7 +169,7 @@ async def validation_exception_handler(
 def create_app() -> FastAPI:
     application = FastAPI(
         title="Leaderboard Service API",
-        docs_url="/",
+        docs_url="/docs",
         lifespan=lifespan,
     )
 
@@ -185,17 +186,17 @@ def create_app() -> FastAPI:
     application.include_router(
         leaderboard_stream_router, tags=["leaderboard"], prefix="/api/v1"
     )
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
     @application.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # Static UI (Next.js export baked into the image at /app/static).
+    # Mounted last so /api/v1/*, /health, and /docs win route matching.
+    # is_dir() guard: local dev bind-mounts /app without static/ — API-only.
+    static_dir = Path(os.getenv("STATIC_DIR", "/app/static"))
+    if static_dir.is_dir():
+        application.mount("/", StaticFiles(directory=static_dir, html=True), name="ui")
 
     return application
 

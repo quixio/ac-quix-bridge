@@ -17,8 +17,6 @@ dependencies = [
 	"email-validator",
 	"python-multipart",
 	"quixportal",
-	"quixstreams",
-	"pandas",
 	"httpx",
 	"mcp>=1.27",
 	"asgi-correlation-id>=4.3.4",

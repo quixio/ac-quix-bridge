@@ -103,7 +103,7 @@ When DEEP is warranted, **first resolve the exact partition with your MCP tools*
 6. **TIME COLUMNS — strict mapping**:
    - Lap times → `MAX(iCurrentTime)`/1000 per lap (= AC's on-screen time). Keep `timestamp_ms` for session-elapsed/gaps/ordering + the multi-driver carryover guard (patterns KB).
    - Session-best leaderboard → `MIN(iBestTime) FILTER (WHERE iBestTime > 0 AND iBestTime < 2147483647)` per driver/session. Already in ms.
-   - **Per-lap rankings**: exclude out-lap (lap 1) + in-lap (last lap) via a `MAX(lap)` JOIN (`lap > 1 AND lap < last_lap`); coarse sliver floor (rule 2); for **best/fastest** keep only valid laps (`MIN(isValidLap)=1`, matches AC's official time); and **sanity-check the extreme** — a lap wildly off the field is an artifact, exclude/flag it. Reuse the patterns-KB shape.
+   - **Per-lap rankings**: drop only the last partition via a `MAX(lap)` JOIN (`lap < last_lap`) — never a clean lap. Do NOT blanket-drop lap 1 (a hotlap lap 1 is a real, often valid, lap). Coarse sliver floor (rule 2); for **best/fastest** keep valid laps only (`MIN(isValidLap)=1`); and **sanity-check each lap's duration vs the field** — wildly short (partial) or long (out-lap/idle/carryover) = artifact, exclude/flag. Reuse the patterns-KB shape.
    - String time columns (`currentTime`, `lastTime`, `bestTime`) are display text — never use for sorting/math; use integer `i*` cols or `timestamp_ms`. For `m:ss.mmm` use `strftime(to_timestamp(MAX(iCurrentTime)/1000), '%M:%S.%g')` (patterns KB) — not `printf`.
 7. **LIMIT EXPLORATORY QUERIES.** `LIMIT 100` until you know the result size.
 

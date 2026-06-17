@@ -16,7 +16,6 @@ from ..models import (
     Topic,
     Workspace,
     DeploymentReference,
-    TopicReference,
 )
 from ..mongo import get_mongo
 from ..settings import get_settings
@@ -44,39 +43,18 @@ def get_effective_integration_settings() -> IntegrationSettings:
     """
     Get effective integration settings with priority:
     1. MongoDB stored values (highest priority)
-    2. Environment variables for topic fallback
-    3. Default values (lowest priority)
+    2. Default values (lowest priority)
     """
-    env_settings = get_settings()
     db_settings = get_db_settings()
 
     # Start with empty effective settings
     effective = IntegrationSettings()
-
-    # Apply environment variable fallbacks for topic if no DB settings
-    if env_settings.measurements_topic_name:
-        effective.measurements_topic = TopicReference(
-            topic_name=env_settings.measurements_topic_name,
-            workspace_id=env_settings.measurements_workspace_id
-            or env_settings.workspace_id,
-            workspace_name=None,
-        )
 
     # Override with DB settings if they exist and have values
     if db_settings:
         # Config API deployment
         if db_settings.config_api_deployment:
             effective.config_api_deployment = db_settings.config_api_deployment
-
-        # Measurements - deployment and topic
-        if db_settings.measurements_deployment:
-            effective.measurements_deployment = db_settings.measurements_deployment
-        if db_settings.measurements_topic:
-            effective.measurements_topic = db_settings.measurements_topic
-
-        # Analytics deployment
-        if db_settings.analytics_deployment:
-            effective.analytics_deployment = db_settings.analytics_deployment
 
         effective.updated_at = db_settings.updated_at
         effective.updated_by = db_settings.updated_by
@@ -93,8 +71,6 @@ async def apply_fallback_deployments(
 
     Searches the current workspace for:
     - "Dynamic Configuration Manager" for config_api_deployment
-    - "Query UI" for measurements_deployment
-    - "Marimo" or "Analytics" for analytics_deployment
     """
     from .portal import get_fallback_deployment
 
@@ -124,74 +100,6 @@ async def apply_fallback_deployments(
 
         except Exception as e:
             logger.warning("Failed to get Config API fallback deployment: %s", e)
-
-    # Measurements (Query UI) fallback - search for "Query UI"
-    if not settings.measurements_deployment:
-        try:
-            fallback = await get_fallback_deployment(
-                deployment_name="Query UI",
-                authorization=authorization,
-                _auth=None,
-            )
-
-            if fallback:
-                settings.measurements_deployment = DeploymentReference(
-                    deployment_id=fallback.deployment_id,
-                    workspace_id=app_settings.workspace_id or "",
-                    deployment_name=fallback.name,
-                    public_url=fallback.public_url,
-                    embedded_view_url=fallback.embedded_view_url,
-                    internal_url=f"http://{fallback.service_name}"
-                    if fallback.service_name
-                    else fallback.public_url,
-                )
-                settings.measurements_is_fallback = True
-
-        except Exception as e:
-            logger.warning("Failed to get Measurements fallback deployment: %s", e)
-
-    # Measurements topic fallback - use env var if not set
-    if not settings.measurements_topic and app_settings.measurements_topic_name:
-        settings.measurements_topic = TopicReference(
-            topic_name=app_settings.measurements_topic_name,
-            workspace_id=app_settings.measurements_workspace_id
-            or app_settings.workspace_id,
-            workspace_name=None,
-        )
-
-    # Analytics fallback - search for "Marimo" first, then "Analytics"
-    if not settings.analytics_deployment:
-        try:
-            # Try "Marimo" first
-            fallback = await get_fallback_deployment(
-                deployment_name="Marimo",
-                authorization=authorization,
-                _auth=None,
-            )
-
-            # If not found, try "Analytics"
-            if not fallback:
-                fallback = await get_fallback_deployment(
-                    deployment_name="Analytics",
-                    authorization=authorization,
-                    _auth=None,
-                )
-
-            if fallback:
-                settings.analytics_deployment = DeploymentReference(
-                    deployment_id=fallback.deployment_id,
-                    workspace_id=app_settings.workspace_id or "",
-                    deployment_name=fallback.name,
-                    public_url=fallback.public_url,
-                    embedded_view_url=fallback.embedded_view_url,
-                    internal_url=f"http://{fallback.service_name}"
-                    if fallback.service_name
-                    else fallback.public_url,
-                )
-                settings.analytics_is_fallback = True
-
-        except Exception as e:
-            logger.warning("Failed to get Analytics fallback deployment: %s", e)
 
     return settings
 

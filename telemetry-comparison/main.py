@@ -32,6 +32,8 @@ import auth
 import chat
 import config
 import mcp_server
+import mongo
+import mongo_settings
 import track_loader
 import video_proxy
 from partition_filter import _build_partition_filter
@@ -55,12 +57,27 @@ config.validate_env()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Configure the read-only Mongo client for track geometry. connect() is
+    # lazy (no socket opened here), so an unreachable MONGO_HOST cannot crash
+    # startup — failures surface at request time in track_loader and trigger
+    # the CSV fallback.
+    try:
+        _mongo_settings = mongo_settings.MongoSettings.from_env()
+        mongo.connect(_mongo_settings)
+        logger.info(
+            "Mongo client configured for db=%s host=%s (lazy; not yet pinged)",
+            _mongo_settings.database,
+            _mongo_settings.host,
+        )
+    except Exception:  # pragma: no cover - construction is lazy
+        logger.exception("Failed to configure Mongo client; track geometry will use CSV fallback")
     # Mount the /mcp server and drive its session manager for the app's life.
     # session_manager.run() is required (mcp>=1.27) or tool calls fail with
     # "Task group is not initialized".
     mcp = mcp_server.install(app)
     async with mcp.session_manager.run():
         yield
+    mongo.disconnect()
 
 
 app = FastAPI(title="Telemetry Comparison", lifespan=lifespan)

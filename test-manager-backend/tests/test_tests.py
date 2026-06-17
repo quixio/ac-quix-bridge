@@ -838,6 +838,24 @@ def test_get_telemetry_params(
     assert data["session_ids"] == ["session-1"]
 
 
+def test_get_telemetry_params_no_sessions(
+    create_test: TestFactory,
+    client: TestClient,
+) -> None:
+    """A test with no sessions returns null track/carModel (not a fabricated
+    default) so consumers omit those partition filters."""
+    _, created = create_test(experiment_id="tyre-test", driver="Daniel")
+
+    response = client.get(f"/api/v1/tests/{created['test_id']}/telemetry-params")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["experiment"] == "tyre-test"
+    assert data["driver"] == "daniel"
+    assert data["track"] is None
+    assert data["carModel"] is None
+    assert data["session_ids"] == []
+
+
 # ============================================================================
 # Filter endpoints
 # ============================================================================

@@ -9,8 +9,8 @@ import { Loader2 } from "lucide-react";
 import { GitCompare, Trophy, Sparkles } from "lucide-react";
 import { useTestsApi } from "@/lib/hooks/use-api";
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
-import { LeaderboardTab } from "@/components/analysis/leaderboard-tab";
 import { AiSummaryTab } from "./ai-summary/ai-summary-tab";
+import { LEADERBOARD_UI_URL, LEADERBOARD_ORIGIN } from "@/lib/leaderboard";
 
 // Telemetry Explorer deployment URL — baked at build time. `_ORIGIN` is the
 // scheme+host+port part, used to gate the auth-token postMessage handshake
@@ -39,7 +39,7 @@ const ANALYSIS_TABS = [
     icon: Trophy,
     title: "Leaderboard",
     description:
-      "Historical best laps with real-time ghost projection. Track your fastest laps across sessions and see a live projected lap time during active tests.",
+      "Live multi-driver sector comparison and historical best laps, served by the leaderboard service.",
   },
   {
     value: "ai-summary",
@@ -175,23 +175,81 @@ function CompareTab({
     );
   }
 
-  if (error) {
-    return (
-      <div className="mb-2 text-sm text-amber-500">
-        Note: Could not load test parameters — showing unfiltered view.
+  if (!iframeUrl) {
+    // Params failed AND no fallback URL could be built (e.g. no session in the
+    // link) — nothing to embed.
+    return error ? (
+      <div className="text-sm text-amber-500">
+        Could not load test parameters.
       </div>
-    );
+    ) : null;
   }
 
-  if (!iframeUrl) return null;
+  return (
+    <>
+      {error && (
+        <div className="mb-2 text-sm text-amber-500">
+          Note: could not load test parameters — showing the session deep-link
+          only.
+        </div>
+      )}
+      <iframe
+        ref={iframeRef}
+        src={iframeUrl}
+        className="w-full border-0 rounded-lg"
+        style={{ height: "calc(100vh - 12rem)" }}
+        title="Telemetry Explorer"
+      />
+    </>
+  );
+}
+
+function LeaderboardTab() {
+  const { token } = useQuixAuth();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Forward the auth token to the leaderboard-service iframe on request — same
+  // REQUEST_AUTH_TOKEN/AUTH_TOKEN handshake as the Telemetry Explorer embed,
+  // origin- AND source-gated so the token never leaks to another window.
+  useEffect(() => {
+    if (!token || !LEADERBOARD_ORIGIN) return;
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== LEADERBOARD_ORIGIN) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.data?.type !== "REQUEST_AUTH_TOKEN") return;
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: "AUTH_TOKEN", token },
+        LEADERBOARD_ORIGIN,
+      );
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [token]);
+
+  if (!LEADERBOARD_UI_URL) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-4 rounded-full bg-primary/10 p-4">
+            <Trophy className="h-8 w-8 text-primary" />
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Leaderboard</h2>
+          <p className="text-sm text-muted-foreground max-w-md mb-4">
+            Leaderboard URL is not configured. Set the
+            NEXT_PUBLIC_LEADERBOARD_UI_URL environment variable.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <iframe
       ref={iframeRef}
-      src={iframeUrl}
+      src={LEADERBOARD_UI_URL}
       className="w-full border-0 rounded-lg"
       style={{ height: "calc(100vh - 12rem)" }}
-      title="Telemetry Explorer"
+      title="Leaderboard"
     />
   );
 }

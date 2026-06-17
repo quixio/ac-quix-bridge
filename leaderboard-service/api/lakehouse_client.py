@@ -22,9 +22,42 @@ there is no benefit to sharing a long-lived client across requests.
 from __future__ import annotations
 
 import io
+import logging
+import time
 
 import httpx
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# Bounded retry policy for transient lake failures (spec: lake-resilience).
+# A transient failure is a connect/read/write timeout, a transport error
+# (connection reset / DNS blip), or an HTTP 5xx. We retry the request a small
+# number of times with short fixed backoffs, then give up and raise — the
+# caller (every lake call site) catches that and serves stale/empty data.
+#
+# Total worst-case wall time per `query()` is bounded:
+#   3 attempts × 30 s timeout + (0.5 s + 1.0 s) backoff ≈ 91.5 s ceiling.
+# This only matters when the lake is hard-down; in that case the call runs
+# on the dedicated lake-work thread (never the Kafka consumer / event loop),
+# so the live stream is unaffected regardless of how long it takes to fail.
+_RETRY_BACKOFFS_S = (0.5, 1.0)  # len + 1 == total attempts (3)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """True for transient lake failures worth a bounded retry.
+
+    Retryable: any ``httpx.TimeoutException`` (connect/read/write/pool),
+    any other ``httpx.TransportError`` (connection reset, DNS, etc.), and
+    an ``httpx.HTTPStatusError`` carrying a 5xx server status. A 4xx or a
+    :class:`LakehouseQueryError` (a deterministic SQL error) is NOT retried —
+    replaying it would only burn time.
+    """
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return 500 <= exc.response.status_code < 600
+    return False
 
 
 class LakehouseQueryError(Exception):
@@ -52,7 +85,16 @@ class LakehouseClient:
         with ``\\n# ERROR:`` (the Lakehouse engine's SQL error shape).
 
         Raises :class:`httpx.HTTPStatusError` for non-200 HTTP responses
-        (transport-level failures).
+        (transport-level failures) after the bounded retry policy is
+        exhausted.
+
+        Transient failures (timeout, transport error, 5xx) are retried with
+        short fixed backoffs (see :data:`_RETRY_BACKOFFS_S`); a retried
+        attempt that finally fails re-raises the last exception so the
+        caller's stale-on-error path can keep the previous cache. Each
+        transient failure logs a single WARNING line (no traceback) so a
+        flaky lake produces a clear-but-quiet signal rather than an
+        ERROR+stacktrace per attempt.
         """
         # Endpoint shape matches the production QuixLake API on box Cloud
         # (`https://quixlake-api-…edge.byox.demo/query`). The new-format
@@ -60,21 +102,51 @@ class LakehouseClient:
         # original migration target, but the deployed value of `LAKE_API_URL`
         # still points at QuixLake, so we use the QuixLake path here.
         url = f"{self._base_url}/query"
-        # TODO(ssl): verify=False — demo Box Cloud uses a self-signed cert;
-        # remove when production TLS certificates are provisioned on this
-        # deployment.
-        with httpx.Client(verify=False) as client:
-            r = client.post(
-                url,
-                content=sql,
-                headers={
-                    "Authorization": f"Bearer {self._token}",
-                    "Content-Type": "text/plain",
-                },
-                timeout=30.0,
-            )
-        r.raise_for_status()
-        body = r.text
+        body = self._post_with_retry(url, sql)
         if body.lstrip("\n").startswith("# ERROR:"):
             raise LakehouseQueryError(body.strip())
         return pd.read_csv(io.StringIO(body))
+
+    def _post_with_retry(self, url: str, sql: str) -> str:
+        """POST *sql* to *url*, retrying transient failures with backoff.
+
+        Returns the raw response body on success. Re-raises the last
+        exception when all attempts are exhausted (or immediately for a
+        non-retryable error). One short WARNING per transient failure.
+        """
+        attempts = len(_RETRY_BACKOFFS_S) + 1
+        last_exc: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                # TODO(ssl): verify=False — demo Box Cloud uses a self-signed
+                # cert; remove when production TLS certs are provisioned.
+                with httpx.Client(verify=False) as client:
+                    r = client.post(
+                        url,
+                        content=sql,
+                        headers={
+                            "Authorization": f"Bearer {self._token}",
+                            "Content-Type": "text/plain",
+                        },
+                        timeout=30.0,
+                    )
+                r.raise_for_status()
+                return r.text
+            except Exception as exc:  # noqa: BLE001 — classified below
+                last_exc = exc
+                if not _is_retryable(exc) or attempt == attempts - 1:
+                    raise
+                backoff = _RETRY_BACKOFFS_S[attempt]
+                logger.warning(
+                    "lake query transient failure (attempt %d/%d): %s: %s — "
+                    "retrying in %.1fs",
+                    attempt + 1,
+                    attempts,
+                    type(exc).__name__,
+                    exc,
+                    backoff,
+                )
+                time.sleep(backoff)
+        # Unreachable: the loop either returns or raises. Re-raise for safety.
+        assert last_exc is not None
+        raise last_exc

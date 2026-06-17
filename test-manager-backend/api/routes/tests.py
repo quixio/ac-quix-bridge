@@ -362,8 +362,10 @@ def get_telemetry_params(
     partition = build_partition_values(mongo, test)
 
     sessions = test_doc.get("sessions", [])
-    track = sessions[0]["track"] if sessions else "ks_nurburgring"
-    car_model = sessions[0]["car_model"] if sessions else "bmw_1m"
+    # No sessions yet → no track/car to pin. Return null (consumers omit empty
+    # partition filters) rather than a fabricated default that matches nothing.
+    track = sessions[0]["track"] if sessions else None
+    car_model = sessions[0]["car_model"] if sessions else None
 
     return {
         **partition,

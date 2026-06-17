@@ -36,10 +36,11 @@ import logging
 import unicodedata
 from typing import Any, Literal
 
+import httpx
 from pymongo.database import Database
 
 from .. import live_telemetry
-from ..lakehouse_client import LakehouseClient
+from ..lakehouse_client import LakehouseClient, LakehouseQueryError
 from ..live_telemetry import GATE_COUNT, _HistoricalEntry, _resolve_display_name
 from ..settings import get_settings
 
@@ -110,13 +111,27 @@ def _fold_driver_name(name: str) -> str:
 
 
 def _build_driver_name_lookup(mongo: Database[dict[str, Any]]) -> dict[str, str]:
-    """`{folded_name: display_name}` map from the Mongo `drivers` collection."""
-    lookup: dict[str, str] = {}
-    for doc in mongo.drivers.find({}, {"name": 1}):
-        name = doc.get("name")
-        if isinstance(name, str) and name:
-            lookup[_fold_driver_name(name)] = name
-    return lookup
+    """`{folded_name: display_name}` map from the Mongo `drivers` collection.
+
+    Mongo is an *optional* display-name prettifier: an unreachable or
+    empty Mongo returns `{}` (logged at WARNING) and callers fall back to
+    folded / title-cased driver keys — it must never fail a leaderboard
+    response.
+    """
+    try:
+        lookup: dict[str, str] = {}
+        for doc in mongo.drivers.find({}, {"name": 1}):
+            name = doc.get("name")
+            if isinstance(name, str) and name:
+                lookup[_fold_driver_name(name)] = name
+        return lookup
+    except Exception:
+        logger.warning(
+            "driver-name lookup failed (Mongo unreachable?); "
+            "serving folded driver names",
+            exc_info=True,
+        )
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -136,20 +151,43 @@ def _format_sql_string(value: str) -> str:
     return value.replace("'", "''")
 
 
-def _build_best_laps_sql(
-    track: str, car: str, experiment: str, environment: str
+def _partition_filters(
+    track: str, car: str, experiment: str, environment: str | None
 ) -> str:
-    """Return the per-driver best-lap SQL for one (track, car, exp, env) group.
+    """WHERE-clause body matching the lake's Hive partitions.
+
+    All four partition columns when `environment` is known (the rule for
+    every known-group query); the 3-filter variant exists only for the
+    dropdown best-laps route, where `environment` is unknown for arbitrary
+    combos — a pre-existing, documented exception.
+    """
+    parts: list[str] = []
+    if environment is not None:
+        parts.append(f"environment = '{_format_sql_string(environment)}'")
+    parts.extend(
+        (
+            f"track = '{_format_sql_string(track)}'",
+            f"carModel = '{_format_sql_string(car)}'",
+            f"experiment = '{_format_sql_string(experiment)}'",
+        )
+    )
+    return " AND ".join(parts)
+
+
+def _build_best_laps_sql(
+    track: str, car: str, experiment: str, environment: str | None
+) -> str:
+    """Return the per-driver best-lap raw-scan SQL for one group.
 
     Uses AC's `iBestTime` (already a per-driver best lap in milliseconds;
-    >0 means a completed lap exists). The `FILTER (WHERE iBestTime > 0)`
-    drops rows whose iBestTime is still 0/NULL because the driver hasn't
-    set a flying lap yet. `MIN(...)` over the filtered rows yields the
-    fastest completed lap for that driver in the lake partition.
+    >0 means a completed lap exists). The lake streams raw
+    `(driver, iBestTime)` rows; Python reduces to per-driver MIN. This is
+    the fallback shape for `_query_best_laps_min` when server-side
+    aggregation is disabled or fails.
 
-    The four-way WHERE filter exactly matches the lake's Hive partitions
-    (`environment`, `track`, `carModel`, `experiment`). Forgetting the
-    `environment` partition is the regression this query fixes.
+    The WHERE filter matches the lake's Hive partitions (`environment`,
+    `track`, `carModel`, `experiment`). `environment=None` emits the
+    3-filter variant (dropdown route only — see `_partition_filters`).
 
     Table identifier is read from `settings.lake_table` (validated at
     settings load time against `[A-Za-z_][A-Za-z0-9_]*` so it is safe to
@@ -158,15 +196,140 @@ def _build_best_laps_sql(
     settings = get_settings()
     lake_table = settings.lake_table
     best_col = settings.col_best_time
+    filters = _partition_filters(track, car, experiment, environment)
     return (
         f"SELECT driver, {best_col} "
         f"FROM {lake_table} "
-        f"WHERE environment = '{_format_sql_string(environment)}' "
-        f"AND track = '{_format_sql_string(track)}' "
-        f"AND carModel = '{_format_sql_string(car)}' "
-        f"AND experiment = '{_format_sql_string(experiment)}' "
+        f"WHERE {filters} "
         f"AND {best_col} > 0"
     )
+
+
+def _build_best_laps_min_sql(
+    track: str, car: str, experiment: str, environment: str | None
+) -> str:
+    """Aggregated per-driver best-lap SQL (Query A, spec §5).
+
+    `SELECT driver, MIN({best_col}) AS ms ... GROUP BY driver` —
+    single-level GROUP BY, no CTE (QuixLake silently returns 0 rows for
+    `WITH ...`; see `feedback_quixlake_no_cte`). Server-side aggregation
+    is the telemetry-dashboard's proven cheap pattern
+    (`telemetry-dashboard/main.py:257-262`); partition pruning via the
+    full WHERE makes it cheaper still.
+    """
+    settings = get_settings()
+    lake_table = settings.lake_table
+    best_col = settings.col_best_time
+    filters = _partition_filters(track, car, experiment, environment)
+    return (
+        f"SELECT driver, MIN({best_col}) AS ms "
+        f"FROM {lake_table} "
+        f"WHERE {filters} "
+        f"AND {best_col} > 0 "
+        f"GROUP BY driver"
+    )
+
+
+def _query_best_laps_min(
+    quixlake_url: str,
+    quix_lake_token: str,
+    *,
+    track: str,
+    car: str,
+    experiment: str,
+    environment: str | None,
+) -> dict[str, int]:
+    """Query A: per-driver best lap for one group, `{raw_driver: best_ms}`.
+
+    Returns **raw** lake driver strings — folding stays at the cache tail
+    (`live_telemetry`) so the diff step can map folded keys back to the
+    raw strings the narrowed Query B `driver IN (...)` clause needs.
+
+    Resolves best laps via a **raw scan + Python MIN** as the primary
+    path: `SELECT driver, {best_col} ... WHERE <partitions> AND
+    {best_col} > 0` (no `GROUP BY`/`MIN`), reduced per driver in Python.
+    The server-side `MIN(...) GROUP BY driver` aggregation is left behind
+    the off-by-default `settings.lake_server_aggregation` opt-in only: on
+    the slow byox lake it hits the 30s client timeout, and that timeout
+    propagates to *every* caller of this function — both the `/best-laps`
+    route and the TTL-refresh `_run_one` tick — leaving the best-laps
+    cache empty (`feedback_quixlake_aggregation_slow`). The raw scan runs
+    in ~9s and partition-prunes via the full WHERE.
+
+    When the opt-in flag is set, the aggregation is attempted as a
+    fast-path; any lake error, HTTP error, or timeout transparently falls
+    back to the raw scan **inside this function**, so no caller can ever
+    see the bare timeout. With the flag off (the default) the scan runs
+    directly.
+
+    Raises only on failure of the raw-scan path itself (caller applies
+    per-group stale-on-error).
+    """
+    client = LakehouseClient(base_url=quixlake_url, token=quix_lake_token)
+
+    if get_settings().lake_server_aggregation:
+        sql = _build_best_laps_min_sql(track, car, experiment, environment)
+        logger.info("best-laps MIN SQL (fast-path attempt): %s", sql)
+        try:
+            df = client.query(sql)
+            df = df.fillna("")
+            rows: list[dict[str, Any]] = df.to_dict("records")
+            per_driver: dict[str, int] = {}
+            for row in rows:
+                raw_driver = str(row.get("driver") or "").strip()
+                if not raw_driver:
+                    continue
+                try:
+                    best_ms = int(float(row.get("ms")))  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    continue
+                if best_ms <= 0:
+                    continue
+                prev = per_driver.get(raw_driver)
+                if prev is None or best_ms < prev:
+                    per_driver[raw_driver] = best_ms
+            return per_driver
+        except (LakehouseQueryError, httpx.HTTPError) as e:
+            logger.warning(
+                "server-side best-laps aggregation failed for "
+                "track=%s car=%s exp=%s env=%s (%s); "
+                "falling back to raw scan",
+                track,
+                car,
+                experiment,
+                environment,
+                e,
+            )
+
+    # Raw-scan primary (and guaranteed fallback): same rows
+    # `_query_best_laps` reads, but reduced to RAW driver keys (no
+    # folding) so both paths return the same shape. No `GROUP BY`/`MIN`
+    # is issued here, so neither the route nor the TTL tick can hit the
+    # timing-out server-side aggregation.
+    sql = _build_best_laps_sql(track, car, experiment, environment)
+    logger.info("best-laps scan SQL: %s", sql)
+    df = client.query(sql)
+    df = df.fillna("")
+    scan_rows: list[dict[str, Any]] = df.to_dict("records")
+    best_col = get_settings().col_best_time
+    per_driver_raw: dict[str, int] = {}
+    for row in scan_rows:
+        raw_driver = str(row.get("driver") or "").strip()
+        if not raw_driver:
+            continue
+        raw_best = row.get(best_col)
+        if raw_best is None or raw_best == "":
+            continue
+        try:
+            best_ms = int(float(raw_best))
+        except (TypeError, ValueError):
+            continue
+        if best_ms <= 0:
+            continue
+        prev = per_driver_raw.get(raw_driver)
+        if prev is None or best_ms < prev:
+            per_driver_raw[raw_driver] = best_ms
+    return per_driver_raw
 
 
 def _query_best_laps(
@@ -227,21 +390,28 @@ def _query_best_laps(
 
 
 def _build_best_laps_with_lap_sql(
-    track: str, car: str, experiment: str, environment: str
+    track: str,
+    car: str,
+    experiment: str,
+    environment: str,
+    drivers: list[str] | None = None,
 ) -> str:
     """Return per-(driver, lap) lap-time SQL for one (track, car, exp, env)
     group.
 
-    Uses `MAX(timestamp_ms) - MIN(timestamp_ms)` as the lap duration —
-    same shape as the legacy `_BEST_LAPS_SQL` but scoped to a single
-    Hive partition so the scan stays tight. Python reduces the rows to
-    a per-driver best afterwards.
+    Emits raw `(driver, lap, iCurrentTime, normalizedCarPosition)` rows;
+    Python reduces them per (driver, lap) afterwards (see
+    `_reduce_lap_table`).
 
-    Why this needs a separate query from `_query_best_laps`: that
+    Why this needs a separate query from `_query_best_laps_min`: that
     function aggregates to `MIN(iBestTime)` across the whole partition
     so it can't surface which lap the best was set on. The gate-samples
     query needs `(driver, lap)` triples, so we need the per-lap shape
     here.
+
+    `drivers` (spec §6.3): when given, appends `AND driver IN (...)`
+    (values escaped) so a targeted gate-vector rebuild only scans the
+    changed drivers' rows instead of the whole partition.
 
     Table identifier is read from `settings.lake_table` (see
     `_build_best_laps_sql` for the validation contract).
@@ -250,6 +420,10 @@ def _build_best_laps_with_lap_sql(
     lake_table = settings.lake_table
     cur_col = settings.col_current_time
     pos_col = settings.col_normalized_position
+    drivers_clause = ""
+    if drivers:
+        quoted = ", ".join(f"'{_format_sql_string(d)}'" for d in drivers)
+        drivers_clause = f" AND driver IN ({quoted})"
     return (
         f"SELECT driver, lap, {cur_col}, {pos_col} "
         f"FROM {lake_table} "
@@ -258,45 +432,26 @@ def _build_best_laps_with_lap_sql(
         f"AND carModel = '{_format_sql_string(car)}' "
         f"AND experiment = '{_format_sql_string(experiment)}' "
         f"AND lap > 0 AND {cur_col} > 0"
+        f"{drivers_clause}"
     )
 
 
-def _query_best_laps_with_lap(
-    quixlake_url: str,
-    quix_lake_token: str,
-    *,
-    track: str,
-    car: str,
-    experiment: str,
-    environment: str,
-) -> dict[str, tuple[int, int]]:
-    """Return `{folded_driver: (best_lap_ms, lap_number)}` for one group.
+def _reduce_lap_table(
+    rows: list[dict[str, Any]],
+) -> dict[tuple[str, int], tuple[int, float]]:
+    """Reduce raw per-sample rows to `{(raw_driver, lap): (lap_ms, max_pos)}`.
 
-    Built on top of `_build_best_laps_with_lap_sql` — the SQL emits one
-    row per `(driver, lap)`, ordered ascending by lap time per driver.
-    The Python reduction then keeps the FIRST row per driver, which is
-    the fastest lap by construction.
+    Lake returns raw (driver, lap, iCurrentTime, normalizedCarPosition)
+    rows. iCurrentTime is AC's lap-relative clock (resets each lap), so
+    MAX(iCurrentTime) per (driver, lap) is the real lap duration. The
+    earlier MAX(timestamp_ms) - MIN(timestamp_ms) approach measured the
+    lake ingestion window, picking partial laps as "fastest" whenever
+    they happened to land in a small batch window.
 
-    Lake-folded driver names are kept as-is — they match the same fold
-    rule the gate-samples reducer keys on.
+    Also tracks max normalizedCarPosition per (driver, lap) — only laps
+    whose samples cover ≥95% of the track are real laps; callers use
+    `max_pos` against `_PARTIAL_LAP_MAX_POS` to filter the rest.
     """
-    sql = _build_best_laps_with_lap_sql(track, car, experiment, environment)
-    logger.info("best-laps-with-lap SQL: %s", sql)
-    client = LakehouseClient(base_url=quixlake_url, token=quix_lake_token)
-    df = client.query(sql)
-    df = df.fillna("")
-    rows: list[dict[str, Any]] = df.to_dict("records")
-
-    # Lake returns raw (driver, lap, iCurrentTime, normalizedCarPosition)
-    # rows. iCurrentTime is AC's lap-relative clock (resets each lap), so
-    # MAX(iCurrentTime) per (driver, lap) is the real lap duration. The
-    # earlier MAX(timestamp_ms) - MIN(timestamp_ms) approach measured the
-    # lake ingestion window, picking partial laps as "fastest" whenever
-    # they happened to land in a small batch window.
-    #
-    # Also track max normalizedCarPosition per (driver, lap) — only laps
-    # whose samples cover ≥95% of the track are real laps; the rest are
-    # partial/in-progress and must not be picked as "fastest".
     settings = get_settings()
     cur_col = settings.col_current_time
     pos_col = settings.col_normalized_position
@@ -321,18 +476,119 @@ def _query_best_laps_with_lap(
         if pos > lap_max_pos.get(key, 0.0):
             lap_max_pos[key] = pos
 
+    return {
+        key: (lap_ms, lap_max_pos.get(key, 0.0))
+        for key, lap_ms in lap_max_time.items()
+    }
+
+
+def _pick_fastest_complete(
+    lap_table: dict[tuple[str, int], tuple[int, float]],
+) -> dict[str, tuple[int, int]]:
+    """`{raw_driver: (best_lap_ms, lap_number)}` — fastest complete lap.
+
+    Rejects partial laps (coverage < `_PARTIAL_LAP_MAX_POS`) so the
+    gate-samples reducer doesn't waste a roundtrip on them. This is the
+    legacy discovery rule, kept as the fallback when no lap matches the
+    Query A `iBestTime` within tolerance (spec §5).
+    """
     per_driver: dict[str, tuple[int, int]] = {}
-    for (raw_driver, lap_num), lap_time_ms in lap_max_time.items():
+    for (raw_driver, lap_num), (lap_time_ms, max_pos) in lap_table.items():
         if lap_time_ms <= 0:
             continue
-        # Reject partial laps here so the gate-samples reducer doesn't
-        # waste a roundtrip on them. 0.95 matches _PARTIAL_LAP_MAX_POS.
-        if lap_max_pos.get((raw_driver, lap_num), 0.0) < _PARTIAL_LAP_MAX_POS:
+        if max_pos < _PARTIAL_LAP_MAX_POS:
             continue
         existing = per_driver.get(raw_driver)
         if existing is None or lap_time_ms < existing[0]:
             per_driver[raw_driver] = (lap_time_ms, lap_num)
     return per_driver
+
+
+def _match_best_lap(
+    per_driver_laps: dict[tuple[str, int], tuple[int, float]],
+    driver: str,
+    best_ms: int,
+    tolerance_ms: int,
+) -> tuple[int, int] | None:
+    """Identify the lap Query A's `best_ms` was set on (spec §5 rule).
+
+    Among `driver`'s complete laps (coverage ≥ `_PARTIAL_LAP_MAX_POS`),
+    pick the one whose `MAX(iCurrentTime)` is closest to `best_ms`,
+    accepted iff `|lap_ms - best_ms| <= tolerance_ms` (covers the
+    up-to-one-sample-period undershoot of MAX(iCurrentTime) at low
+    replay sample rates plus jitter). Returns `(lap_ms, lap_num)` or
+    `None` when no complete lap is within tolerance — the caller then
+    falls back to the fastest complete lap with a reconciliation warning.
+    """
+    best: tuple[int, int] | None = None
+    best_diff: int | None = None
+    for (raw_driver, lap_num), (lap_ms, max_pos) in per_driver_laps.items():
+        if raw_driver != driver or lap_ms <= 0:
+            continue
+        if max_pos < _PARTIAL_LAP_MAX_POS:
+            continue
+        diff = abs(lap_ms - best_ms)
+        if best_diff is None or diff < best_diff:
+            best_diff = diff
+            best = (lap_ms, lap_num)
+    if best is None or best_diff is None or best_diff > tolerance_ms:
+        return None
+    return best
+
+
+def _query_lap_table(
+    quixlake_url: str,
+    quix_lake_token: str,
+    *,
+    track: str,
+    car: str,
+    experiment: str,
+    environment: str,
+    drivers: list[str] | None = None,
+) -> dict[tuple[str, int], tuple[int, float]]:
+    """Run the per-(driver, lap) scan and return the reduced lap table.
+
+    `{(raw_driver, lap): (lap_ms, max_pos)}` — input for both
+    `_match_best_lap` (Query A reconciliation) and
+    `_pick_fastest_complete` (legacy rule / fallback).
+    """
+    sql = _build_best_laps_with_lap_sql(
+        track, car, experiment, environment, drivers=drivers
+    )
+    logger.info("best-laps-with-lap SQL: %s", sql)
+    client = LakehouseClient(base_url=quixlake_url, token=quix_lake_token)
+    df = client.query(sql)
+    df = df.fillna("")
+    rows: list[dict[str, Any]] = df.to_dict("records")
+    return _reduce_lap_table(rows)
+
+
+def _query_best_laps_with_lap(
+    quixlake_url: str,
+    quix_lake_token: str,
+    *,
+    track: str,
+    car: str,
+    experiment: str,
+    environment: str,
+    drivers: list[str] | None = None,
+) -> dict[str, tuple[int, int]]:
+    """Return `{raw_driver: (best_lap_ms, lap_number)}` for one group.
+
+    Thin wrapper: `_query_lap_table` + `_pick_fastest_complete`. Raw
+    lake driver names are kept as-is — they match the same fold rule
+    the gate-samples reducer keys on.
+    """
+    lap_table = _query_lap_table(
+        quixlake_url,
+        quix_lake_token,
+        track=track,
+        car=car,
+        experiment=experiment,
+        environment=environment,
+        drivers=drivers,
+    )
+    return _pick_fastest_complete(lap_table)
 
 
 # ---------------------------------------------------------------------------
@@ -865,13 +1121,14 @@ def _build_group_rows(
         # we have no active row OR the active driver hasn't crossed gate
         # 1 yet, all historicals carry `None`.
         row_delta = per_historical_deltas.get(folded_driver)
-        # Historical's cumulative lap-time at the NEXT gate ahead of the
-        # active driver (display) and at the LAST crossed gate (rank).
-        # Display = gate (N+1) so the column shows the upcoming target.
-        # Rank   = gate N so the order only snaps at gate crossings.
-        # Both pulled from the same helpers the WS active mutation uses
-        # (spec §7.7 reconciliation): one source of truth per value.
-        gate_time_next = historical_next_gate_value(entry, sticky_last_gate_index)
+        # Historical's cumulative lap-time at the SAME gate the active just
+        # crossed (i*). Both the "At Position" display AND the rank key use
+        # this one value so the column, the rank, and the gap chip all
+        # reference one gate. (Previously the display used the NEXT gate
+        # (i*+1) "upcoming target", which made the gap chips — computed off
+        # the displayed column between crossings — compare the active's
+        # gate-i* time against the historical's gate-(i*+1) time, inflating
+        # the gap. One gate, one source of truth.)
         gate_time_last = historical_at_crossing_value(entry, sticky_last_gate_index)
         rows.append(
             _historical_row(
@@ -883,7 +1140,7 @@ def _build_group_rows(
                 best_lap_number=best_lap_number,
                 last_gate_index=sticky_last_gate_index,
                 delta_at_last_gate_ms=row_delta,
-                gate_time_at_active_ms=gate_time_next,
+                gate_time_at_active_ms=gate_time_last,
                 rank_time_ms=gate_time_last,
             )
         )
@@ -1026,12 +1283,28 @@ def _solo_active_group(
 
 def build_live_positions(
     mongo: Database[dict[str, Any]],
+    *,
+    allow_cold_refresh: bool = True,
 ) -> list[dict[str, object]]:
     """Build the real-mode `/live-positions` payload.
 
-    Raises `LeaderboardError` when QuixLake credentials are missing or
-    the lake query fails. A missing-or-stale live driver is *not* an
-    error — the endpoint serves a historical-only payload (200 OK).
+    Raises `LeaderboardError` only when QuixLake credentials are missing
+    or an actual lake transport/SQL failure leaves the best-laps cache
+    cold (`None`). "No data" is *not* an error: an empty-but-refreshed
+    cache (`{}`) and a missing-or-stale live driver both serve a
+    historical-only payload — possibly `[]` — with 200 OK.
+
+    `allow_cold_refresh` (default `True`) controls the cold-cache
+    behaviour. When the best-laps cache is still `None` (no refresh has
+    run yet) and this is `True`, a one-shot SYNCHRONOUS lake refresh runs
+    so the polled `/live-positions` endpoint can serve data on the first
+    request after boot. When `False`, a cold cache is treated as empty
+    (`{}`) and NO lake call is made — this is the WebSocket-connect path,
+    where the initial snapshot must paint the live table immediately
+    without ever blocking on the 30 s lake enumeration. The background
+    TTL tick (consumer thread) fills the cache and rebroadcasts a full
+    snapshot once historicals arrive; the active driver streams over WS
+    regardless of cache state.
 
     Step 1: reads `live_telemetry.get_best_laps_cache()` (per-driver
     best-lap dict, keyed by `(track, car, experiment, environment)`).
@@ -1048,19 +1321,28 @@ def build_live_positions(
     # event. The per-request path here is lake-free in the common case.
     best_laps_cache = live_telemetry.get_best_laps_cache()
     if best_laps_cache is None:
-        # Cold start: no refresh has run yet (consumer thread might be
-        # disabled or hasn't reached its warm-up). Do one synchronous
-        # refresh so the first poll after backend boot still serves data.
-        try:
-            live_telemetry.refresh_best_laps_cache(
-                settings.lakehouse_query_url, settings.lakehouse_query_token
-            )
-        except Exception as e:  # defensive — refresh already swallows
-            logger.exception("Lakehouse query failed")
-            raise LeaderboardError(str(e)) from e
-        best_laps_cache = live_telemetry.get_best_laps_cache()
-        if best_laps_cache is None:
-            raise LeaderboardError("Lakehouse query failed; see backend logs")
+        if not allow_cold_refresh:
+            # WS-connect path: never block the first snapshot on the lake.
+            # Serve an empty historicals set now; the background refresh
+            # will rebroadcast a populated snapshot when it lands.
+            best_laps_cache = {}
+        else:
+            # Cold start: no refresh has run yet (consumer thread might be
+            # disabled or hasn't reached its warm-up). Do one synchronous
+            # refresh so the first poll after backend boot still serves data.
+            try:
+                live_telemetry.refresh_best_laps_cache(
+                    settings.lakehouse_query_url, settings.lakehouse_query_token
+                )
+            except Exception as e:  # defensive — refresh already swallows
+                logger.exception("Lakehouse query failed")
+                raise LeaderboardError(str(e)) from e
+            best_laps_cache = live_telemetry.get_best_laps_cache()
+            if best_laps_cache is None:
+                # Still `None` after a refresh means every group query failed
+                # (genuine lake error) — a refresh that found no groups or no
+                # rows leaves `{}` instead, which serves as 200 below.
+                raise LeaderboardError("Lakehouse query failed; see backend logs")
     driver_name_lookup = _build_driver_name_lookup(mongo)
 
     try:
@@ -1078,7 +1360,27 @@ def build_live_positions(
 
     out: list[dict[str, object]] = []
     historical_keys = set(best_laps_cache.keys())
-    for track, car, experiment, environment in sorted(historical_keys):
+
+    # When a driver is live, scope the table to that driver's
+    # (track, car, experiment) so groups from other tracks/cars (e.g. a
+    # Zandvoort lap during a Spa session) can't leak in — that contamination
+    # corrupts both the rank order and the active row's above/below gap chips.
+    # With no active driver, keep every group (the UI doesn't render the live
+    # table without an active driver anyway).
+    emit_keys = historical_keys
+    active_track = str(active.get("track") or "") if active else ""
+    active_car = str(active.get("car") or "") if active else ""
+    active_experiment = str(active.get("experiment") or "") if active else ""
+    if active and active_track and active_car and active_experiment:
+        emit_keys = {
+            k
+            for k in historical_keys
+            if k[0] == active_track
+            and k[1] == active_car
+            and k[2] == active_experiment
+        }
+
+    for track, car, experiment, environment in sorted(emit_keys):
         out.extend(
             _build_group_rows(
                 track,
@@ -1094,23 +1396,19 @@ def build_live_positions(
 
     # Edge case: live driver is racing in a (track, car, experiment) that
     # has no historicals at all. Emit a 1-row solo group.
-    if active:
-        active_track = str(active.get("track") or "")
-        active_car = str(active.get("car") or "")
-        active_experiment = str(active.get("experiment") or "")
-        if active_track and active_car and active_experiment:
-            # The active driver might already be covered by one of the
-            # historical groups (any environment under the same track/
-            # car/experiment) — in that case the active row has already
-            # been emitted by `_build_group_rows`. Skip the solo emit to
-            # avoid a duplicate.
-            already_emitted = any(
-                k[0] == active_track
-                and k[1] == active_car
-                and k[2] == active_experiment
-                for k in historical_keys
-            )
-            if not already_emitted:
-                out.extend(_solo_active_group(active, driver_name_lookup))
+    if active and active_track and active_car and active_experiment:
+        # The active driver might already be covered by one of the
+        # emitted groups (any environment under the same track/car/
+        # experiment) — in that case the active row has already been
+        # emitted by `_build_group_rows`. Skip the solo emit to avoid a
+        # duplicate.
+        already_emitted = any(
+            k[0] == active_track
+            and k[1] == active_car
+            and k[2] == active_experiment
+            for k in emit_keys
+        )
+        if not already_emitted:
+            out.extend(_solo_active_group(active, driver_name_lookup))
 
     return out

@@ -5,11 +5,8 @@ import { Rocket, X, RefreshCw, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DeploymentReference } from "@/lib/types/portal";
 
-export type DeploymentVariant = "config" | "measurements" | "analytics";
-
 interface DeploymentDisplayProps {
   deployment: DeploymentReference | null;
-  variant: DeploymentVariant;
   isFallback?: boolean;
   isRefreshing?: boolean;
   isClearing?: boolean;
@@ -20,41 +17,19 @@ interface DeploymentDisplayProps {
 }
 
 /**
- * Get the display URLs based on variant
- * - config: Shows both API URL and UI URL
- * - measurements: Shows both API URL ({url}/api/query) and UI URL
- * - analytics: Shows only UI URL
+ * Get the display URLs for the config variant (shows both API URL and UI URL).
  */
-function getDisplayUrls(
-  deployment: DeploymentReference | null,
-  variant: DeploymentVariant,
-) {
+function getDisplayUrls(deployment: DeploymentReference | null) {
   if (!deployment) return { apiUrl: null, uiUrl: null };
 
-  switch (variant) {
-    case "config":
-      return {
-        apiUrl: deployment.internal_url,
-        uiUrl: deployment.embedded_view_url || deployment.public_url,
-      };
-    case "measurements": {
-      const measUiUrl = deployment.public_url || deployment.embedded_view_url;
-      return {
-        apiUrl: measUiUrl ? `${measUiUrl}/api/query` : null,
-        uiUrl: measUiUrl,
-      };
-    }
-    case "analytics":
-      return {
-        apiUrl: null, // No API calls
-        uiUrl: deployment.embedded_view_url || deployment.public_url,
-      };
-  }
+  return {
+    apiUrl: deployment.internal_url,
+    uiUrl: deployment.embedded_view_url || deployment.public_url,
+  };
 }
 
 export function DeploymentDisplay({
   deployment,
-  variant,
   isFallback = false,
   isRefreshing = false,
   isClearing = false,
@@ -67,7 +42,7 @@ export function DeploymentDisplay({
     return null;
   }
 
-  const { apiUrl, uiUrl } = getDisplayUrls(deployment, variant);
+  const { apiUrl, uiUrl } = getDisplayUrls(deployment);
 
   return (
     <div
@@ -95,32 +70,24 @@ export function DeploymentDisplay({
             )}
           </div>
 
-          {/* URL display based on variant */}
+          {/* URL display */}
           <div className="space-y-0.5 mt-1">
-            {(variant === "config" || variant === "measurements") && (
-              <div className="text-sm text-muted-foreground truncate">
-                <span className="text-xs font-medium mr-1">API:</span>
-                {apiUrl || (
-                  <span className="italic text-muted-foreground/60">
-                    not found
-                  </span>
-                )}
-              </div>
-            )}
-            {variant === "config" || variant === "measurements" ? (
-              <div className="text-sm text-muted-foreground truncate">
-                <span className="text-xs font-medium mr-1">UI:</span>
-                {uiUrl || (
-                  <span className="italic text-muted-foreground/60">
-                    not found
-                  </span>
-                )}
-              </div>
-            ) : uiUrl ? (
-              <div className="text-sm text-muted-foreground truncate">
-                {uiUrl}
-              </div>
-            ) : null}
+            <div className="text-sm text-muted-foreground truncate">
+              <span className="text-xs font-medium mr-1">API:</span>
+              {apiUrl || (
+                <span className="italic text-muted-foreground/60">
+                  not found
+                </span>
+              )}
+            </div>
+            <div className="text-sm text-muted-foreground truncate">
+              <span className="text-xs font-medium mr-1">UI:</span>
+              {uiUrl || (
+                <span className="italic text-muted-foreground/60">
+                  not found
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -1,0 +1,124 @@
+{
+  "track": "ks_zandvoort",
+  "layout": "ks_zandvoort",
+  "source_csv": "tracks_csv/ks_zandvoort/layout_ks_zandvoort.csv",
+  "total_length_m": 4188.23,
+  "config": {
+    "hairpin_max_m": 60,
+    "tight_max_m": 150,
+    "sweeper_max_m": 400,
+    "straight_threshold_m": 500
+  },
+  "generated_at": "2026-06-15T09:32:51Z",
+  "version": "1",
+  "corners": [
+    {
+      "id": 1,
+      "type": "hairpin",
+      "direction": "right",
+      "distance_start_m": 360.22,
+      "distance_end_m": 991.71,
+      "length_m": 631.49,
+      "min_radius_m": 28.7,
+      "avg_radius_m": 215.6,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 2,
+      "type": "sweeper",
+      "direction": "left",
+      "distance_start_m": 1088.65,
+      "distance_end_m": 1209.29,
+      "length_m": 120.64,
+      "min_radius_m": 155.7,
+      "avg_radius_m": 267.91,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 3,
+      "type": "tight",
+      "direction": "right",
+      "distance_start_m": 1260.87,
+      "distance_end_m": 1554.13,
+      "length_m": 293.26,
+      "min_radius_m": 145.5,
+      "avg_radius_m": 284.11,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 4,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 1646.18,
+      "distance_end_m": 1907.06,
+      "length_m": 260.88,
+      "min_radius_m": 89.8,
+      "avg_radius_m": 143.77,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 5,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 1953.93,
+      "distance_end_m": 2414.25,
+      "length_m": 460.32,
+      "min_radius_m": 44.3,
+      "avg_radius_m": 187.93,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 6,
+      "type": "hairpin",
+      "direction": "right",
+      "distance_start_m": 2469.78,
+      "distance_end_m": 2684.1,
+      "length_m": 214.32,
+      "min_radius_m": 41.7,
+      "avg_radius_m": 105.45,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 7,
+      "type": "sweeper",
+      "direction": "right",
+      "distance_start_m": 2916.54,
+      "distance_end_m": 2960.8,
+      "length_m": 44.26,
+      "min_radius_m": 386.2,
+      "avg_radius_m": 436.81,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 8,
+      "type": "hairpin",
+      "direction": "right",
+      "distance_start_m": 3101.03,
+      "distance_end_m": 3292.92,
+      "length_m": 191.89,
+      "min_radius_m": 24.5,
+      "avg_radius_m": 92.39,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 9,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 3465.58,
+      "distance_end_m": 3946.09,
+      "length_m": 480.51,
+      "min_radius_m": 64.3,
+      "avg_radius_m": 177.55,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    }
+  ]
+}

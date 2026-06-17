@@ -13,6 +13,7 @@ import csv
 import io
 import json
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -253,10 +254,14 @@ async def health():
 # --- Leaderboard: proxy an all-time fastest-lap-per-driver query to the Quix
 # Data Lake query API. Token stays server-side (env var). The full SQL is an env
 # var so the table/columns can be tuned without a code change. The default targets
-# the lake's `ac_telemetry` table with `driver` / `iBestTime` columns.
+# the lake table named by TABLE_NAME (per-environment) with `driver` / `iBestTime`
+# columns.
+_LEADERBOARD_TABLE = os.environ.get("TABLE_NAME", "ac_telemetry")
+if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", _LEADERBOARD_TABLE):
+    raise ValueError(f"TABLE_NAME must be a bare SQL identifier, got {_LEADERBOARD_TABLE!r}")
 DEFAULT_LEADERBOARD_SQL = (
     'SELECT driver AS name, MIN("iBestTime") AS ms '
-    'FROM ac_telemetry '
+    f"FROM {_LEADERBOARD_TABLE} "
     "WHERE \"iBestTime\" > 0 AND driver IS NOT NULL AND driver <> '' "
     "GROUP BY driver ORDER BY ms ASC LIMIT 100"
 )

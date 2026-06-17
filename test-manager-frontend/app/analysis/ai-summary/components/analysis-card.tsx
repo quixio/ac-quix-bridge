@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
-import { Download } from "lucide-react";
+import { CheckCircle2, Download, HelpCircle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useAnalysesApi } from "@/lib/hooks/use-api";
@@ -21,13 +21,16 @@ function formatDuration(ms: number | null | undefined): string {
 function formatSessionDate(sessionId: string): string {
   const d = new Date(sessionId);
   if (Number.isNaN(d.getTime())) return sessionId.slice(0, 16);
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return (
+    d.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+    }) + " UTC"
+  );
 }
 
 function subtitleExtras(extra: Record<string, unknown>): string {
@@ -38,30 +41,47 @@ function subtitleExtras(extra: Record<string, unknown>): string {
 }
 
 function MetVerdict({ met }: { met: boolean | null | undefined }) {
+  const base =
+    "inline-flex w-28 items-center justify-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium";
   if (met === true)
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/10 text-green-700 text-xs">
-        ✓ met
+      <span className={`${base} bg-[hsl(var(--success)/0.15)] text-success`}>
+        <CheckCircle2 className="h-3 w-3" aria-hidden /> met
       </span>
     );
   if (met === false)
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 text-red-700 text-xs">
-        ✗ unmet
+      <span
+        className={`${base} bg-[hsl(var(--destructive)/0.15)] text-destructive`}
+      >
+        <XCircle className="h-3 w-3" aria-hidden /> unmet
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs">
-      ? undetermined
+    <span className={`${base} border border-border text-muted-foreground`}>
+      <HelpCircle className="h-3 w-3" aria-hidden /> undetermined
     </span>
   );
 }
 
+// Semantic tokens carry light+dark variants, so badges keep contrast in both
+// themes. The tokens are defined as `hsl(var(--x))` (no `<alpha-value>` channel),
+// so the `/15` tint is written as an explicit arbitrary value, not `bg-info/15`.
 const SEVERITY_STYLES: Record<string, string> = {
-  info: "bg-blue-500/10 text-blue-700",
-  warn: "bg-amber-500/10 text-amber-700",
-  error: "bg-red-500/10 text-red-700",
+  info: "bg-[hsl(var(--info)/0.15)] text-info",
+  warn: "bg-[hsl(var(--warning)/0.15)] text-warning",
+  error: "bg-[hsl(var(--destructive)/0.15)] text-destructive",
 };
+const SEVERITY_FALLBACK = "border border-border text-muted-foreground";
+
+function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+      <span className="h-4 w-1 rounded-full bg-primary" />
+      {children}
+    </h3>
+  );
+}
 
 function SessionBadge({ sessionId }: { sessionId?: string | null }) {
   if (!sessionId) return null;
@@ -105,7 +125,13 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
   };
 
   return (
-    <Card className="p-6 space-y-6">
+    <Card className="overflow-hidden">
+      {/* Quix brand band */}
+      <div className="flex items-center justify-end bg-[#0a0b24] px-6 py-2.5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/quix-logo.svg" alt="Quix" className="h-5 w-auto" />
+      </div>
+      <div className="space-y-6 p-6">
       <header className="flex items-start justify-between gap-4">
         <div className="space-y-0.5">
           <h2 className="text-lg font-semibold">Post-Race Summary</h2>
@@ -113,7 +139,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
             {[
               analysis.test_id,
               analysis.session_id
-                ? formatSessionDate(analysis.session_id)
+                ? `Session ${formatSessionDate(analysis.session_id)}`
                 : "Test-wide",
               subtitleExtras(analysis.extra),
             ]
@@ -138,21 +164,36 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       {/* KPI grid */}
       {analysis.kpis.length > 0 && (
         <section>
-          <h3 className="text-sm font-semibold mb-2">KPIs</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <SectionHeading>KPIs</SectionHeading>
+          <div
+            className="grid gap-3"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+            }}
+          >
             {analysis.kpis.map((k) => (
               <div
                 key={`${k.session_id ?? "_"}::${k.name}`}
-                className="p-3 rounded-md bg-muted"
+                className="rounded-lg border border-border border-l-2 border-l-primary bg-background p-3"
               >
-                <div className="text-xs text-muted-foreground">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   {k.name}
-                  <SessionBadge sessionId={k.session_id} />
                 </div>
-                <div className="text-lg font-semibold">{k.value}</div>
-                {k.unit && (
-                  <div className="text-xs text-muted-foreground">{k.unit}</div>
+                {k.session_id && (
+                  <div className="mt-0.5">
+                    <SessionBadge sessionId={k.session_id} />
+                  </div>
                 )}
+                <div className="mt-1 flex items-baseline gap-1">
+                  <span className="text-xl font-semibold tabular-nums">
+                    {k.value}
+                  </span>
+                  {k.unit && (
+                    <span className="text-xs text-muted-foreground">
+                      {k.unit}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -162,21 +203,21 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       {/* Requirements pills */}
       {analysis.requirements_check.length > 0 && (
         <section>
-          <h3 className="text-sm font-semibold mb-2">Requirements</h3>
-          <div className="space-y-1.5">
+          <SectionHeading>Requirements</SectionHeading>
+          <div className="grid grid-cols-[max-content_1fr] items-start gap-x-3 gap-y-2 text-sm">
             {analysis.requirements_check.map((r) => (
-              <div
-                key={r.requirement}
-                className="flex items-center gap-3 text-sm"
-              >
+              <Fragment key={r.requirement}>
                 <MetVerdict met={r.met} />
-                <span>{r.requirement}</span>
-                {r.evidence && (
-                  <span className="text-xs text-muted-foreground">
-                    — {r.evidence}
-                  </span>
-                )}
-              </div>
+                <div className="min-w-0">
+                  <span className="font-medium">{r.requirement}</span>
+                  {r.evidence && (
+                    <span className="text-muted-foreground">
+                      {" — "}
+                      {r.evidence}
+                    </span>
+                  )}
+                </div>
+              </Fragment>
             ))}
           </div>
         </section>
@@ -185,30 +226,32 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       {/* Anomalies */}
       {analysis.anomalies.length > 0 && (
         <section>
-          <h3 className="text-sm font-semibold mb-2">Anomalies</h3>
-          <ul className="space-y-1.5">
+          <SectionHeading>Anomalies</SectionHeading>
+          <ul className="space-y-2.5">
             {analysis.anomalies.map((a) => (
               <li
                 key={`${a.session_id ?? "_"}:${a.kind}:${a.lap ?? "_"}:${a.description.slice(0, 40)}`}
-                className="flex items-start gap-3 text-sm"
+                className="space-y-0.5 text-sm"
               >
-                <span
-                  className={`inline-flex shrink-0 px-2 py-0.5 rounded-full text-xs ${
-                    SEVERITY_STYLES[a.severity] ?? ""
-                  }`}
-                >
-                  {a.severity}
-                </span>
-                <span className="font-mono text-xs">{a.kind}</span>
-                {a.lap !== null && a.lap !== undefined && (
-                  <span className="text-xs text-muted-foreground">
-                    L{a.lap}
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                      SEVERITY_STYLES[a.severity] ?? SEVERITY_FALLBACK
+                    }`}
+                  >
+                    {a.severity}
                   </span>
-                )}
-                <span>
+                  <span className="font-medium">{a.kind}</span>
+                  {a.lap !== null && a.lap !== undefined && (
+                    <span className="text-xs text-muted-foreground">
+                      L{a.lap}
+                    </span>
+                  )}
+                </div>
+                <p className="min-w-0 break-words pl-0.5 text-muted-foreground">
                   {a.description}
                   <SessionBadge sessionId={a.session_id} />
-                </span>
+                </p>
               </li>
             ))}
           </ul>
@@ -217,7 +260,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
 
       {/* Markdown narrative */}
       {analysis.summary_md && (
-        <section className="prose prose-sm max-w-none dark:prose-invert">
+        <section className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:text-foreground">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeSanitize]}
@@ -234,6 +277,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
           <span>Generated in {formatDuration(analysis.duration_ms)}</span>
         )}
       </footer>
+      </div>
     </Card>
   );
 }

@@ -22,6 +22,7 @@ import {
   useEnvironmentsApi,
 } from "@/lib/hooks/use-api";
 import { useToast } from "@/lib/hooks/use-toast";
+import { AddDriverDialog } from "@/components/drivers/add-driver-dialog";
 import { DeviceCategory } from "@/types/device";
 import type { Device } from "@/types/device";
 import type { Driver } from "@/types/driver";
@@ -41,6 +42,7 @@ export default function AddTestPage() {
   const [testRigDeviceId, setTestRigDeviceId] = useState("");
   const [environmentId, setEnvironmentId] = useState("");
   const [driver, setDriver] = useState("");
+  const [pendingDriver, setPendingDriver] = useState<string | null>(null);
   const [requirements, setRequirements] = useState("");
   const [mode, setMode] = useState<TestMode | "">("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -93,11 +95,34 @@ export default function AddTestPage() {
       setDriver(drivers[0].name);
     }
   }, [drivers, driver]);
+  // Select a just-created driver, but only once the refetched list actually
+  // contains its SelectItem — setting the value in the same batch as setDrivers
+  // trips the Radix preselect race (onValueChange("") clears it in prod).
+  useEffect(() => {
+    if (pendingDriver && drivers.some((d) => d.name === pendingDriver)) {
+      setDriver(pendingDriver);
+      setPendingDriver(null);
+    }
+  }, [drivers, pendingDriver]);
   useEffect(() => {
     if (environments.length > 0 && !environmentId) {
       setEnvironmentId(environments[0].environment_id);
     }
   }, [environments, environmentId]);
+
+  const refetchDrivers = async () => {
+    try {
+      const res = await driversApi.list({ page_size: 100 });
+      setDrivers(res.items);
+    } catch (error) {
+      console.error("Failed to refetch drivers:", error);
+    }
+  };
+
+  const handleDriverCreated = async (created: Driver) => {
+    setPendingDriver(created.name);
+    await refetchDrivers();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -227,18 +252,23 @@ export default function AddTestPage() {
 
               <div className="space-y-2">
                 <Label>Driver *</Label>
-                <Select value={driver} onValueChange={setDriver}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select driver" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {drivers.map((d) => (
-                      <SelectItem key={d.driver_id} value={d.name}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <Select value={driver} onValueChange={setDriver}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select driver" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {drivers.map((d) => (
+                          <SelectItem key={d.driver_id} value={d.name}>
+                            {d.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <AddDriverDialog onCreated={handleDriverCreated} />
+                </div>
               </div>
 
               <div className="space-y-2">

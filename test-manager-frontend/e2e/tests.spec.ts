@@ -336,6 +336,35 @@ test.describe("Tests pagination", () => {
   });
 });
 
+test.describe("Inline add-driver on the test form", () => {
+  test("the + beside the Driver select creates a driver and selects it", async ({
+    page,
+  }) => {
+    await page.goto("/tests/add");
+    const name = generateTestId("e2e-inline-drv");
+
+    // Open the inline add-driver dialog (the "+" beside the Driver select).
+    await page.getByRole("button", { name: /add driver/i }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: "Add Driver" }),
+    ).toBeVisible();
+
+    // Fill the dialog form (portaled — scope to the dialog to avoid ambiguity).
+    await dialog.locator("#name").fill(name);
+    await dialog.locator("#email").fill(`${name}@example.com`);
+    await dialog.locator("#company").fill("Acme");
+    await dialog.getByRole("button", { name: "Create Driver" }).click();
+
+    // Dialog closes and the new driver is auto-selected in the Driver select
+    // (4th of the five comboboxes: PC, Rig, Env, Driver, Mode).
+    await expect(
+      page.getByRole("heading", { name: "Add Driver" }),
+    ).toBeHidden();
+    await expect(page.getByRole("combobox").nth(3)).toContainText(name);
+  });
+});
+
 test.describe("Sessions on a test", () => {
   test("session POSTed via API renders on the test detail page", async ({
     page,

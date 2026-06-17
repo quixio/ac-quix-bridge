@@ -1,11 +1,30 @@
+# Stage 1: UI build (Next.js static export). Node exists only here —
+# the final image is Python-only. Build context = this app directory
+# (Quix Cloud builds with the application folder as context).
+FROM node:20-bookworm-slim AS ui-builder
+WORKDIR /ui
+
+# Quix Cloud injects deployment variables as build args.
+ARG NEXT_PUBLIC_FREEZE_MS
+ENV NEXT_PUBLIC_FREEZE_MS=$NEXT_PUBLIC_FREEZE_MS
+# Standalone-mode fallback PAT baked into the bundle (unchanged behavior).
+ARG NEXT_PUBLIC_QUIX_AUTH_TOKEN
+ENV NEXT_PUBLIC_QUIX_AUTH_TOKEN=$NEXT_PUBLIC_QUIX_AUTH_TOKEN
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY ui/package*.json ./
+RUN npm ci --legacy-peer-deps
+COPY ui/ .
+RUN npm run build
+# emits /ui/out (next.config.js output: 'export')
+
+# Stage 2: Python runtime
 FROM python:3.13-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
 	PYTHONUNBUFFERED=1 \
 	PYTHONIOENCODING=UTF-8 \
 	UV_COMPILE_BYTECODE=1
-
-ARG MAINAPPPATH=leaderboard-service
 
 WORKDIR /app
 
@@ -15,11 +34,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy project (build context = repo root, MAINAPPPATH = app subdir)
-COPY "${MAINAPPPATH}" /app
+# Copy project (build context = this app directory; ui/ excluded via .dockerignore
+# junk rules but its sources land at /app/ui — harmless, only /app/static is served)
+COPY . /app
 
 # Install dependencies with uv
 RUN uv sync --frozen --no-cache
+
+# Static UI served by FastAPI at / (see api/app.py, STATIC_DIR).
+# Must come AFTER `COPY . /app` so the export is not clobbered.
+COPY --from=ui-builder /ui/out /app/static
 
 ENV PYTHONPATH=/app
 EXPOSE 8080

@@ -99,7 +99,13 @@ def _build_initial_rows_sync(mongo: Database[dict[str, Any]]) -> list[dict[str, 
     if os.getenv("LOCAL_DEV_MODE", "false").lower() == "true":
         return live_positions_sim.make_local_dev_live_positions()
     try:
-        return leaderboard_real.build_live_positions(mongo)
+        # `allow_cold_refresh=False`: the WS connect path must NOT trigger a
+        # synchronous lake enumeration. A cold best-laps cache serves empty
+        # historicals here so the live table paints immediately; the
+        # background TTL refresh (consumer thread) rebroadcasts a populated
+        # snapshot once the lake answers. This is the core "live first,
+        # DB async" guarantee — see docs/architecture-leaderboard-live-first.md.
+        return leaderboard_real.build_live_positions(mongo, allow_cold_refresh=False)
     except leaderboard_real.LeaderboardError:
         # Cold start before the lake has any data, missing creds, etc.
         # Treat as "no rows yet" — the client will still get a valid
@@ -142,7 +148,7 @@ async def live_stream_endpoint(
     # WS is open — no token required. The stream just replays public
     # Kafka topic data (telemetry/session/config), no sensitive info on
     # this channel. Keeping the HTTP API auth gate intact for everything
-    # else; this is intentional per the leaderboard-ui design (the page
+    # else; this is intentional per the leaderboard UI design (the page
     # may load before the auth handshake completes, and the WS should
     # not block on it).
     _ = token  # accepted but ignored — kept in the URL signature for
@@ -165,6 +171,21 @@ async def live_stream_endpoint(
         # on connect now also includes one `active_state` message
         # reflecting current state.").
         await websocket.send_json(live_telemetry.current_active_state_envelope())
+        # And the current live-session envelope, so a client connecting
+        # mid-session learns the announced (track, car) combo — and its
+        # resolved experiment — without waiting for the next transition.
+        #
+        # FAST path: `current_live_session_envelope_fast` is lake-free —
+        # track/car from the adopted session, experiment/environment from
+        # the in-memory DCM cache only. We send it inline so the frame ships
+        # immediately, even when the lake enumeration is slow or timing out.
+        # The fully lake-aligned envelope (which may run the 30 s
+        # `enumerate_groups()` call) is resolved + rebroadcast on a worker
+        # thread AFTER the connect handshake, deduped against this one — so a
+        # slow lake never delays the live view.
+        await websocket.send_json(
+            live_telemetry.current_live_session_envelope_fast()
+        )
     except WebSocketDisconnect:
         # Client dropped before we could send anything; nothing to do.
         return
@@ -179,6 +200,17 @@ async def live_stream_endpoint(
         return
 
     await live_stream.register(websocket)
+
+    # Resolve the lake-aligned live-session experiment OFF the connect path.
+    # `resolve_and_publish_live_session` may run the seconds-long
+    # `enumerate_groups()` lake call; running it on a worker task here (after
+    # the client is registered and has its fast envelope) means a slow lake
+    # patches in the resolved experiment without ever stalling connect. The
+    # result broadcasts to every client, deduped against the fast envelope.
+    asyncio.create_task(
+        asyncio.to_thread(live_telemetry.resolve_and_publish_live_session)
+    )
+
     try:
         # Drain inbound frames so the connection stays open. Browsers
         # send pings, and some proxies send keepalives; ignoring them
