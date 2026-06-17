@@ -776,7 +776,6 @@ deployments:
       suffixReplayedKeysWithTimestamp: false
       fromTimestamp: 2026-06-08T15:52:21.569Z
       toTimestamp: 2026-06-08T16:01:15.856Z
-    disabled: true
   - name: Quix DataLake Raw Sink 2
     application: DataLake.Sink
     version: latest
