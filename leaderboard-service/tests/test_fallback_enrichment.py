@@ -38,11 +38,13 @@ def _reset_state():
     saved_live = live_telemetry._live_session
     saved_tick = live_telemetry._last_raw_tick_epoch
     saved_no_meta = live_telemetry._no_metadata_logged
+    saved_latest_dcm = live_telemetry._latest_dcm_config
     live_telemetry._session_cache.clear()
     live_telemetry._experiment_cache.clear()
     live_telemetry._live_session = None
     live_telemetry._last_raw_tick_epoch = 0.0
     live_telemetry._no_metadata_logged = False
+    live_telemetry._latest_dcm_config = None
     try:
         yield
     finally:
@@ -53,6 +55,7 @@ def _reset_state():
         live_telemetry._live_session = saved_live
         live_telemetry._last_raw_tick_epoch = saved_tick
         live_telemetry._no_metadata_logged = saved_no_meta
+        live_telemetry._latest_dcm_config = saved_latest_dcm
 
 
 def _capture(monkeypatch) -> list[dict]:
@@ -156,3 +159,50 @@ def test_no_session_uses_track_car_driver_fallbacks(monkeypatch):
     assert enriched["track"] == "Unknown"
     assert enriched["carModel"] == "Unknown"
     assert enriched["driver"] == "John Doe"
+
+
+def test_latest_dcm_config_beats_fallback(monkeypatch):
+    """Per-hostname resolution fully EMPTY (no session cache, no experiment
+    cache) but the hostname-agnostic latest DCM config HAS an experiment +
+    session config → live row enriched with the DCM driver/track/car, NOT the
+    John Doe / Unknown placeholders.
+
+    This is the byox case: the experiment config's `target_key` is a driver
+    name that never matches the live tick's hostname, so the per-hostname
+    `_experiment_cache` stays empty and the "last config message" path is the
+    only source of real enrichment before the placeholder fallback.
+    """
+    # `_fetch_latest_dcm_config` is the network boundary; stub it so the
+    # TTL-cache wrapper (`_get_latest_dcm_config`) exercises its real logic.
+    monkeypatch.setattr(
+        live_telemetry,
+        "_fetch_latest_dcm_config",
+        lambda: {
+            "driver": "littlemermaid",
+            "experiment": "ConferencePrague",
+            "track": "Spa",
+            "car": "porsche_991ii_gt3_r",
+            "environment": "prague_office",
+        },
+    )
+
+    captured = _capture(monkeypatch)
+    live_telemetry._handle_raw_message(
+        "QUIX-GAMING",  # hostname matches no DCM target_key
+        {
+            "track": None,
+            "carModel": None,
+            "iCurrentTime": 4242,
+            "completedLaps": 0,
+            "normalizedCarPosition": 0.33,
+            "experiment": "exp-1",  # set so enrichment skips the lake resolver
+        },
+    )
+
+    assert len(captured) == 1, "tick must reach _record_message, not be dropped"
+    enriched = captured[0]
+    assert enriched["track"] == "Spa"
+    assert enriched["carModel"] == "porsche_991ii_gt3_r"
+    assert enriched["driver"] == "littlemermaid"
+    assert enriched["driver"] != "John Doe"
+    assert enriched["track"] != "Unknown"

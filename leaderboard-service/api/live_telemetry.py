@@ -108,6 +108,18 @@ _LAP_START_POS_THRESHOLD = 0.5
 DCM_TIMEOUT_S = 5.0
 EXPERIMENT_CACHE_TTL_S = 300.0
 
+# TTL for the hostname-AGNOSTIC "latest DCM config" fallback resolver
+# (`_get_latest_dcm_config`). This path lists all DCM configurations and
+# picks the most-recent experiment config (driver) and most-recent session
+# config (track/car) across ALL target_keys — "the last config message" —
+# regardless of which hostname the live raw tick is keyed under. It is the
+# enrichment source of last resort BEFORE the `"John Doe"` / `"Unknown"`
+# placeholder fallbacks, used only when the per-hostname / latest-session
+# resolution comes up empty. Short TTL so a config change in Test Manager
+# propagates within ~30 s even with no AC session boundary; the call runs
+# off the hot path (TTL-cached, refreshed lazily on the consumer thread).
+LATEST_DCM_CONFIG_TTL_S = 30.0
+
 
 def _update_gate_times(
     gate_times: list[int | None],
@@ -176,6 +188,21 @@ _state: dict[tuple[str, str, str], dict[str, Any]] = {}
 # experiment config are active at a time). See `_handle_raw_message`.
 _session_cache: dict[str, dict[str, Any]] = {}
 _experiment_cache: dict[str, dict[str, Any]] = {}
+
+# Hostname-AGNOSTIC "latest DCM config" fallback cache (see
+# `_get_latest_dcm_config`). Holds the most-recent experiment config's
+# `driver` + `experiment` and the most-recent session config's `track` +
+# `car`, each picked across ALL target_keys by (valid_from, version) — i.e.
+# "the last config message" irrespective of hostname. Distinct from the
+# per-hostname `_experiment_cache`: that keys on `target_key == hostname`
+# and so misses entirely when the live tick's hostname doesn't match any
+# config's target_key. Guarded by its own `_latest_dcm_lock` (NOT
+# `_state_lock`) because the fetch does network I/O and we must never hold
+# the hot-path lock across an HTTP call. Shape:
+#   {"driver": str, "experiment": str, "track": str, "car": str,
+#    "environment": str, "fetched_monotonic": float} | None (never fetched)
+_latest_dcm_lock = threading.RLock()
+_latest_dcm_config: dict[str, Any] | None = None
 
 # One-shot flag: INFO-log "raw ticks arriving but nothing cached" only once
 # per process instead of at 50 Hz. Guarded by `_state_lock`.
@@ -1632,6 +1659,175 @@ def _fetch_experiment_from_dcm(hostname: str) -> dict[str, str]:
         return dict(empty)
 
 
+def _config_recency_key(cfg: dict[str, Any]) -> tuple[Any, Any]:
+    """Sort key for "most-recent config" across target_keys.
+
+    Orders by `metadata.valid_from` then `metadata.version` (both ascending,
+    so `max(...)` yields the newest). `valid_from` is an ISO-8601 timestamp
+    string in the byox DCM payloads; lexicographic compare on ISO-8601 is
+    chronological, so no parsing is needed. Missing fields sort lowest via
+    empty-string / zero defaults so a config that carries neither never
+    shadows one that does.
+    """
+    meta = cfg.get("metadata") or {}
+    valid_from = str(meta.get("valid_from") or "")
+    version = meta.get("version") or 0
+    try:
+        version = int(version)
+    except (TypeError, ValueError):
+        version = 0
+    return (valid_from, version)
+
+
+def _fetch_latest_dcm_config() -> dict[str, Any] | None:
+    """List all DCM configurations and resolve the hostname-AGNOSTIC latest
+    experiment + session config content ("the last config message").
+
+    Returns `{"driver", "experiment", "track", "car", "environment"}` (all
+    strings, possibly empty) or `None` when the listing call fails (so the
+    caller can keep the last-good cached value — stale-on-error). An empty
+    result dict (call succeeded but no experiment/session config exists) is
+    distinct from `None` and overwrites the cache.
+
+    Selection is across ALL target_keys, NOT keyed by hostname:
+      * latest experiment config (`metadata.type == "experiment"`) by
+        `_config_recency_key` → `driver` (content.driver) + `experiment`
+        (content.experiment_id) + `environment` (content.environment).
+      * latest session config (`metadata.type == "session"`) by the same
+        key → `track` (content.track) + `car` (content.carModel).
+
+    Reuses the existing DCM client / header / version-pick helpers
+    (`_dcm_auth_headers`, `_fetch_latest_version_content`). Network-blocking
+    but called only off the hot path (TTL-gated via `_get_latest_dcm_config`,
+    on the consumer thread). All exceptions are caught and surface as `None`.
+    """
+    import httpx
+
+    from .settings import get_settings
+
+    settings = get_settings()
+    config_api_url = settings.config_api_url
+    if not config_api_url:
+        logger.debug("skipping latest-DCM-config fetch: config_api_url not configured")
+        return None
+
+    base = f"{config_api_url.rstrip('/')}/api/v1"
+    headers = _dcm_auth_headers(settings.sdk_token)
+
+    try:
+        with httpx.Client(timeout=DCM_TIMEOUT_S) as client:
+            resp = client.get(f"{base}/configurations", headers=headers)
+            if resp.status_code != 200:
+                logger.warning(
+                    "DCM list returned %d during latest-config fetch",
+                    resp.status_code,
+                )
+                return None
+            data = resp.json()
+            configs = (
+                data
+                if isinstance(data, list)
+                else data.get("data", data.get("items", []))
+            )
+
+            experiment_cfgs = [
+                c for c in configs if (c.get("metadata") or {}).get("type") == "experiment"
+            ]
+            session_cfgs = [
+                c for c in configs if (c.get("metadata") or {}).get("type") == "session"
+            ]
+
+            result = {
+                "driver": "",
+                "experiment": "",
+                "track": "",
+                "car": "",
+                "environment": "",
+            }
+
+            if experiment_cfgs:
+                latest_exp = max(experiment_cfgs, key=_config_recency_key)
+                exp_id = latest_exp.get("id") or latest_exp.get("_id")
+                if exp_id:
+                    content = _fetch_latest_version_content(
+                        client, base, exp_id, headers
+                    )
+                    if content:
+                        result["driver"] = str(content.get("driver") or "")
+                        result["experiment"] = str(content.get("experiment_id") or "")
+                        result["environment"] = str(content.get("environment") or "")
+
+            if session_cfgs:
+                latest_sess = max(session_cfgs, key=_config_recency_key)
+                sess_id = latest_sess.get("id") or latest_sess.get("_id")
+                if sess_id:
+                    content = _fetch_latest_version_content(
+                        client, base, sess_id, headers
+                    )
+                    if content:
+                        result["track"] = str(content.get("track") or "")
+                        result["car"] = str(content.get("carModel") or "")
+
+            logger.info(
+                "latest DCM config (hostname-agnostic): driver=%r experiment=%r "
+                "track=%r car=%r env=%r",
+                result["driver"],
+                result["experiment"],
+                result["track"],
+                result["car"],
+                result["environment"],
+            )
+            return result
+    except Exception:
+        logger.exception("latest-DCM-config fetch failed; keeping last-good cache")
+        return None
+
+
+def _get_latest_dcm_config(force_refresh: bool = False) -> dict[str, Any]:
+    """Return the TTL-cached hostname-agnostic latest DCM config.
+
+    Refreshes via `_fetch_latest_dcm_config` when the cache is empty, older
+    than `LATEST_DCM_CONFIG_TTL_S`, or `force_refresh=True`. Stale-on-error:
+    a failed fetch (returns `None`) keeps the last-good cached value rather
+    than blanking it. Always returns a dict with the five string keys (empty
+    strings until the first successful fetch).
+
+    The network fetch happens OUTSIDE `_latest_dcm_lock` so a slow DCM never
+    blocks a concurrent reader; the lock only guards the read of the staleness
+    check and the final cache swap. Intended to be called on the consumer
+    thread (off the FastAPI request / WS path).
+    """
+    global _latest_dcm_config
+    empty = {
+        "driver": "",
+        "experiment": "",
+        "track": "",
+        "car": "",
+        "environment": "",
+    }
+    now = time.monotonic()
+    with _latest_dcm_lock:
+        cached = _latest_dcm_config
+        if (
+            not force_refresh
+            and cached is not None
+            and now - float(cached.get("fetched_monotonic") or 0.0)
+            < LATEST_DCM_CONFIG_TTL_S
+        ):
+            return dict(cached)
+
+    fetched = _fetch_latest_dcm_config()
+    if fetched is None:
+        # Stale-on-error: keep whatever we had (possibly empty defaults).
+        with _latest_dcm_lock:
+            return dict(_latest_dcm_config) if _latest_dcm_config else dict(empty)
+
+    fetched["fetched_monotonic"] = time.monotonic()
+    with _latest_dcm_lock:
+        _latest_dcm_config = fetched
+        return dict(fetched)
+
+
 def _prewarm_session_cache_from_dcm() -> None:
     """Pre-populate `_session_cache` (and `_experiment_cache`) from DCM at
     consumer startup so a backend restart mid-AC-session immediately has the
@@ -1893,6 +2089,11 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     # boundaries are the natural invalidation point — between sessions the
     # operator may have switched the active experiment via Test Manager.
     _get_cached_experiment(hostname, force_refresh=True)
+    # Same trigger for the hostname-agnostic latest-DCM-config fallback: a
+    # session boundary is when the operator may have swapped the active
+    # config in Test Manager, so warm it now (off the hot path) rather than
+    # paying the fetch on the first raw tick that needs it.
+    _get_latest_dcm_config(force_refresh=True)
     # Adopt this session as the current live session (and broadcast the
     # `live_session` envelope) BEFORE the seconds-long best-laps refresh
     # below, so connected clients learn the combo promptly.
@@ -2805,16 +3006,27 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
         # The values are obviously fake ("Unknown") so it's clear this is not
         # real enrichment. Logged once per process (not silently masked).
         if latest_session is None:
-            fb_track = _fallback_track()
-            fb_car = _fallback_car()
+            # No real session cached for this (or any) hostname. Before the
+            # clearly-placeholder FALLBACK_TRACK / FALLBACK_CAR, try the
+            # hostname-AGNOSTIC latest DCM session config ("the last config
+            # message") — TTL-cached, so this is cheap on steady state and
+            # only hits DCM once per LATEST_DCM_CONFIG_TTL_S. Real DCM values
+            # always beat the placeholders.
+            latest_dcm = _get_latest_dcm_config()
+            dcm_track = str(latest_dcm.get("track") or "").strip()
+            dcm_car = str(latest_dcm.get("car") or "").strip()
+            fb_track = dcm_track or _fallback_track()
+            fb_car = dcm_car or _fallback_car()
             if not _no_metadata_logged:
                 _no_metadata_logged = True
                 logger.info(
-                    "raw ticks arriving but no session/config cached yet; "
-                    "using degraded fallback session track=%r car=%r so the "
-                    "live row still renders",
+                    "raw ticks arriving but no session cached yet; "
+                    "using latest-DCM/degraded fallback session track=%r car=%r "
+                    "(dcm_track=%r dcm_car=%r) so the live row still renders",
                     fb_track,
                     fb_car,
+                    dcm_track,
+                    dcm_car,
                 )
             session_key = "__fallback__"
             session = {
@@ -2857,7 +3069,24 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     #      stamps `_last_raw_tick_epoch`, and opens the live gate. Logged at
     #      INFO per occurrence (not silently masked).
     if not enriched.get("driver"):
+        #   2. per-hostname DCM experiment-config driver (_latest_experiment_driver)
+        #   3. AC session playerName
+        #   3b. hostname-AGNOSTIC latest DCM experiment config driver ("the last
+        #       config message") — TTL-cached, resolves the byox case where the
+        #       experiment config's target_key (a driver name) never matches the
+        #       live tick's hostname, so the per-hostname cache stays empty.
+        #   4. degraded FALLBACK_DRIVER_NAME ("John Doe").
         resolved_driver = dcm_driver_name or session["playerName"]
+        if not resolved_driver:
+            latest_dcm_driver = str(_get_latest_dcm_config().get("driver") or "").strip()
+            if latest_dcm_driver:
+                resolved_driver = latest_dcm_driver
+                logger.info(
+                    "driver unresolved per-hostname for hostname=%s — using "
+                    "latest-DCM-config driver %r",
+                    session_key,
+                    resolved_driver,
+                )
         if not resolved_driver:
             resolved_driver = _fallback_driver_name()
             logger.info(
