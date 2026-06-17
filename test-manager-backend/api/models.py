@@ -597,3 +597,17 @@ class SaveAnalysisPayload(BaseModel):
     anomalies: list[Anomaly] = []
     summary_md: str = Field(..., min_length=1)
     extra: dict[str, Any] = {}
+
+
+class AnalysisRecipient(BaseModel):
+    """Resolved driver email for an analysis's test — drives the manual-send confirm."""
+
+    email: EmailStr | None = None
+    has_email: bool = False
+
+
+class EmailSendResult(BaseModel):
+    """Outcome of a manual analysis-email send."""
+
+    sent: bool
+    email: EmailStr
