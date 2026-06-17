@@ -123,16 +123,24 @@ function onLayoutChange(layout) {
 }
 window.onLayoutChange = onLayoutChange;
 
-// Wrap selections.js's window.onPartChange so a `track`-column change on the
-// active (first) row re-resolves layouts + geometry. The original handler
-// (cascading dropdown repopulation) still runs first.
+// Wrap selections.js's window.onPartChange so the map re-resolves layouts +
+// geometry whenever the active (first) row's `track` value changes — even when
+// it changes implicitly. The original handler runs first: changing ANY column
+// cascades downstream (populateDropdowns), which programmatically re-selects
+// the `track` <select>. A programmatic `sel.value = ...` does NOT fire its
+// onchange, so keying off `changedCol === 'track'` alone misses the common case
+// (e.g. picking an experiment/driver that narrows to Monza auto-selects
+// track=monza without an explicit track-dropdown change). We therefore compare
+// the active track before vs. after the cascade and refresh on any difference.
 const _origOnPartChange = window.onPartChange;
 window.onPartChange = function (rowIdx, changedCol) {
   if (typeof _origOnPartChange === 'function') _origOnPartChange(rowIdx, changedCol);
-  if (changedCol === 'track') {
-    const newTrack = getActiveTrack();
-    if (newTrack !== _activeTrack) refreshTrackForActive(newTrack);
-  }
+  // The map follows the FIRST selection row only (single-map contract). A
+  // change in any other row can't alter the active track, so skip the work.
+  const firstRow = document.querySelector('.selection-row');
+  if (!firstRow || parseInt(firstRow.dataset.rowIdx) !== rowIdx) return;
+  const newTrack = getActiveTrack();
+  if (newTrack !== _activeTrack) refreshTrackForActive(newTrack);
 };
 
 // ---------------------------------------------------------------------------
