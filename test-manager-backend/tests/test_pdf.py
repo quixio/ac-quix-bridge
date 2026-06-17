@@ -55,6 +55,7 @@ def _complete_analysis() -> Analysis:
     )
 
 
+@pytest.mark.requires_weasyprint
 def test_render_returns_pdf_bytes() -> None:
     pdf = render_analysis_pdf(_complete_analysis())
     assert isinstance(pdf, bytes)
@@ -62,6 +63,7 @@ def test_render_returns_pdf_bytes() -> None:
     assert len(pdf) > 1000
 
 
+@pytest.mark.requires_weasyprint
 def test_render_handles_empty_content() -> None:
     analysis = _complete_analysis()
     analysis.kpis = []

@@ -21,6 +21,45 @@ DriverFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 PORTAL_API_PORT = find_free_port()
 
 
+def _weasyprint_available() -> bool:
+    """True if WeasyPrint's native libs (Pango/gobject) load on this host.
+
+    Importing weasyprint triggers the gobject dlopen that fails on macOS
+    unless DYLD_FALLBACK_LIBRARY_PATH points at brew's lib dir — see
+    scripts/test-backend.sh. The container/cloud image always has the libs.
+    """
+    try:
+        import weasyprint  # noqa: F401
+    except (OSError, ImportError):
+        return False
+    return True
+
+
+_WEASYPRINT_OK = _weasyprint_available()
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "requires_weasyprint: test renders a PDF; needs Pango/gobject native libs",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip PDF-rendering tests with a clear hint when the libs can't load."""
+    if _WEASYPRINT_OK:
+        return
+    skip = pytest.mark.skip(
+        reason='WeasyPrint native libs not loadable — run scripts/test-backend.sh '
+        'or set DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib" (macOS)'
+    )
+    for item in items:
+        if "requires_weasyprint" in item.keywords:
+            item.add_marker(skip)
+
+
 @pytest.fixture(scope="session")
 def portal_api_url() -> Generator[str, None, None]:
     """Start a mock portal API server for testing."""
