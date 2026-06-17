@@ -774,8 +774,8 @@ deployments:
       sourceKeys: QUIX-GAMING
       destinationTopic: ac-telemetry-raw
       suffixReplayedKeysWithTimestamp: false
-      fromTimestamp: 2026-06-08T15:52:21.569Z
-      toTimestamp: 2026-06-08T16:01:15.856Z
+      fromTimestamp: 2026-06-17T11:40:05.000Z
+      toTimestamp: 2026-06-17T11:48:17.653Z
   - name: Quix DataLake Raw Sink 2
     application: DataLake.Sink
     version: latest
