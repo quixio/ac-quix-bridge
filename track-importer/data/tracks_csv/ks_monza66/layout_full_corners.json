@@ -1,0 +1,100 @@
+{
+  "track": "ks_monza66",
+  "layout": "full",
+  "source_csv": "tracks_csv/ks_monza66/layout_full.csv",
+  "total_length_m": 10017.88,
+  "config": {
+    "hairpin_max_m": 60,
+    "tight_max_m": 150,
+    "sweeper_max_m": 400,
+    "straight_threshold_m": 500
+  },
+  "generated_at": "2026-06-15T09:32:40Z",
+  "version": "1",
+  "corners": [
+    {
+      "id": 1,
+      "type": "sweeper",
+      "direction": "left",
+      "distance_start_m": 986.16,
+      "distance_end_m": 1390.48,
+      "length_m": 404.32,
+      "min_radius_m": 253.8,
+      "avg_radius_m": 323.54,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 2,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 2111.22,
+      "distance_end_m": 2343.84,
+      "length_m": 232.62,
+      "min_radius_m": 94.0,
+      "avg_radius_m": 136.16,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 3,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 2461.68,
+      "distance_end_m": 2668.28,
+      "length_m": 206.6,
+      "min_radius_m": 101.7,
+      "avg_radius_m": 222.94,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 4,
+      "type": "sweeper",
+      "direction": "right",
+      "distance_start_m": 3600.23,
+      "distance_end_m": 3667.39,
+      "length_m": 67.16,
+      "min_radius_m": 342.7,
+      "avg_radius_m": 441.19,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 5,
+      "type": "tight",
+      "direction": "left",
+      "distance_start_m": 4753.31,
+      "distance_end_m": 5168.37,
+      "length_m": 415.06,
+      "min_radius_m": 83.5,
+      "avg_radius_m": 172.85,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 6,
+      "type": "sweeper",
+      "direction": "left",
+      "distance_start_m": 6301.27,
+      "distance_end_m": 7179.15,
+      "length_m": 877.88,
+      "min_radius_m": 238.6,
+      "avg_radius_m": 358.47,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 7,
+      "type": "sweeper",
+      "direction": "left",
+      "distance_start_m": 8427.37,
+      "distance_end_m": 9286.39,
+      "length_m": 859.02,
+      "min_radius_m": 228.4,
+      "avg_radius_m": 361.8,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    }
+  ]
+}

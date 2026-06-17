@@ -1,0 +1,15 @@
+[project]
+name = "track-importer"
+description = "One-shot job: import AC track-layout CSVs into Mongo track_layouts."
+requires-python = ">=3.13"
+version = "0.1.0"
+
+authors = [
+	{ name = "Quix Analytics Ltd", email = "devs@quix.io" },
+]
+
+dependencies = [
+	"pymongo",
+	"pydantic",
+	"pydantic-settings",
+]

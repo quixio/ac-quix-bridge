@@ -5,3 +5,4 @@ quixlake-sdk
 quixportal[all]==2.0.1
 python-dotenv
 mcp>=1.26
+pymongo

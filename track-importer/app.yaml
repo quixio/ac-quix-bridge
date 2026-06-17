@@ -1,0 +1,36 @@
+name: track-importer
+language: python
+variables:
+  - name: MONGO_USER
+    inputType: Secret
+    multiline: false
+    defaultValue: MONGO_USER
+    required: true
+  - name: MONGO_PASSWORD
+    inputType: Secret
+    multiline: false
+    defaultValue: MONGO_PASSWORD
+    required: true
+  - name: MONGO_HOST
+    inputType: FreeText
+    multiline: false
+    defaultValue: mongodb
+    required: true
+  - name: MONGO_PORT
+    inputType: FreeText
+    multiline: false
+    defaultValue: "27017"
+    required: false
+  - name: MONGO_DATABASE
+    inputType: FreeText
+    multiline: false
+    defaultValue: test_manager
+    description: >-
+      Target DB for track_layouts. Locked to test_manager (the DB the backend
+      connects to). quix.yaml DCM config references ac_telemetry in places;
+      override here without code changes if the bridge serves geometry from a
+      different DB.
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

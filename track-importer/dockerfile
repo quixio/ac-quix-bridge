@@ -1,0 +1,25 @@
+FROM python:3.13-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+	PYTHONUNBUFFERED=1 \
+	PYTHONIOENCODING=UTF-8 \
+	UV_COMPILE_BYTECODE=1
+
+ARG MAINAPPPATH=.
+
+WORKDIR /app
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Copy project (build context = repo root, MAINAPPPATH = app subdir).
+# This pulls data/tracks_csv/ into the image since it lives under the app dir.
+COPY "${MAINAPPPATH}" /app
+
+# Install dependencies with uv
+RUN uv sync --frozen --no-cache
+
+ENV PYTHONPATH=/app
+
+# One-shot importer. Runs to completion then exits.
+ENTRYPOINT ["/bin/uv", "run", "-m", "main"]

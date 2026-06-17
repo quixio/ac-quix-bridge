@@ -7,7 +7,7 @@ variables:
   - name: TABLE_NAME
     inputType: FreeText
     description: QuixLake table name for telemetry data
-    defaultValue: ac_telemetry
+    defaultValue: acc_telemetry
   - name: BLOB_VIDEO_PREFIX
     inputType: FreeText
     description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored

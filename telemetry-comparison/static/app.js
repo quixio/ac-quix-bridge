@@ -8,7 +8,7 @@
  */
 
 import { appState, PART_COLS, PART_LABELS } from './modules/state.js';
-import { fetchSessions, fetchTrack, fetchChannels } from './modules/data.js';
+import { fetchSessions, fetchTrack, fetchLayouts, fetchChannels } from './modules/data.js';
 import { wireVideoElement } from './modules/sync.js';
 import {
   addRow,
@@ -47,6 +47,93 @@ function toggleTopbarPanel(panelId, btn) {
 
 window.togglePanel = togglePanel;
 window.toggleTopbarPanel = toggleTopbarPanel;
+
+// ---------------------------------------------------------------------------
+// Active-track → layout → geometry wiring.
+//
+// The track map reflects ONE track: the FIRST selection row's `track` value
+// (documented single-map assumption). When that track changes we re-resolve
+// its Mongo layouts and reload geometry. The LAYOUT <select> is app-level
+// (#layout-select in the Track Map header), not per-row.
+// ---------------------------------------------------------------------------
+
+let _activeTrack = '';
+
+/** The track that drives the map: the first selection row's `track` value. */
+function getActiveTrack() {
+  const row = document.querySelector('.selection-row');
+  if (!row) return '';
+  const idx = parseInt(row.dataset.rowIdx);
+  if (!Number.isFinite(idx)) return '';
+  const sel = document.getElementById(`track-${idx}`);
+  return sel?.value || '';
+}
+
+/**
+ * Resolve layouts for `track`, populate/show/hide the LAYOUT dropdown, and
+ * fetch geometry. 0 layouts → hide + CSV-fallback geometry; 1 → hide +
+ * auto-select; >1 → show, auto-select first. Empty track → hide + param-less
+ * fetchTrack (CSV fallback, preserves first paint).
+ */
+async function refreshTrackForActive(track) {
+  _activeTrack = track || '';
+  const dd = document.getElementById('layout-select');
+
+  if (!track) {
+    if (dd) {
+      dd.style.display = 'none';
+      dd.classList.add('hidden');
+      dd.innerHTML = '';
+    }
+    fetchTrack();
+    return;
+  }
+
+  const layouts = await fetchLayouts(track);
+
+  // Guard: a newer active-track change may have superseded this one.
+  if (track !== _activeTrack) return;
+
+  if (!dd) {
+    fetchTrack(track);
+    return;
+  }
+
+  if (layouts.length > 1) {
+    dd.innerHTML = layouts
+      .map((l) => `<option value="${l.layout}">${l.layout} (${l.n_corners ?? '?'} cnr)</option>`)
+      .join('');
+    dd.value = layouts[0].layout;
+    dd.style.display = '';
+    dd.classList.remove('hidden');
+    fetchTrack(track, layouts[0].layout);
+  } else {
+    // 0 or 1 layout: hide the dropdown. 1 → auto-select that layout; 0 → no
+    // layout param (server resolves the single doc or CSV-falls back).
+    dd.style.display = 'none';
+    dd.classList.add('hidden');
+    dd.innerHTML = '';
+    fetchTrack(track, layouts.length === 1 ? layouts[0].layout : '');
+  }
+}
+
+/** LAYOUT dropdown onchange handler (inline in index.html). */
+function onLayoutChange(layout) {
+  if (_activeTrack) fetchTrack(_activeTrack, layout);
+}
+window.onLayoutChange = onLayoutChange;
+
+// Wrap selections.js's window.onPartChange so a `track`-column change on the
+// active (first) row re-resolves layouts + geometry. The original handler
+// (cascading dropdown repopulation) still runs first.
+const _origOnPartChange = window.onPartChange;
+window.onPartChange = function (rowIdx, changedCol) {
+  if (typeof _origOnPartChange === 'function') _origOnPartChange(rowIdx, changedCol);
+  if (changedCol === 'track') {
+    const newTrack = getActiveTrack();
+    if (newTrack !== _activeTrack) refreshTrackForActive(newTrack);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Init — runs once the module is evaluated (type="module" defers until DOM
@@ -129,6 +216,7 @@ window.toggleTopbarPanel = toggleTopbarPanel;
         appState.sessions = full;
         firstRow.remove();
         addRow(null);
+        refreshTrackForActive(getActiveTrack());
         setStatus(
           `${appState.sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`,
         );
@@ -136,6 +224,9 @@ window.toggleTopbarPanel = toggleTopbarPanel;
         appState.sessions = filtered;
         firstRow.remove();
         addRow(defaults);
+        // Row now has a resolved track; load its Mongo layouts + geometry
+        // (replaces the param-less first-paint fetchTrack above).
+        refreshTrackForActive(getActiveTrack());
         setStatus(
           '<span class="loading-spinner"></span> Loading full session list in background...',
         );
@@ -172,6 +263,7 @@ window.toggleTopbarPanel = toggleTopbarPanel;
       appState.sessions = full;
       firstRow.remove();
       addRow(null);
+      refreshTrackForActive(getActiveTrack());
       setStatus(
         `${appState.sessions.length} sessions loaded. Select partitions, check laps, then click Plot.`,
       );

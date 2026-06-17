@@ -1,0 +1,64 @@
+{
+  "track": "ks_vallelunga",
+  "layout": "club_circuit",
+  "source_csv": "tracks_csv/ks_vallelunga/layout_club_circuit.csv",
+  "total_length_m": 1718.44,
+  "config": {
+    "hairpin_max_m": 60,
+    "tight_max_m": 150,
+    "sweeper_max_m": 400,
+    "straight_threshold_m": 500
+  },
+  "generated_at": "2026-06-15T09:32:50Z",
+  "version": "1",
+  "corners": [
+    {
+      "id": 1,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 191.84,
+      "distance_end_m": 673.8,
+      "length_m": 481.96,
+      "min_radius_m": 32.4,
+      "avg_radius_m": 141.36,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 2,
+      "type": "hairpin",
+      "direction": "right",
+      "distance_start_m": 714.34,
+      "distance_end_m": 828.35,
+      "length_m": 114.01,
+      "min_radius_m": 13.4,
+      "avg_radius_m": 80.31,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 3,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 924.21,
+      "distance_end_m": 1147.07,
+      "length_m": 222.86,
+      "min_radius_m": 54.7,
+      "avg_radius_m": 128.14,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    },
+    {
+      "id": 4,
+      "type": "hairpin",
+      "direction": "left",
+      "distance_start_m": 1277.0,
+      "distance_end_m": 1536.72,
+      "length_m": 259.72,
+      "min_radius_m": 52.3,
+      "avg_radius_m": 120.68,
+      "ai_min_speed_kmh": 0.0,
+      "ai_avg_speed_kmh": 0.0
+    }
+  ]
+}
