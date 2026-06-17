@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 import logging
 import os
+import secrets
 import socket
 from collections.abc import Sequence
 from typing import Any, AsyncGenerator
 
 import httpx
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -229,6 +231,12 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    # Added last so it wraps outermost: every other middleware + handler sees
+    # the correlation_id contextvar set, and our log filter picks it up.
+    application.add_middleware(
+        CorrelationIdMiddleware,
+        generator=lambda: secrets.token_hex(6),
     )
 
     @application.get("/health")
