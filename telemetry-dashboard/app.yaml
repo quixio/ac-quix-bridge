@@ -16,9 +16,14 @@ variables:
     description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
     defaultValue: ""
     required: false
+  - name: BEST_LAPS_CACHE_URL
+    inputType: FreeText
+    description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Leave blank to fall back to the legacy Data Lake /query path (LEADERBOARD_SQL).
+    defaultValue: http://best-laps-cache
+    required: false
   - name: TABLE_NAME
     inputType: FreeText
-    description: Lakehouse table the default leaderboard query reads. Ignored when LEADERBOARD_SQL is set explicitly.
+    description: Lakehouse table the default leaderboard query reads (legacy fallback). Ignored when LEADERBOARD_SQL is set explicitly.
     defaultValue: ac_telemetry
     required: false
   - name: LEADERBOARD_SQL

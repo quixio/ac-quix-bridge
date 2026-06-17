@@ -251,11 +251,13 @@ async def health():
     }
 
 
-# --- Leaderboard: proxy an all-time fastest-lap-per-driver query to the Quix
-# Data Lake query API. Token stays server-side (env var). The full SQL is an env
-# var so the table/columns can be tuned without a code change. The default targets
-# the lake table named by TABLE_NAME (per-environment) with `driver` / `iBestTime`
-# columns.
+# --- Leaderboard: all-time fastest-lap-per-driver. Default source is the
+# best-laps-cache service (GET {BEST_LAPS_CACHE_URL}/best-laps, in-cluster
+# http://best-laps-cache). When BEST_LAPS_CACHE_URL is unset/empty we fall back
+# to proxying a Data Lake /query call (legacy path): token stays server-side
+# (env var), the full SQL is an env var so the table/columns can be tuned without
+# a code change, defaulting to the lake table named by TABLE_NAME (per-environment)
+# with `driver` / `iBestTime` columns.
 _LEADERBOARD_TABLE = os.environ.get("TABLE_NAME", "ac_telemetry")
 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", _LEADERBOARD_TABLE):
     raise ValueError(f"TABLE_NAME must be a bare SQL identifier, got {_LEADERBOARD_TABLE!r}")
@@ -293,40 +295,105 @@ def _parse_leaderboard_csv(text: str) -> list[dict]:
     return rows
 
 
-@api.get("/leaderboard")
-async def leaderboard():
-    """All-time fastest lap per driver, proxied from the Data Lake query API."""
-    # Prefer explicit overrides; otherwise use the Quix-injected Lakehouse Query
-    # vars. NOTE: this workspace injects only the *Catalog* vars, not Query — set
-    # DATALAKE_API_URL/DATALAKE_API_TOKEN on the deployment to point at the query API.
+def _parse_cache_csv(text: str) -> list[dict]:
+    """Parse the best-laps-cache CSV (columns: environment, experiment, track,
+    carModel, driver, iBestTime) into the leaderboard's [{name, ms}] shape.
+
+    The cache returns one row per (group, driver); the leaderboard renders one
+    row per driver, so we reduce to the fastest iBestTime per driver here. Maps
+    `driver` -> `name` and `iBestTime` -> `ms`.
+    """
+    by_driver: dict[str, int] = {}
+    for row in csv.DictReader(io.StringIO(text)):
+        name = (row.get("driver") or "").strip()
+        if not name:
+            continue
+        try:
+            ms = int(float(row["iBestTime"]))
+        except (TypeError, ValueError, KeyError):
+            continue
+        if ms <= 0:
+            continue
+        cur = by_driver.get(name)
+        if cur is None or ms < cur:
+            by_driver[name] = ms
+    rows = [{"name": name, "ms": ms} for name, ms in by_driver.items()]
+    rows.sort(key=lambda r: r["ms"])
+    return rows
+
+
+async def _fetch_from_cache(base_url: str) -> list[dict]:
+    """GET the best-laps-cache /best-laps CSV and map it to the leaderboard
+    shape. Filters: none (all-time leaderboard across all groups)."""
+    target = f"{base_url.rstrip('/')}/best-laps"
+    logger.info("Leaderboard: GET %s (filters: none)", target)
+    t0 = time.monotonic()
+    async with httpx.AsyncClient(timeout=20, verify=_datalake_verify()) as client:
+        r = await client.get(target)
+    r.raise_for_status()
+    rows = _parse_cache_csv(r.text)
+    logger.info(
+        "Leaderboard served from cache: %d rows in %.0fms",
+        len(rows),
+        (time.monotonic() - t0) * 1000,
+    )
+    return rows
+
+
+async def _fetch_from_quixlake() -> list[dict]:
+    """Fallback: query the Data Lake /query API directly (legacy path)."""
     url = os.environ.get("DATALAKE_API_URL") or os.environ.get("Quix__Lakehouse__Query__Url")
     token = os.environ.get("DATALAKE_API_TOKEN") or os.environ.get("Quix__Lakehouse__Query__AuthToken")
     if not url or not token:
-        return {"rows": [], "error": "datalake not configured"}
+        raise RuntimeError("datalake not configured")
 
+    sql = os.environ.get("LEADERBOARD_SQL") or DEFAULT_LEADERBOARD_SQL
+    logger.info("Leaderboard: POST %s/query (quixlake fallback)", url.rstrip("/"))
+    t0 = time.monotonic()
+    async with httpx.AsyncClient(timeout=20, verify=_datalake_verify()) as client:
+        r = await client.post(
+            f"{url.rstrip('/')}/query",
+            content=sql.encode("utf-8"),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
+        )
+    r.raise_for_status()
+    rows = _parse_leaderboard_csv(r.text)
+    logger.info(
+        "Leaderboard served from quixlake-fallback: %d rows in %.0fms",
+        len(rows),
+        (time.monotonic() - t0) * 1000,
+    )
+    return rows
+
+
+@api.get("/leaderboard")
+async def leaderboard():
+    """All-time fastest lap per driver.
+
+    Default source is the best-laps-cache service (BEST_LAPS_CACHE_URL); when
+    that var is unset/empty we fall back to the legacy Data Lake /query path.
+    Results are TTL-cached (LEADERBOARD_TTL_SECONDS).
+    """
     ttl = float(os.environ.get("LEADERBOARD_TTL_SECONDS", "15"))
     now = time.monotonic()
     if _lb_cache["rows"] and now - _lb_cache["ts"] < ttl:
         return {"rows": _lb_cache["rows"], "cached": True}
 
-    sql = os.environ.get("LEADERBOARD_SQL") or DEFAULT_LEADERBOARD_SQL
+    cache_url = os.environ.get("BEST_LAPS_CACHE_URL", "").strip()
+    source = "cache" if cache_url else "quixlake-fallback"
     try:
-        async with httpx.AsyncClient(timeout=20, verify=_datalake_verify()) as client:
-            r = await client.post(
-                f"{url.rstrip('/')}/query",
-                content=sql.encode("utf-8"),
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
-            )
-        r.raise_for_status()
-        rows = _parse_leaderboard_csv(r.text)
+        if cache_url:
+            rows = await _fetch_from_cache(cache_url)
+        else:
+            rows = await _fetch_from_quixlake()
         _lb_cache.update(ts=now, rows=rows)
-        return {"rows": rows}
+        return {"rows": rows, "source": source}
     except Exception as e:
-        logger.exception("Leaderboard query failed")
+        logger.exception("Leaderboard query failed (source=%s)", source)
         # Serve stale cache if we have one; otherwise surface the error.
         if _lb_cache["rows"]:
-            return {"rows": _lb_cache["rows"], "stale": True, "error": str(e)}
-        return {"rows": [], "error": str(e)}
+            return {"rows": _lb_cache["rows"], "stale": True, "source": source, "error": str(e)}
+        return {"rows": [], "source": source, "error": str(e)}
 
 
 @api.get("/{full_path:path}")

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import time
 from typing import Any
 
@@ -24,13 +25,22 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from .settings import Settings
 from .store import BestLapsStore
 
+logger = logging.getLogger(__name__)
+
 # Column order the leaderboard's raw-scan SQL selects, plus the partition
 # columns. `iBestTime` is kept verbatim (not `best_lap_ms`) so the swap is
 # column-name compatible with the lake query the consumer replaces.
 _CSV_COLUMNS = ["environment", "experiment", "track", "carModel", "driver", "iBestTime"]
 
 
-def _rows_for(store: BestLapsStore, **filters: str | None) -> list[dict[str, Any]]:
+def _rows_for(
+    store: BestLapsStore, **filters: str | None
+) -> tuple[list[dict[str, Any]], float | None]:
+    """Return (rows, freshest_updated_epoch) for the matched groups.
+
+    The second element is the most-recent ``updated_epoch`` across the matched
+    store values (None when no match), used to log the served data's as-of age.
+    """
     values = store.query(
         environment=filters.get("environment"),
         experiment=filters.get("experiment"),
@@ -39,7 +49,11 @@ def _rows_for(store: BestLapsStore, **filters: str | None) -> list[dict[str, Any
         driver=filters.get("driver"),
     )
     rows: list[dict[str, Any]] = []
+    freshest: float | None = None
     for v in values:
+        updated = v.get("updated_epoch")
+        if updated is not None and (freshest is None or updated > freshest):
+            freshest = updated
         rows.append(
             {
                 "environment": v.get("environment", ""),
@@ -52,7 +66,7 @@ def _rows_for(store: BestLapsStore, **filters: str | None) -> list[dict[str, Any
         )
     # Deterministic ordering: fastest first within stable group ordering.
     rows.sort(key=lambda r: (r["track"], r["carModel"], r["iBestTime"]))
-    return rows
+    return rows, freshest
 
 
 def _to_csv(rows: list[dict[str, Any]]) -> str:
@@ -80,13 +94,22 @@ def create_app(store: BestLapsStore, settings: Settings) -> FastAPI:
         driver: str | None = Query(None),
         format: str = Query("csv"),  # noqa: A002 — public query-param name
     ):
-        rows = _rows_for(
-            store,
-            environment=environment,
-            experiment=experiment,
-            track=track,
-            carModel=carModel,
-            driver=driver,
+        filters = {
+            "environment": environment,
+            "experiment": experiment,
+            "track": track,
+            "carModel": carModel,
+            "driver": driver,
+        }
+        rows, freshest = _rows_for(store, **filters)
+        applied = {k: v for k, v in filters.items() if v is not None} or "none"
+        as_of_age = f"{time.time() - freshest:.0f}s" if freshest is not None else "n/a"
+        logger.info(
+            "GET /best-laps filters=%s -> %d rows (format=%s, as-of age=%s)",
+            applied,
+            len(rows),
+            format.lower(),
+            as_of_age,
         )
         if format.lower() == "json":
             return JSONResponse(
