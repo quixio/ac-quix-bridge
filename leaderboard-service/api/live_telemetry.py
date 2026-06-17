@@ -1502,6 +1502,17 @@ def _fetch_latest_version_content(
     content = c_resp.json() or {}
     if not isinstance(content, dict):
         return None
+    logger.info(
+        "DCM content: config_id=%s version=%s keys=%s -> "
+        "experiment=%r driver=%r track=%r car=%r",
+        config_id,
+        version,
+        sorted(content.keys()),
+        content.get("experiment_id"),
+        content.get("driver"),
+        content.get("track"),
+        content.get("carModel"),
+    )
     return content
 
 
@@ -1705,12 +1716,21 @@ def _prewarm_session_cache_from_dcm() -> None:
                         "updated_epoch": time.time(),
                     }
                 logger.info(
-                    "session cache prewarmed from DCM: hostname=%s track=%s car=%s",
+                    "session cache prewarmed from DCM: hostname=%s track=%s "
+                    "car=%s player=%r",
                     hostname,
                     track,
                     car,
+                    player,
                 )
                 prewarmed_hostnames.append(hostname)
+
+            logger.info(
+                "DCM session prewarm: %d of %d session configs cached, hostnames=%s",
+                len(prewarmed_hostnames),
+                len(session_configs),
+                prewarmed_hostnames,
+            )
 
         # Warm the experiment cache for each hostname we seeded. Outside the
         # httpx context so each lookup opens its own short-lived client —
@@ -1755,6 +1775,13 @@ def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
             and entry is not None
             and now - entry["fetched_epoch"] < EXPERIMENT_CACHE_TTL_S
         ):
+            logger.info(
+                "DCM experiment resolve: hostname=%s -> driver=%r experiment=%r "
+                "(cache hit)",
+                hostname,
+                entry.get("driver"),
+                entry.get("experiment"),
+            )
             return str(entry["experiment"])
 
     # Fetch outside the lock — `httpx` can take seconds on a slow DCM and we
@@ -1772,6 +1799,14 @@ def _get_cached_experiment(hostname: str, force_refresh: bool = False) -> str:
             "fetched_epoch": now,
             "updated_epoch": now,
         }
+    logger.info(
+        "DCM experiment resolve: hostname=%s -> driver=%r experiment=%r "
+        "env=%r (cache refresh)",
+        hostname,
+        driver,
+        experiment,
+        environment,
+    )
     return experiment
 
 
@@ -1904,6 +1939,13 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             )
             return
 
+        logger.info(
+            "DCM config event: target=%s type=%s event=%s",
+            target_key,
+            event_type,
+            event,
+        )
+
         # Deletion path: drop the cache entry and return. No HTTP needed —
         # the content URL would 404 anyway.
         if event == "deleted":
@@ -1946,6 +1988,18 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
                 content_url,
             )
             return
+
+        logger.info(
+            "DCM config event content: target=%s type=%s keys=%s -> "
+            "experiment=%r driver=%r track=%r car=%r",
+            target_key,
+            event_type,
+            sorted(content.keys()),
+            content.get("experiment_id"),
+            content.get("driver"),
+            content.get("track"),
+            content.get("carModel"),
+        )
 
         if event_type == "session":
             track = str(content.get("track") or "").strip()
