@@ -73,6 +73,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
+from .lakehouse_client import _is_retryable
 from .lakehouse_client import LakehouseClient
 from .settings import get_settings
 
@@ -81,6 +82,59 @@ logger = logging.getLogger(__name__)
 # Metadata-endpoint timeout. The partition tree / manifest reads are
 # catalog metadata only, so they answer in well under a second when healthy.
 _PARTITIONS_TIMEOUT_S = 10.0
+
+# Bounded retry for the metadata GETs (manifest / partitions), mirroring
+# `LakehouseClient.query`. Transient failures (timeout / transport / 5xx)
+# retry with short backoffs, then raise — `_enumerate_from_lake`'s caller
+# (`enumerate_groups`) catches that and serves the stale/empty group list.
+_METADATA_RETRY_BACKOFFS_S = (0.5, 1.0)
+
+
+def _get_with_retry(
+    url: str,
+    *,
+    params: dict[str, str] | None,
+    headers: dict[str, str],
+) -> httpx.Response:
+    """GET *url* with the same bounded-retry policy as the query client.
+
+    Returns the raised-for-status response on success. Re-raises the last
+    exception once attempts are exhausted (or immediately for a
+    non-retryable error). One short WARNING per transient failure — no
+    per-attempt traceback spam.
+    """
+    attempts = len(_METADATA_RETRY_BACKOFFS_S) + 1
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            # verify=False: demo Box Cloud self-signed certs — same TODO(ssl)
+            # as `LakehouseClient.query`.
+            with httpx.Client(verify=False) as client:
+                r = client.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=_PARTITIONS_TIMEOUT_S,
+                )
+            r.raise_for_status()
+            return r
+        except Exception as exc:  # noqa: BLE001 — classified below
+            last_exc = exc
+            if not _is_retryable(exc) or attempt == attempts - 1:
+                raise
+            backoff = _METADATA_RETRY_BACKOFFS_S[attempt]
+            logger.warning(
+                "lake metadata GET transient failure (attempt %d/%d): %s: %s "
+                "— retrying in %.1fs",
+                attempt + 1,
+                attempts,
+                type(exc).__name__,
+                exc,
+                backoff,
+            )
+            time.sleep(backoff)
+    assert last_exc is not None
+    raise last_exc
 
 _lock = threading.Lock()  # guards the three cache fields below
 _refresh_lock = threading.Lock()  # single-flight for the lake round-trips
@@ -108,16 +162,11 @@ def _fetch_environments_via_partitions_endpoint(
     any transport/shape problem so the caller can fall through to SQL.
     """
     url = f"{base_url.rstrip('/')}/partitions"
-    # verify=False: demo Box Cloud self-signed certs — same TODO(ssl) as
-    # `LakehouseClient.query`.
-    with httpx.Client(verify=False) as client:
-        r = client.get(
-            url,
-            params={"table": lake_table},
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=_PARTITIONS_TIMEOUT_S,
-        )
-    r.raise_for_status()
+    r = _get_with_retry(
+        url,
+        params={"table": lake_table},
+        headers={"Authorization": f"Bearer {token}"},
+    )
     body = r.json()
     partitions = body.get("partitions")
     if not isinstance(partitions, list):
@@ -159,15 +208,11 @@ def _fetch_groups_via_catalog_manifest(
         f"{catalog_url.rstrip('/')}/namespaces/default/tables/"
         f"{lake_table}/manifest"
     )
-    # verify=False: demo Box Cloud self-signed certs — same TODO(ssl) as
-    # `LakehouseClient.query`.
-    with httpx.Client(verify=False) as client:
-        r = client.get(
-            url,
-            headers={"Authorization": f"Bearer {catalog_token}"},
-            timeout=_PARTITIONS_TIMEOUT_S,
-        )
-    r.raise_for_status()
+    r = _get_with_retry(
+        url,
+        params=None,
+        headers={"Authorization": f"Bearer {catalog_token}"},
+    )
     body = r.json()
     entries = body.get("entries")
     if not isinstance(entries, list):
@@ -370,6 +415,21 @@ def _enumerate_from_lake() -> list[tuple[str, str, str, str]]:
         len(environments),
     )
     return groups
+
+
+def cached_groups() -> list[tuple[str, str, str, str]] | None:
+    """Return the last-enumerated group list WITHOUT ever hitting the lake.
+
+    Non-blocking, lake-free read of the module-level cache: returns the
+    cached groups (even if stale) when an enumeration has ever succeeded,
+    else ``None`` (never enumerated yet). Used by the hot Kafka-consumer
+    path (`live_telemetry._resolve_session_experiment` on a raw tick) so a
+    cold or slow lake can never block raw consumption — the background
+    lake-work executor warms this cache via `enumerate_groups()`, and the
+    hot path reads whatever is ready.
+    """
+    with _lock:
+        return list(_cached_groups) if _cached_groups is not None else None
 
 
 def enumerate_groups() -> list[tuple[str, str, str, str]]:

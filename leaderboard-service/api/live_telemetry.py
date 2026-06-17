@@ -277,6 +277,36 @@ _consumer_thread: threading.Thread | None = None
 _stop_event = threading.Event()
 
 # ---------------------------------------------------------------------------
+# Lake-work executor (keeps ALL lake I/O off the Kafka consumer / live path)
+# ---------------------------------------------------------------------------
+#
+# The Kafka consumer thread runs the poll loop that feeds raw ticks into
+# `_record_message` → `live_stream.publish_snapshot` — the live active-driver
+# stream. Lake-backed *historical* work (best-laps refresh, gate-vector
+# rebuild, partition enumeration) used to run inline on that same thread
+# (the TTL tick, the per-session/per-config-event refresh, the lap-complete
+# refresh). A slow/hung lake query there blocked the poll loop, so raw ticks
+# stopped being processed and the live stream stalled.
+#
+# Fix: a single dedicated daemon worker thread drains a bounded job queue.
+# The consumer thread *submits* lake jobs (non-blocking) and immediately
+# returns to `consumer.poll()`. Single-threaded by design — best-laps and
+# gate-vector refreshes already serialise on `_best_laps_refresh_lock`, and
+# running them one-at-a-time off the hot path is exactly the desired
+# behaviour (a backlog of triggers collapses; see `submit_lake_job`).
+#
+# `maxsize` is small: lake jobs are idempotent refreshes, so when the worker
+# is busy (e.g. a query is timing out) we coalesce — a full queue drops the
+# new job rather than unbounded-buffering. The next trigger (TTL tick fires
+# every 0.5 s) re-submits, so nothing is permanently lost.
+import queue as _queue_mod  # noqa: E402 — grouped with executor state
+
+_LAKE_QUEUE_MAXSIZE = 4
+_lake_job_queue: _queue_mod.Queue[tuple[str, Any]] | None = None
+_lake_worker_thread: threading.Thread | None = None
+_lake_worker_stop = threading.Event()
+
+# ---------------------------------------------------------------------------
 # Best-laps cache (Right-table source: Best Laps panel)
 # ---------------------------------------------------------------------------
 #
@@ -835,7 +865,7 @@ def current_live_session() -> dict[str, Any] | None:
 
 
 def _resolve_session_experiment(
-    hostname: str, track: str, car: str
+    hostname: str, track: str, car: str, *, blocking: bool = True
 ) -> tuple[str | None, str | None]:
     """Resolve (experiment, environment) for a live session's (track, car).
 
@@ -856,9 +886,17 @@ def _resolve_session_experiment(
          group), else (None, None) and the UI shows its "no historical
          laps" state.
 
-    May block on a lake round-trip when the partition enumeration is cold
-    — callers must be off the event loop (consumer thread, or
-    `asyncio.to_thread` on the WS connect path).
+    Partition-index access mode (`blocking`):
+      * `blocking=True` (default — off-hot-path callers: WS connect via
+        `asyncio.to_thread`, `resolve_and_publish_live_session` on the
+        lake-work thread) uses `partition_index.enumerate_groups()`, which
+        may do a lake round-trip when the TTL cache is cold/expired.
+      * `blocking=False` (the Kafka-consumer hot path, e.g. per-raw-tick
+        enrichment) uses `partition_index.cached_groups()` — a non-blocking,
+        lake-free read. A cold cache returns `None`, treated here as "no
+        candidates yet" so the tick falls through to the DCM pair / no-op
+        and is retried next tick once the background warmer has populated
+        the cache. This guarantees a slow lake never stalls raw consumption.
     """
     with _state_lock:
         entry = _experiment_cache.get(hostname)
@@ -867,10 +905,17 @@ def _resolve_session_experiment(
 
     from . import partition_index
 
+    if blocking:
+        enumerated = partition_index.enumerate_groups()
+    else:
+        # Lake-free: whatever the background warmer has cached (possibly
+        # None → empty, handled below as "no candidates yet").
+        enumerated = partition_index.cached_groups() or []
+
     candidates = sorted(
         {
             (exp, env)
-            for (g_track, g_car, exp, env) in partition_index.enumerate_groups()
+            for (g_track, g_car, exp, env) in enumerated
             if g_track == track and g_car == car
         }
     )
@@ -1062,7 +1107,16 @@ def _adopt_live_session(hostname: str, track: str, car: str) -> None:
             car,
         )
         return
-    _publish_live_session_if_changed(_build_live_session_envelope(session))
+    # `_adopt_live_session` runs on the Kafka consumer thread (session-message
+    # handler, config-event handler, raw-tick fallback). Broadcast the
+    # LAKE-FREE envelope first (DCM cache only — never blocks), so connected
+    # clients learn the combo immediately even when the lake is slow/down.
+    # Then hand the fully lake-aligned resolution to the lake-work executor;
+    # `resolve_and_publish_live_session` rebroadcasts off-thread and the
+    # `_publish_live_session_if_changed` dedupe makes it a no-op when the fast
+    # envelope already carried the right experiment.
+    _publish_live_session_if_changed(_build_live_session_envelope_fast(session))
+    submit_lake_job("resolve_live_session")
 
 
 def _touch_live_session(hostname: str) -> None:
@@ -1396,15 +1450,16 @@ def _record_message(payload: dict[str, Any]) -> None:
 
     # On a completed lap, re-read the best-laps DB so the right-hand Best
     # Laps table picks up the driver's newly-set lap (real deployments: the
-    # lake sink has written it by the next refresh). TTL/single-flight guarded
-    # inside, and this runs on the consumer thread (off the HTTP path), so the
-    # seconds-long lake call is safe. force=True bypasses the TTL because a
-    # lap boundary is exactly when fresh data is expected.
+    # lake sink has written it by the next refresh). force=True bypasses the
+    # TTL because a lap boundary is exactly when fresh data is expected.
+    #
+    # CRITICAL: submit to the lake-work executor rather than running inline.
+    # `_record_message` is on the Kafka consumer thread; a synchronous
+    # seconds-long lake query here would stall `consumer.poll()` and freeze
+    # the live stream. The executor runs it off the hot path; the next raw
+    # tick is processed without waiting.
     if lap_completed:
-        try:
-            _refresh_best_laps_from_settings(force=True)
-        except Exception:
-            logger.exception("best-laps refresh on lap completion failed")
+        submit_lake_job("best_laps_force")
 
 
 def get_active_driver() -> dict[str, Any] | None:
@@ -1960,10 +2015,10 @@ def _prewarm_session_cache_from_dcm() -> None:
                 _adopt_live_session(hostname, session["track"], session["carModel"])
 
         # Refresh best-laps once more so per-driver bests reflect the
-        # drivers we just discovered. Cheap, atomic, one extra lake hit at
-        # boot. (Step 2 will extend this to gate vectors.)
+        # drivers we just discovered. Submitted to the lake-work executor so
+        # the consumer thread isn't blocked on a lake query during startup.
         if prewarmed_hostnames:
-            _refresh_best_laps_from_settings(force=True)
+            submit_lake_job("best_laps_force")
     except Exception:
         logger.exception("DCM session pre-warm failed; continuing without it")
 
@@ -2100,11 +2155,12 @@ def _handle_session_message(hostname: str, payload: dict[str, Any]) -> None:
     _adopt_live_session(hostname, track, car)
     # Same trigger for the best-laps cache — a new AC session means a
     # driver is about to set new lap times, so we want fresh per-driver
-    # best laps in cache before the next `/live-positions` poll.
-    # Synchronous is fine: this handler runs on the consumer thread, off
-    # the HTTP request path, so the seconds-long lake call doesn't hurt
-    # API users. Canonical "once per AC session" refresh trigger.
-    _refresh_best_laps_from_settings(force=True)
+    # best laps in cache before the next `/live-positions` poll. Canonical
+    # "once per AC session" refresh trigger. Submitted to the lake-work
+    # executor (NOT run inline): this handler is on the Kafka consumer
+    # thread, and a seconds-long lake query here would stall the poll loop
+    # and freeze the live stream. The refresh runs off the hot path.
+    submit_lake_job("best_laps_force")
 
 
 def _handle_config_event(payload: dict[str, Any]) -> None:
@@ -2251,7 +2307,8 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             _adopt_live_session(target_key, track, car)
             # And refresh best laps — a session-config change can mean a
             # different driver is about to log laps under this hostname.
-            _refresh_best_laps_from_settings(force=True)
+            # Off the hot path via the lake-work executor.
+            submit_lake_job("best_laps_force")
         else:
             # experiment-type event: update experiment_cache only. We still
             # refresh best-laps below because changing the experiment_id /
@@ -2279,8 +2336,8 @@ def _handle_config_event(payload: dict[str, Any]) -> None:
             )
             # Refresh so the new (track, car, experiment, environment)
             # tuple gets queried — see spec acceptance: trigger 3 covers
-            # DCM experiment-type events.
-            _refresh_best_laps_from_settings(force=True)
+            # DCM experiment-type events. Off the hot path via the executor.
+            submit_lake_job("best_laps_force")
     except Exception:
         # Broad catch on purpose — handler errors must never break the loop.
         logger.exception("config event handler failed: %r", payload)
@@ -2380,6 +2437,51 @@ def _fold_best_laps(
             folded[key] = best_ms
             folded_to_raw[key] = raw_driver
     return folded, folded_to_raw
+
+
+def _log_lake_call_failure(what: str, exc: Exception, context: str) -> None:
+    """Log a swallowed lake-call failure at the right level (spec: log-noise).
+
+    A handled *transient* lake failure (timeout / transport error / 5xx —
+    already retried-then-given-up inside `LakehouseClient.query`) logs ONE
+    WARNING line, no traceback: the lake being slow/down is an operational
+    condition, not a code bug, and a per-tick ERROR+stacktrace at the TTL
+    cadence floods the deployment logs. Any OTHER exception (a genuine bug —
+    bad SQL, a None deref) keeps the full ERROR+traceback so it's visible.
+
+    `LakehouseQueryError` (a deterministic SQL error returned by the engine)
+    is treated as non-transient → ERROR+traceback, since it signals a query
+    the code built wrong.
+    """
+    import httpx
+
+    from .lakehouse_client import _is_retryable
+
+    if _is_retryable(exc):
+        logger.warning(
+            "%s failed (transient lake error, retries exhausted): %s: %s [%s]; "
+            "keeping previous entry (stale-on-error)",
+            what,
+            type(exc).__name__,
+            exc,
+            context,
+        )
+    elif isinstance(exc, httpx.HTTPError):
+        # Non-retryable HTTP error (e.g. 4xx) — still operational, one line.
+        logger.warning(
+            "%s failed (lake HTTP error): %s: %s [%s]; keeping previous entry",
+            what,
+            type(exc).__name__,
+            exc,
+            context,
+        )
+    else:
+        logger.exception(
+            "%s failed (unexpected error): %s; keeping previous entry [%s]",
+            what,
+            type(exc).__name__,
+            context,
+        )
 
 
 def refresh_best_laps_cache(
@@ -2516,14 +2618,11 @@ def _refresh_best_laps_locked(
                 experiment=experiment,
                 environment=environment,
             )
-        except Exception:
-            logger.exception(
-                "best-laps query failed for track=%s car=%s exp=%s env=%s; "
-                "keeping previous entry (stale-on-error)",
-                track,
-                car,
-                experiment,
-                environment,
+        except Exception as exc:
+            _log_lake_call_failure(
+                "best-laps query",
+                exc,
+                "track=%s car=%s exp=%s env=%s" % (track, car, experiment, environment),
             )
             return grp, None
         logger.info(
@@ -2694,11 +2793,9 @@ def refresh_gate_vectors_cache(
                         experiment=experiment,
                         environment=environment,
                     )
-                except Exception:
-                    logger.exception(
-                        "gate-vectors discovery failed for %s; keeping its "
-                        "previous vectors",
-                        grp,
+                except Exception as exc:
+                    _log_lake_call_failure(
+                        "gate-vectors discovery", exc, f"group={grp}"
                     )
                     return grp, None
 
@@ -2738,15 +2835,14 @@ def refresh_gate_vectors_cache(
                     environment=environment,
                     drivers=sorted(diff.changed_raw),
                 )
-            except Exception:
+            except Exception as exc:
                 # Stale-on-error: the changed drivers keep their previous
                 # vectors (possibly mismatched against the new best until
                 # the next refresh round succeeds).
-                logger.exception(
-                    "gate-vectors lap scan failed for %s; keeping previous "
-                    "vectors for %d driver(s)",
-                    grp,
-                    len(diff.changed_raw),
+                _log_lake_call_failure(
+                    "gate-vectors lap scan",
+                    exc,
+                    f"group={grp} drivers={len(diff.changed_raw)}",
                 )
                 failed_key3s.add(key3)
                 continue
@@ -2908,11 +3004,41 @@ def _refresh_best_laps_from_settings(*, force: bool = False) -> None:
 def _maybe_refresh_on_ttl() -> None:
     """TTL tick for the best-laps cache, piggybacked on the consumer loop.
 
-    Cheap check (no lake traffic) on every poll iteration: if any known
-    group has no cache entry or one older than `BEST_LAPS_TTL_SECONDS` —
-    and isn't inside its failure backoff window — run a (TTL-respecting,
-    single-flight) refresh on this thread. Steady-state cost is a dict
-    scan over a handful of groups every 0.5 s.
+    Runs on the Kafka consumer thread on every `poll()` iteration, so it
+    must do ZERO lake I/O — otherwise a slow lake here stalls raw
+    consumption and freezes the live stream. It therefore only *submits*
+    two idempotent jobs to the lake-work executor:
+
+      * ``best_laps_ttl`` — the worker re-checks per-group due-ness (the
+        cheap dict scan that used to live here) and refreshes only stale
+        groups, respecting the TTL + failure-backoff + single-flight.
+      * ``warm_partitions`` — keeps `partition_index.enumerate_groups()`'s
+        TTL cache warm on the worker, so the hot-path
+        `_resolve_session_experiment` always finds it ready and never
+        blocks on the cold lake call.
+
+    Both are coalesced by the bounded queue: when the worker is busy (e.g.
+    a query is timing out) the new jobs are dropped, not buffered, and the
+    next tick (0.5 s later) re-submits. Submitting is a non-blocking
+    `queue.put_nowait`, so the poll loop is never delayed by the lake.
+    """
+    from .settings import get_settings
+
+    settings = get_settings()
+    if not settings.lakehouse_query_url or not settings.lakehouse_query_token:
+        return
+    submit_lake_job("best_laps_ttl")
+    submit_lake_job("warm_partitions")
+
+
+def _maybe_refresh_due_on_worker() -> None:
+    """Worker-side due-check + best-laps refresh (the body that used to run
+    inline in `_maybe_refresh_on_ttl`).
+
+    Runs on the lake-work thread, where the `_known_groups()` /
+    `enumerate_groups()` lake round-trip and the seconds-long best-laps
+    query are safe to block on. Refreshes only when at least one known
+    group is past its TTL and outside its failure-backoff window.
     """
     from .settings import get_settings
 
@@ -3111,8 +3237,15 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
         with _state_lock:
             cached_group = session.get("lake_resolved_group")
         if cached_group is None:
+            # Hot path (Kafka consumer thread): `blocking=False` so this
+            # reads the background-warmed partition cache and NEVER does a
+            # lake round-trip. A cold cache → no resolution this tick; the
+            # next tick retries once the lake-work warmer has populated it.
             lake_experiment, lake_environment = _resolve_session_experiment(
-                session_key, session["track"], session["carModel"]
+                session_key,
+                session["track"],
+                session["carModel"],
+                blocking=False,
             )
             if lake_experiment:
                 cached_group = (lake_experiment, lake_environment or "")
@@ -3139,6 +3272,135 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
         _adopt_live_session(session_key, enriched["track"], enriched["carModel"])
     _log_enriched_rate_limited(enriched)
     _record_message(enriched)
+
+
+# ---------------------------------------------------------------------------
+# Lake-work executor plumbing
+# ---------------------------------------------------------------------------
+#
+# Job types submitted by the consumer thread. Each maps to a handler in
+# `_run_lake_job`. Payloads are kept tiny (a bool / None) — the worker reads
+# all the state it needs from the module-level caches at run time.
+#
+#   "best_laps_force"  → `_refresh_best_laps_from_settings(force=True)`
+#                        (session message, config event, lap completion,
+#                         consumer startup warm-up).
+#   "best_laps_ttl"    → `_maybe_refresh_due_on_worker()` (per-poll TTL tick;
+#                        worker re-checks due-ness and refreshes only stale
+#                        groups — the cheap scan that used to run inline).
+#   "warm_partitions"  → `partition_index.enumerate_groups()` to warm the
+#                        TTL cache so the hot-path `_resolve_session_experiment`
+#                        finds it ready (and never blocks on the cold lake call).
+#   "resolve_live_session" → `resolve_and_publish_live_session()` — rebroadcast
+#                        the lake-aligned live_session envelope off-thread
+#                        (the adopt-time push used the lake-free fast envelope).
+
+
+def start_lake_worker() -> None:
+    """Start the dedicated lake-work daemon thread + its job queue.
+
+    Idempotent: re-calling while the worker is alive is a no-op (hot reload /
+    repeated lifespan startup). Called from `start()` before the consumer
+    thread spins up so the queue exists when the first job is submitted.
+    """
+    global _lake_job_queue, _lake_worker_thread
+    if _lake_worker_thread is not None and _lake_worker_thread.is_alive():
+        return
+    _lake_worker_stop.clear()
+    if _lake_job_queue is None:
+        _lake_job_queue = _queue_mod.Queue(maxsize=_LAKE_QUEUE_MAXSIZE)
+    _lake_worker_thread = threading.Thread(
+        target=_lake_worker_loop,
+        name="ghost-lap-lake-worker",
+        daemon=True,
+    )
+    _lake_worker_thread.start()
+    logger.info("lake-work executor started (queue maxsize=%d)", _LAKE_QUEUE_MAXSIZE)
+
+
+def stop_lake_worker(timeout: float = 5.0) -> None:
+    """Signal the lake worker to exit and join with a bounded wait."""
+    global _lake_worker_thread
+    if _lake_worker_thread is None:
+        return
+    _lake_worker_stop.set()
+    # Nudge the worker off its blocking `queue.get` so it sees the stop flag.
+    if _lake_job_queue is not None:
+        try:
+            _lake_job_queue.put_nowait(("__stop__", None))
+        except _queue_mod.Full:
+            pass
+    _lake_worker_thread.join(timeout=timeout)
+    if _lake_worker_thread.is_alive():
+        logger.warning("lake-work executor didn't stop within %.1fs", timeout)
+    _lake_worker_thread = None
+
+
+def submit_lake_job(kind: str, payload: Any = None) -> None:
+    """Enqueue a lake job for the background worker (non-blocking).
+
+    The hot path (Kafka consumer thread) calls this and returns immediately
+    to `consumer.poll()`. When the worker is busy (e.g. a query is timing
+    out) the bounded queue fills and the new job is COALESCED away — dropped
+    rather than buffered — because every job is an idempotent refresh and the
+    next trigger re-submits within ~0.5 s (the TTL tick). This guarantees a
+    slow lake can never back-pressure raw consumption.
+
+    A no-op when the worker hasn't started (tests / LOCAL_DEV_MODE) so callers
+    don't need to guard.
+    """
+    q = _lake_job_queue
+    if q is None:
+        return
+    try:
+        q.put_nowait((kind, payload))
+    except _queue_mod.Full:
+        # Worker is busy; the equivalent refresh is already queued or
+        # in-flight. Dropping is correct — refreshes are idempotent.
+        logger.debug("lake job %r dropped (worker busy / queue full)", kind)
+
+
+def _run_lake_job(kind: str, payload: Any) -> None:
+    """Execute one lake job on the worker thread. Never raises."""
+    try:
+        if kind == "best_laps_force":
+            _refresh_best_laps_from_settings(force=True)
+        elif kind == "best_laps_ttl":
+            _maybe_refresh_due_on_worker()
+        elif kind == "warm_partitions":
+            from . import partition_index
+
+            partition_index.enumerate_groups()
+        elif kind == "resolve_live_session":
+            # Re-broadcast the fully lake-aligned live_session envelope off
+            # the consumer thread (the adopt-time push used the lake-free
+            # fast envelope). Deduped on the wire.
+            resolve_and_publish_live_session()
+        else:
+            logger.debug("unknown lake job kind=%r; ignoring", kind)
+    except Exception:
+        # Belt-and-braces: every refresh helper already swallows its own
+        # errors (stale-on-error), but the worker must NEVER die on a job.
+        logger.exception("lake job %r failed; worker continues", kind)
+
+
+def _lake_worker_loop() -> None:
+    """Drain the lake-job queue until stopped. One job at a time, off the
+    consumer/live path. Every job is crash-proofed by `_run_lake_job`.
+    """
+    q = _lake_job_queue
+    if q is None:
+        return
+    logger.info("lake-work executor loop running")
+    while not _lake_worker_stop.is_set():
+        try:
+            kind, payload = q.get(timeout=0.5)
+        except _queue_mod.Empty:
+            continue
+        if kind == "__stop__":
+            break
+        _run_lake_job(kind, payload)
+    logger.info("lake-work executor stopped")
 
 
 # ---------------------------------------------------------------------------
@@ -3242,12 +3504,16 @@ def _consumer_loop() -> None:
     # best-laps refresh BEFORE the prewarm would always find 0 groups and
     # waste a lake round-trip.
     _prewarm_session_cache_from_dcm()
-    # Belt-and-braces: explicit refresh after the prewarm so the path
-    # works even if the prewarm took a degenerate route (no DCM session
-    # configs found → no internal refresh call). Failures are swallowed
-    # inside `refresh_best_laps_cache`; if the lake is unreachable the
-    # route layer's cache-miss fallback will retry on the next request.
-    _refresh_best_laps_from_settings(force=True)
+    # Belt-and-braces: explicit refresh after the prewarm so the path works
+    # even if the prewarm took a degenerate route (no DCM session configs
+    # found → no internal refresh submit). Submitted to the lake-work
+    # executor so the consumer reaches its poll loop immediately; the lake
+    # call (and its failure handling) runs off the hot path.
+    submit_lake_job("best_laps_force")
+    # Prime the partition-index TTL cache on the worker too, so the hot-path
+    # `_resolve_session_experiment(blocking=False)` finds groups ready on the
+    # very first enrichment-needing tick.
+    submit_lake_job("warm_partitions")
 
     logger.info(
         "ghost-lap consumer starting (topics=%s, %s, %s)",
@@ -3392,6 +3658,10 @@ def start() -> None:
     if _consumer_thread and _consumer_thread.is_alive():
         return
 
+    # Start the lake-work executor BEFORE the consumer so the job queue
+    # exists when the consumer's first TTL tick / startup warm-up submits.
+    start_lake_worker()
+
     _stop_event.clear()
     _consumer_thread = threading.Thread(
         target=_consumer_loop,
@@ -3404,6 +3674,8 @@ def start() -> None:
 def stop(timeout: float = 5.0) -> None:
     """Signal the consumer to exit and join with a bounded wait."""
     global _consumer_thread
+    # Stop the lake worker first so no new lake job starts mid-shutdown.
+    stop_lake_worker(timeout=timeout)
     if not _consumer_thread:
         return
     _stop_event.set()
