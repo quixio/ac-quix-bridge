@@ -776,6 +776,8 @@ deployments:
       suffixReplayedKeysWithTimestamp: false
       fromTimestamp: 2026-06-17T11:40:05.000Z
       toTimestamp: 2026-06-17T11:48:17.653Z
+      removeGaps: true
+      maxGapSizeInMilliseconds: 10000
   - name: Quix DataLake Raw Sink 2
     application: DataLake.Sink
     version: latest
