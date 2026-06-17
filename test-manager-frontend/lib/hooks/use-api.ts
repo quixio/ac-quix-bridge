@@ -41,6 +41,7 @@ import { settingsApi as settingsApiRaw } from "../api/settings";
 import { portalApi as portalApiRaw } from "../api/portal";
 import { driversApi as driversApiRaw } from "../api/drivers";
 import { environmentsApi as environmentsApiRaw } from "../api/environments";
+import { experimentsApi as experimentsApiRaw } from "../api/experiments";
 import { analysesApi as analysesApiRaw } from "../api/analyses";
 
 /**
@@ -185,6 +186,11 @@ export const useDriversApi = createAuthenticatedApi(driversApiRaw);
  * Authenticated Environments API Hook
  */
 export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw);
+
+/**
+ * Authenticated Experiments API Hook
+ */
+export const useExperimentsApi = createAuthenticatedApi(experimentsApiRaw);
 
 /**
  * Authenticated Analyses API Hook (post-race AI analyzer).
