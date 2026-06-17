@@ -702,9 +702,6 @@ deployments:
       - name: LIVE_TELEMETRY_ENABLED
         inputType: FreeText
         value: true
-      - name: Quix__Portal__Api
-        inputType: FreeText
-        value: https://portal-api.dev.quix.io
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: 'Build-time: blue-freeze window ms (baked into UI bundle)'
