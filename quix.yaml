@@ -778,6 +778,7 @@ deployments:
       toTimestamp: 2026-06-17T11:48:17.653Z
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
+    disabled: true
 
 # This section describes the Topics of the data pipeline
 topics:
