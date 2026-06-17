@@ -4,9 +4,8 @@ const nextConfig = {
   output: "standalone",
 
   // TODO: remove once the post-race-AI ai-summary tab is re-merged with its
-  // missing deps and `useAnalysesApi` hook. Currently broken on this branch
-  // due to a merge gap unrelated to leaderboard work; ignoring lets the rest
-  // of the app (including leaderboard) deploy.
+  // missing deps and `useAnalysesApi` hook. A standing merge gap forces these
+  // ignores so the rest of the app can build/deploy.
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
 

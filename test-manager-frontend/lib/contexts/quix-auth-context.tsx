@@ -62,9 +62,8 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
   const isEmbedded = useRef(false);
   const refreshInProgress = useRef(false);
 
-  // Wrap the raw setter so downstream consumers (the leaderboard
-  // live-stream hook in particular) don't see a fresh string reference
-  // every time the Portal sends back the same JWT. Without this guard,
+  // Wrap the raw setter so downstream consumers don't see a fresh string
+  // reference every time the Portal sends back the same JWT. Without this guard,
   // the periodic 30-minute refresh and the visibilitychange handler
   // both call `setToken(samePayload)` on every tick, which churns the
   // `useEffect([token, …])` dep array and tears down + reopens any

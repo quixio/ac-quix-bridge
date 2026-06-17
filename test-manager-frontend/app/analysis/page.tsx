@@ -6,10 +6,9 @@ import { MainLayout } from "@/components/layout/main-layout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-import { GitCompare, Trophy, Sparkles } from "lucide-react";
+import { GitCompare, Sparkles } from "lucide-react";
 import { useTestsApi } from "@/lib/hooks/use-api";
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
-import { LeaderboardTab } from "@/components/analysis/leaderboard-tab";
 import { AiSummaryTab } from "./ai-summary/ai-summary-tab";
 
 // Telemetry Explorer deployment URL — baked at build time. `_ORIGIN` is the
@@ -32,14 +31,6 @@ const ANALYSIS_TABS = [
     title: "Compare Runs",
     description:
       "Compare laps across multiple tests to find performance tradeoffs. Overlay speed, tire temperatures, and driver inputs by track position.",
-  },
-  {
-    value: "leaderboard",
-    label: "Leaderboard",
-    icon: Trophy,
-    title: "Leaderboard",
-    description:
-      "Historical best laps with real-time ghost projection. Track your fastest laps across sessions and see a live projected lap time during active tests.",
   },
   {
     value: "ai-summary",
@@ -250,10 +241,6 @@ function AnalysisPageContent() {
               sessionTrack={sessionTrack}
               sessionCarModel={sessionCarModel}
             />
-          </TabsContent>
-
-          <TabsContent value="leaderboard">
-            <LeaderboardTab />
           </TabsContent>
 
           <TabsContent value="ai-summary">

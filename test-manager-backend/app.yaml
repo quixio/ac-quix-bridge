@@ -20,39 +20,10 @@ variables:
     inputType: FreeText
     multiline: false
     required: true
-  - name: LAKE_TABLE
-    inputType: FreeText
-    multiline: false
-    defaultValue: ac_telemetry
-    description: Lake table the leaderboard queries (e.g. ac_telemetry, ac_telemetry_leaderboard)
-  - name: LAKE_COL_CURRENT_TIME
-    inputType: FreeText
-    multiline: false
-    defaultValue: iCurrentTime
-    description: Lap-relative current-time column on LAKE_TABLE (e.g. iCurrentTime on ac_telemetry, currentTime on derived tables)
-  - name: LAKE_COL_BEST_TIME
-    inputType: FreeText
-    multiline: false
-    defaultValue: iBestTime
-    description: Best-lap-time column on LAKE_TABLE (e.g. iBestTime or bestTime)
-  - name: LAKE_COL_NORMALIZED_POSITION
-    inputType: FreeText
-    multiline: false
-    defaultValue: normalizedCarPosition
-    description: 0..1 normalized position column on LAKE_TABLE
   - name: LOCAL_DEV_MODE
     inputType: FreeText
     multiline: false
     defaultValue: false
-  - name: LIVE_TELEMETRY_ENABLED
-    inputType: FreeText
-    multiline: false
-    defaultValue: true
-  - name: GATE_COUNT
-    inputType: FreeText
-    multiline: false
-    defaultValue: "650"
-    description: Number of checkpoint gates the lap is split into for live sector comparison.
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

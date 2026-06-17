@@ -41,7 +41,6 @@ import { settingsApi as settingsApiRaw } from "../api/settings";
 import { portalApi as portalApiRaw } from "../api/portal";
 import { driversApi as driversApiRaw } from "../api/drivers";
 import { environmentsApi as environmentsApiRaw } from "../api/environments";
-import { leaderboardApi as leaderboardApiRaw } from "../api/leaderboard";
 import { analysesApi as analysesApiRaw } from "../api/analyses";
 
 /**
@@ -186,17 +185,6 @@ export const useDriversApi = createAuthenticatedApi(driversApiRaw);
  * Authenticated Environments API Hook
  */
 export const useEnvironmentsApi = createAuthenticatedApi(environmentsApiRaw);
-
-/**
- * Authenticated Leaderboard API Hook (multi-driver live positions).
- *
- * @example
- * ```typescript
- * const leaderboardApi = useLeaderboardApi()
- * const rows = await leaderboardApi.getLivePositions()
- * ```
- */
-export const useLeaderboardApi = createAuthenticatedApi(leaderboardApiRaw);
 
 /**
  * Authenticated Analyses API Hook (post-race AI analyzer).

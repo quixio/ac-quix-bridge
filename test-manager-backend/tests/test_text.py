@@ -1,8 +1,7 @@
 """Unit tests for the shared text-normalization helpers (api/text.py).
 
-These pin `fold_for_lookup` (extracted from live_telemetry) and the
-driver-specific `driver_name_key` so the lake-identity / dedup key can't
-silently drift if the leaderboard code that originally owned the fold changes.
+These pin `fold_for_lookup` and the driver-specific `driver_name_key` so the
+lake-identity / dedup key can't silently drift.
 """
 
 from api.text import driver_name_key, fold_for_lookup
