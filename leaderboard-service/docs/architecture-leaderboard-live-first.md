@@ -177,6 +177,47 @@ session/config path writes it. Session/config handlers may still write
 `tests/test_live_session_raw_gate.py::test_adopt_without_raw_does_not_broadcast_live_envelope`
 (and its `_with_raw_` companion).
 
+## Degraded-mode enrichment fallback
+
+When raw telemetry is flowing but the DCM/session enrichment can't resolve a
+usable `(track, car, driver)` — e.g. replaying old data into
+`ac-telemetry-raw` with no live session announcement and no DCM experiment
+config for the replayed hostname — `_handle_raw_message` previously dropped
+*every* tick: either at the `latest_session is None` early-return, or (when a
+session was cached but driver couldn't be resolved) at `_record_message`'s
+`(track, car, driver)` guard. Because `_last_raw_tick_epoch` is stamped
+*after* that guard, an unenrichable tick never opened the live gate, so the
+live stream stayed dark even though raw was clearly arriving.
+
+The fix substitutes clearly-labelled placeholder values so a **degraded** row
+still renders (the goal: "see the feature do something" when raw flows):
+
+- **Driver (primary case).** When a session is cached (track/car resolve) but
+  both the DCM experiment driver and the AC `playerName` are empty,
+  `_handle_raw_message` substitutes `settings.fallback_driver_name`
+  (`FALLBACK_DRIVER_NAME`, default `"John Doe"`). Logged once per occurrence at
+  INFO: `driver unresolved from DCM for hostname=… — using fallback 'John Doe'`.
+- **Track / car (edge case).** When *no* session is cached at all,
+  `_handle_raw_message` synthesizes a placeholder session
+  (`FALLBACK_TRACK`/`FALLBACK_CAR`, default `"Unknown"`/`"Unknown"`) under the
+  synthetic key `"__fallback__"`, logs it once per process, and adopts it via
+  `_adopt_live_session` so the live gate can open. The first fallback tick
+  records `_live_session` (raw not yet stamped); subsequent ticks within
+  `raw_liveness_window_s` broadcast the non-null `live_session` envelope —
+  exactly the existing raw-gate semantics.
+
+The primary fully-enriched path is **identical** when DCM/session resolve: a
+real driver/track/car always wins; the fallback only fills genuine blanks. The
+`"Unknown"`/`"John Doe"` values are intentionally obvious so the degraded row
+can't be mistaken for real enrichment, and every substitution is logged (no
+silent masking).
+
+New settings in `api/settings.py`: `fallback_driver_name`
+(`FALLBACK_DRIVER_NAME`, `"John Doe"`), `fallback_track` (`FALLBACK_TRACK`,
+`"Unknown"`), `fallback_car` (`FALLBACK_CAR`, `"Unknown"`). Covered by
+`tests/test_fallback_enrichment.py` (no-driver → John Doe; fully-resolved tick
+keeps the real driver; no-session → Unknown/Unknown/John Doe).
+
 ## Remaining caveat
 
 `live_telemetry._adopt_live_session` (consumer thread, session-message handler)

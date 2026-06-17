@@ -746,6 +746,24 @@ def _raw_liveness_window_s() -> float:
     return get_settings().raw_liveness_window_s
 
 
+def _fallback_driver_name() -> str:
+    from .settings import get_settings
+
+    return get_settings().fallback_driver_name
+
+
+def _fallback_track() -> str:
+    from .settings import get_settings
+
+    return get_settings().fallback_track
+
+
+def _fallback_car() -> str:
+    from .settings import get_settings
+
+    return get_settings().fallback_car
+
+
 def _raw_feed_is_live(now: float | None = None) -> bool:
     """True when a raw telemetry tick arrived within `raw_liveness_window_s`.
 
@@ -2779,15 +2797,35 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     global _no_metadata_logged
     with _state_lock:
         latest_session = _latest_session()
+        # Degraded-mode fallback (spec: degraded-mode-fallback). With NO
+        # session cached at all, the primary path dropped every raw tick —
+        # so replaying old data (no live session / DCM context) never opened
+        # the live gate. Synthesize a clearly-placeholder session
+        # (FALLBACK_TRACK / FALLBACK_CAR) so a degraded row still renders.
+        # The values are obviously fake ("Unknown") so it's clear this is not
+        # real enrichment. Logged once per process (not silently masked).
         if latest_session is None:
+            fb_track = _fallback_track()
+            fb_car = _fallback_car()
             if not _no_metadata_logged:
                 _no_metadata_logged = True
                 logger.info(
                     "raw ticks arriving but no session/config cached yet; "
-                    "dropping until a session message or DCM config event arrives"
+                    "using degraded fallback session track=%r car=%r so the "
+                    "live row still renders",
+                    fb_track,
+                    fb_car,
                 )
-            return
-        session_key, session = latest_session
+            session_key = "__fallback__"
+            session = {
+                "track": fb_track,
+                "carModel": fb_car,
+                "playerName": "",
+            }
+            using_fallback_session = True
+        else:
+            session_key, session = latest_session
+            using_fallback_session = False
         # Driver name from the most-recent experiment config that actually
         # carries a driver (not the constantly-refreshed empty session-host
         # entry, which would otherwise shadow it). Resolved under the lock.
@@ -2812,8 +2850,22 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
     #      (e.g. a sim PC running standalone). Keeping this fallback means a
     #      solo lap still produces a leaderboard row instead of being
     #      dropped by `_record_message`'s `(track, car, driver)` guard.
+    #   4. degraded-mode fallback (spec: degraded-mode-fallback) — when DCM
+    #      AND `playerName` both yield nothing (e.g. replaying old data with
+    #      no live session / DCM context), substitute the clearly-placeholder
+    #      FALLBACK_DRIVER_NAME ("John Doe") so the row still passes the guard,
+    #      stamps `_last_raw_tick_epoch`, and opens the live gate. Logged at
+    #      INFO per occurrence (not silently masked).
     if not enriched.get("driver"):
-        enriched["driver"] = dcm_driver_name or session["playerName"]
+        resolved_driver = dcm_driver_name or session["playerName"]
+        if not resolved_driver:
+            resolved_driver = _fallback_driver_name()
+            logger.info(
+                "driver unresolved from DCM for hostname=%s — using fallback %r",
+                session_key,
+                resolved_driver,
+            )
+        enriched["driver"] = resolved_driver
     if not enriched.get("experiment"):
         # Resolve experiment/environment via the same lake-aligned resolver
         # the `live_session` envelope uses (DCM only when its experiment has
@@ -2846,6 +2898,16 @@ def _handle_raw_message(hostname: str, payload: dict[str, Any]) -> None:
             enriched["experiment"] = cached_group[0]
             if not enriched.get("environment"):
                 enriched["environment"] = cached_group[1]
+    if using_fallback_session:
+        # Degraded mode: no real session was ever announced, so the live
+        # session was never adopted and `current_live_session()` would report
+        # nothing live even though raw is flowing. Adopt the placeholder
+        # (track, car) so the live gate can open. `_adopt_live_session`
+        # broadcasts a non-null envelope only once `_raw_feed_is_live()` —
+        # which `_record_message` (below) stamps — so the first fallback tick
+        # records the session and subsequent ticks open the gate, matching the
+        # existing raw-gate semantics.
+        _adopt_live_session(session_key, enriched["track"], enriched["carModel"])
     _log_enriched_rate_limited(enriched)
     _record_message(enriched)
 

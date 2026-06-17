@@ -196,6 +196,41 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Degraded-mode enrichment fallbacks. When raw telemetry is flowing but
+    # the DCM/session enrichment can't resolve a usable (track, car, driver)
+    # — e.g. replaying old data with no live session/DCM experiment config —
+    # the active-row build would otherwise drop EVERY tick at the
+    # `(track, car, driver)` guard in `_record_message`, so the live stream
+    # never opens. These fallbacks substitute clearly-labelled placeholder
+    # values so a degraded live row still renders; the primary fully-enriched
+    # path is unchanged when DCM/session DO resolve. Each substitution is
+    # logged (never silently masked).
+    fallback_driver_name: str = Field(
+        "John Doe",
+        alias="FALLBACK_DRIVER_NAME",
+        description=(
+            "Driver name used for the live active row when DCM/session yields "
+            "no driver (degraded mode). Clearly a placeholder so it's obvious "
+            "the row is not real enrichment."
+        ),
+    )
+    fallback_track: str = Field(
+        "Unknown",
+        alias="FALLBACK_TRACK",
+        description=(
+            "Track name used for the live active row when no session is cached "
+            "(degraded mode, paired with fallback_car). Placeholder value."
+        ),
+    )
+    fallback_car: str = Field(
+        "Unknown",
+        alias="FALLBACK_CAR",
+        description=(
+            "Car model used for the live active row when no session is cached "
+            "(degraded mode, paired with fallback_track). Placeholder value."
+        ),
+    )
+
     @field_validator(
         "lake_table",
         "col_current_time",
