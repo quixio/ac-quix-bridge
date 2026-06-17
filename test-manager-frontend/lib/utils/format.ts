@@ -15,14 +15,14 @@
  * into a table cell without a branch.
  */
 export function formatLapTime(ms: number | null | undefined): string {
-  if (ms == null || !Number.isFinite(ms) || ms < 0) return "—"
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
 
-  const totalSeconds = Math.floor(ms / 1000)
-  const millis = Math.floor(ms % 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
+  const totalSeconds = Math.floor(ms / 1000);
+  const millis = Math.floor(ms % 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
 
-  const ss = seconds.toString().padStart(2, "0")
-  const mmm = millis.toString().padStart(3, "0")
-  return `${minutes}:${ss}.${mmm}`
+  const ss = seconds.toString().padStart(2, "0");
+  const mmm = millis.toString().padStart(3, "0");
+  return `${minutes}:${ss}.${mmm}`;
 }

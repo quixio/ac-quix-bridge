@@ -19,7 +19,9 @@ export default function AddDriverPage() {
           </CardHeader>
           <CardContent>
             <DriverCreateForm
-              onCreated={(driver) => router.push(`/drivers/${driver.driver_id}`)}
+              onCreated={(driver) =>
+                router.push(`/drivers/${driver.driver_id}`)
+              }
               onCancel={() => router.push("/drivers")}
             />
           </CardContent>
