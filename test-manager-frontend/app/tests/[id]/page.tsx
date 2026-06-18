@@ -195,14 +195,14 @@ export default function TestDetailPage() {
         {/* Header */}
         <div className="space-y-4">
           {/* Title and action buttons */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">
                 {test.test_id}
               </h1>
               <p className="text-muted-foreground">Test execution details</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="default"
                 onClick={handleActivate}
