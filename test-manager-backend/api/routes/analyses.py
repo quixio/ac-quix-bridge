@@ -104,28 +104,36 @@ async def create_analysis(
             )
         test_id = owners[0]["_id"]
 
-    # Dedup auto re-fires: the test-completed event re-emits for the same
-    # session_id while it stays silent. Return the existing non-failed run
-    # instead of starting a duplicate. Manual is never deduped (a human can
-    # always force a re-run).
-    if payload.triggered_by == "auto":
-        existing = mongo.analyses.find_one(
-            {
-                "test_id": test_id,
-                "session_id": payload.session_id,
-                "status": {"$in": [*IN_PROGRESS_STATUSES, "complete"]},
-            },
-            sort=[("created_at", -1)],
+    # Dedup against an already-running analysis for the same target so a second
+    # click (a different user, tab, or the auto re-fire) returns the in-flight
+    # run instead of spawning a duplicate. Auto additionally dedups a *complete*
+    # run (the test-completed event re-emits for a session); a human may still
+    # re-run a finished analysis manually. `failed` never blocks either path.
+    # Non-atomic find-then-insert: two truly-simultaneous requests could both
+    # miss — acceptable for seconds-apart human clicks; no atomic guard yet.
+    dedup_statuses = (
+        [*IN_PROGRESS_STATUSES, "complete"]
+        if payload.triggered_by == "auto"
+        else list(IN_PROGRESS_STATUSES)
+    )
+    existing = mongo.analyses.find_one(
+        {
+            "test_id": test_id,
+            "session_id": payload.session_id,
+            "status": {"$in": dedup_statuses},
+        },
+        sort=[("created_at", -1)],
+    )
+    if existing:
+        logger.info(
+            "[analyses] dedup — existing %s for (test=%s session=%s by=%s)",
+            existing["_id"],
+            test_id,
+            payload.session_id,
+            payload.triggered_by,
         )
-        if existing:
-            logger.info(
-                "[analyses] auto dedup — existing %s for (test=%s session=%s)",
-                existing["_id"],
-                test_id,
-                payload.session_id,
-            )
-            response.status_code = status.HTTP_200_OK
-            return {"analysis_id": existing["_id"]}
+        response.status_code = status.HTTP_200_OK
+        return {"analysis_id": existing["_id"]}
 
     analysis_id = str(uuid4())
     now = datetime.now(timezone.utc)
