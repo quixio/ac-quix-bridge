@@ -1,20 +1,23 @@
-"""Periodic, strictly-serialized full-table reconcile (cold path).
+"""Cold-start lakehouse seed (cold path).
 
-A single daemon thread sleeps ``RECONCILE_INTERVAL_S`` between cycles. Each
-cycle issues **one** whole-table raw-scan query, waits for the full CSV
-response, reduces it to per-``(group, driver)`` minima in Python, and merges
-into the store with ``min(state, db)`` (O4 — a live-set faster lap is never
-clobbered).
+The authoritative source of best laps is the live topic stream (raw + session
++ DCM); the lakehouse is queried **only to seed an empty store** — e.g. on a
+fresh consumer group with no rebuilt state yet. A single daemon thread checks
+on each ``RECONCILE_INTERVAL_S`` tick: while the store is empty it issues
+**one** whole-table raw-scan query, reduces it to per-``(group, driver)``
+minima in Python, and merges into the store with ``min(state, db)`` (a
+live-set faster lap is never clobbered). The instant the store holds any lap
+(from a successful seed or from the topic) every subsequent tick is a no-op
+and the lakehouse is never queried again.
 
 Serialization: a single worker thread runs cycles one at a time, and a
-``threading.Lock`` acquired non-blocking guards the actual query so an
-externally-triggered cycle (e.g. the cold-start kick) can never overlap the
-timer's cycle. Two scans are never in flight at once; a slow scan on a fast
-timer simply means the next tick finds the lock held and no-ops.
+``threading.Lock`` acquired non-blocking guards the query so two scans are
+never in flight at once; a slow scan on a fast timer simply finds the lock
+held and no-ops.
 
-The reconcile SQL is the byox-safe shape: no ``GROUP BY``, no ``MIN(...)``,
-no CTE (``feedback_quixlake_no_cte`` / ``feedback_quixlake_aggregation_slow``).
-A failed cycle logs a WARNING and leaves the store untouched.
+The seed SQL is the byox-safe shape: no ``GROUP BY``, no ``MIN(...)``, no CTE
+(``feedback_quixlake_no_cte`` / ``feedback_quixlake_aggregation_slow``). A
+failed seed logs a WARNING and leaves the store untouched.
 """
 
 from __future__ import annotations
@@ -99,9 +102,11 @@ class ReconcileWorker:
             self._thread.join(timeout=timeout)
 
     def _loop(self) -> None:
-        # Kick one cycle immediately on boot (cold-start seed), then on the
-        # interval. `Event.wait` returns True when stopped, so the loop exits
-        # promptly on shutdown.
+        # Seed once on boot, then re-check on the interval. Each cycle is a
+        # no-op unless the store is empty (see _run_locked), so the interval
+        # acts only as a retry while no state has been built yet — as soon as
+        # topics/DCM (or a successful seed) populate the store, the lakehouse
+        # is never queried again. `Event.wait` returns True when stopped.
         self.run_cycle()
         while not self._stop.wait(self._settings.reconcile_interval_s):
             self.run_cycle()
@@ -118,38 +123,39 @@ class ReconcileWorker:
             self._cycle_lock.release()
 
     def _run_locked(self) -> int:
+        # Lakehouse is a COLD-START SEED ONLY: query it solely while the store
+        # is empty (e.g. a fresh consumer group with no rebuilt state yet).
+        # Once topics + DCM have put any best lap into the store, the live
+        # stream is authoritative and we never query the lake again.
+        if len(self._store) > 0:
+            logger.debug("state non-empty; skipping lakehouse seed query")
+            return 0
         url = self._settings.lakehouse_query_url
         if not url:
             logger.warning(
-                "reconcile skipped: no Lakehouse Query URL configured "
+                "lakehouse seed skipped: no Lakehouse Query URL configured "
                 "(Quix__Lakehouse__Query__Url / LAKE_API_URL)"
             )
             return 0
         sql = build_reconcile_sql(
             self._settings.lake_table, self._settings.col_best_time
         )
-        logger.info("reconcile scan SQL: %s", sql)
-        # Clean the INT_MAX stub out of existing state in parallel with the
-        # SQL-side filter on the incoming Lakehouse rows — every cycle, even if
-        # the query below returns nothing or fails.
-        purged = self._store.purge_sentinels()
-        if purged:
-            logger.info("reconcile purged %d INT_MAX stub rows from state", purged)
+        logger.info("state empty — lakehouse seed scan SQL: %s", sql)
         try:
             client = LakehouseClient(url, self._settings.lakehouse_query_token)
             df = client.query(sql)
         except Exception as exc:  # noqa: BLE001 — never break the loop
-            logger.warning("reconcile cycle failed (%s); state unchanged", exc)
+            logger.warning("lakehouse seed failed (%s); state unchanged", exc)
             return 0
         if df.empty:
-            logger.info("reconcile returned 0 rows; state unchanged")
+            logger.info("lakehouse seed returned 0 rows; state still empty")
             return 0
         df = df.fillna("")
         rows: list[dict[str, Any]] = df.to_dict("records")
         reconciled = reduce_rows(rows, self._settings.col_best_time)
         changed = self._store.merge_reconcile(reconciled)
         logger.info(
-            "reconcile merged: %d groups scanned, %d keys changed, %d total",
+            "lakehouse seed: %d groups scanned, %d keys seeded, %d total",
             len(reconciled),
             changed,
             len(self._store),
