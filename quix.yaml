@@ -128,6 +128,7 @@ deployments:
         description: Optional shared secret proving auto-analysis POSTs come from this service. Must match the Test Manager backend's TRIGGER_SECRET. Unset = gate disabled.
         secret: true
         variableKey: TRIGGER_SECRET
+    disabled: true
   - name: Dynamic Configuration Manager
     group: Ingestion
     application: DynamicConfiguration
