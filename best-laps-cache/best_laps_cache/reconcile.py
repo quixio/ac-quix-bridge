@@ -25,7 +25,7 @@ from typing import Any
 
 from .lakehouse_client import LakehouseClient
 from .settings import Settings
-from .store import BestLapsStore, make_key
+from .store import BEST_TIME_SENTINEL, BestLapsStore, make_key
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def build_reconcile_sql(lake_table: str, best_col: str) -> str:
     return (
         f"SELECT environment, experiment, track, carModel, driver, {best_col} "
         f"FROM {lake_table} "
-        f"WHERE {best_col} > 0"
+        f"WHERE {best_col} > 0 AND {best_col} < {BEST_TIME_SENTINEL}"
     )
 
 
@@ -60,7 +60,7 @@ def reduce_rows(rows: list[dict[str, Any]], best_col: str) -> dict[str, int]:
             best_ms = int(float(raw_best))
         except (TypeError, ValueError):
             continue
-        if best_ms <= 0:
+        if best_ms <= 0 or best_ms >= BEST_TIME_SENTINEL:
             continue
         key = make_key(
             str(row.get("environment") or "").strip(),
@@ -129,6 +129,12 @@ class ReconcileWorker:
             self._settings.lake_table, self._settings.col_best_time
         )
         logger.info("reconcile scan SQL: %s", sql)
+        # Clean the INT_MAX stub out of existing state in parallel with the
+        # SQL-side filter on the incoming Lakehouse rows — every cycle, even if
+        # the query below returns nothing or fails.
+        purged = self._store.purge_sentinels()
+        if purged:
+            logger.info("reconcile purged %d INT_MAX stub rows from state", purged)
         try:
             client = LakehouseClient(url, self._settings.lakehouse_query_token)
             df = client.query(sql)

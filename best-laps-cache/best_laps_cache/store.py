@@ -39,6 +39,11 @@ KEY_SEP = "\x1f"
 # Field order in the key — also the canonical column order the API echoes.
 GROUP_FIELDS = ("environment", "experiment", "track", "carModel", "driver")
 
+# AC reports iBestTime as INT_MAX (2**31 - 1) when no valid lap has been set.
+# Treat that stub value — and anything at or above it — as "no lap", never a
+# real best. Filtered on every write path and purged from state each reconcile.
+BEST_TIME_SENTINEL = 2147483647
+
 
 def make_key(
     environment: str, experiment: str, track: str, car_model: str, driver: str
@@ -99,6 +104,8 @@ class BestLapsStore:
         of keys present after seeding."""
         with self._lock:
             for key, value in items:
+                if int(value.get("best_lap_ms", 0)) >= BEST_TIME_SENTINEL:
+                    continue  # never seed the INT_MAX stub
                 cur = self._index.get(key)
                 if cur is None or int(value.get("best_lap_ms", 0)) < int(
                     cur.get("best_lap_ms", 0)
@@ -121,9 +128,9 @@ class BestLapsStore:
 
         Returns the new value dict when the store changed (so the caller can
         also write it into the QuixStreams persistent State), else ``None``.
-        ``best_lap_ms <= 0`` or a blank driver is a no-op.
+        ``best_lap_ms <= 0``, the INT_MAX stub, or a blank driver is a no-op.
         """
-        if best_lap_ms <= 0 or not driver:
+        if best_lap_ms <= 0 or best_lap_ms >= BEST_TIME_SENTINEL or not driver:
             return None
         key = make_key(environment, experiment, track, car_model, driver)
         with self._lock:
@@ -151,7 +158,7 @@ class BestLapsStore:
         changed = 0
         with self._lock:
             for key, db_ms in reconciled.items():
-                if db_ms <= 0:
+                if db_ms <= 0 or db_ms >= BEST_TIME_SENTINEL:
                     continue
                 cur = self._index.get(key)
                 if cur is None:
@@ -172,6 +179,24 @@ class BestLapsStore:
                     cur["updated_epoch"] = time.time()
                     changed += 1
         return changed
+
+    def purge_sentinels(self) -> int:
+        """Drop any stored entries whose best lap is the INT_MAX stub
+        (``>= BEST_TIME_SENTINEL``). Returns the number removed.
+
+        Called every reconcile cycle so stub rows are cleaned out of existing
+        state in parallel with the incoming-Lakehouse-row filtering — covers
+        any legacy/seeded entry written before the write-path guards existed.
+        """
+        with self._lock:
+            doomed = [
+                k
+                for k, v in self._index.items()
+                if int(v.get("best_lap_ms", 0)) >= BEST_TIME_SENTINEL
+            ]
+            for k in doomed:
+                del self._index[k]
+            return len(doomed)
 
     # -- read (HTTP API) ---------------------------------------------------
 

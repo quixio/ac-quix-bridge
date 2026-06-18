@@ -39,7 +39,7 @@ from typing import Any
 
 from .enrichment import Enrichment
 from .settings import Settings
-from .store import BestLapsStore
+from .store import BEST_TIME_SENTINEL, BestLapsStore
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class RawConsumer:
             i_best = int(value.get("iBestTime") or 0)
         except (TypeError, ValueError):
             return
-        if i_best <= 0:
+        if i_best <= 0 or i_best >= BEST_TIME_SENTINEL:
             return
         fields = self._enrichment.enrich(value)
         driver = fields["driver"]
