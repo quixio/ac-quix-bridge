@@ -863,3 +863,4 @@ topics:
   - name: ac-telemetry-raw-replay2
     configuration:
       retentionInBytes: 524288000
+  - name: best-laps-events
