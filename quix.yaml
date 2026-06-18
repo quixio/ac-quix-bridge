@@ -713,7 +713,7 @@ deployments:
       urlPrefix: best-laps-cache
     state:
       enabled: true
-      size: 1
+      size: 3
     network:
       serviceName: best-laps-cache
       ports:
