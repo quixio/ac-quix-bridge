@@ -14,6 +14,7 @@ deployments:
       limits:
         cpu: 200
         memory: 500
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetrydashboard
@@ -32,23 +33,28 @@ deployments:
         description: Config topic to resolve the current driver from (DCM change events)
         required: true
         value: ac-telemetry-config
-      - name: session_input
-        inputType: InputTopic
-        description: Session topic to resolve the current track + car from (ac-telemetry-session)
-        required: true
-        value: ac-telemetry-session
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
-        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
-      - name: BEST_LAPS_CACHE_URL
+        value: ''
+      - name: TABLE_NAME
+        inputType: ProjectVariable
+        description: Lakehouse table the default leaderboard query reads. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment. Ignored when LEADERBOARD_SQL is set explicitly.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
+      - name: LEADERBOARD_SQL
         inputType: FreeText
-        description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
-        value: http://best-laps-cache
+        multiline: true
+        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Leave blank to use the built-in all-time fastest-lap-per-driver query against TABLE_NAME.
+        value: ''
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
-        value: 60
+        value: 15
+      - name: DATALAKE_INSECURE_SSL
+        inputType: FreeText
+        description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
+        value: ''
     blobStorage:
       bind: true
   - name: MongoDB
@@ -60,6 +66,7 @@ deployments:
       limits:
         cpu: 200
         memory: 800
+      replicas: 1
     state:
       enabled: true
       size: 3
@@ -89,6 +96,7 @@ deployments:
       limits:
         cpu: 200
         memory: 300
+      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -118,6 +126,7 @@ deployments:
       limits:
         cpu: 200
         memory: 300
+      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -143,6 +152,7 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
@@ -169,6 +179,7 @@ deployments:
       limits:
         cpu: 1000
         memory: 4000
+      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -253,6 +264,7 @@ deployments:
       limits:
         cpu: 500
         memory: 500
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager-api
@@ -342,6 +354,7 @@ deployments:
       limits:
         cpu: 500
         memory: 500
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager
@@ -401,6 +414,7 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: acvideobrowser
@@ -424,6 +438,7 @@ deployments:
       limits:
         cpu: 1000
         memory: 1000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetryexplorer
@@ -494,6 +509,7 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: backup-manager
@@ -563,6 +579,7 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: quixlab
@@ -619,6 +636,7 @@ deployments:
       limits:
         cpu: 500
         memory: 1500
+      replicas: 1
     configuration:
       topic: ac-telemetry-raw
   - name: leaderboard-service
@@ -629,6 +647,7 @@ deployments:
       limits:
         cpu: 1000
         memory: 2000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: leaderboard-service-9cb716a
@@ -705,62 +724,6 @@ deployments:
         secret: true
     blobStorage:
       bind: true
-  - name: best-laps-cache
-    application: best-laps-cache
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 500
-        memory: 1000
-    publicAccess:
-      enabled: true
-      urlPrefix: best-laps-cache
-    state:
-      enabled: true
-      size: 3
-    network:
-      serviceName: best-laps-cache
-      ports:
-        - port: 80
-          targetPort: 80
-    variables:
-      - name: output
-        inputType: InputTopic
-        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
-        required: true
-        value: ac-telemetry-raw
-      - name: session_output
-        inputType: InputTopic
-        description: Kafka topic for AC session events (ac-telemetry-session)
-        value: ac-telemetry-session
-      - name: config_input
-        inputType: InputTopic
-        description: DCM config events topic (ac-telemetry-config)
-        value: ac-telemetry-config
-      - name: CONFIG_API_URL
-        inputType: FreeText
-        description: DCM base URL for session/experiment enrichment
-        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
-      - name: LAKE_TABLE
-        inputType: ProjectVariable
-        description: Lakehouse table to scan for best laps. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
-        required: true
-        variableKey: AC_TELEMETRY_TABLE_NAME
-      - name: LAKE_COL_BEST_TIME
-        inputType: FreeText
-        value: iBestTime
-      - name: RECONCILE_INTERVAL_S
-        inputType: FreeText
-        value: 300
-      - name: HTTP_PORT
-        inputType: FreeText
-        value: 80
-      - name: CONSUMER_GROUP
-        inputType: FreeText
-        value: best-laps-cache
-    blobStorage:
-      bind: true
   - name: track-importer
     group: Test Manager
     application: track-importer
@@ -770,6 +733,7 @@ deployments:
       limits:
         cpu: 200
         memory: 500
+      replicas: 1
     variables:
       - name: MONGO_USER
         inputType: ProjectVariable
@@ -800,6 +764,7 @@ deployments:
       limits:
         cpu: 200
         memory: 300
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
@@ -822,6 +787,7 @@ deployments:
       limits:
         cpu: 500
         memory: 500
+      replicas: 1
     configuration:
       sourceWorkspaceId: demo-acquixbridge-dev
       sourceTopic: ac-telemetry-raw
@@ -833,6 +799,48 @@ deployments:
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
     disabled: true
+  - name: best-laps-cache
+    application: best-laps-cache
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 200
+        memory: 500
+      replicas: 1
+    variables:
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session)
+        value: ac-telemetry-session
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config)
+        value: ac-telemetry-config
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        description: DCM base URL for session/experiment enrichment
+        value: http://dynamic-configuration-manager
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry_prod
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: RECONCILE_INTERVAL_S
+        inputType: FreeText
+        value: 300
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: 80
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: best-laps-cache-v1.0
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -855,4 +863,3 @@ topics:
   - name: ac-telemetry-raw-replay2
     configuration:
       retentionInBytes: 524288000
-  - name: best-laps-events
