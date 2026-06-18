@@ -804,6 +804,9 @@ deployments:
     publicAccess:
       enabled: true
       urlPrefix: best-laps-cache-6172bf5
+    state:
+      enabled: true
+      size: 1
     network:
       serviceName: best-laps-cache
       ports:
