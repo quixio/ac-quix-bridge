@@ -738,10 +738,8 @@ deployments:
         description: DCM base URL for session/experiment enrichment
         value: http://dynamic-configuration-manager
       - name: LAKE_TABLE
-        inputType: ProjectVariable
-        description: Lakehouse table to scan for best laps. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
-        required: true
-        variableKey: AC_TELEMETRY_TABLE_NAME
+        inputType: FreeText
+        value: ac_telemetry_prod
       - name: LAKE_COL_BEST_TIME
         inputType: FreeText
         value: iBestTime
