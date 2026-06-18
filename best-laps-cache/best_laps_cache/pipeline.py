@@ -42,6 +42,7 @@ from typing import Any
 from quixstreams import Application
 from quixstreams.state import State
 
+from .boot_seed import run_boot_seed
 from .enrichment import Enrichment
 from .materialized import MaterializedView
 from .seed import seed_experiment_payload
@@ -81,6 +82,9 @@ class Pipeline:
         self._enrichment = enrichment
         self._view = view
         self._app = build_application(settings)
+        # Set in _build(); the boot seeder serialises against this exact Topic
+        # so its messages ride the same JSON contract the SDF consumes.
+        self._events_topic: Any = None
         self._build()
 
     @property
@@ -103,6 +107,7 @@ class Pipeline:
             key_deserializer="str",
             key_serializer="str",
         )
+        self._events_topic = events_topic
 
         # -- write branch: raw -> events("lap") ---------------------------
         sdf_raw = app.dataframe(raw_topic)
@@ -228,6 +233,20 @@ class Pipeline:
                 self._materialize(experiment, payload)
             return
 
+        if event_type == "seed":
+            # Proactive boot seed (boot_seed.run_boot_seed). The carried rows are
+            # the lakehouse bests for THIS experiment; fold them in-context — the
+            # actual RocksDB write — only when State is empty (idempotent: never
+            # clobber a populated experiment). Refresh the served view regardless
+            # so a restart with retained State still materialises the snapshot.
+            payload = state.get(experiment)
+            if not payload:
+                payload, changed = self._fold_seed_rows(value, payload)
+                if changed:
+                    state.set(experiment, payload)
+            self._materialize(experiment, payload)
+            return
+
         if event_type == "read":
             payload = state.get(experiment)
             if not payload:
@@ -237,6 +256,32 @@ class Pipeline:
                 if seeded:
                     state.set(experiment, payload)
             self._materialize(experiment, payload)
+
+    @staticmethod
+    def _fold_seed_rows(
+        value: dict[str, Any], payload: dict[str, Any] | None
+    ) -> tuple[dict[str, Any], bool]:
+        """Fold a boot ``type="seed"`` message's carried rows into *payload*.
+
+        Each row is ``{track, carModel, driver, best_lap_ms}``; INT_MAX/invalid
+        values are dropped by ``fold_lap``. Returns ``(payload, changed)``.
+        """
+        environment = str(value.get("environment") or "")
+        result = dict(payload) if payload else {}
+        any_changed = False
+        for row in value.get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            result, changed = fold_lap(
+                result,
+                str(row.get("track") or ""),
+                str(row.get("carModel") or ""),
+                str(row.get("driver") or ""),
+                int(row.get("best_lap_ms") or 0),
+                environment=environment,
+            )
+            any_changed = any_changed or changed
+        return result, any_changed
 
     def _materialize(self, experiment: str, payload: dict[str, Any] | None) -> None:
         rows = to_rows(experiment, payload)
@@ -248,6 +293,40 @@ class Pipeline:
             len(rows),
             time.time(),
         )
+
+    # -- boot seed ---------------------------------------------------------
+
+    def run_boot_seed(self) -> bool:
+        """Proactively seed State once at boot (call on a worker thread).
+
+        Delegates to :func:`best_laps_cache.boot_seed.run_boot_seed`, supplying a
+        ``produce_seed`` closure that serialises each per-experiment seed message
+        against the events Topic and produces it via a dedicated short-lived
+        producer. The stateful SDF then folds it in-context (the only place a
+        RocksDB write may happen). Never raises.
+        """
+        try:
+            return run_boot_seed(self._settings, self._produce_seed_message)
+        except Exception:  # noqa: BLE001 — boot seed must never crash startup
+            logger.exception("boot seed failed; lazy in-context seed remains")
+            return False
+
+    def _produce_seed_message(self, key: str, message: dict[str, Any]) -> None:
+        """Serialise + produce one ``type="seed"`` message to the events topic.
+
+        Uses the same ``self._events_topic`` serializers the stateful SDF
+        consumes with, so the boot message is wire-identical to a normal event.
+        A fresh producer is opened and flushed per call; the SDF owns the
+        consumer side, so this only needs the lightweight producer path.
+        """
+        topic = self._events_topic
+        kafka_msg = topic.serialize(key=key, value=message)
+        with self._app.get_producer() as producer:
+            producer.produce(
+                topic=topic.name,
+                key=kafka_msg.key,
+                value=kafka_msg.value,
+            )
 
     # -- run ---------------------------------------------------------------
 

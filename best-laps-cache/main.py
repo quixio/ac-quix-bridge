@@ -74,6 +74,19 @@ def main() -> int:
     )
     http_thread.start()
 
+    # Proactive cold-start lakehouse seed on a worker thread (never blocks the
+    # main thread, which app.run() needs for its signal handlers). It queries the
+    # lake ONCE (gated by the <state_dir>/.seeded marker) and produces one
+    # per-experiment {"type":"seed"} message to best-laps-events; the SDF — once
+    # running — folds each into State in-context. Producing onto the topic before
+    # app.run() has fully started is safe: the messages persist until consumed.
+    boot_seed_thread = threading.Thread(
+        target=pipeline.run_boot_seed,
+        name="boot-seed",
+        daemon=True,
+    )
+    boot_seed_thread.start()
+
     # Blocking; owns the main thread for the signal handlers app.run() installs.
     pipeline.run()
     return 0
