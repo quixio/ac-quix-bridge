@@ -805,9 +805,12 @@ deployments:
     deploymentType: Service
     resources:
       limits:
-        cpu: 200
-        memory: 500
+        cpu: 500
+        memory: 1000
       replicas: 1
+    state:
+      enabled: true
+      size: 3
     variables:
       - name: output
         inputType: InputTopic
@@ -825,7 +828,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         description: DCM base URL for session/experiment enrichment
-        value: http://dynamic-configuration-manager
+        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
       - name: LAKE_TABLE
         inputType: FreeText
         value: ac_telemetry_prod
