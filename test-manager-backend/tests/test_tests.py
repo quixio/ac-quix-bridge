@@ -882,35 +882,54 @@ def test_filter_drivers(create_test: TestFactory, client: TestClient) -> None:
     assert sorted(response.json()) == ["Alice", "Bob"]
 
 
-def test_last_requirements_empty_when_none(client: TestClient) -> None:
-    """No tests at all → empty string."""
-    response = client.get("/api/v1/tests/filters/last-requirements")
+def test_last_used_empty_when_none(client: TestClient) -> None:
+    """No tests at all → all-null fields, empty requirements."""
+    response = client.get("/api/v1/tests/filters/last-used")
     assert response.status_code == 200
-    assert response.json() == {"requirements": ""}
+    data = response.json()
+    assert data["requirements"] == ""
+    assert data["pc_device_id"] is None
+    assert data["test_rig_device_id"] is None
+    assert data["environment_id"] is None
+    assert data["driver"] is None
+    assert data["experiment_id"] is None
+    assert data["mode"] is None
 
 
-def test_last_requirements_returns_latest(
+def test_last_used_returns_latest_test_fields(
     create_test: TestFactory, client: TestClient
 ) -> None:
-    """Returns the requirements of the most recently created test."""
-    create_test(requirements="first reqs")
-    create_test(requirements="second reqs")
+    """Returns every prefillable field from the most recently created test."""
+    create_test(experiment_id="old_exp", driver="Old Driver", requirements="old")
+    _, second = create_test(
+        experiment_id="new_exp",
+        driver="New Driver",
+        mode="pro",
+        requirements="new reqs",
+    )
 
-    response = client.get("/api/v1/tests/filters/last-requirements")
+    response = client.get("/api/v1/tests/filters/last-used")
     assert response.status_code == 200
-    assert response.json() == {"requirements": "second reqs"}
+    data = response.json()
+    assert data["experiment_id"] == "new_exp"
+    assert data["driver"] == "New Driver"
+    assert data["mode"] == "pro"
+    assert data["requirements"] == "new reqs"
+    assert data["pc_device_id"] == second["pc_device_id"]
+    assert data["test_rig_device_id"] == second["test_rig_device_id"]
+    assert data["environment_id"] == second["environment_id"]
 
 
-def test_last_requirements_skips_empty(
+def test_last_used_takes_requirements_as_is(
     create_test: TestFactory, client: TestClient
 ) -> None:
-    """A newer test with blank requirements is skipped for the last non-empty one."""
-    create_test(requirements="real reqs")
-    create_test(requirements="")  # newer but blank — must not win
+    """Unlike the old endpoint, it does NOT skip a blank-requirements latest test."""
+    create_test(requirements="had reqs")
+    create_test(requirements="")  # newest, blank — taken verbatim
 
-    response = client.get("/api/v1/tests/filters/last-requirements")
+    response = client.get("/api/v1/tests/filters/last-used")
     assert response.status_code == 200
-    assert response.json() == {"requirements": "real reqs"}
+    assert response.json()["requirements"] == ""
 
 
 # ============================================================================

@@ -40,6 +40,17 @@ export interface Test {
   config_version: number | null;
 }
 
+// Most recent test's values, for prefilling the create-test form.
+export interface LastUsedDefaults {
+  pc_device_id: string | null;
+  test_rig_device_id: string | null;
+  environment_id: string | null;
+  driver: string | null;
+  experiment_id: string | null;
+  mode: TestMode | null;
+  requirements: string;
+}
+
 export interface TestCreate {
   experiment_id: string;
   pc_device_id: string;

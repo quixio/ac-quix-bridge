@@ -29,7 +29,18 @@ import type { Device } from "@/types/device";
 import type { Driver } from "@/types/driver";
 import type { Environment } from "@/types/environment";
 import type { Experiment } from "@/types/experiment";
-import type { TestMode } from "@/types/test";
+import type { TestMode, LastUsedDefaults } from "@/types/test";
+
+/** Preselect the last-used value if it still exists in the list, else the first
+ * option (preserves the original default when a value was deleted / on first run). */
+function pickPreselect<T>(
+  items: T[],
+  idOf: (item: T) => string,
+  preferred: string | null | undefined,
+): string {
+  if (preferred && items.some((i) => idOf(i) === preferred)) return preferred;
+  return items.length > 0 ? idOf(items[0]) : "";
+}
 
 export default function AddTestPage() {
   const router = useRouter();
@@ -64,25 +75,31 @@ export default function AddTestPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
+  // Most recent test's values; each dropdown preselects its field from here if
+  // the value still exists, else falls back to the first option.
+  const [lastUsed, setLastUsed] = useState<LastUsedDefaults | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [pcRes, rigRes, drvRes, envRes, expRes] = await Promise.all([
-          devicesApi.list({ category: DeviceCategory.PC, page_size: 100 }),
-          devicesApi.list({
-            category: DeviceCategory.TEST_RIG,
-            page_size: 100,
-          }),
-          driversApi.list({ page_size: 100 }),
-          environmentsApi.list({ page_size: 100 }),
-          experimentsApi.list({ page_size: 100 }),
-        ]);
+        const [pcRes, rigRes, drvRes, envRes, expRes, lastRes] =
+          await Promise.all([
+            devicesApi.list({ category: DeviceCategory.PC, page_size: 100 }),
+            devicesApi.list({
+              category: DeviceCategory.TEST_RIG,
+              page_size: 100,
+            }),
+            driversApi.list({ page_size: 100 }),
+            environmentsApi.list({ page_size: 100 }),
+            experimentsApi.list({ page_size: 100 }),
+            testsApi.getLastUsed(),
+          ]);
         setPcDevices(pcRes.items);
         setTestRigDevices(rigRes.items);
         setDrivers(drvRes.items);
         setEnvironments(envRes.items);
         setExperiments(expRes.items);
+        setLastUsed(lastRes);
       } catch (error) {
         console.error("Failed to fetch dropdown data:", error);
       }
@@ -90,41 +107,51 @@ export default function AddTestPage() {
     fetchData();
   }, []);
 
-  // Prefill requirements from the most recent test, but only if the user
-  // hasn't started typing by the time the request returns.
+  // Seed requirements from the last test, once, unless the user already typed.
   useEffect(() => {
-    const prefillRequirements = async () => {
-      try {
-        const { requirements: last } = await testsApi.getLastRequirements();
-        if (last && !requirementsTouched.current) {
-          setRequirements(last);
-        }
-      } catch (error) {
-        console.error("Failed to prefill requirements:", error);
-      }
-    };
-    prefillRequirements();
-  }, []);
+    if (lastUsed?.requirements && !requirementsTouched.current) {
+      setRequirements(lastUsed.requirements);
+    }
+  }, [lastUsed]);
+  // Seed mode from the last test (kept separate so picking a mode doesn't
+  // re-trigger the requirements seed). `mode` can't be cleared back to "", so
+  // the `!mode` guard only passes on the initial fill.
+  useEffect(() => {
+    if (lastUsed?.mode && !mode) {
+      setMode(lastUsed.mode);
+    }
+  }, [lastUsed, mode]);
 
-  // Preselect first option once items mount. Must run AFTER the render that
-  // mounts the SelectItems, otherwise Radix Select can't match the value to
-  // an item and resets via onValueChange(""). Prod-only race observed on
+  // Preselect each dropdown once its items mount. Must run AFTER the render
+  // that mounts the SelectItems, otherwise Radix Select can't match the value
+  // to an item and resets via onValueChange(""). Prod-only race observed on
   // cloud; dev worked because StrictMode re-renders masked the timing.
+  // `lastUsed` is in the deps defensively — it lands in the same React 18 batch
+  // as the lists today, but the dep keeps preselect correct if that batch ever
+  // splits (Suspense / concurrent).
   useEffect(() => {
     if (pcDevices.length > 0 && !pcDeviceId) {
-      setPcDeviceId(pcDevices[0].device_id);
+      setPcDeviceId(
+        pickPreselect(pcDevices, (d) => d.device_id, lastUsed?.pc_device_id),
+      );
     }
-  }, [pcDevices, pcDeviceId]);
+  }, [pcDevices, pcDeviceId, lastUsed]);
   useEffect(() => {
     if (testRigDevices.length > 0 && !testRigDeviceId) {
-      setTestRigDeviceId(testRigDevices[0].device_id);
+      setTestRigDeviceId(
+        pickPreselect(
+          testRigDevices,
+          (d) => d.device_id,
+          lastUsed?.test_rig_device_id,
+        ),
+      );
     }
-  }, [testRigDevices, testRigDeviceId]);
+  }, [testRigDevices, testRigDeviceId, lastUsed]);
   useEffect(() => {
     if (drivers.length > 0 && !driver) {
-      setDriver(drivers[0].name);
+      setDriver(pickPreselect(drivers, (d) => d.name, lastUsed?.driver));
     }
-  }, [drivers, driver]);
+  }, [drivers, driver, lastUsed]);
   // Select a just-created driver, but only once the refetched list actually
   // contains its SelectItem — setting the value in the same batch as setDrivers
   // trips the Radix preselect race (onValueChange("") clears it in prod).
@@ -136,14 +163,22 @@ export default function AddTestPage() {
   }, [drivers, pendingDriver]);
   useEffect(() => {
     if (environments.length > 0 && !environmentId) {
-      setEnvironmentId(environments[0].environment_id);
+      setEnvironmentId(
+        pickPreselect(
+          environments,
+          (e) => e.environment_id,
+          lastUsed?.environment_id,
+        ),
+      );
     }
-  }, [environments, environmentId]);
+  }, [environments, environmentId, lastUsed]);
   useEffect(() => {
     if (experiments.length > 0 && !experimentId) {
-      setExperimentId(experiments[0].name);
+      setExperimentId(
+        pickPreselect(experiments, (x) => x.name, lastUsed?.experiment_id),
+      );
     }
-  }, [experiments, experimentId]);
+  }, [experiments, experimentId, lastUsed]);
   // Select a just-created experiment once the refetched list contains it (same
   // Radix preselect race as the driver picker).
   useEffect(() => {
