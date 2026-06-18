@@ -843,7 +843,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-cache-v1.0
+        value: best-laps-cache-v1.1
 
 # This section describes the Topics of the data pipeline
 topics:
