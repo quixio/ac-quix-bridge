@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import {
+  AlertTriangle,
   CheckCircle2,
   Download,
   HelpCircle,
@@ -184,6 +185,70 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
     }
   };
 
+  const subtitle = [
+    analysis.test_id,
+    analysis.session_id
+      ? `Session ${formatSessionDate(analysis.session_id)}`
+      : "Test-wide",
+    subtitleExtras(analysis.extra),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  // Anything that isn't a finished report (failed, or a stale/orphaned run that
+  // never saved) has no KPIs/narrative — render a clear state instead of an
+  // empty "Post-Race Summary" shell.
+  if (analysis.status !== "complete") {
+    const failed = analysis.status === "failed";
+    const title = failed ? "Analysis failed" : "Analysis didn't finish";
+    const detail =
+      analysis.error ||
+      (failed
+        ? "The agent didn't finish before the run ended."
+        : "This run stalled and never produced a report — it may have been interrupted.");
+    const tag = analysis.error_kind || (failed ? null : analysis.status);
+    return (
+      <Card className="overflow-hidden">
+        <div className="flex items-center justify-end bg-[#0a0b24] px-6 py-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/quix-logo.svg" alt="Quix" className="h-5 w-auto" />
+        </div>
+        <div className="space-y-4 p-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--destructive)/0.12)]">
+              <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden />
+            </div>
+            <div className="space-y-0.5">
+              <h2 className="text-lg font-semibold">{title}</h2>
+              <p className="text-sm text-muted-foreground">{subtitle}</p>
+            </div>
+          </div>
+          <div className="rounded-md border border-[hsl(var(--destructive)/0.3)] bg-[hsl(var(--destructive)/0.06)] p-3">
+            <p className="break-words text-sm text-foreground">{detail}</p>
+            {tag && (
+              <span className="mt-1.5 inline-block rounded bg-[hsl(var(--destructive)/0.15)] px-1.5 py-0.5 font-mono text-xs text-destructive">
+                {tag}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Use <span className="font-medium text-foreground">Re-analyze</span>{" "}
+            above to try again.
+          </p>
+          <footer className="flex flex-wrap gap-3 border-t pt-3 text-xs text-muted-foreground">
+            {analysis.model && <span>{analysis.model}</span>}
+            {analysis.duration_ms != null && (
+              <span>
+                {failed ? "Failed" : "Stopped"} after{" "}
+                {formatDuration(analysis.duration_ms)}
+              </span>
+            )}
+          </footer>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="overflow-hidden">
       {/* Quix brand band */}
@@ -195,17 +260,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-0.5">
             <h2 className="text-lg font-semibold">Post-Race Summary</h2>
-            <p className="text-sm text-muted-foreground">
-              {[
-                analysis.test_id,
-                analysis.session_id
-                  ? `Session ${formatSessionDate(analysis.session_id)}`
-                  : "Test-wide",
-                subtitleExtras(analysis.extra),
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
           </div>
           {analysis.status === "complete" && (
             <div className="flex shrink-0 items-center gap-2">
