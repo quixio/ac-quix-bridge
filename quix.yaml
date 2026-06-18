@@ -648,7 +648,7 @@ deployments:
       urlPrefix: leaderboard-service-9cb716a
     state:
       enabled: true
-      size: 1
+      size: 2
     network:
       serviceName: leaderboard-service
       ports:
@@ -687,10 +687,8 @@ deployments:
         required: true
         value: ac-telemetry-config
       - name: LAKE_TABLE
-        inputType: ProjectVariable
-        description: Lakehouse table to query for rankings. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
-        required: true
-        variableKey: AC_TELEMETRY_TABLE_NAME
+        inputType: FreeText
+        value: AC_TELEMETRY_TABLE_NAME
       - name: LAKE_COL_CURRENT_TIME
         inputType: FreeText
         value: iCurrentTime
