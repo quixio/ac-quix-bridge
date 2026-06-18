@@ -39,6 +39,8 @@ from typing import Any, Literal
 import httpx
 from pymongo.database import Database
 
+from leaderboard_service_state.gate_vector import gate_vector_from_samples
+
 from .. import live_telemetry
 from ..lakehouse_client import LakehouseClient, LakehouseQueryError
 from ..live_telemetry import GATE_COUNT, _HistoricalEntry, _resolve_display_name
@@ -773,33 +775,11 @@ def _reduce_to_gate_vectors(
             )
             continue
 
-        gate_vector: list[int] = [0] * GATE_COUNT
-        scan_from = 0
-        for i in range(GATE_COUNT):
-            target = (i + 1) / GATE_COUNT
-            interp_ts: float | None = None
-            j = scan_from
-            n = len(samples)
-            while j < n - 1:
-                lo_pos, lo_ts = samples[j]
-                hi_pos, hi_ts = samples[j + 1]
-                if lo_pos <= target <= hi_pos:
-                    if hi_pos == lo_pos:
-                        interp_ts = float(lo_ts)
-                    else:
-                        frac = (target - lo_pos) / (hi_pos - lo_pos)
-                        interp_ts = lo_ts + frac * (hi_ts - lo_ts)
-                    scan_from = j
-                    break
-                j += 1
-            if interp_ts is None:
-                nearest = min(samples, key=lambda s, t=target: abs(s[0] - t))
-                interp_ts = float(nearest[1])
-            gate_vector[i] = max(0, int(interp_ts))
-
-        for i in range(1, GATE_COUNT):
-            if gate_vector[i] < gate_vector[i - 1]:
-                gate_vector[i] = gate_vector[i - 1]
+        # Shared samples->gate-vector reducer (the single source of truth, also
+        # used by the State write-branch reducer and the boot seed). Behaviour is
+        # identical to the inline loop this replaced — same linear interpolation,
+        # nearest-sample fallback, and monotonic clamp.
+        gate_vector = gate_vector_from_samples(samples, GATE_COUNT)
 
         entry = _HistoricalEntry(
             best_lap_ms=int(gate_vector[GATE_COUNT - 1]) or int(best_ms),
@@ -1277,6 +1257,81 @@ def _solo_active_group(
 
 
 # ---------------------------------------------------------------------------
+# State-native historical source (read-path-no-ram.md)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_target_experiment(active: dict[str, Any] | None) -> str:
+    """Pick the experiment State key to read for this request.
+
+    Prefer the live active driver's experiment; fall back to the pipeline's
+    session/config-resolved active experiment (so the board populates before
+    anyone drives). Empty string when nothing is resolvable yet.
+    """
+    if active:
+        exp = str(active.get("experiment") or "").strip()
+        if exp:
+            return exp
+    from leaderboard_service_state.runtime import get_runtime
+
+    runtime = get_runtime()
+    if runtime is None:
+        return ""
+    try:
+        return runtime.pipeline.active_experiment()
+    except Exception:  # noqa: BLE001 — never fail the board on a resolve hiccup
+        logger.exception("active_experiment() resolve failed")
+        return ""
+
+
+def _read_state_historicals(
+    active: dict[str, Any] | None,
+) -> tuple[
+    dict[tuple[str, str, str, str], dict[str, int]],
+    dict[tuple[str, str, str], dict[str, _HistoricalEntry]],
+]:
+    """Per-request, in-context State read -> (best_laps_cache, gate_vectors_cache).
+
+    Round-trips through the SDF once for the target experiment, builds the two
+    cache-shaped dicts the assembly path expects from the transient payload, then
+    lets the payload go out of scope. Returns empty dicts when no experiment is
+    resolvable, the runtime is not wired (e.g. LOCAL_DEV_MODE / tests), or the
+    read round-trip times out — the board renders empty rather than erroring.
+    """
+    from leaderboard_service_state import read_path
+    from leaderboard_service_state.runtime import get_runtime
+
+    empty_best: dict[tuple[str, str, str, str], dict[str, int]] = {}
+    empty_gates: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] = {}
+
+    runtime = get_runtime()
+    if runtime is None:
+        return empty_best, empty_gates
+
+    target = _resolve_target_experiment(active)
+    if not target:
+        return empty_best, empty_gates
+
+    payload, delivered = read_path.read_experiment_payload(
+        runtime.pipeline, runtime.pending, target
+    )
+    if not delivered:
+        logger.warning(
+            "live-positions: State read round-trip timed out for experiment=%s "
+            "-> empty board",
+            target,
+        )
+        return empty_best, empty_gates
+
+    best_laps_cache = read_path.best_laps_from_payload(target, payload)
+    gate_vectors_cache = read_path.historicals_from_payload(
+        target, payload, _HistoricalEntry
+    )
+    # `payload` deliberately dropped here — nothing persists between requests.
+    return best_laps_cache, gate_vectors_cache
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -1311,38 +1366,6 @@ def build_live_positions(
     Each historical row carries only `best_lap_ms` + display fields;
     every gate-state column is `None` until Step 2 lands.
     """
-    settings = get_settings()
-    if not settings.lakehouse_query_url or not settings.lakehouse_query_token:
-        raise LeaderboardError("Lakehouse credentials missing")
-
-    # Read from the in-process best-laps cache instead of hitting the
-    # lake on every poll. Cache refresh triggers are wired in
-    # `live_telemetry`: consumer warm-up, AC session message, DCM config
-    # event. The per-request path here is lake-free in the common case.
-    best_laps_cache = live_telemetry.get_best_laps_cache()
-    if best_laps_cache is None:
-        if not allow_cold_refresh:
-            # WS-connect path: never block the first snapshot on the lake.
-            # Serve an empty historicals set now; the background refresh
-            # will rebroadcast a populated snapshot when it lands.
-            best_laps_cache = {}
-        else:
-            # Cold start: no refresh has run yet (consumer thread might be
-            # disabled or hasn't reached its warm-up). Do one synchronous
-            # refresh so the first poll after backend boot still serves data.
-            try:
-                live_telemetry.refresh_best_laps_cache(
-                    settings.lakehouse_query_url, settings.lakehouse_query_token
-                )
-            except Exception as e:  # defensive — refresh already swallows
-                logger.exception("Lakehouse query failed")
-                raise LeaderboardError(str(e)) from e
-            best_laps_cache = live_telemetry.get_best_laps_cache()
-            if best_laps_cache is None:
-                # Still `None` after a refresh means every group query failed
-                # (genuine lake error) — a refresh that found no groups or no
-                # rows leaves `{}` instead, which serves as 200 below.
-                raise LeaderboardError("Lakehouse query failed; see backend logs")
     driver_name_lookup = _build_driver_name_lookup(mongo)
 
     try:
@@ -1351,12 +1374,15 @@ def build_live_positions(
         logger.exception("get_active_driver() raised; serving historical-only")
         active = None
 
-    # The gate-vectors cache may legitimately be `None` (cold start) or
-    # empty for a (track, car, experiment) — `_build_group_rows` and the
-    # gate-state helpers guard against that, so we pass it through and
-    # let the row-level code degrade to "no colour cue, no historical
-    # deltas".
-    gate_vectors_cache = live_telemetry.get_gate_vectors_cache()
+    # State-native historical source (read-path-no-ram.md): read the active
+    # experiment's payload from RocksDB State **per request, in-context** via the
+    # SDF round-trip — NO lake query on the request path and NO persistent view.
+    # The target experiment is the live active driver's experiment, else the
+    # pipeline's session/config-resolved active experiment. `best_laps_cache`
+    # (per-driver scalar bests) and `gate_vectors_cache` (per-driver
+    # `_HistoricalEntry` with the gate vector) are both built from the transient
+    # payload and discarded when this function returns.
+    best_laps_cache, gate_vectors_cache = _read_state_historicals(active)
 
     out: list[dict[str, object]] = []
     historical_keys = set(best_laps_cache.keys())

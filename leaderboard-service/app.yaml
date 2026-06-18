@@ -17,12 +17,13 @@ variables:
     inputType: FreeText
     required: true
   # Quix__Lakehouse__Query__Url and Quix__Lakehouse__Query__AuthToken are
-  # intentionally NOT declared here. They are auto-injected by Quix Cloud at
-  # runtime because the deployment has `blobStorage: bind: true` in
-  # `quix.yaml`. Declaring them here forces the portal to prompt for a
-  # value at deploy time, and a wrong manual value (e.g. the old dead
-  # QuixLake URL) silently overrides the auto-injection. Mirror the
-  # telemetry-comparison pattern (its app.yaml also doesn't declare these).
+  # intentionally NOT declared here. On DEV they are auto-injected by Quix
+  # Cloud at runtime because the deployment has `blobStorage: bind: true` in
+  # `quix.yaml`; declaring them at the app level forces a deploy-time prompt
+  # whose wrong manual value silently overrides the auto-injection. On BYOX
+  # they ARE declared in the quix.yaml deployment block (BYOX does not
+  # auto-inject without the declaration) — same split as best-laps-cache.
+  # The lake is used ONLY for the marker-gated cold-start State seed.
   - name: output
     inputType: InputTopic
     description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
@@ -36,6 +37,14 @@ variables:
     description: DCM config events topic (ac-telemetry-config) — declared so the pipeline view shows this service consuming it
     required: true
     defaultValue: ac-telemetry-config
+  - name: LEADERBOARD_EVENTS_TOPIC
+    inputType: OutputTopic
+    description: Internal experiment-keyed events topic for the State-native pipeline (write/read/seed/get_request). One stream_id -> one RocksDB store.
+    defaultValue: leaderboard-events
+  - name: STATE_CONSUMER_GROUP
+    inputType: FreeText
+    description: Consumer group for the State-native SDF (distinct from the active-stream consumer's leaderboard-service-ghost-lap group).
+    defaultValue: leaderboard-service-state
   - name: LAKE_TABLE
     inputType: FreeText
     defaultValue: ac_telemetry
