@@ -20,8 +20,10 @@ interface AddDriverDialogProps {
 }
 
 /** "+" button beside a driver picker that opens a dialog to create a driver
- * inline. The dialog content is portaled, so its <form> does not nest inside
- * a surrounding form. The trigger is type="button" so it never submits one. */
+ * inline. The trigger is type="button" so it never submits a surrounding form.
+ * The dialog content is DOM-portaled, but React still replays its <form> submit
+ * up the component tree — so DriverCreateForm calls stopPropagation to keep that
+ * submit out of an enclosing test <form>. */
 export function AddDriverDialog({ onCreated }: AddDriverDialogProps) {
   const [open, setOpen] = useState(false);
 

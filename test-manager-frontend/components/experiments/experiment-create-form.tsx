@@ -35,6 +35,9 @@ export function ExperimentCreateForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Stop the submit bubbling through the Dialog portal (React replays events
+    // up the component tree) into a surrounding test <form> and firing it.
+    e.stopPropagation();
     if (!canSubmit) return;
 
     try {
