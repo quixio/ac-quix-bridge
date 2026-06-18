@@ -17,7 +17,7 @@ from ..models import (
     TestFullData,
     SessionInfo,
     LogbookEntry,
-    LastRequirements,
+    LastUsedDefaults,
     PaginatedResponse,
 )
 
@@ -527,17 +527,29 @@ def get_drivers(
     return sorted([d for d in drivers if d])
 
 
-@router.get("/tests/filters/last-requirements", response_model=LastRequirements)
-def get_last_requirements(
+@router.get(
+    "/tests/filters/last-used",
+    response_model=LastUsedDefaults,
+    response_model_by_alias=False,
+)
+def get_last_used_defaults(
     mongo: Database[dict[str, Any]] = Depends(get_mongo),
     _: None = Depends(read_permission),
-) -> LastRequirements:
-    """Requirements of the most recently created test, for create-form prefill.
+) -> LastUsedDefaults:
+    """Prefill values from the most recently created test, for the create form.
 
-    Skips blank requirements so a newer empty test doesn't clear the suggestion.
+    Returns the test's fields verbatim (no skip-empty) — the frontend falls back
+    to its own defaults for any value that no longer resolves (deleted device etc).
     """
-    doc = mongo.tests.find_one(
-        {"requirements": {"$nin": [None, ""]}},
-        sort=[("created_at", -1), ("_id", -1)],
+    doc = mongo.tests.find_one({}, sort=[("created_at", -1), ("_id", -1)])
+    if not doc:
+        return LastUsedDefaults()
+    return LastUsedDefaults(
+        pc_device_id=doc.get("pc_device_id"),
+        test_rig_device_id=doc.get("test_rig_device_id"),
+        environment_id=doc.get("environment_id"),
+        driver=doc.get("driver"),
+        experiment_id=doc.get("experiment_id"),
+        mode=doc.get("mode"),
+        requirements=doc.get("requirements") or "",
     )
-    return LastRequirements(requirements=doc["requirements"] if doc else "")

@@ -140,9 +140,15 @@ class TestUpdate(BaseModel):
     mode: TestMode | None = None
 
 
-class LastRequirements(BaseModel):
-    """Most recent non-empty test requirements, for prefilling the create form."""
+class LastUsedDefaults(BaseModel):
+    """Most recent test's field values, for prefilling the create-test form."""
 
+    pc_device_id: str | None = None
+    test_rig_device_id: str | None = None
+    environment_id: str | None = None
+    driver: str | None = None
+    experiment_id: str | None = None
+    mode: TestMode | None = None
     requirements: str = ""
 
 
