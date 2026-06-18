@@ -68,6 +68,15 @@ def configure_logging() -> None:
     root = logging.getLogger()
     for h in root.handlers:
         h.setFormatter(fmt)
+        # Windows consoles default to cp1252, which can't encode Unicode in log
+        # messages (e.g. the arrow in session transitions). Force UTF-8.
+        # Best-effort: must never crash the source if the stream rejects it.
+        stream = getattr(h, "stream", None)
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
 
     if any(isinstance(h, RotatingFileHandler) for h in root.handlers):
         return  # idempotent: file handler already installed
@@ -77,7 +86,7 @@ def configure_logging() -> None:
     log_file = Path(os.environ.get("LOG_FILE") or Path(__file__).resolve().parent / "logs" / "acc-source.log")
     try:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = RotatingFileHandler(log_file, maxBytes=10_000_000, backupCount=5)
+        file_handler = RotatingFileHandler(log_file, maxBytes=10_000_000, backupCount=5, encoding="utf-8")
         file_handler.setFormatter(fmt)
         root.addHandler(file_handler)
         logger.info("File logging enabled: %s (rotating 10MB x5)", log_file)

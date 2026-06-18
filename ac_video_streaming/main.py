@@ -29,6 +29,17 @@ from video_source import ACVideoSource
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
 
+# Windows consoles default to cp1252, which can't encode Unicode in log messages
+# (e.g. the arrow in session transitions). Force UTF-8 on console handlers.
+# Best-effort: must never crash recording if the stream rejects it.
+for _h in logging.getLogger().handlers:
+    _stream = getattr(_h, "stream", None)
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (ValueError, OSError):
+            pass
+
 # Tee logs to a rotating file (default logs/video-source.log next to this module,
 # override with VIDEO_LOG_FILE) so recording/session history survives the terminal
 # closing on the sim PC. Best-effort: a bad path/FS must not crash recording.
@@ -37,7 +48,7 @@ _root = logging.getLogger()
 if not any(isinstance(h, RotatingFileHandler) for h in _root.handlers):
     try:
         _video_log.parent.mkdir(parents=True, exist_ok=True)
-        _fh = RotatingFileHandler(_video_log, maxBytes=10_000_000, backupCount=5)
+        _fh = RotatingFileHandler(_video_log, maxBytes=10_000_000, backupCount=5, encoding="utf-8")
         _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         _root.addHandler(_fh)
         logger.info("File logging enabled: %s (rotating 10MB x5)", _video_log)
