@@ -760,6 +760,7 @@ function fmtLap(ms) {
 //    a distinct colour. The live row re-sorts as the estimate evolves, so it climbs on a
 //    hot lap and slides back on a slow one. Dropped (no row) on an invalid lap.
 let posSessionId = null, lastBestMs = null;   // lastBestMs: session best (PB flash + best row)
+let lastCompletedLaps = null;                  // AC completedLaps (models.py:99); lap-edge trigger, reset per session
 let lbFlashUntil = 0;                          // flash the driver's best row until this time (new PB)
 let lbLastOrder = '', lbLastRender = 0;        // render throttle: on order change or ~5 Hz
 let lbLiveUntil = 0;                           // live row + dot shown while now() < this
@@ -850,7 +851,19 @@ function renderLeaderboard(flashName) {
 renderLeaderboard();
 
 function updateDriverPosition(d) {
-  if (d.session_id !== posSessionId) { posSessionId = d.session_id; lastBestMs = null; lbFlashUntil = 0; }
+  if (d.session_id !== posSessionId) {
+    posSessionId = d.session_id; lastBestMs = null; lbFlashUntil = 0; lastCompletedLaps = null;
+    schedulePollLeaderboard();   // new session: refresh standings once
+  }
+
+  // Lap-edge trigger: AC's completedLaps (models.py:99) increments at each lap
+  // crossing (= prior lap end + new lap start). Fire ONE coalesced /leaderboard
+  // refresh on the edge; the debounce collapses a multi-car finish burst.
+  const laps = (typeof d.completedLaps === 'number') ? d.completedLaps : null;
+  if (laps !== null) {
+    if (lastCompletedLaps !== null && laps > lastCompletedLaps) schedulePollLeaderboard();
+    lastCompletedLaps = laps;
+  }
 
   // Track this driver's session-best lap (AC's iBestTime is session-scoped, not all-time).
   const best = (typeof d.iBestTime === 'number' && d.iBestTime > 0 && d.iBestTime < INT_MAX) ? d.iBestTime : null;
@@ -895,7 +908,19 @@ function updateDriverPosition(d) {
 // Poll the backend /leaderboard proxy (best-laps-cache, filtered to the current
 // track + car). An empty response clears the board to empty (e.g. after switching
 // to a track with no recorded times); only a fetch/parse error keeps the last board.
-const LB_POLL_MS = 20000;
+// Cache hits are EVENT-DRIVEN now (lap-edge / session / config change), not a
+// tight interval — see schedulePollLeaderboard(). LB_POLL_MS is only a slow
+// safety-net fallback (2 min) so the board self-heals if every trigger is missed.
+const LB_POLL_MS = 120000;
+// Trailing-edge debounce: a burst of triggers (e.g. several cars finishing
+// near-simultaneously, or session+config+lap together) coalesces into ONE
+// /leaderboard GET ~3 s after the last event.
+const LB_DEBOUNCE_MS = 3000;
+let lbDebounceTimer = null;
+function schedulePollLeaderboard() {
+  if (lbDebounceTimer !== null) clearTimeout(lbDebounceTimer);
+  lbDebounceTimer = setTimeout(() => { lbDebounceTimer = null; pollLeaderboard(); }, LB_DEBOUNCE_MS);
+}
 async function pollLeaderboard() {
   try {
     const res = await fetch('/leaderboard', { cache: 'no-store' });
@@ -913,8 +938,8 @@ async function pollLeaderboard() {
     renderLeaderboard();
   } catch { /* keep current board */ }
 }
-setInterval(pollLeaderboard, LB_POLL_MS);
-pollLeaderboard();
+setInterval(pollLeaderboard, LB_POLL_MS);   // slow fallback only; real refresh is event-driven
+pollLeaderboard();                          // one fetch at startup
 
 // Update wheel rotation, shift lights, RPM readout, and the leaderboard from a frame.
 function updateSidebar(d) {
@@ -1236,9 +1261,9 @@ function connect() {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg && msg.type === 'status') { consumer = msg.status; return; }
-    if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); pollLeaderboard(); } return; }
-    if (msg && msg.type === 'experiment') { setExperiment(msg.experiment); pollLeaderboard(); return; }
-    if (msg && msg.type === 'session') { setSession(msg.track, msg.carModel); pollLeaderboard(); return; }
+    if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); schedulePollLeaderboard(); } return; }
+    if (msg && msg.type === 'experiment') { setExperiment(msg.experiment); schedulePollLeaderboard(); return; }
+    if (msg && msg.type === 'session') { setSession(msg.track, msg.carModel); schedulePollLeaderboard(); return; }
     lastLive = now();
     if (!forceDemo) onFrame(msg);   // demo loop stands down while live data flows
   };

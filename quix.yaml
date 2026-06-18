@@ -48,7 +48,7 @@ deployments:
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
-        value: 15
+        value: 60
     blobStorage:
       bind: true
   - name: MongoDB

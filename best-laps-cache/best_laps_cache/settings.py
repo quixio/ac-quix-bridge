@@ -77,9 +77,6 @@ class Settings:
     lake_table: str
     col_best_time: str
 
-    # Reconcile
-    reconcile_interval_s: float
-
     # HTTP
     http_host: str
     http_port: int
@@ -119,12 +116,6 @@ def get_settings() -> Settings:
         ),
         lake_table=lake_table,
         col_best_time=col_best_time,
-        # Floor at 30 s so the lakehouse is never queried more often than that,
-        # whatever RECONCILE_INTERVAL_S is set to (the live raw stream is the
-        # real-time source; reconcile is only a periodic backfill/correction).
-        reconcile_interval_s=max(
-            30.0, float(os.environ.get("RECONCILE_INTERVAL_S", "300"))
-        ),
         http_host=os.environ.get("HTTP_HOST", "0.0.0.0"),
         http_port=int(os.environ.get("HTTP_PORT", "80")),
         state_dir=os.environ.get("Quix__State__Dir", "state"),
