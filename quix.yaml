@@ -806,6 +806,11 @@ deployments:
     state:
       enabled: true
       size: 3
+    network:
+      serviceName: best-laps-cache
+      ports:
+        - port: 80
+          targetPort: 80
     variables:
       - name: output
         inputType: InputTopic
