@@ -132,8 +132,8 @@ def filter_rows(
 
     Experiment is intrinsic to the State key, so it is never a filter here
     (per ``api-wrapper-requirement.md``). A ``None`` dimension matches
-    everything. This is the core the GET wrapper calls over the materialized
-    current view.
+    everything. This is the core the GET wrapper calls over the transient
+    State payload read in-context per request.
     """
     return [
         row

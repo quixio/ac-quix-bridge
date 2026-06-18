@@ -165,28 +165,26 @@ def _make_pipeline_handler(tmp_path):
     """A Pipeline shell wired enough to exercise ``_handle_event`` offline.
 
     ``app.topic()`` hits the broker, so we bypass ``__init__``/``_build`` via
-    ``__new__`` and inject just the settings + a real MaterializedView. The
-    seed/read branches of ``_handle_event`` never call Kafka — only State (faked)
-    and the view — so this is sufficient and broker-free.
+    ``__new__`` and inject just the settings + a real PendingRequests bridge. The
+    seed branch of ``_handle_event`` is write-only (touches only the faked State),
+    so this is sufficient and broker-free.
     """
-    from best_laps_cache.materialized import MaterializedView
+    from best_laps_cache.request_bridge import PendingRequests
 
     settings = _settings(tmp_path)
-    view = MaterializedView()
+    pending = PendingRequests()
     pipeline = Pipeline.__new__(Pipeline)
     pipeline._settings = settings
-    pipeline._view = view
-    return pipeline, view
+    pipeline._pending = pending
+    return pipeline, pending
 
 
 def test_seed_handler_folds_when_state_empty(tmp_path):
-    pipeline, view = _make_pipeline_handler(tmp_path)
+    pipeline, _ = _make_pipeline_handler(tmp_path)
     state = _FakeState()  # empty -> seed should fold
     pipeline._handle_event(_seed_message(), state)
     payload = state.get("expA")
     assert payload["trk"]["car"] == {"Ada": 82345, "Bo": 91000}
-    rows, _ = view.get_rows("expA")
-    assert len(rows) == 2
 
 
 def test_seed_handler_skips_when_state_populated(tmp_path):
