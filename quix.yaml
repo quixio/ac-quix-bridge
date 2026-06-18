@@ -844,6 +844,8 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         value: best-laps-cache-v1.2
+    blobStorage:
+      -bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
