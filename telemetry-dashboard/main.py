@@ -27,6 +27,7 @@ clients: set[WebSocket] = set()
 loop: asyncio.AbstractEventLoop | None = None
 kafka_thread: threading.Thread | None = None
 config_thread: threading.Thread | None = None
+session_thread: threading.Thread | None = None
 
 # Consumer health, surfaced to the UI and /health. One of:
 # "starting" | "connecting" | "connected" | "reconnecting".
@@ -34,6 +35,11 @@ consumer_state: dict[str, str | None] = {"status": "starting", "detail": None}
 
 # Current driver name, resolved from ac-telemetry-config events via the DCM.
 current_driver: dict[str, str | None] = {"name": None}
+
+# Current session's track + car, resolved from the latest ac-telemetry-session
+# message. Drives the leaderboard filter and the header combo. None = unknown
+# (no session seen yet) → leaderboard serves the unfiltered all-time board.
+current_session: dict[str, str | None] = {"track": None, "carModel": None}
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -69,6 +75,27 @@ def set_current_driver(name: str | None):
     if loop is None or not clients:
         return
     msg = json.dumps({"type": "driver", "name": name})
+    asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
+
+
+def set_current_session(track: str | None, carModel: str | None):
+    """Update the current session's track + car and push it to browsers.
+
+    Treats empty string as unknown (None). No-op when nothing changed or when
+    both fields are unknown — mirrors set_current_driver's guard.
+    """
+    track = track or None
+    carModel = carModel or None
+    if not track and not carModel:
+        return
+    if track == current_session["track"] and carModel == current_session["carModel"]:
+        return
+    current_session["track"] = track
+    current_session["carModel"] = carModel
+    logger.info("Current session: track=%s carModel=%s", track, carModel)
+    if loop is None or not clients:
+        return
+    msg = json.dumps({"type": "session", "track": track, "carModel": carModel})
     asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
 
 
@@ -221,14 +248,68 @@ def run_config_consumer():
         backoff = min(backoff * 2, max_backoff)
 
 
+def run_session_consumer():
+    """Consume ac-telemetry-session; on each message store the current track +
+    carModel and broadcast them. Reads from earliest with auto-commit off, so
+    the current combo is recovered on every startup (latest message wins).
+    Reconnect loop mirrors run_config_consumer.
+    """
+    from quixstreams import Application as QuixApp
+
+    backoff = 1.0
+    max_backoff = 30.0
+
+    while True:
+        consumer = None
+        try:
+            qx = QuixApp(
+                consumer_group="telemetry-dashboard-session",
+                auto_offset_reset="earliest",
+                consumer_extra_config={"enable.auto.commit": False},
+            )
+            topic_name = os.environ.get("session_input", "ac-telemetry-session")
+            topic = qx.topic(topic_name)
+            consumer = qx.get_consumer()
+            consumer.subscribe([topic.name])
+            logger.info("Session consumer on '%s' (real: '%s')", topic_name, topic.name)
+            backoff = 1.0
+
+            while True:
+                msg = consumer.poll(1.0)
+                if msg is None:
+                    continue
+                if msg.error():
+                    logger.error("Session consumer error: %s", msg.error())
+                    continue
+                try:
+                    data = json.loads(msg.value())
+                    set_current_session(data.get("track"), data.get("carModel"))
+                except Exception:
+                    logger.exception("Failed handling session message")
+
+        except Exception:
+            logger.exception("Session consumer failed — retrying in %.0fs", backoff)
+        finally:
+            if consumer is not None:
+                try:
+                    consumer.close()
+                except Exception:
+                    pass
+
+        time.sleep(backoff)
+        backoff = min(backoff * 2, max_backoff)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global loop, kafka_thread, config_thread
+    global loop, kafka_thread, config_thread, session_thread
     loop = asyncio.get_event_loop()
     kafka_thread = threading.Thread(target=run_kafka, daemon=True)
     kafka_thread.start()
     config_thread = threading.Thread(target=run_config_consumer, daemon=True)
     config_thread.start()
+    session_thread = threading.Thread(target=run_session_consumer, daemon=True)
+    session_thread.start()
     logger.info("Dashboard started — open http://localhost:8000")
     yield
     logger.info("Shutting down dashboard")
@@ -253,7 +334,9 @@ async def health():
 # lakehouse fallback: if the cache is unavailable we serve stale rows when we
 # have them and otherwise an empty board. The live current-driver overlay is a
 # separate path (the /ws topic feed), not part of these standings.
-_lb_cache: dict = {"ts": 0.0, "rows": []}
+# Keyed by (track, carModel) so a session switch never serves the previous
+# combo's stale rows. (None, None) is the unfiltered cold-start board.
+_lb_cache: dict[tuple[str | None, str | None], dict] = {}
 
 
 def _http_verify():
@@ -290,14 +373,19 @@ def _parse_cache_csv(text: str) -> list[dict]:
     return rows
 
 
-async def _fetch_from_cache(base_url: str) -> list[dict]:
+async def _fetch_from_cache(
+    base_url: str, track: str | None = None, carModel: str | None = None
+) -> list[dict]:
     """GET the best-laps-cache /best-laps CSV and map it to the leaderboard
-    shape. Filters: none (all-time leaderboard across all groups)."""
+    shape. When track/carModel are given they are passed as query params so the
+    cache filters server-side (param name `carModel` matches the cache
+    contract). Empty/None filters are dropped → unfiltered all-time board."""
     target = f"{base_url.rstrip('/')}/best-laps"
-    logger.info("Leaderboard: GET %s (filters: none)", target)
+    params = {k: v for k, v in {"track": track, "carModel": carModel}.items() if v}
+    logger.info("Leaderboard: GET %s (filters=%s)", target, params or "none")
     t0 = time.monotonic()
     async with httpx.AsyncClient(timeout=20, verify=_http_verify()) as client:
-        r = await client.get(target)
+        r = await client.get(target, params=params)
     r.raise_for_status()
     rows = _parse_cache_csv(r.text)
     logger.info(
@@ -318,10 +406,17 @@ async def leaderboard():
     empty board. A blank BEST_LAPS_CACHE_URL is a misconfiguration, not a
     fallback trigger.
     """
+    # Filter by the current session's combo. Before any session message arrives
+    # both are None → unfiltered all-time board under cache key (None, None).
+    track = current_session["track"]
+    carModel = current_session["carModel"]
+    key = (track, carModel)
+
     ttl = float(os.environ.get("LEADERBOARD_TTL_SECONDS", "15"))
     now = time.monotonic()
-    if _lb_cache["rows"] and now - _lb_cache["ts"] < ttl:
-        return {"rows": _lb_cache["rows"], "cached": True}
+    entry = _lb_cache.get(key)
+    if entry and entry["rows"] and now - entry["ts"] < ttl:
+        return {"rows": entry["rows"], "cached": True}
 
     cache_url = os.environ.get("BEST_LAPS_CACHE_URL", "").strip()
     if not cache_url:
@@ -329,14 +424,14 @@ async def leaderboard():
         return {"rows": [], "error": "BEST_LAPS_CACHE_URL not configured"}
 
     try:
-        rows = await _fetch_from_cache(cache_url)
-        _lb_cache.update(ts=now, rows=rows)
+        rows = await _fetch_from_cache(cache_url, track, carModel)
+        _lb_cache[key] = {"ts": now, "rows": rows}
         return {"rows": rows, "source": "cache"}
     except Exception as e:
         logger.exception("Leaderboard cache fetch failed")
-        # Stale-then-empty: serve last good rows if we have any, else empty.
-        if _lb_cache["rows"]:
-            return {"rows": _lb_cache["rows"], "stale": True, "source": "cache", "error": str(e)}
+        # Stale-then-empty: serve last good rows for this combo if we have any.
+        if entry and entry["rows"]:
+            return {"rows": entry["rows"], "stale": True, "source": "cache", "error": str(e)}
         return {"rows": [], "source": "cache", "error": str(e)}
 
 
@@ -379,6 +474,8 @@ async def ws_endpoint(websocket: WebSocket):
     )
     if current_driver["name"]:
         await websocket.send_text(json.dumps({"type": "driver", "name": current_driver["name"]}))
+    if current_session["track"] or current_session["carModel"]:
+        await websocket.send_text(json.dumps({"type": "session", **current_session}))
     try:
         while True:
             await websocket.receive_text()

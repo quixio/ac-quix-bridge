@@ -70,6 +70,7 @@
   .driver-block { display: flex; flex-direction: column; align-items: center; gap: .3vh; }
   .driver-label { font-size: 1.2vh; font-weight: 700; letter-spacing: .12vw; text-transform: uppercase; color: var(--dim); }
   .driver { font-size: 2.8vh; font-weight: 800; line-height: 1; white-space: nowrap; text-transform: capitalize; }
+  .session-block .driver { font-size: 1.9vh; text-transform: none; }
   .toggle { display: flex; align-items: center; gap: .5vw; font-size: 1.4vh; color: var(--dim); cursor: pointer; user-select: none; white-space: nowrap; }
   .toggle input { width: 1.5vh; height: 1.5vh; accent-color: var(--cyan); cursor: pointer; }
 
@@ -261,6 +262,13 @@
   <div class="driver-block">
     <span class="driver-label">Current driver</span>
     <div class="driver" id="driver-name"></div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="session-block driver-block">
+    <span class="driver-label">Track / Car</span>
+    <div class="driver" id="session-combo">—</div>
   </div>
 
   <div class="spacer"></div>
@@ -689,6 +697,14 @@ function setDriver(name) {
   driverEl.textContent = name;
 }
 setDriver(driverName);   // seed from the URL param / 'Tomas' default
+
+// Current session's track + car, fed by the {type:"session"} WS message. The
+// leaderboard is server-filtered to this combo; this just shows it in the header.
+const sessionEl = document.getElementById('session-combo');
+function setSession(track, carModel) {
+  const parts = [track, carModel].filter(Boolean);
+  sessionEl.textContent = parts.length ? parts.join(' · ') : '—';
+}
 
 const leds = [];
 (function buildLeds() {
@@ -1236,6 +1252,7 @@ function connect() {
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg && msg.type === 'status') { consumer = msg.status; return; }
     if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); renderLeaderboard(); } return; }
+    if (msg && msg.type === 'session') { setSession(msg.track, msg.carModel); pollLeaderboard(); return; }
     lastLive = now();
     if (!forceDemo) onFrame(msg);   // demo loop stands down while live data flows
   };

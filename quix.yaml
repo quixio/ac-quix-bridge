@@ -32,6 +32,11 @@ deployments:
         description: Config topic to resolve the current driver from (DCM change events)
         required: true
         value: ac-telemetry-config
+      - name: session_input
+        inputType: InputTopic
+        description: Session topic to resolve the current track + car from (ac-telemetry-session)
+        required: true
+        value: ac-telemetry-session
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
