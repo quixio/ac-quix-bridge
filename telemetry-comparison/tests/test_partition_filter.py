@@ -2,7 +2,8 @@
 
 Pure function, no mocks required. Pins the quoting and special-case logic
 (CAST+LIKE for session_id) that the SQL-based endpoints rely on, plus the
-allow-list that blocks SQL injection via partition column values.
+single-quote escaping that neutralizes SQL injection while still allowing
+accented / Unicode partition values that legitimately exist in the lake.
 """
 
 from __future__ import annotations
@@ -40,31 +41,27 @@ def test_integer_values_not_quoted() -> None:
     assert _build_partition_filter(lap=3) == "WHERE lap = 3"
 
 
-def test_session_id_uses_cast_and_like_prefix() -> None:
-    # Hive stores as ISO-Z; frontend may send space-separated with microseconds.
-    # Filter must handle both by prefix-matching on a normalized form.
-    result = _build_partition_filter(session_id="2026-04-14T11:42:08.107Z")
-    assert "CAST(session_id AS VARCHAR) LIKE" in result
-    assert "2026-04-14 11:42:08.107" in result
+def test_session_id_iso_z_matches_stored_form_exactly() -> None:
+    # Stored partition path is ISO-8601 with trailing Z. Exact `=` lets the
+    # catalog prune to the one session; CAST+LIKE would defeat pruning (~7x).
+    assert _build_partition_filter(session_id="2026-04-14T11:42:08.107Z") == (
+        "WHERE session_id = '2026-04-14T11:42:08.107Z'"
+    )
 
 
-def test_session_id_with_space_format_normalizes() -> None:
-    result = _build_partition_filter(session_id="2026-04-14 11:42:08.1070000")
-    assert "CAST(session_id AS VARCHAR) LIKE" in result
-    # Trailing zeros are stripped so the prefix matches both formats
-    assert "2026-04-14 11:42:08.107" in result
+def test_session_id_display_form_canonicalized() -> None:
+    # DuckDB infers the partition as TIMESTAMP and displays it space-separated
+    # without the Z. Re-canonicalize to the stored ISO-Z form so it still
+    # matches the partition path (and still prunes).
+    assert _build_partition_filter(session_id="2026-04-14 11:42:08.107") == (
+        "WHERE session_id = '2026-04-14T11:42:08.107Z'"
+    )
 
 
-def test_session_id_like_pattern_escapes_underscore_and_percent() -> None:
-    """`_` slips the value allowlist (it's legitimate in non-LIKE values),
-    but inside a LIKE pattern `_` matches any single char and `%` matches any
-    run — without escaping, a session_id full of underscores would match many
-    sessions. The builder escapes both and adds an ESCAPE clause so the LIKE
-    is a true prefix match."""
-    result = _build_partition_filter(session_id="2026-04-17_06_39_45")
-    # Underscores in the prefix are escaped, ESCAPE clause is set
-    assert r"\_" in result
-    assert "ESCAPE '\\'" in result
+def test_session_id_missing_z_is_appended() -> None:
+    assert _build_partition_filter(session_id="2026-04-14T11:42:08.107") == (
+        "WHERE session_id = '2026-04-14T11:42:08.107Z'"
+    )
 
 
 def test_mixed_columns_combine_correctly() -> None:
@@ -77,26 +74,40 @@ def test_mixed_columns_combine_correctly() -> None:
     assert result.startswith("WHERE ")
     assert "environment = 'prague_office'" in result
     assert "lap = 2" in result
-    assert "CAST(session_id AS VARCHAR) LIKE" in result
+    assert "session_id = '2026-04-14T11:42:08.107Z'" in result
     assert result.count(" AND ") == 2
 
 
-def test_single_quote_in_value_rejected() -> None:
-    # A single quote inside a partition value would break out of the SQL
-    # string literal. The allow-list must reject it.
-    with pytest.raises(ValueError, match="Invalid character"):
-        _build_partition_filter(environment="o'hara")
+def test_single_quote_escaped_not_rejected() -> None:
+    # Apostrophes appear in real names (O'Hara). Escape by doubling instead of
+    # rejecting — same as the frontend Lakehouse embed and leaderboard.
+    assert _build_partition_filter(environment="o'hara") == ("WHERE environment = 'o''hara'")
 
 
-def test_sql_injection_attempt_rejected() -> None:
-    # Classic SQL-injection payload should be rejected cleanly.
-    with pytest.raises(ValueError):
-        _build_partition_filter(driver="' OR '1'='1")
+def test_sql_injection_neutralized_by_escaping() -> None:
+    # Classic payload is accepted but rendered inert: doubled quotes keep it
+    # inside the string literal, so it can't break out into a new statement.
+    assert _build_partition_filter(driver="' OR '1'='1") == ("WHERE driver = ''' OR ''1''=''1'")
 
 
-def test_semicolon_rejected() -> None:
-    with pytest.raises(ValueError):
+def test_semicolon_inert_inside_string_literal() -> None:
+    # A semicolon / DROP inside a quoted literal is just data, not a statement.
+    assert (
         _build_partition_filter(environment="prague_office; DROP TABLE ac_telemetry")
+        == "WHERE environment = 'prague_office; DROP TABLE ac_telemetry'"
+    )
+
+
+def test_accented_unicode_value_allowed() -> None:
+    # Accented partition values (Petr Čech, daniel laštic) are real lake
+    # partition keys — must build a query, not raise.
+    assert _build_partition_filter(driver="daniel laštic") == ("WHERE driver = 'daniel laštic'")
+
+
+def test_control_character_rejected() -> None:
+    # Control chars (newlines etc.) are never legitimate partition values.
+    with pytest.raises(ValueError, match="Invalid character"):
+        _build_partition_filter(driver="bad\nname")
 
 
 def test_benign_special_chars_allowed() -> None:
