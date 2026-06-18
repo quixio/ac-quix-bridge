@@ -625,6 +625,7 @@ deployments:
         order: 1
     blobStorage:
       bind: true
+    disabled: true
   - name: Quix DataLake Raw Sink
     group: Ingestion
     application: DataLake.Sink
