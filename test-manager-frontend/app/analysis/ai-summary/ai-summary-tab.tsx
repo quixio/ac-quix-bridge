@@ -49,6 +49,11 @@ type Mode = "session" | "test-wide";
 // keeps the chosen mode; only the user's toggle changes it.
 const MODE_LS_KEY = "analysis-mode";
 
+// An in-progress analysis older than this is treated as stale (orphaned) and no
+// longer greys the button — mirrors the backend dedup cutoff so the UI can't
+// get stuck "Analyzing…" forever. Past the runner's 15-min hard timeout.
+const STALE_IN_PROGRESS_MS = 20 * 60 * 1000;
+
 export function AiSummaryTab() {
   const params = useSearchParams();
   const router = useRouter();
@@ -189,7 +194,10 @@ export function AiSummaryTab() {
         // by another user/tab, or before this tab was reopened) so the button
         // greys out and polling resumes. A locally-set active id wins.
         const running = res.items.find(
-          (a) => a.status !== "complete" && a.status !== "failed",
+          (a) =>
+            a.status !== "complete" &&
+            a.status !== "failed" &&
+            Date.now() - new Date(a.created_at).getTime() < STALE_IN_PROGRESS_MS,
         );
         if (running) setActiveAnalysisId((cur) => cur ?? running.id);
       })

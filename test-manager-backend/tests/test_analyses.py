@@ -1,6 +1,6 @@
 """Tests for the Analysis Pydantic models and CRUD routes."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -606,6 +606,23 @@ def test_auto_dedup_ignores_failed(
     )
     assert resp.status_code == 202, resp.text
     assert resp.json()["analysis_id"] != "a-failed-1"
+
+
+def test_dedup_ignores_stale_in_progress(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """A stuck/orphaned in-progress analysis (older than the hard timeout) must
+    NOT block a fresh run — otherwise the button greys forever and no new
+    analysis can ever start for that target."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+    stale = datetime.now(timezone.utc) - timedelta(minutes=30)
+    _insert_analysis_for(test_id, session_id, "running", "a-stale", created_at=stale)
+
+    resp = client.post(
+        "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
+    )
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["analysis_id"] != "a-stale"
 
 
 def test_auto_dedup_returns_existing_complete(

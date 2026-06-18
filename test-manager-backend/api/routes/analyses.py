@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 IN_PROGRESS_STATUSES = ("pending", "running", "fetching", "analyzing", "saving")
+
+# An in-progress analysis older than this is treated as stale (orphaned by a
+# crash/restart, or a run that never started) — it no longer blocks a new run,
+# so the UI can't get stuck "Analyzing…" forever. Well past the runner's 15-min
+# hard timeout.
+STALE_IN_PROGRESS_AFTER = timedelta(minutes=20)
 
 # Hold strong refs to spawned tasks so Python's GC doesn't kill them
 # mid-run (asyncio.create_task only holds a weak reference).
@@ -111,16 +117,22 @@ async def create_analysis(
     # re-run a finished analysis manually. `failed` never blocks either path.
     # Non-atomic find-then-insert: two truly-simultaneous requests could both
     # miss — acceptable for seconds-apart human clicks; no atomic guard yet.
-    dedup_statuses = (
-        [*IN_PROGRESS_STATUSES, "complete"]
-        if payload.triggered_by == "auto"
-        else list(IN_PROGRESS_STATUSES)
-    )
+    # In-progress only blocks while it's fresh (a stale/orphaned run expires);
+    # auto also dedups a completed run, at any age.
+    fresh_cutoff = datetime.now(timezone.utc) - STALE_IN_PROGRESS_AFTER
+    dedup_conds: list[dict[str, Any]] = [
+        {
+            "status": {"$in": list(IN_PROGRESS_STATUSES)},
+            "created_at": {"$gte": fresh_cutoff},
+        }
+    ]
+    if payload.triggered_by == "auto":
+        dedup_conds.append({"status": "complete"})
     existing = mongo.analyses.find_one(
         {
             "test_id": test_id,
             "session_id": payload.session_id,
-            "status": {"$in": dedup_statuses},
+            "$or": dedup_conds,
         },
         sort=[("created_at", -1)],
     )

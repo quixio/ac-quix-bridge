@@ -77,7 +77,8 @@ function analysis(over: Record<string, unknown>) {
     test_id: "TST-1",
     session_id: "2026-05-22T10:30:00",
     status: "running",
-    created_at: "2026-05-22T10:31:00Z",
+    // Fresh by default so in-progress fixtures aren't treated as stale.
+    created_at: new Date(Date.now() - 60_000).toISOString(),
     summary_md: "",
     ...over,
   };
@@ -112,6 +113,26 @@ describe("AiSummaryTab — server in-progress discovery", () => {
     const btn = await screen.findByRole("button", { name: /analyz/i });
     await waitFor(() => expect(btn).toBeDisabled());
     expect(btn).toHaveTextContent(/analyzing/i);
+  });
+
+  it("ignores a stale in-progress run (older than the cutoff) — button stays enabled", async () => {
+    analysesList.mockResolvedValue({
+      items: [
+        analysis({
+          id: "stale-run",
+          status: "running",
+          created_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+
+    render(<AiSummaryTab />);
+
+    const btn = await screen.findByRole("button", { name: /analyz/i });
+    await waitFor(() => expect(btn).toBeEnabled());
   });
 
   it("leaves Analyze enabled when only a completed run exists (nothing in progress)", async () => {
