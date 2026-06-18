@@ -178,9 +178,12 @@ export default function EditTestPage() {
         mode: formMode as TestMode,
       });
 
+      const pcName =
+        pcDevices.find((d) => d.device_id === formPcDeviceId)?.name ??
+        formPcDeviceId;
       toast({
         title: "Test Updated",
-        description: `Test ${testId} has been updated.`,
+        description: `${testId} is now the active config for ${pcName}.`,
       });
 
       router.push(`/tests/${testId}`);

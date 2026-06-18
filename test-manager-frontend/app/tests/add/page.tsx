@@ -208,9 +208,11 @@ export default function AddTestPage() {
         mode: mode as TestMode,
       });
 
+      const pcName =
+        pcDevices.find((d) => d.device_id === pcDeviceId)?.name ?? pcDeviceId;
       toast({
         title: "Test Created",
-        description: `Test ${created.test_id} has been created.`,
+        description: `${created.test_id} is now the active config for ${pcName}.`,
       });
 
       router.push(`/tests/${created.test_id}`);
