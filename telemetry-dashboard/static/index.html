@@ -723,41 +723,11 @@ const leds = [];
 // can't drift apart.
 const DEMO_DRIVER_LAP_MS = 87480;   // ~1:27.480 -> lands the current driver at P18 below
 
-// Placeholder standings until the /leaderboard proxy answers. ms = lap time in ms.
-// A full 30-car field (> LB_WINDOW_MIN) so the pin-leader + window behaviour is the
-// default view: P1 pinned, a "..." gap, then the window centred on the current driver.
-let LEADERBOARD = [
-  { name: 'Mika',   ms: 81950 },
-  { name: 'Sergio', ms: 82210 },
-  { name: 'Elena',  ms: 82480 },
-  { name: 'Bruno',  ms: 82760 },
-  { name: 'Dan',    ms: 83050 },
-  { name: 'Yuki',   ms: 83320 },
-  { name: 'Carlos', ms: 83600 },
-  { name: 'Noah',   ms: 83910 },
-  { name: 'Lena',   ms: 84250 },
-  { name: 'Omar',   ms: 84580 },
-  { name: 'Priya',  ms: 84920 },
-  { name: 'Pavel',  ms: 85280 },
-  { name: 'Nora',   ms: 85640 },
-  { name: 'Hugo',   ms: 86010 },
-  { name: 'Ivan',   ms: 86390 },
-  { name: 'Sara',   ms: 86780 },
-  { name: 'Tariq',  ms: 87140 },
-  { name: 'Tomas',  ms: DEMO_DRIVER_LAP_MS },   // P18 — the current driver
-  { name: 'Leo',    ms: 87810 },
-  { name: 'Mei',    ms: 88150 },
-  { name: 'Wei',    ms: 88500 },
-  { name: 'Kai',    ms: 88860 },
-  { name: 'Ana',    ms: 89230 },
-  { name: 'Diego',  ms: 89610 },
-  { name: 'Theo',   ms: 90000 },
-  { name: 'Iris',   ms: 90400 },
-  { name: 'Otto',   ms: 90810 },
-  { name: 'Finn',   ms: 91230 },
-  { name: 'Rhys',   ms: 91660 },
-  { name: 'Zara',   ms: 92100 },
-];
+// Real standings only — populated from the /leaderboard proxy (best-laps-cache,
+// server-filtered to the current session's track + car). No placeholder/dummy
+// field: the board is simply empty until real times arrive, and clears back to
+// empty when the current track/car has none.
+let LEADERBOARD = [];
 
 // A lap is valid (has a real time) when it isn't AC's "no time set" sentinel. Single
 // source of truth for both the time formatter and the gap/badge logic below.
@@ -908,15 +878,16 @@ function updateDriverPosition(d) {
   }
 }
 
-// Poll the backend /leaderboard proxy (Data Lake-backed). Falls back silently to the
-// placeholder + live best if it's not configured or errors.
+// Poll the backend /leaderboard proxy (best-laps-cache, filtered to the current
+// track + car). An empty response clears the board to empty (e.g. after switching
+// to a track with no recorded times); only a fetch/parse error keeps the last board.
 const LB_POLL_MS = 20000;
 async function pollLeaderboard() {
   try {
     const res = await fetch('/leaderboard', { cache: 'no-store' });
     if (!res.ok) return;
     const j = await res.json();
-    if (!Array.isArray(j.rows) || !j.rows.length) return;
+    if (!Array.isArray(j.rows)) return;
     LEADERBOARD = j.rows.map(r => ({ name: r.name, ms: r.ms }));
     if (lastBestMs != null) {
       const me = (driverName || '').trim();
