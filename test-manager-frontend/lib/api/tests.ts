@@ -132,6 +132,8 @@ export const testsApi = {
       // null when the test has no sessions yet (no track/car to pin).
       track: string | null;
       carModel: string | null;
+      // Per-env lakehouse table (defaults to ac_telemetry server-side).
+      table_name: string;
     }>(`/tests/${testId}/telemetry-params`, undefined, token, refreshToken);
   },
 

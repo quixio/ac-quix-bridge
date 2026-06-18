@@ -344,6 +344,10 @@ deployments:
         inputType: FreeText
         description: Use implicit TLS (port 465) instead of STARTTLS (true/false).
         value: false
+      - name: TABLE_NAME
+        inputType: ProjectVariable
+        description: Lakehouse table the "View Data" embed queries. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment. Defaults to ac_telemetry if unset.
+        variableKey: AC_TELEMETRY_TABLE_NAME
   - name: Test Manager - Frontend
     group: Test Manager
     application: test-manager-frontend

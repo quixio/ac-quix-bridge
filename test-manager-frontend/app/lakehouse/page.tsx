@@ -39,6 +39,7 @@ function LakehouseView() {
       driver?: string | null;
       track?: string | null;
       carModel?: string | null;
+      table_name?: string | null;
     }) =>
       lakehouseIframeUrl(
         buildLakehouseQuery(

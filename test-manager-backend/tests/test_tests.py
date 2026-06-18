@@ -836,6 +836,8 @@ def test_get_telemetry_params(
     assert data["track"] == "monza"
     assert data["carModel"] == "ferrari_488"
     assert data["session_ids"] == ["session-1"]
+    # Lakehouse embed reads the per-env table from here; defaults to ac_telemetry.
+    assert data["table_name"] == "ac_telemetry"
 
 
 def test_get_telemetry_params_no_sessions(
@@ -854,6 +856,7 @@ def test_get_telemetry_params_no_sessions(
     assert data["track"] is None
     assert data["carModel"] is None
     assert data["session_ids"] == []
+    assert data["table_name"] == "ac_telemetry"
 
 
 # ============================================================================

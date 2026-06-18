@@ -46,6 +46,16 @@ class Settings(BaseSettings):
         description="Shared secret for the /mcp X-API-Key auth",
     )
 
+    # Lakehouse table the frontend "View Data" embed queries. Per-environment
+    # (ac_telemetry_dev / _prod / …); must match the AC Telemetry Lake sink.
+    # Env var TABLE_NAME matches the rest of the stack (lake sink, dashboard,
+    # explorer, leaderboard all read TABLE_NAME).
+    telemetry_table_name: str = Field(
+        "ac_telemetry",
+        alias="TABLE_NAME",
+        description="Lakehouse table name for telemetry queries (per-environment)",
+    )
+
     # Nested settings
     mongo: MongoSettings = Field(default_factory=MongoSettings)
 
