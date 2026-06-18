@@ -130,7 +130,7 @@ in-memory mirror.
 | `main.py` | Boots consumer thread + reconcile thread + uvicorn (main thread); joins workers on shutdown. |
 | `best_laps_cache/settings.py` | Env-driven `Settings` snapshot; validates `LAKE_TABLE`/`LAKE_COL_BEST_TIME` as SQL identifiers. |
 | `best_laps_cache/store.py` | `BestLapsStore` — thread-safe mirror; key encode/decode; `update_live` (min), `merge_reconcile` (min), `query`. |
-| `best_laps_cache/lakehouse_client.py` | Ported `/query` client: `verify=False`, bounded retry, CSV parse (`read_csv(low_memory=False, dtype=str)` on the five partition columns to suppress pandas `DtypeWarning` from chunked type inference). |
+| `best_laps_cache/lakehouse_client.py` | Ported `/query` client: `verify=False`, bounded retry. **Arrow-preferred, CSV fallback** — sends `Accept: application/vnd.apache.arrow.stream`; if the response `Content-Type` contains `arrow`, parses the IPC stream with pyarrow (`open_stream`, falling back to `open_file`), else runs the original text path: `# ERROR:`→raise, empty→empty, else `read_csv(low_memory=False)`. Both paths pin the five partition columns to `str`. Arrow support on the endpoint is unconfirmed, so a server that ignores the Accept header degrades transparently to CSV. |
 | `best_laps_cache/enrichment.py` | Session cache + DCM resolution; `enrich()` for the hot path. |
 | `best_laps_cache/reconcile.py` | `ReconcileWorker` (serialized daemon), `build_reconcile_sql`, `reduce_rows`. |
 | `best_laps_cache/consumer.py` | `RawConsumer` — QuixStreams Application + manual `get_consumer()` poll loop (no `app.run()`, no signal handlers) dispatching raw/session/config to the in-memory index + enrichment. |

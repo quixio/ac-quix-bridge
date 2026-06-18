@@ -10,6 +10,7 @@ dependencies = [
     "quixstreams",
     "pandas",
     "httpx",
+    "pyarrow",
 ]
 
 [dependency-groups]
