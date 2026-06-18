@@ -45,7 +45,9 @@ interface TestRow {
 
 type Mode = "session" | "test-wide";
 
-const modeLsKey = (testId: string) => `analysis-mode:${testId}`;
+// Single sticky preference across all tests (not per-test) — switching tests
+// keeps the chosen mode; only the user's toggle changes it.
+const MODE_LS_KEY = "analysis-mode";
 
 export function AiSummaryTab() {
   const params = useSearchParams();
@@ -73,23 +75,19 @@ export function AiSummaryTab() {
 
   const [mode, setMode] = useState<Mode>("session");
 
-  // Hydrate mode from localStorage when the active test changes.
+  // Restore the sticky mode once on mount (effect, not lazy init, to avoid an
+  // SSR/client hydration mismatch).
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!selectedTestId) {
-      setMode("session");
-      return;
-    }
-    const stored = window.localStorage.getItem(modeLsKey(selectedTestId));
-    setMode(stored === "test-wide" ? "test-wide" : "session");
-  }, [selectedTestId]);
+    const stored = window.localStorage.getItem(MODE_LS_KEY);
+    if (stored === "test-wide" || stored === "session") setMode(stored);
+  }, []);
 
-  // Persist mode per test_id.
+  // Persist the sticky mode whenever the user changes it.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!selectedTestId) return;
-    window.localStorage.setItem(modeLsKey(selectedTestId), mode);
-  }, [mode, selectedTestId]);
+    window.localStorage.setItem(MODE_LS_KEY, mode);
+  }, [mode]);
 
   const handlePickerChange = useCallback(
     (sel: { testId: string | null; sessionId: string | null }) => {
@@ -175,20 +173,37 @@ export function AiSummaryTab() {
       setSelectedAnalysisId(null);
       return;
     }
+    // Ignore a stale resolve after the target changed — otherwise the previous
+    // target's in-flight fetch could install its running id into the new one.
+    let cancelled = false;
     analysesApi
       .list(
         mode === "test-wide"
           ? { testId: selectedTestId, sessionIdIsNull: true }
           : { testId: selectedTestId, sessionId: selectedSessionId! },
       )
-      .then((res) => setHistory(res.items))
-      .catch((e) =>
+      .then((res) => {
+        if (cancelled) return;
+        setHistory(res.items);
+        // Re-discover an analysis already in progress for this target (started
+        // by another user/tab, or before this tab was reopened) so the button
+        // greys out and polling resumes. A locally-set active id wins.
+        const running = res.items.find(
+          (a) => a.status !== "complete" && a.status !== "failed",
+        );
+        if (running) setActiveAnalysisId((cur) => cur ?? running.id);
+      })
+      .catch((e) => {
+        if (cancelled) return;
         toast({
           title: "Failed to load history",
           description: String(e),
           variant: "destructive",
-        }),
-      );
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [
     selectedTestId,
     selectedSessionId,
@@ -198,10 +213,13 @@ export function AiSummaryTab() {
     toast,
   ]);
 
-  // Reset history selection when the (test, session, mode) tuple changes so we
-  // default back to "latest" rather than carrying a stale id over.
+  // Reset history selection AND the active (polling) id when the (test,
+  // session, mode) tuple changes — otherwise a previous target's running id
+  // would linger and block re-discovery for the new target.
   useEffect(() => {
     setSelectedAnalysisId(null);
+    setActiveAnalysisId(null);
+    setHistory([]);
   }, [selectedTestId, selectedSessionId, mode]);
 
   // Display priority: actively-polling run > user-picked from history > newest

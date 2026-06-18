@@ -20,7 +20,13 @@ export function useAnalysisPolling(
   const startedAt = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!analysisId) return;
+    if (!analysisId) {
+      // Clear so a caller doesn't keep showing the previous analysis after the
+      // active id is reset (e.g. switching test/session).
+      setData(null);
+      setError(null);
+      return;
+    }
 
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
