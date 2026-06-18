@@ -724,6 +724,7 @@ deployments:
         secret: true
     blobStorage:
       bind: true
+    disabled: true
   - name: track-importer
     group: Test Manager
     application: track-importer
