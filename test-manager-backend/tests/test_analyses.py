@@ -575,6 +575,7 @@ def _insert_analysis(status: str = "complete", analysis_id: str = "a-pdf-1") -> 
     return analysis_id
 
 
+@pytest.mark.requires_weasyprint
 def test_pdf_endpoint_returns_pdf_for_complete(client: TestClient) -> None:
     analysis_id = _insert_analysis(status="complete")
     resp = client.get(f"/api/v1/analyses/{analysis_id}/pdf")

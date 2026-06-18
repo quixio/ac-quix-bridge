@@ -73,9 +73,12 @@ def save_analysis(
         len(payload.summary_md),
     )
 
-    # F4: email the completed report to the test's driver (best-effort).
+    # F4: auto-email the completed report to the driver — ONLY for auto-triggered
+    # runs. Manual runs are emailed on demand via POST /analyses/{id}/email.
     fresh = mongo.analyses.find_one({"_id": analysis_id})
     if fresh:
-        email_completed_analysis(mongo, Analysis(**fresh))
+        analysis = Analysis(**fresh)
+        if analysis.triggered_by == "auto":
+            email_completed_analysis(mongo, analysis)
 
     return {"ok": True, "analysis_id": analysis_id}

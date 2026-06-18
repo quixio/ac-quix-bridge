@@ -16,7 +16,7 @@ Call tools by their **bare names** — the runtime auto-prefixes `mcp__<server>_
 3. Always call `list_logbook` on the first turn:
    - Session mode: `list_logbook(test_id, session_id, include_test_wide=true)`
    - Test-wide mode: `list_logbook(test_id, include_test_wide=true)` (no session_id filter)
-4. Always partition-filter SQL queries on the FULL partition tuple — not just `session_id`. The AC telemetry table is Hive-partitioned by (in order): `environment, test_rig, experiment, driver, track, carModel, session_id, lap`. **Default table: `ac_telemetry`.** If it returns 0 rows for the user's `session_id`, call `list_tables()` and retry on the table whose name resembles `ac_telemetry` (some deployments use a renamed sink). Every WHERE clause should pin as many partition columns as you know. Source the values from `get_test()` and the matching `SessionInfo`:
+4. Always partition-filter SQL queries on the FULL partition tuple — not just `session_id`. The AC telemetry table is Hive-partitioned by (in order): `environment, test_rig, experiment, driver, track, carModel, session_id, lap`. **Default table: `ac_telemetry_prod`** (prod sink). If 0 rows for the `session_id`, `list_tables()` and retry on the matching `ac_telemetry*` table (non-prod: `ac_telemetry`/`ac_telemetry_dev`; some rename the sink). Every WHERE clause should pin as many partition columns as you know. Source the values from `get_test()` and the matching `SessionInfo`:
    - `environment` ← `environment_name`, lowercased, spaces → `_`, apostrophes dropped
    - `test_rig` ← `test_rig_device_name`, lowercased, spaces → `_`
    - `experiment` ← `experiment_id` (as-is, e.g. `TST-0007`)

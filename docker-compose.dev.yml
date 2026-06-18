@@ -62,6 +62,14 @@ services:
       QUIX_TOKEN: ${QUIX_TOKEN:-}
       QUIX_AI_POST_RACE_AGENT_ID: ${QUIX_AI_POST_RACE_AGENT_ID:-}
       TESTMANAGER_MCP_API_KEY: ${TESTMANAGER_MCP_API_KEY:-}
+      # Post-race email (F4) — leave empty to keep SMTP disabled (Send → 503).
+      # Fill via the repo-root .env (gitignored) to test real sends.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
     volumes:
       - ./test-manager-backend:/app
       - ./shared:/app/shared

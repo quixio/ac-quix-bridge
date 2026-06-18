@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 import logging
 import os
+import secrets
 import socket
 from collections.abc import Sequence
 from typing import Any, AsyncGenerator
 
 import httpx
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -18,6 +20,7 @@ from .routes.analyses import router as analyses_router
 from .routes.devices import router as devices_router
 from .routes.drivers import router as drivers_router
 from .routes.environments import router as environments_router
+from .routes.experiments import router as experiments_router
 from .routes.integrations import router as integrations_router
 from .routes.logbook import router as logbook_router
 from .routes.portal import router as portal_router
@@ -215,6 +218,9 @@ def create_app() -> FastAPI:
     application.include_router(
         environments_router, tags=["environments"], prefix="/api/v1"
     )
+    application.include_router(
+        experiments_router, tags=["experiments"], prefix="/api/v1"
+    )
     application.include_router(logbook_router, tags=["logbook"], prefix="/api/v1")
     application.include_router(user_router, tags=["user"], prefix="/api/v1")
     application.include_router(
@@ -229,6 +235,12 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    # Added last so it wraps outermost: every other middleware + handler sees
+    # the correlation_id contextvar set, and our log filter picks it up.
+    application.add_middleware(
+        CorrelationIdMiddleware,
+        generator=lambda: secrets.token_hex(6),
     )
 
     @application.get("/health")

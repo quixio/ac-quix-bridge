@@ -54,7 +54,7 @@ When the user message specifies `scope: test-wide` (no `session_id`), call `list
 
 ## Partition mapping — Test Manager → QuixLake AC telemetry tables
 
-**Default lake table: `ac_telemetry`.** If `FROM ac_telemetry` returns 0 rows for the user's `session_id`, call `list_tables()` and retry on the table whose name resembles `ac_telemetry` (some deployments use a renamed sink). Use `list_partition_combinations(table)` to confirm which table holds the session before composing the query.
+**Default lake table: `ac_telemetry_prod`** (production sink). If `FROM ac_telemetry_prod` returns 0 rows for the user's `session_id`, call `list_tables()` and retry on the matching `ac_telemetry*` table (non-prod environments use `ac_telemetry`, `ac_telemetry_dev`, … — some deployments rename the sink). Use `list_partition_combinations(table)` to confirm which table holds the session before composing the query.
 
 Both tables share the same Hive partition layout, in order:
 
@@ -79,7 +79,7 @@ Example query for a session-scoped best-lap KPI:
 
 ```sql
 SELECT MIN(iBestTime) FILTER (WHERE iBestTime > 0 AND iBestTime < 2147483647) AS best_ms
-FROM ac_telemetry
+FROM ac_telemetry_prod
 WHERE environment = 'thermal_lab'
   AND test_rig    = 'rig_a'
   AND experiment  = 'TST-0007'

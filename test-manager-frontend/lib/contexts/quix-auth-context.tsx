@@ -164,41 +164,44 @@ export function QuixAuthProvider({ children }: QuixAuthProviderProps) {
   }, [requestTokenFromPortal, setToken]);
 
   // Handle manual token submission in standalone mode
-  const handleTokenSubmit = useCallback(async (submittedToken: string) => {
-    setAuthError(null);
+  const handleTokenSubmit = useCallback(
+    async (submittedToken: string) => {
+      setAuthError(null);
 
-    try {
-      // Validate token by making a test API call
-      console.log("[Quix Auth] Validating submitted token...");
-      const testResponse = await fetch("/api/v1/user/me", {
-        headers: {
-          Authorization: `Bearer ${submittedToken}`,
-        },
-      });
+      try {
+        // Validate token by making a test API call
+        console.log("[Quix Auth] Validating submitted token...");
+        const testResponse = await fetch("/api/v1/user/me", {
+          headers: {
+            Authorization: `Bearer ${submittedToken}`,
+          },
+        });
 
-      if (testResponse.ok) {
-        // Token is valid
-        console.log("[Quix Auth] Token validated successfully");
-        localStorage.setItem(STANDALONE_TOKEN_KEY, submittedToken);
-        setToken(submittedToken);
-        setShowAuthDialog(false);
-        setAuthError(null);
-        setError(null);
-      } else {
-        // Token is invalid
-        const errorMsg = `Token validation failed: ${testResponse.status} ${testResponse.statusText}`;
-        console.error("[Quix Auth]", errorMsg);
+        if (testResponse.ok) {
+          // Token is valid
+          console.log("[Quix Auth] Token validated successfully");
+          localStorage.setItem(STANDALONE_TOKEN_KEY, submittedToken);
+          setToken(submittedToken);
+          setShowAuthDialog(false);
+          setAuthError(null);
+          setError(null);
+        } else {
+          // Token is invalid
+          const errorMsg = `Token validation failed: ${testResponse.status} ${testResponse.statusText}`;
+          console.error("[Quix Auth]", errorMsg);
+          setAuthError(errorMsg);
+          throw new Error(errorMsg);
+        }
+      } catch (err) {
+        const errorMsg =
+          err instanceof Error ? err.message : "Failed to validate token";
+        console.error("[Quix Auth] Token validation error:", errorMsg);
         setAuthError(errorMsg);
-        throw new Error(errorMsg);
+        throw err;
       }
-    } catch (err) {
-      const errorMsg =
-        err instanceof Error ? err.message : "Failed to validate token";
-      console.error("[Quix Auth] Token validation error:", errorMsg);
-      setAuthError(errorMsg);
-      throw err;
-    }
-  }, [setToken]);
+    },
+    [setToken],
+  );
 
   // Clear token and re-prompt for standalone mode (called on 401/403)
   const clearTokenAndPrompt = useCallback(() => {

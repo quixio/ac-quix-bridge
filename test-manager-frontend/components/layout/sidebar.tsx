@@ -13,6 +13,7 @@ import {
   Users,
   TrendingUp,
   Database,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSidebar } from "@/lib/contexts/sidebar-context";
@@ -28,6 +29,7 @@ const navItems: NavItem[] = [
   { href: "/tests", icon: FileText, label: "Tests" },
   { href: "/devices", icon: Box, label: "Devices" },
   { href: "/environments", icon: Server, label: "Environments" },
+  { href: "/experiments", icon: FlaskConical, label: "Experiments" },
   { href: "/drivers", icon: Users, label: "Drivers" },
 ];
 

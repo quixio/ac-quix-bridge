@@ -8,6 +8,8 @@ import type {
   Analysis,
   AnalysisCreateRequest,
   AnalysisListResponse,
+  AnalysisRecipient,
+  EmailSendResult,
 } from "@/types/analysis";
 
 export const analysesApi = {
@@ -83,5 +85,37 @@ export const analysesApi = {
     refreshToken?: () => Promise<string | null>,
   ) => {
     return apiGetBlob(`/analyses/${analysisId}/pdf`, token, refreshToken);
+  },
+
+  /**
+   * Resolve the test driver's email for the manual-send confirmation dialog.
+   */
+  getRecipient: (
+    analysisId: string,
+    token?: string | null,
+    refreshToken?: () => Promise<string | null>,
+  ) => {
+    return apiGet<AnalysisRecipient>(
+      `/analyses/${analysisId}/recipient`,
+      undefined,
+      token,
+      refreshToken,
+    );
+  },
+
+  /**
+   * Manually email a completed analysis PDF to the test's driver.
+   */
+  sendEmail: (
+    analysisId: string,
+    token?: string | null,
+    refreshToken?: () => Promise<string | null>,
+  ) => {
+    return apiPost<EmailSendResult>(
+      `/analyses/${analysisId}/email`,
+      {},
+      token,
+      refreshToken,
+    );
   },
 };

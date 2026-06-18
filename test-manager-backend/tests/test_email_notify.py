@@ -1,7 +1,7 @@
 """Tests for F4 — best-effort post-race email notification on analysis complete."""
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -50,19 +50,23 @@ def _insert_analysis(
     status: str = "complete",
     session_id: str | None = "2026-01-01T00:00:00Z",
     aid: str = "a-email-1",
+    triggered_by: str | None = None,
 ) -> Analysis:
     now = datetime.now(timezone.utc)
     doc = Analysis(
         _id=aid,
         test_id=test_id,
         session_id=session_id,
-        status=status,  # type: ignore[arg-type]
+        triggered_by=cast(Any, triggered_by),
+        status=cast(Any, status),
         summary_md="## ok",
         created_at=now,
         updated_at=now,
     )
     get_mongo().analyses.insert_one(doc.model_dump(by_alias=True))
-    return Analysis(**get_mongo().analyses.find_one({"_id": aid}))
+    stored = get_mongo().analyses.find_one({"_id": aid})
+    assert stored is not None
+    return Analysis(**stored)
 
 
 def _stub_email(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
@@ -149,17 +153,19 @@ def test_never_raises_on_send_failure(
     notify.email_completed_analysis(get_mongo(), analysis)
 
 
-def test_save_analysis_triggers_email(
+def test_save_analysis_auto_triggers_email(
     client: TestClient,
     create_test: TestFactory,
     create_driver: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """save_analysis (the single completion chokepoint) fires the email once,
-    with the now-complete analysis."""
+    """save_analysis auto-emails ONLY for auto-triggered runs, with the
+    now-complete analysis."""
     create_driver(name="Edsger Dijkstra")
     _, test = create_test(driver="Edsger Dijkstra")
-    _insert_analysis(test["test_id"], status="pending", aid="a-pending-1")
+    _insert_analysis(
+        test["test_id"], status="pending", aid="a-pending-1", triggered_by="auto"
+    )
 
     seen: dict[str, Any] = {}
 
@@ -172,6 +178,111 @@ def test_save_analysis_triggers_email(
 
     assert seen["analysis"].id == "a-pending-1"
     assert seen["analysis"].status == "complete"
+
+
+def test_save_analysis_manual_does_not_auto_email(
+    client: TestClient,
+    create_test: TestFactory,
+    create_driver: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Manual runs are NOT auto-emailed — they go out via the explicit endpoint."""
+    create_driver(name="Edsger Dijkstra")
+    _, test = create_test(driver="Edsger Dijkstra")
+    _insert_analysis(
+        test["test_id"], status="pending", aid="a-manual-1", triggered_by="manual"
+    )
+
+    called = False
+
+    def _spy(mongo: Any, analysis: Analysis) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("api.routes.mcp.handlers.write.email_completed_analysis", _spy)
+
+    save_analysis(get_mongo(), analysis_id="a-manual-1", summary_md="# done")
+
+    assert called is False
+
+
+# --- Manual send endpoints ------------------------------------------------ #
+
+
+def test_recipient_endpoint_returns_driver_email(
+    client: TestClient,
+    create_test: TestFactory,
+    create_driver: Any,
+) -> None:
+    create_driver(name="Ada Lovelace")
+    _, test = create_test(driver="Ada Lovelace")
+    _insert_analysis(test["test_id"], aid="a-rcpt-1")
+
+    r = client.get("/api/v1/analyses/a-rcpt-1/recipient")
+
+    assert r.status_code == 200
+    assert r.json() == {"email": "ada.lovelace@example.com", "has_email": True}
+
+
+def test_recipient_endpoint_no_email(
+    client: TestClient,
+    create_test: TestFactory,
+) -> None:
+    _, test = create_test(driver="Ghost Driver")
+    _insert_analysis(test["test_id"], aid="a-rcpt-2")
+
+    r = client.get("/api/v1/analyses/a-rcpt-2/recipient")
+
+    assert r.status_code == 200
+    assert r.json() == {"email": None, "has_email": False}
+
+
+def test_manual_email_sends_and_returns_recipient(
+    client: TestClient,
+    create_test: TestFactory,
+    create_driver: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create_driver(name="Ada Lovelace")
+    _, test = create_test(driver="Ada Lovelace")
+    _insert_analysis(test["test_id"], aid="a-send-1")
+    captured = _stub_email(monkeypatch)
+
+    r = client.post("/api/v1/analyses/a-send-1/email")
+
+    assert r.status_code == 200
+    assert r.json() == {"sent": True, "email": "ada.lovelace@example.com"}
+    assert captured["to"] == "ada.lovelace@example.com"
+
+
+def test_manual_email_409_when_not_complete(
+    client: TestClient,
+    create_test: TestFactory,
+    create_driver: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create_driver(name="Ada Lovelace")
+    _, test = create_test(driver="Ada Lovelace")
+    _insert_analysis(test["test_id"], status="pending", aid="a-send-2")
+    _stub_email(monkeypatch)
+
+    r = client.post("/api/v1/analyses/a-send-2/email")
+
+    assert r.status_code == 409
+
+
+def test_manual_email_422_when_no_driver_email(
+    client: TestClient,
+    create_test: TestFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, test = create_test(driver="Ghost Driver")
+    _insert_analysis(test["test_id"], aid="a-send-3")
+    _stub_email(monkeypatch)  # SMTP configured, but the driver has no email
+
+    r = client.post("/api/v1/analyses/a-send-3/email")
+
+    assert r.status_code == 422
 
 
 # --- SMTP transport (shared.post_race_ai.email) --------------------------- #

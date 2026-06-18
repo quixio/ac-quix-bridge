@@ -63,6 +63,16 @@ export interface AnalysisCreateRequest {
   session_id: string | null;
 }
 
+export interface AnalysisRecipient {
+  email: string | null;
+  has_email: boolean;
+}
+
+export interface EmailSendResult {
+  sent: boolean;
+  email: string;
+}
+
 export interface AnalysisListResponse {
   items: Analysis[];
   total: number;
