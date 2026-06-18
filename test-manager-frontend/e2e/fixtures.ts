@@ -40,12 +40,13 @@ export async function waitForToast(page: any, expectedText?: string) {
 }
 
 /**
- * Fill the create-test form with valid data. Selects the first available
- * option in each of the four dropdowns (PC, Test Rig, Environment, Driver),
- * then fills the experiment_id input and optional requirements textarea.
+ * Fill the create-test form with valid data. Picks the first option for
+ * PC / Test Rig / Environment / Driver, creates + selects a unique Experiment
+ * via the inline +Add dialog (experiment is now a managed entity, so the given
+ * `experimentId` must exist), sets Mode, and fills optional requirements.
  *
- * Assumes the backend already has at least one device/env/driver of each
- * kind seeded (e.g. via `scripts/load_snapshot.py`).
+ * Assumes the backend has at least one device/env/driver seeded
+ * (e.g. via `scripts/load_snapshot.py`).
  */
 export async function fillCreateTestForm(
   page: any,
@@ -55,19 +56,26 @@ export async function fillCreateTestForm(
     mode?: "Easy" | "Medium" | "Pro";
   },
 ) {
-  // Five Radix Selects in DOM order: PC, Test Rig, Environment, Driver, Mode.
+  // Six Radix Selects in DOM order: 0 PC, 1 Test Rig, 2 Environment,
+  // 3 Experiment, 4 Driver, 5 Mode.
   const selects = page.getByRole("combobox");
-  for (let i = 0; i < 5; i++) {
+  for (const i of [0, 1, 2, 4]) {
     await selects.nth(i).click();
     await page.getByRole("option").first().click();
   }
-  // The loop leaves Mode (5th select) on its first option (Easy); override if asked.
-  if (data.mode && data.mode !== "Easy") {
-    await selects.nth(4).click();
-    await page.getByRole("option", { name: data.mode, exact: true }).click();
-  }
-  await page.locator("#experiment_id").fill(data.experimentId);
-  if (data.requirements) {
-    await page.locator("#requirements").fill(data.requirements);
-  }
+  // Experiment: create + auto-select a unique one via the +Add dialog so
+  // experiment-id assertions hold (free text is no longer accepted).
+  await page.getByRole("button", { name: "Add experiment" }).click();
+  await page.locator("#experiment-name").fill(data.experimentId);
+  await page.getByRole("button", { name: "Create Experiment" }).click();
+  await expect(page.locator("#experiment-name")).toBeHidden();
+  await expect(selects.nth(3)).toContainText(data.experimentId);
+  // Mode has no auto-default — set it explicitly (first option = Easy).
+  await selects.nth(5).click();
+  await page
+    .getByRole("option", { name: data.mode ?? "Easy", exact: true })
+    .click();
+  // Always set requirements (clearing the last-used prefill) so the created
+  // test has a deterministic baseline — empty unless specified.
+  await page.locator("#requirements").fill(data.requirements ?? "");
 }
