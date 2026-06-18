@@ -738,8 +738,10 @@ deployments:
         description: DCM base URL for session/experiment enrichment
         value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
       - name: LAKE_TABLE
-        inputType: FreeText
-        value: ac_telemetry_prod
+        inputType: ProjectVariable
+        description: Lakehouse table to scan for best laps. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
+        required: true
+        variableKey: AC_TELEMETRY_TABLE_NAME
       - name: LAKE_COL_BEST_TIME
         inputType: FreeText
         value: iBestTime
