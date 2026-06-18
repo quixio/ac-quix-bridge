@@ -36,6 +36,12 @@ consumer_state: dict[str, str | None] = {"status": "starting", "detail": None}
 # Current driver name, resolved from ac-telemetry-config events via the DCM.
 current_driver: dict[str, str | None] = {"name": None}
 
+# Current experiment id, resolved from the same ac-telemetry-config events as
+# the driver (DCM config content `experiment_id`). Drives the leaderboard
+# experiment filter. None = unknown (no config seen yet) → leaderboard does not
+# filter by experiment, same cold-start philosophy as track/car.
+current_experiment: dict[str, str | None] = {"id": None}
+
 # Current session's track + car, resolved from the latest ac-telemetry-session
 # message. Drives the leaderboard filter and the header combo. None = unknown
 # (no session seen yet) → leaderboard serves the unfiltered all-time board.
@@ -75,6 +81,23 @@ def set_current_driver(name: str | None):
     if loop is None or not clients:
         return
     msg = json.dumps({"type": "driver", "name": name})
+    asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
+
+
+def set_current_experiment(experiment: str | None):
+    """Update the current experiment id and push it to connected browsers.
+
+    Treats empty string as unknown (None). No-op when unchanged — mirrors
+    set_current_driver's guard.
+    """
+    experiment = experiment or None
+    if experiment == current_experiment["id"]:
+        return
+    current_experiment["id"] = experiment
+    logger.info("Current experiment: %s", experiment)
+    if loop is None or not clients:
+        return
+    msg = json.dumps({"type": "experiment", "experiment": experiment})
     asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
 
 
@@ -166,10 +189,11 @@ def run_kafka():
         backoff = min(backoff * 2, max_backoff)
 
 
-def _fetch_config_driver(config_id, content_url, version):
-    """GET the DCM config content and return its `driver`. Prefers a configured
-    CONFIG_MANAGER_URL base; otherwise uses the contentUrl carried in the event.
-    Auth is the injected Quix__Sdk__Token (same as session-config-bridge)."""
+def _fetch_config_content(config_id, content_url, version) -> dict | None:
+    """GET the DCM config content and return the parsed JSON. Prefers a
+    configured CONFIG_MANAGER_URL base; otherwise uses the contentUrl carried in
+    the event. Auth is the injected Quix__Sdk__Token (same as
+    session-config-bridge). Returns None on any failure."""
     base = os.environ.get("CONFIG_MANAGER_URL", "").rstrip("/")
     if base and config_id and version is not None:
         url = f"{base}/api/v1/configurations/{config_id}/versions/{version}/content"
@@ -182,19 +206,24 @@ def _fetch_config_driver(config_id, content_url, version):
     try:
         r = httpx.get(url, headers=headers, timeout=10, verify=_http_verify())
         r.raise_for_status()
-        return r.json().get("driver")
+        return r.json()
     except Exception:
-        logger.exception("Driver lookup failed (config=%s v=%s)", config_id, version)
+        logger.exception("Config lookup failed (config=%s v=%s)", config_id, version)
         return None
 
 
 def _handle_config_event(data: dict):
-    """Resolve + broadcast the driver from an ac-telemetry-config event."""
+    """Resolve + broadcast the driver and experiment from an
+    ac-telemetry-config event. Both come from the same config content JSON
+    (`driver`, `experiment_id`)."""
     meta = data.get("metadata") or {}
     if meta.get("type") != "experiment" or data.get("event") == "deleted":
         return
-    driver = _fetch_config_driver(data.get("id"), data.get("contentUrl"), meta.get("version"))
-    set_current_driver(driver)
+    content = _fetch_config_content(data.get("id"), data.get("contentUrl"), meta.get("version"))
+    if content is None:
+        return
+    set_current_driver(content.get("driver"))
+    set_current_experiment(content.get("experiment_id"))
 
 
 def run_config_consumer():
@@ -334,9 +363,10 @@ async def health():
 # lakehouse fallback: if the cache is unavailable we serve stale rows when we
 # have them and otherwise an empty board. The live current-driver overlay is a
 # separate path (the /ws topic feed), not part of these standings.
-# Keyed by (track, carModel) so a session switch never serves the previous
-# combo's stale rows. (None, None) is the unfiltered cold-start board.
-_lb_cache: dict[tuple[str | None, str | None], dict] = {}
+# Keyed by (track, carModel, experiment) so a session/config switch never
+# serves the previous combo's stale rows. (None, None, None) is the unfiltered
+# cold-start board.
+_lb_cache: dict[tuple[str | None, str | None, str | None], dict] = {}
 
 
 def _http_verify():
@@ -374,14 +404,22 @@ def _parse_cache_csv(text: str) -> list[dict]:
 
 
 async def _fetch_from_cache(
-    base_url: str, track: str | None = None, carModel: str | None = None
+    base_url: str,
+    track: str | None = None,
+    carModel: str | None = None,
+    experiment: str | None = None,
 ) -> list[dict]:
     """GET the best-laps-cache /best-laps CSV and map it to the leaderboard
-    shape. When track/carModel are given they are passed as query params so the
-    cache filters server-side (param name `carModel` matches the cache
-    contract). Empty/None filters are dropped → unfiltered all-time board."""
+    shape. When track/carModel/experiment are given they are passed as query
+    params so the cache filters server-side (param names `track`, `carModel`
+    camelCase, and `experiment` lowercase, matching the cache contract).
+    Empty/None filters are dropped → unfiltered all-time board."""
     target = f"{base_url.rstrip('/')}/best-laps"
-    params = {k: v for k, v in {"track": track, "carModel": carModel}.items() if v}
+    params = {
+        k: v
+        for k, v in {"track": track, "carModel": carModel, "experiment": experiment}.items()
+        if v
+    }
     logger.info("Leaderboard: GET %s (filters=%s)", target, params or "none")
     t0 = time.monotonic()
     async with httpx.AsyncClient(timeout=20, verify=_http_verify()) as client:
@@ -406,11 +444,13 @@ async def leaderboard():
     empty board. A blank BEST_LAPS_CACHE_URL is a misconfiguration, not a
     fallback trigger.
     """
-    # Filter by the current session's combo. Before any session message arrives
-    # both are None → unfiltered all-time board under cache key (None, None).
+    # Filter by the current session's combo + the active experiment. Before a
+    # session/config event arrives the respective fields are None → that
+    # dimension is left unfiltered; (None, None, None) is the all-time board.
     track = current_session["track"]
     carModel = current_session["carModel"]
-    key = (track, carModel)
+    experiment = current_experiment["id"]
+    key = (track, carModel, experiment)
 
     ttl = float(os.environ.get("LEADERBOARD_TTL_SECONDS", "15"))
     now = time.monotonic()
@@ -424,7 +464,7 @@ async def leaderboard():
         return {"rows": [], "error": "BEST_LAPS_CACHE_URL not configured"}
 
     try:
-        rows = await _fetch_from_cache(cache_url, track, carModel)
+        rows = await _fetch_from_cache(cache_url, track, carModel, experiment)
         _lb_cache[key] = {"ts": now, "rows": rows}
         return {"rows": rows, "source": "cache"}
     except Exception as e:
@@ -474,6 +514,10 @@ async def ws_endpoint(websocket: WebSocket):
     )
     if current_driver["name"]:
         await websocket.send_text(json.dumps({"type": "driver", "name": current_driver["name"]}))
+    if current_experiment["id"]:
+        await websocket.send_text(
+            json.dumps({"type": "experiment", "experiment": current_experiment["id"]})
+        )
     if current_session["track"] or current_session["carModel"]:
         await websocket.send_text(json.dumps({"type": "session", **current_session}))
     try:

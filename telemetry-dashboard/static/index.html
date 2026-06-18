@@ -273,6 +273,13 @@
 
   <div class="spacer"></div>
 
+  <div class="experiment-block driver-block">
+    <span class="driver-label">Experiment</span>
+    <div class="driver" id="experiment-name">—</div>
+  </div>
+
+  <div class="spacer"></div>
+
   <span class="hint" id="window-label">Rolling 20&thinsp;s window</span>
 
   <div class="settings-wrap">
@@ -704,6 +711,13 @@ const sessionEl = document.getElementById('session-combo');
 function setSession(track, carModel) {
   const parts = [track, carModel].filter(Boolean);
   sessionEl.textContent = parts.length ? parts.join(' · ') : '—';
+}
+
+// Current experiment, fed by the {type:"experiment"} WS message. The leaderboard
+// is server-filtered to this experiment; this just shows it in the header.
+const experimentEl = document.getElementById('experiment-name');
+function setExperiment(experiment) {
+  experimentEl.textContent = experiment || '—';
 }
 
 const leds = [];
@@ -1222,7 +1236,8 @@ function connect() {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg && msg.type === 'status') { consumer = msg.status; return; }
-    if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); renderLeaderboard(); } return; }
+    if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); pollLeaderboard(); } return; }
+    if (msg && msg.type === 'experiment') { setExperiment(msg.experiment); pollLeaderboard(); return; }
     if (msg && msg.type === 'session') { setSession(msg.track, msg.carModel); pollLeaderboard(); return; }
     lastLive = now();
     if (!forceDemo) onFrame(msg);   // demo loop stands down while live data flows
