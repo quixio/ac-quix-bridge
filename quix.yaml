@@ -5,7 +5,6 @@ metadata:
   version: 1.0
 
 # This section describes the Deployments of the data pipeline
-
 deployments:
   - name: Telemetry Dashboard
     application: telemetry-dashboard
@@ -254,6 +253,7 @@ deployments:
         value: test-completed
     blobStorage:
       bind: true
+    disabled: true
   - name: Test Manager - Backend
     group: Test Manager
     application: test-manager-backend
