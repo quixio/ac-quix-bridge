@@ -40,7 +40,7 @@ deployments:
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
-        value: ''
+        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
         description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
@@ -741,7 +741,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         description: DCM base URL for session/experiment enrichment
-        value: http://dynamic-configuration-manager
+        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
       - name: LAKE_TABLE
         inputType: ProjectVariable
         description: Lakehouse table to scan for best laps. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
