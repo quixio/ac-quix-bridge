@@ -845,7 +845,7 @@ deployments:
         inputType: FreeText
         value: best-laps-cache-v1.2
     blobStorage:
-      -bind: true
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
