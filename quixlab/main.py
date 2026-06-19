@@ -3,9 +3,9 @@ import quixlab as ql
 canvas = ql.Canvas(title="My Notebook", lake_tree_open=['ac_telemetry_prod', 'ac_telemetry_prod/environment=prague_office', 'ac_telemetry_prod/environment=prague_office/test_rig=fanatec_csl_dd'])
 
 
-@canvas.dataset(position=(420, 78), size=(869, 539), code_height=200)
+@canvas.dataset(position=(420, 78), size=(869, 539), code_height=200, viz={'type': 'table', 'x': '', 'y': ''})
 def ac_telemetry_prod(data_selection):
-    return ql.sql(f"""SELECT timestam_ms, speedKmh, rpms, gear
+    return ql.sql(f"""SELECT timestamp_ms, speedKmh, rpms, gear, gas, brake, lap
     FROM ac_telemetry_prod
     WHERE environment = 'prague_office'
       AND test_rig = 'fanatec_csl_dd'
@@ -55,6 +55,14 @@ def data_selection():
     driver = ql.ui.dropdown(drivers, label="Driver")
 
     experiment, driver
+
+
+@canvas.cell(position=(1349, 78), size=(677, 566), code_height=146, viz={'type': 'line', 'x': 'lap_time_ms', 'y': ['1']})
+def cell_2(ac_telemetry_prod):
+    df = ac_telemetry_prod
+    df["lap_time_ms"] = df["timestamp_ms"] - df.groupby("lap")["timestamp_ms"].transform("min")
+    wide = df.pivot(index="lap_time_ms", columns="lap", values="speedKmh")
+    wide.reset_index()
 
 
 if __name__ == "__main__":
