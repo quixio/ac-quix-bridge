@@ -18,6 +18,7 @@ function mockAnalysis(overrides: Partial<Analysis> = {}): Analysis {
     anomalies: [],
     summary_md: "",
     extra: {},
+    activity: [],
     ...overrides,
   };
 }

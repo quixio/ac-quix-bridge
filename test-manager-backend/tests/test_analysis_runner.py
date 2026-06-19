@@ -178,6 +178,88 @@ async def test_runner_happy_path_marks_complete(
 
 
 @respx.mock
+async def test_runner_persists_activity_feed(
+    client: TestClient,
+    create_test: TestFactory,
+    mongo_db: Database[dict[str, Any]],
+    mock_quix_ai: None,
+) -> None:
+    """Tool calls + DEEP-mode sandbox steps land on the doc's `activity` feed."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+    aid = _insert_pending(mongo_db, test_id, session_id)
+
+    respx.post(f"{PORTAL}/ai/api/sessions").mock(
+        return_value=httpx.Response(200, json={"id": "qsess-act"})
+    )
+    sse_body = _sse(
+        [
+            {
+                "type": "tool_call_start",
+                "toolName": "mcp__quixlake__run_query",
+                "displayName": "Querying lap times",
+                "toolCallId": "tc1",
+            },
+            {
+                "type": "tool_result",
+                "toolCallId": "tc1",
+                "isError": False,
+                "userSummary": "142 rows",
+            },
+            {
+                "type": "environment_agent_start",
+                "label": "Analysis sandbox",
+                "task": "deep telemetry dive",
+            },
+            {
+                "type": "environment_agent_activity",
+                "kind": "command",
+                "data": {"kind": "command", "command": "python analyze_stints.py"},
+            },
+            {
+                "type": "environment_agent_end",
+                "summary": "3 stints",
+                "status": "completed",
+            },
+            {"type": "text_delta", "text": "ignored"},
+            {
+                "type": "tool_call_start",
+                "toolName": "mcp__test-manager__save_analysis",
+                "toolCallId": "tc2",
+            },
+        ]
+    )
+    respx.post(f"{PORTAL}/ai/api/sessions/qsess-act/messages").mock(
+        return_value=httpx.Response(
+            200,
+            content=sse_body.encode(),
+            headers={"content-type": "text/event-stream"},
+        )
+    )
+    # MCP save flips status to complete out-of-band (as in production).
+    mongo_db.analyses.update_one(
+        {"_id": aid}, {"$set": {"status": "complete", "summary_md": "ok"}}
+    )
+
+    await BatchAnalysisAI(mongo_db).run(
+        analysis_id=aid, test_id=test_id, session_id=session_id
+    )
+
+    doc = mongo_db.analyses.find_one({"_id": aid})
+    assert doc is not None
+    activity = doc["activity"]
+    kinds = [e["kind"] for e in activity]
+    # text_delta ignored; the two tool calls + 3 sandbox events recorded in order
+    assert kinds == ["tool", "agent_start", "agent_step", "agent_end", "tool"]
+    # tool_result patched the first tool entry in place (no extra line)
+    assert activity[0]["tool"] == "run_query"  # mcp__<guid>__ prefix stripped
+    assert activity[0]["label"] == "Querying lap times"
+    assert activity[0]["result"] == "142 rows"
+    assert activity[0]["error"] is False
+    assert activity[2]["sub"] == "command"
+    assert activity[2]["label"] == "python analyze_stints.py"
+
+
+@respx.mock
 async def test_runner_no_save_marks_failed(
     client: TestClient,
     create_test: TestFactory,

@@ -6,8 +6,9 @@ stream-processing service, Quixlab notebook) can share the same lifecycle.
 Per spec §3 + §5:
   1. Open session via POST /ai/api/sessions
   2. Send seed message with workspaceId context
-  3. Read events silently from the response stream
-  4. Update analysis.status as we see tool_call_starts (fetching/analyzing/saving)
+  3. Read events silently from the response stream, recording an activity feed
+  4. Status stays `running` for the whole run (the live feed shows the detail);
+     the MCP save_analysis flips it to `complete`, failures to `failed`
   5. Persist model + token counts + duration on usage event
   6. Hold connection for the full duration of the run; 15-min hard timeout via wait_for
   7. On any unexpected exit, mark failed with appropriate error_kind
@@ -25,12 +26,19 @@ from typing import Any
 import httpx
 from pymongo.database import Database
 
+from .activity import ActivityLog
+
 logger = logging.getLogger(__name__)
 
 
 HARD_TIMEOUT_SECONDS: float = 900  # 15 min (test-wide iterates per-session)
 ORPHAN_THRESHOLD = timedelta(minutes=20)
+# fetching/analyzing/saving are vestigial — the runner no longer writes them
+# (status stays `running`), but they're kept so the orphan sweep still catches
+# any doc stuck in those states from an older deploy.
 NON_TERMINAL = {"pending", "running", "fetching", "analyzing", "saving"}
+# Coalesce chatty DEEP-mode steps — at most one activity write per interval.
+ACTIVITY_FLUSH_INTERVAL: float = 1.0
 
 
 class BatchAnalysisAI:
@@ -182,18 +190,6 @@ class BatchAnalysisAI:
         }
 
     @staticmethod
-    def _classify_status_from_tool_name(tool_name: str | None) -> str | None:
-        if not tool_name:
-            return None
-        if tool_name.startswith("mcp__test-manager__save_analysis"):
-            return "saving"
-        if tool_name.startswith("mcp__quixlake__") or tool_name == "delegate_task":
-            return "analyzing"
-        if tool_name.startswith("mcp__test-manager__"):
-            return "fetching"
-        return None
-
-    @staticmethod
     async def _read_sse_events(
         response: httpx.Response,
     ) -> AsyncIterator[dict[str, Any]]:
@@ -231,6 +227,19 @@ class BatchAnalysisAI:
                 if len(fields) == 1:  # only updated_at left
                     return
         self._mongo.analyses.update_one({"_id": analysis_id}, {"$set": fields})
+
+    def _flush_activity(self, analysis_id: str, activity: ActivityLog) -> None:
+        """Persist the current activity feed. Bumps updated_at so long DEEP-mode
+        runs keep the doc fresh and dodge the orphan sweep."""
+        self._mongo.analyses.update_one(
+            {"_id": analysis_id},
+            {
+                "$set": {
+                    "activity": activity.dump(),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
 
     async def _run_inner(
         self,
@@ -270,15 +279,16 @@ class BatchAnalysisAI:
                 json=self._seed_message(analysis_id, test_id, session_id),
             ) as stream:
                 stream.raise_for_status()
+                activity = ActivityLog()
+                last_flush = 0.0
                 async for evt in self._read_sse_events(stream):
                     etype = evt.get("type")
-                    if etype == "tool_call_start":
-                        new_status = self._classify_status_from_tool_name(
-                            evt.get("toolName")
-                        )
-                        if new_status:
-                            self._set_status(analysis_id, status=new_status)
-                    elif etype == "usage":
+                    if activity.handle(evt):
+                        nowp = time.perf_counter()
+                        if nowp - last_flush >= ACTIVITY_FLUSH_INTERVAL:
+                            self._flush_activity(analysis_id, activity)
+                            last_flush = nowp
+                    if etype == "usage":
                         self._set_status(
                             analysis_id,
                             model=evt.get("model"),
@@ -290,6 +300,7 @@ class BatchAnalysisAI:
                     elif etype == "error":
                         # Quix.AI ChatStreamEvent: agent / framework failure.
                         msg = evt.get("message") or "agent stream error"
+                        self._flush_activity(analysis_id, activity)
                         self._set_status(
                             analysis_id,
                             status="failed",
@@ -302,6 +313,7 @@ class BatchAnalysisAI:
                         return  # bail; outer wait_for context will tidy up
                     elif etype == "agent_disabled":
                         # Admin toggled the agent off mid-run. Treat as terminal.
+                        self._flush_activity(analysis_id, activity)
                         self._set_status(
                             analysis_id,
                             status="failed",
@@ -312,6 +324,9 @@ class BatchAnalysisAI:
                             "[runner] analysis %s — agent_disabled", analysis_id
                         )
                         return
+
+            # Stream drained — persist any activity the throttle left buffered.
+            self._flush_activity(analysis_id, activity)
 
         # 3. Stream ended. If MCP save_analysis hasn't flipped status to
         #    complete, agent didn't follow protocol — mark failed.
