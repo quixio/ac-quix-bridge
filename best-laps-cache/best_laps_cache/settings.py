@@ -84,6 +84,9 @@ class Settings:
     # State
     state_dir: str
 
+    # Boot seed
+    boot_seed_gate_timeout_s: float
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -119,4 +122,7 @@ def get_settings() -> Settings:
         http_host=os.environ.get("HTTP_HOST", "0.0.0.0"),
         http_port=int(os.environ.get("HTTP_PORT", "80")),
         state_dir=os.environ.get("Quix__State__Dir", "state"),
+        boot_seed_gate_timeout_s=float(
+            os.environ.get("BOOT_SEED_GATE_TIMEOUT_S", "60.0")
+        ),
     )

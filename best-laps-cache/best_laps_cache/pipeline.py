@@ -45,7 +45,7 @@ from typing import Any
 from quixstreams import Application
 from quixstreams.state import State
 
-from .boot_seed import run_boot_seed
+from .boot_seed import _GATE_FLAG, run_boot_seed
 from .enrichment import Enrichment
 from .request_bridge import PendingRequests
 from .seed import seed_experiment_payload
@@ -116,12 +116,14 @@ class Pipeline:
         sdf_raw = app.dataframe(raw_topic)
         sdf_raw = sdf_raw.apply(self._enrich_raw)
         sdf_raw = sdf_raw.filter(
-            lambda v: bool(v)
-            and 0 < v["best_ms"] < INT_MAX
-            and bool(v["driver"])
-            and bool(v["experiment"])
-            and bool(v["track"])
-            and bool(v["carModel"])
+            lambda v: (
+                bool(v)
+                and 0 < v["best_ms"] < INT_MAX
+                and bool(v["driver"])
+                and bool(v["experiment"])
+                and bool(v["track"])
+                and bool(v["carModel"])
+            )
         )
         # Pre-group_by de-dupe: only let through ticks whose iBestTime changed
         # for this native key, collapsing the ~50 Hz raw stream to ~one message
@@ -188,9 +190,7 @@ class Pipeline:
         """Feed the session cache + DCM refresh, then resolve the active
         experiment. Returns ``{"type":"read","experiment":...}`` (dropped
         downstream if the experiment is unresolved)."""
-        hostname = str(
-            value.get("hostname") or value.get("target_key") or "default"
-        )
+        hostname = str(value.get("hostname") or value.get("target_key") or "default")
         try:
             self._enrichment.handle_session_message(hostname, value)
         except Exception:  # noqa: BLE001 — a bad session msg must not stall
@@ -218,7 +218,10 @@ class Pipeline:
         State; ``read`` additionally lazily seeds an empty experiment. None of
         them materialise a served snapshot — there is no persistent view. The
         ``get_request`` type is the read path: it reads State in-context and
-        delivers the transient payload back to the waiting HTTP handler.
+        delivers the transient payload back to the waiting HTTP handler. The
+        ``seed_gate`` / ``mark_seeded`` types read/write the boot-seed ``seeded``
+        flag under ``boot_seed.GATE_KEY`` in-context, gating the proactive boot
+        seed.
         """
         experiment = str(value.get("experiment") or "")
         event_type = value.get("type")
@@ -245,6 +248,26 @@ class Pipeline:
                 sum(len(d) for c in groups.values() for d in c.values()),
             )
             self._pending.deliver(req_id, payload)
+            return
+
+        if event_type == "seed_gate":
+            # Boot-seed gate read (boot_seed.run_boot_seed). Read the State-native
+            # seeded flag for GATE_KEY IN-CONTEXT and hand the bool back via the
+            # bridge, correlated by req_id. Placed before the empty-experiment
+            # guard because gate events carry experiment=GATE_KEY, not a real one.
+            req_id = str(value.get("req_id") or "")
+            if not req_id:
+                return
+            seeded = bool(state.get(_GATE_FLAG))
+            logger.info("seed_gate -> seeded=%s", seeded)
+            self._pending.deliver(req_id, {"seeded": seeded})
+            return
+
+        if event_type == "mark_seeded":
+            # Boot-seed gate write: set the State-native flag in-context so a later
+            # boot (retained store) skips the lake query. No reply.
+            state.set(_GATE_FLAG, True)
+            logger.info("mark_seeded -> State flag set")
             return
 
         if not experiment:
@@ -341,14 +364,19 @@ class Pipeline:
     def run_boot_seed(self) -> bool:
         """Proactively seed State once at boot (call on a worker thread).
 
-        Delegates to :func:`best_laps_cache.boot_seed.run_boot_seed`, supplying a
-        ``produce_seed`` closure that serialises each per-experiment seed message
-        against the events Topic and produces it via a dedicated short-lived
-        producer. The stateful SDF then folds it in-context (the only place a
-        RocksDB write may happen). Never raises.
+        Delegates to :func:`best_laps_cache.boot_seed.run_boot_seed`, supplying the
+        ``_produce_event_message`` closure (serialises each event against the events
+        Topic and produces it via a short-lived producer) and the
+        :class:`~best_laps_cache.request_bridge.PendingRequests` bridge (for the
+        State-native seeded-flag gate round-trip). The stateful SDF then folds seed
+        messages in-context (the only place a RocksDB write may happen) and answers
+        the gate read. ``run_boot_seed`` is itself non-raising; the wrapper is a
+        belt-and-braces guard so the boot thread can never crash startup.
         """
         try:
-            return run_boot_seed(self._settings, self._produce_event_message)
+            return run_boot_seed(
+                self._settings, self._produce_event_message, self._pending
+            )
         except Exception:  # noqa: BLE001 — boot seed must never crash startup
             logger.exception("boot seed failed; lazy in-context seed remains")
             return False
@@ -356,8 +384,9 @@ class Pipeline:
     def _produce_event_message(self, key: str, message: dict[str, Any]) -> None:
         """Serialise + produce one event message to the events topic.
 
-        Shared by the boot seed (``type="seed"``) and the on-demand read
-        round-trip (``type="get_request"``). Uses the same ``self._events_topic``
+        Shared by the boot seed (``type="seed"`` / ``seed_gate`` / ``mark_seeded``)
+        and the on-demand read round-trip (``type="get_request"``). Uses the same
+        ``self._events_topic``
         serializers the stateful SDF consumes with, so the message is
         wire-identical to a normal event. A fresh producer is opened and flushed
         per call; the SDF owns the consumer side, so this only needs the
