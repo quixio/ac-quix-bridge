@@ -656,7 +656,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true
-        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
       - name: output
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
@@ -672,17 +672,9 @@ deployments:
         description: DCM config events topic (ac-telemetry-config) — declared so the pipeline view shows this service consuming it
         required: true
         value: ac-telemetry-config
-      - name: LEADERBOARD_EVENTS_TOPIC
-        inputType: OutputTopic
-        description: Internal experiment-keyed events topic for the State-native pipeline (write/read/seed/get_request). One stream_id -> one RocksDB store.
-        value: leaderboard-events
-      - name: STATE_CONSUMER_GROUP
-        inputType: FreeText
-        description: Consumer group for the State-native SDF (distinct from the active-stream consumer's leaderboard-service-ghost-lap group).
-        value: leaderboard-service-state
       - name: LAKE_TABLE
         inputType: FreeText
-        value: acc_telemetry_prod
+        value: ac_telemetry_prod
       - name: LAKE_COL_CURRENT_TIME
         inputType: FreeText
         value: iCurrentTime
