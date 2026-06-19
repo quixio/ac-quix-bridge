@@ -797,6 +797,7 @@ deployments:
       maxGapSizeInMilliseconds: 10000
     disabled: true
   - name: best-laps-cache
+    group: Ingestion
     application: best-laps-cache
     version: latest
     deploymentType: Service
