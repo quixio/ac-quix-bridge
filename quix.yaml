@@ -834,7 +834,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         description: DCM base URL for session/experiment enrichment
-        value: https://dynamic-configuration-manager
+        value: http://dynamic-configuration-manager
       - name: LAKE_TABLE
         inputType: FreeText
         value: ac_telemetry_prod
