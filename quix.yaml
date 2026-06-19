@@ -35,28 +35,23 @@ deployments:
         description: Config topic to resolve the current driver from (DCM change events)
         required: true
         value: ac-telemetry-config
+      - name: session_input
+        inputType: InputTopic
+        description: Session topic to resolve the current track + car from (ac-telemetry-session)
+        required: true
+        value: ac-telemetry-session
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
-        value: ''
-      - name: TABLE_NAME
-        inputType: ProjectVariable
-        description: Lakehouse table the default leaderboard query reads. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment. Ignored when LEADERBOARD_SQL is set explicitly.
-        required: true
-        variableKey: AC_TELEMETRY_TABLE_NAME
-      - name: LEADERBOARD_SQL
+        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+      - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
-        multiline: true
-        description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Leave blank to use the built-in all-time fastest-lap-per-driver query against TABLE_NAME.
-        value: ''
+        description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
+        value: http://best-laps-cache
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
-        value: 15
-      - name: DATALAKE_INSECURE_SSL
-        inputType: FreeText
-        description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
-        value: ''
+        value: 30
     blobStorage:
       bind: true
   - name: MongoDB
@@ -803,6 +798,60 @@ deployments:
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
     disabled: true
+  - name: best-laps-cache
+    application: best-laps-cache
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 1000
+    publicAccess:
+      enabled: true
+      urlPrefix: best-laps-cache-6172bf5
+    state:
+      enabled: true
+      size: 3
+    network:
+      serviceName: best-laps-cache
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session)
+        value: ac-telemetry-session
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config)
+        value: ac-telemetry-config
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        description: DCM base URL for session/experiment enrichment
+        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry_prod
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: RECONCILE_INTERVAL_S
+        inputType: FreeText
+        value: 300
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: 80
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: best-laps-cache-v1.6
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -825,3 +874,4 @@ topics:
   - name: ac-telemetry-raw-replay2
     configuration:
       retentionInBytes: 524288000
+  - name: best-laps-events
