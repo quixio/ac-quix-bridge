@@ -1,0 +1,23 @@
+FROM python:3.13-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+	PYTHONUNBUFFERED=1 \
+	PYTHONIOENCODING=UTF-8 \
+	UV_COMPILE_BYTECODE=1
+
+WORKDIR /app
+
+# curl for the Quix Cloud healthcheck.
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+# Install uv.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+COPY . /app
+
+RUN uv sync --no-cache
+
+ENV PYTHONPATH=/app
+EXPOSE 80
+
+ENTRYPOINT ["/bin/uv", "run", "-m", "main"]

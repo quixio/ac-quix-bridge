@@ -70,6 +70,7 @@
   .driver-block { display: flex; flex-direction: column; align-items: center; gap: .3vh; }
   .driver-label { font-size: 1.2vh; font-weight: 700; letter-spacing: .12vw; text-transform: uppercase; color: var(--dim); }
   .driver { font-size: 2.8vh; font-weight: 800; line-height: 1; white-space: nowrap; text-transform: capitalize; }
+  .session-block .driver { font-size: 1.9vh; text-transform: none; }
   .toggle { display: flex; align-items: center; gap: .5vw; font-size: 1.4vh; color: var(--dim); cursor: pointer; user-select: none; white-space: nowrap; }
   .toggle input { width: 1.5vh; height: 1.5vh; accent-color: var(--cyan); cursor: pointer; }
 
@@ -261,6 +262,20 @@
   <div class="driver-block">
     <span class="driver-label">Current driver</span>
     <div class="driver" id="driver-name"></div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="session-block driver-block">
+    <span class="driver-label">Track / Car</span>
+    <div class="driver" id="session-combo">—</div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="experiment-block driver-block">
+    <span class="driver-label">Experiment</span>
+    <div class="driver" id="experiment-name">—</div>
   </div>
 
   <div class="spacer"></div>
@@ -690,6 +705,21 @@ function setDriver(name) {
 }
 setDriver(driverName);   // seed from the URL param / 'Tomas' default
 
+// Current session's track + car, fed by the {type:"session"} WS message. The
+// leaderboard is server-filtered to this combo; this just shows it in the header.
+const sessionEl = document.getElementById('session-combo');
+function setSession(track, carModel) {
+  const parts = [track, carModel].filter(Boolean);
+  sessionEl.textContent = parts.length ? parts.join(' · ') : '—';
+}
+
+// Current experiment, fed by the {type:"experiment"} WS message. The leaderboard
+// is server-filtered to this experiment; this just shows it in the header.
+const experimentEl = document.getElementById('experiment-name');
+function setExperiment(experiment) {
+  experimentEl.textContent = experiment || '—';
+}
+
 const leds = [];
 (function buildLeds() {
   const wrap = document.getElementById('sb-shift-lights');
@@ -707,41 +737,11 @@ const leds = [];
 // can't drift apart.
 const DEMO_DRIVER_LAP_MS = 87480;   // ~1:27.480 -> lands the current driver at P18 below
 
-// Placeholder standings until the /leaderboard proxy answers. ms = lap time in ms.
-// A full 30-car field (> LB_WINDOW_MIN) so the pin-leader + window behaviour is the
-// default view: P1 pinned, a "..." gap, then the window centred on the current driver.
-let LEADERBOARD = [
-  { name: 'Mika',   ms: 81950 },
-  { name: 'Sergio', ms: 82210 },
-  { name: 'Elena',  ms: 82480 },
-  { name: 'Bruno',  ms: 82760 },
-  { name: 'Dan',    ms: 83050 },
-  { name: 'Yuki',   ms: 83320 },
-  { name: 'Carlos', ms: 83600 },
-  { name: 'Noah',   ms: 83910 },
-  { name: 'Lena',   ms: 84250 },
-  { name: 'Omar',   ms: 84580 },
-  { name: 'Priya',  ms: 84920 },
-  { name: 'Pavel',  ms: 85280 },
-  { name: 'Nora',   ms: 85640 },
-  { name: 'Hugo',   ms: 86010 },
-  { name: 'Ivan',   ms: 86390 },
-  { name: 'Sara',   ms: 86780 },
-  { name: 'Tariq',  ms: 87140 },
-  { name: 'Tomas',  ms: DEMO_DRIVER_LAP_MS },   // P18 — the current driver
-  { name: 'Leo',    ms: 87810 },
-  { name: 'Mei',    ms: 88150 },
-  { name: 'Wei',    ms: 88500 },
-  { name: 'Kai',    ms: 88860 },
-  { name: 'Ana',    ms: 89230 },
-  { name: 'Diego',  ms: 89610 },
-  { name: 'Theo',   ms: 90000 },
-  { name: 'Iris',   ms: 90400 },
-  { name: 'Otto',   ms: 90810 },
-  { name: 'Finn',   ms: 91230 },
-  { name: 'Rhys',   ms: 91660 },
-  { name: 'Zara',   ms: 92100 },
-];
+// Real standings only — populated from the /leaderboard proxy (best-laps-cache,
+// server-filtered to the current session's track + car). No placeholder/dummy
+// field: the board is simply empty until real times arrive, and clears back to
+// empty when the current track/car has none.
+let LEADERBOARD = [];
 
 // A lap is valid (has a real time) when it isn't AC's "no time set" sentinel. Single
 // source of truth for both the time formatter and the gap/badge logic below.
@@ -760,6 +760,7 @@ function fmtLap(ms) {
 //    a distinct colour. The live row re-sorts as the estimate evolves, so it climbs on a
 //    hot lap and slides back on a slow one. Dropped (no row) on an invalid lap.
 let posSessionId = null, lastBestMs = null;   // lastBestMs: session best (PB flash + best row)
+let lastCompletedLaps = null;                  // AC completedLaps (models.py:99); lap-edge trigger, reset per session
 let lbFlashUntil = 0;                          // flash the driver's best row until this time (new PB)
 let lbLastOrder = '', lbLastRender = 0;        // render throttle: on order change or ~5 Hz
 let lbLiveUntil = 0;                           // live row + dot shown while now() < this
@@ -850,7 +851,19 @@ function renderLeaderboard(flashName) {
 renderLeaderboard();
 
 function updateDriverPosition(d) {
-  if (d.session_id !== posSessionId) { posSessionId = d.session_id; lastBestMs = null; lbFlashUntil = 0; }
+  if (d.session_id !== posSessionId) {
+    posSessionId = d.session_id; lastBestMs = null; lbFlashUntil = 0; lastCompletedLaps = null;
+    schedulePollLeaderboard();   // new session: refresh standings once
+  }
+
+  // Lap-edge trigger: AC's completedLaps (models.py:99) increments at each lap
+  // crossing (= prior lap end + new lap start). Fire ONE coalesced /leaderboard
+  // refresh on the edge; the debounce collapses a multi-car finish burst.
+  const laps = (typeof d.completedLaps === 'number') ? d.completedLaps : null;
+  if (laps !== null) {
+    if (lastCompletedLaps !== null && laps > lastCompletedLaps) schedulePollLeaderboard();
+    lastCompletedLaps = laps;
+  }
 
   // Track this driver's session-best lap (AC's iBestTime is session-scoped, not all-time).
   const best = (typeof d.iBestTime === 'number' && d.iBestTime > 0 && d.iBestTime < INT_MAX) ? d.iBestTime : null;
@@ -892,15 +905,28 @@ function updateDriverPosition(d) {
   }
 }
 
-// Poll the backend /leaderboard proxy (Data Lake-backed). Falls back silently to the
-// placeholder + live best if it's not configured or errors.
-const LB_POLL_MS = 20000;
+// Poll the backend /leaderboard proxy (best-laps-cache, filtered to the current
+// track + car). An empty response clears the board to empty (e.g. after switching
+// to a track with no recorded times); only a fetch/parse error keeps the last board.
+// Cache hits are EVENT-DRIVEN now (lap-edge / session / config change), not a
+// tight interval — see schedulePollLeaderboard(). LB_POLL_MS is only a slow
+// safety-net fallback (2 min) so the board self-heals if every trigger is missed.
+const LB_POLL_MS = 120000;
+// Trailing-edge debounce: a burst of triggers (e.g. several cars finishing
+// near-simultaneously, or session+config+lap together) coalesces into ONE
+// /leaderboard GET ~3 s after the last event.
+const LB_DEBOUNCE_MS = 3000;
+let lbDebounceTimer = null;
+function schedulePollLeaderboard() {
+  if (lbDebounceTimer !== null) clearTimeout(lbDebounceTimer);
+  lbDebounceTimer = setTimeout(() => { lbDebounceTimer = null; pollLeaderboard(); }, LB_DEBOUNCE_MS);
+}
 async function pollLeaderboard() {
   try {
     const res = await fetch('/leaderboard', { cache: 'no-store' });
     if (!res.ok) return;
     const j = await res.json();
-    if (!Array.isArray(j.rows) || !j.rows.length) return;
+    if (!Array.isArray(j.rows)) return;
     LEADERBOARD = j.rows.map(r => ({ name: r.name, ms: r.ms }));
     if (lastBestMs != null) {
       const me = (driverName || '').trim();
@@ -912,8 +938,8 @@ async function pollLeaderboard() {
     renderLeaderboard();
   } catch { /* keep current board */ }
 }
-setInterval(pollLeaderboard, LB_POLL_MS);
-pollLeaderboard();
+setInterval(pollLeaderboard, LB_POLL_MS);   // slow fallback only; real refresh is event-driven
+pollLeaderboard();                          // one fetch at startup
 
 // Update wheel rotation, shift lights, RPM readout, and the leaderboard from a frame.
 function updateSidebar(d) {
@@ -1235,7 +1261,9 @@ function connect() {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg && msg.type === 'status') { consumer = msg.status; return; }
-    if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); renderLeaderboard(); } return; }
+    if (msg && msg.type === 'driver') { if (msg.name) { setDriver(msg.name); schedulePollLeaderboard(); } return; }
+    if (msg && msg.type === 'experiment') { setExperiment(msg.experiment); schedulePollLeaderboard(); return; }
+    if (msg && msg.type === 'session') { setSession(msg.track, msg.carModel); schedulePollLeaderboard(); return; }
     lastLive = now();
     if (!forceDemo) onFrame(msg);   // demo loop stands down while live data flows
   };

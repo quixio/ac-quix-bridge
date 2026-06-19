@@ -4,16 +4,12 @@ Telemetry Dashboard — FastAPI + QuixStreams consumer + WebSocket broadcast.
 Consumes telemetry from a Kafka topic and pushes it to browser clients
 over WebSocket for real-time visualization.
 """
-import os
-print(os.environ)
-
-
 import asyncio
 import csv
 import io
 import json
 import logging
-import re
+import os
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -31,6 +27,7 @@ clients: set[WebSocket] = set()
 loop: asyncio.AbstractEventLoop | None = None
 kafka_thread: threading.Thread | None = None
 config_thread: threading.Thread | None = None
+session_thread: threading.Thread | None = None
 
 # Consumer health, surfaced to the UI and /health. One of:
 # "starting" | "connecting" | "connected" | "reconnecting".
@@ -38,6 +35,17 @@ consumer_state: dict[str, str | None] = {"status": "starting", "detail": None}
 
 # Current driver name, resolved from ac-telemetry-config events via the DCM.
 current_driver: dict[str, str | None] = {"name": None}
+
+# Current experiment id, resolved from the same ac-telemetry-config events as
+# the driver (DCM config content `experiment_id`). Drives the leaderboard
+# experiment filter. None = unknown (no config seen yet) → leaderboard does not
+# filter by experiment, same cold-start philosophy as track/car.
+current_experiment: dict[str, str | None] = {"id": None}
+
+# Current session's track + car, resolved from the latest ac-telemetry-session
+# message. Drives the leaderboard filter and the header combo. None = unknown
+# (no session seen yet) → leaderboard serves the unfiltered all-time board.
+current_session: dict[str, str | None] = {"track": None, "carModel": None}
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -73,6 +81,44 @@ def set_current_driver(name: str | None):
     if loop is None or not clients:
         return
     msg = json.dumps({"type": "driver", "name": name})
+    asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
+
+
+def set_current_experiment(experiment: str | None):
+    """Update the current experiment id and push it to connected browsers.
+
+    Treats empty string as unknown (None). No-op when unchanged — mirrors
+    set_current_driver's guard.
+    """
+    experiment = experiment or None
+    if experiment == current_experiment["id"]:
+        return
+    current_experiment["id"] = experiment
+    logger.info("Current experiment: %s", experiment)
+    if loop is None or not clients:
+        return
+    msg = json.dumps({"type": "experiment", "experiment": experiment})
+    asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
+
+
+def set_current_session(track: str | None, carModel: str | None):
+    """Update the current session's track + car and push it to browsers.
+
+    Treats empty string as unknown (None). No-op when nothing changed or when
+    both fields are unknown — mirrors set_current_driver's guard.
+    """
+    track = track or None
+    carModel = carModel or None
+    if not track and not carModel:
+        return
+    if track == current_session["track"] and carModel == current_session["carModel"]:
+        return
+    current_session["track"] = track
+    current_session["carModel"] = carModel
+    logger.info("Current session: track=%s carModel=%s", track, carModel)
+    if loop is None or not clients:
+        return
+    msg = json.dumps({"type": "session", "track": track, "carModel": carModel})
     asyncio.run_coroutine_threadsafe(_broadcast(msg), loop)
 
 
@@ -143,10 +189,11 @@ def run_kafka():
         backoff = min(backoff * 2, max_backoff)
 
 
-def _fetch_config_driver(config_id, content_url, version):
-    """GET the DCM config content and return its `driver`. Prefers a configured
-    CONFIG_MANAGER_URL base; otherwise uses the contentUrl carried in the event.
-    Auth is the injected Quix__Sdk__Token (same as session-config-bridge)."""
+def _fetch_config_content(config_id, content_url, version) -> dict | None:
+    """GET the DCM config content and return the parsed JSON. Prefers a
+    configured CONFIG_MANAGER_URL base; otherwise uses the contentUrl carried in
+    the event. Auth is the injected Quix__Sdk__Token (same as
+    session-config-bridge). Returns None on any failure."""
     base = os.environ.get("CONFIG_MANAGER_URL", "").rstrip("/")
     if base and config_id and version is not None:
         url = f"{base}/api/v1/configurations/{config_id}/versions/{version}/content"
@@ -157,21 +204,26 @@ def _fetch_config_driver(config_id, content_url, version):
     token = os.environ.get("Quix__Sdk__Token", "")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
-        r = httpx.get(url, headers=headers, timeout=10, verify=_datalake_verify())
+        r = httpx.get(url, headers=headers, timeout=10, verify=_http_verify())
         r.raise_for_status()
-        return r.json().get("driver")
+        return r.json()
     except Exception:
-        logger.exception("Driver lookup failed (config=%s v=%s)", config_id, version)
+        logger.exception("Config lookup failed (config=%s v=%s)", config_id, version)
         return None
 
 
 def _handle_config_event(data: dict):
-    """Resolve + broadcast the driver from an ac-telemetry-config event."""
+    """Resolve + broadcast the driver and experiment from an
+    ac-telemetry-config event. Both come from the same config content JSON
+    (`driver`, `experiment_id`)."""
     meta = data.get("metadata") or {}
     if meta.get("type") != "experiment" or data.get("event") == "deleted":
         return
-    driver = _fetch_config_driver(data.get("id"), data.get("contentUrl"), meta.get("version"))
-    set_current_driver(driver)
+    content = _fetch_config_content(data.get("id"), data.get("contentUrl"), meta.get("version"))
+    if content is None:
+        return
+    set_current_driver(content.get("driver"))
+    set_current_experiment(content.get("experiment_id"))
 
 
 def run_config_consumer():
@@ -225,14 +277,68 @@ def run_config_consumer():
         backoff = min(backoff * 2, max_backoff)
 
 
+def run_session_consumer():
+    """Consume ac-telemetry-session; on each message store the current track +
+    carModel and broadcast them. Reads from earliest with auto-commit off, so
+    the current combo is recovered on every startup (latest message wins).
+    Reconnect loop mirrors run_config_consumer.
+    """
+    from quixstreams import Application as QuixApp
+
+    backoff = 1.0
+    max_backoff = 30.0
+
+    while True:
+        consumer = None
+        try:
+            qx = QuixApp(
+                consumer_group="telemetry-dashboard-session",
+                auto_offset_reset="earliest",
+                consumer_extra_config={"enable.auto.commit": False},
+            )
+            topic_name = os.environ.get("session_input", "ac-telemetry-session")
+            topic = qx.topic(topic_name)
+            consumer = qx.get_consumer()
+            consumer.subscribe([topic.name])
+            logger.info("Session consumer on '%s' (real: '%s')", topic_name, topic.name)
+            backoff = 1.0
+
+            while True:
+                msg = consumer.poll(1.0)
+                if msg is None:
+                    continue
+                if msg.error():
+                    logger.error("Session consumer error: %s", msg.error())
+                    continue
+                try:
+                    data = json.loads(msg.value())
+                    set_current_session(data.get("track"), data.get("carModel"))
+                except Exception:
+                    logger.exception("Failed handling session message")
+
+        except Exception:
+            logger.exception("Session consumer failed — retrying in %.0fs", backoff)
+        finally:
+            if consumer is not None:
+                try:
+                    consumer.close()
+                except Exception:
+                    pass
+
+        time.sleep(backoff)
+        backoff = min(backoff * 2, max_backoff)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global loop, kafka_thread, config_thread
+    global loop, kafka_thread, config_thread, session_thread
     loop = asyncio.get_event_loop()
     kafka_thread = threading.Thread(target=run_kafka, daemon=True)
     kafka_thread.start()
     config_thread = threading.Thread(target=run_config_consumer, daemon=True)
     config_thread.start()
+    session_thread = threading.Thread(target=run_session_consumer, daemon=True)
+    session_thread.start()
     logger.info("Dashboard started — open http://localhost:8000")
     yield
     logger.info("Shutting down dashboard")
@@ -251,82 +357,122 @@ async def health():
     }
 
 
-# --- Leaderboard: proxy an all-time fastest-lap-per-driver query to the Quix
-# Data Lake query API. Token stays server-side (env var). The full SQL is an env
-# var so the table/columns can be tuned without a code change. The default targets
-# the lake table named by TABLE_NAME (per-environment) with `driver` / `iBestTime`
-# columns.
-_LEADERBOARD_TABLE = os.environ.get("TABLE_NAME", "ac_telemetry")
-if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", _LEADERBOARD_TABLE):
-    raise ValueError(f"TABLE_NAME must be a bare SQL identifier, got {_LEADERBOARD_TABLE!r}")
-DEFAULT_LEADERBOARD_SQL = (
-    'SELECT driver AS name, MIN("iBestTime") AS ms '
-    f"FROM {_LEADERBOARD_TABLE} "
-    "WHERE \"iBestTime\" > 0 AND driver IS NOT NULL AND driver <> '' "
-    "GROUP BY driver ORDER BY ms ASC LIMIT 100"
-)
-_lb_cache: dict = {"ts": 0.0, "rows": []}
+# --- Leaderboard: all-time fastest-lap-per-driver. The sole source is the
+# best-laps-cache service (GET {BEST_LAPS_CACHE_URL}/best-laps, in-cluster
+# http://best-laps-cache). Results are TTL-cached in-process. There is no
+# lakehouse fallback: if the cache is unavailable we serve stale rows when we
+# have them and otherwise an empty board. The live current-driver overlay is a
+# separate path (the /ws topic feed), not part of these standings.
+# Keyed by (track, carModel, experiment) so a session/config switch never
+# serves the previous combo's stale rows. (None, None, None) is the unfiltered
+# cold-start board.
+_lb_cache: dict[tuple[str | None, str | None, str | None], dict] = {}
 
 
-def _datalake_verify():
-    """TLS verification for the lake call. Honour the platform CA bundle when set
-    (in-cluster REQUESTS_CA_BUNDLE / SSL_CERT_FILE); allow an explicit insecure
-    override (DATALAKE_INSECURE_SSL=true) for self-signed internal/edge certs."""
-    if os.environ.get("DATALAKE_INSECURE_SSL", "").lower() in ("1", "true", "yes"):
-        return False
+def _http_verify():
+    """TLS verification for outbound HTTP (best-laps-cache + DCM driver lookup).
+    Honour the platform CA bundle when set (in-cluster REQUESTS_CA_BUNDLE /
+    SSL_CERT_FILE); otherwise verify normally."""
     return os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE") or True
 
 
-def _parse_leaderboard_csv(text: str) -> list[dict]:
-    """Parse the streamed CSV (columns: name, ms) into [{name, ms}], skipping a
-    trailing `# ERROR: ...` line if the stream failed mid-flight."""
-    rows: list[dict] = []
+def _parse_cache_csv(text: str) -> list[dict]:
+    """Parse the best-laps-cache CSV (columns: environment, experiment, track,
+    carModel, driver, iBestTime) into the leaderboard's [{name, ms}] shape.
+
+    The cache returns one row per (group, driver); the leaderboard renders one
+    row per driver, so we reduce to the fastest iBestTime per driver here. Maps
+    `driver` -> `name` and `iBestTime` -> `ms`.
+    """
+    by_driver: dict[str, int] = {}
     for row in csv.DictReader(io.StringIO(text)):
-        name = (row.get("name") or "").strip()
-        if not name or name.startswith("# ERROR"):
+        name = (row.get("driver") or "").strip()
+        if not name:
             continue
         try:
-            ms = int(float(row["ms"]))
+            ms = int(float(row["iBestTime"]))
         except (TypeError, ValueError, KeyError):
             continue
-        rows.append({"name": name, "ms": ms})
+        if ms <= 0:
+            continue
+        cur = by_driver.get(name)
+        if cur is None or ms < cur:
+            by_driver[name] = ms
+    rows = [{"name": name, "ms": ms} for name, ms in by_driver.items()]
+    rows.sort(key=lambda r: r["ms"])
+    return rows
+
+
+async def _fetch_from_cache(
+    base_url: str,
+    track: str | None = None,
+    carModel: str | None = None,
+    experiment: str | None = None,
+) -> list[dict]:
+    """GET the best-laps-cache /best-laps CSV and map it to the leaderboard
+    shape. When track/carModel/experiment are given they are passed as query
+    params so the cache filters server-side (param names `track`, `carModel`
+    camelCase, and `experiment` lowercase, matching the cache contract).
+    Empty/None filters are dropped → unfiltered all-time board."""
+    target = f"{base_url.rstrip('/')}/best-laps"
+    params = {
+        k: v
+        for k, v in {"track": track, "carModel": carModel, "experiment": experiment}.items()
+        if v
+    }
+    logger.info("Leaderboard: GET %s (filters=%s)", target, params or "none")
+    t0 = time.monotonic()
+    async with httpx.AsyncClient(timeout=20, verify=_http_verify()) as client:
+        r = await client.get(target, params=params)
+    r.raise_for_status()
+    rows = _parse_cache_csv(r.text)
+    logger.info(
+        "Leaderboard served from cache: %d rows in %.0fms",
+        len(rows),
+        (time.monotonic() - t0) * 1000,
+    )
     return rows
 
 
 @api.get("/leaderboard")
 async def leaderboard():
-    """All-time fastest lap per driver, proxied from the Data Lake query API."""
-    # Prefer explicit overrides; otherwise use the Quix-injected Lakehouse Query
-    # vars. NOTE: this workspace injects only the *Catalog* vars, not Query — set
-    # DATALAKE_API_URL/DATALAKE_API_TOKEN on the deployment to point at the query API.
-    url = os.environ.get("DATALAKE_API_URL") or os.environ.get("Quix__Lakehouse__Query__Url")
-    token = os.environ.get("DATALAKE_API_TOKEN") or os.environ.get("Quix__Lakehouse__Query__AuthToken")
-    if not url or not token:
-        return {"rows": [], "error": "datalake not configured"}
+    """All-time fastest lap per driver, sourced solely from best-laps-cache.
+
+    Source is the best-laps-cache service (BEST_LAPS_CACHE_URL). Results are
+    TTL-cached (LEADERBOARD_TTL_SECONDS). There is no lakehouse fallback: on a
+    fetch error we serve the last good (stale) rows when present, otherwise an
+    empty board. A blank BEST_LAPS_CACHE_URL is a misconfiguration, not a
+    fallback trigger.
+    """
+    # Filter by the current session's combo + the active experiment. Before a
+    # session/config event arrives the respective fields are None → that
+    # dimension is left unfiltered; (None, None, None) is the all-time board.
+    track = current_session["track"]
+    carModel = current_session["carModel"]
+    experiment = current_experiment["id"]
+    key = (track, carModel, experiment)
 
     ttl = float(os.environ.get("LEADERBOARD_TTL_SECONDS", "15"))
     now = time.monotonic()
-    if _lb_cache["rows"] and now - _lb_cache["ts"] < ttl:
-        return {"rows": _lb_cache["rows"], "cached": True}
+    entry = _lb_cache.get(key)
+    if entry and entry["rows"] and now - entry["ts"] < ttl:
+        return {"rows": entry["rows"], "cached": True}
 
-    sql = os.environ.get("LEADERBOARD_SQL") or DEFAULT_LEADERBOARD_SQL
+    cache_url = os.environ.get("BEST_LAPS_CACHE_URL", "").strip()
+    if not cache_url:
+        logger.warning("Leaderboard: BEST_LAPS_CACHE_URL not configured — serving empty board")
+        return {"rows": [], "error": "BEST_LAPS_CACHE_URL not configured"}
+
     try:
-        async with httpx.AsyncClient(timeout=20, verify=_datalake_verify()) as client:
-            r = await client.post(
-                f"{url.rstrip('/')}/query",
-                content=sql.encode("utf-8"),
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
-            )
-        r.raise_for_status()
-        rows = _parse_leaderboard_csv(r.text)
-        _lb_cache.update(ts=now, rows=rows)
-        return {"rows": rows}
+        rows = await _fetch_from_cache(cache_url, track, carModel, experiment)
+        _lb_cache[key] = {"ts": now, "rows": rows}
+        return {"rows": rows, "source": "cache"}
     except Exception as e:
-        logger.exception("Leaderboard query failed")
-        # Serve stale cache if we have one; otherwise surface the error.
-        if _lb_cache["rows"]:
-            return {"rows": _lb_cache["rows"], "stale": True, "error": str(e)}
-        return {"rows": [], "error": str(e)}
+        logger.exception("Leaderboard cache fetch failed")
+        # Stale-then-empty: serve last good rows for this combo if we have any.
+        if entry and entry["rows"]:
+            return {"rows": entry["rows"], "stale": True, "source": "cache", "error": str(e)}
+        return {"rows": [], "source": "cache", "error": str(e)}
 
 
 @api.get("/{full_path:path}")
@@ -368,6 +514,12 @@ async def ws_endpoint(websocket: WebSocket):
     )
     if current_driver["name"]:
         await websocket.send_text(json.dumps({"type": "driver", "name": current_driver["name"]}))
+    if current_experiment["id"]:
+        await websocket.send_text(
+            json.dumps({"type": "experiment", "experiment": current_experiment["id"]})
+        )
+    if current_session["track"] or current_session["carModel"]:
+        await websocket.send_text(json.dumps({"type": "session", **current_session}))
     try:
         while True:
             await websocket.receive_text()
