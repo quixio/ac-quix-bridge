@@ -819,7 +819,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         description: DCM base URL for session/experiment enrichment
-        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
       - name: LAKE_TABLE
         inputType: FreeText
         value: ac_telemetry_prod
