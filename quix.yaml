@@ -5,8 +5,6 @@ metadata:
   version: 1.0
 
 # This section describes the Deployments of the data pipeline
-
-
 deployments:
   - name: Telemetry Dashboard
     application: telemetry-dashboard
@@ -43,7 +41,7 @@ deployments:
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
-        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+        value: https://dynamic-configuration-manager
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
         description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
@@ -806,6 +804,7 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
+      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: best-laps-cache-6172bf5
