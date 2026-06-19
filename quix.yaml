@@ -806,7 +806,7 @@ deployments:
       urlPrefix: best-laps-cache-6172bf5
     state:
       enabled: true
-      size: 1
+      size: 3
     network:
       serviceName: best-laps-cache
       ports:
@@ -844,7 +844,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-cache-v1.4
+        value: best-laps-cache-v1.5
     blobStorage:
       bind: true
 
