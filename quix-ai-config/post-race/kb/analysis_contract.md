@@ -122,4 +122,4 @@ The frontend renders schema v1 and v2 docs identically in v1 of the UI — the `
 
 - Missing `summary_md` (or empty string) → MCP returns 422 ValidationError
 - Wrong `analysis_id` → MCP returns 404
-- Calling `save_analysis` twice → MCP returns 409 ("already complete")
+- Calling `save_analysis` on an already-`complete` run → 409 ("already complete"). A `failed` run CAN be re-saved (corrected retry, same `analysis_id`).
