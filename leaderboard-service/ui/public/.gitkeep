@@ -1,3 +1,0 @@
-# Placeholder so the empty `public/` directory gets tracked in git, so that
-# the Next.js Docker build's `COPY --from=builder /app/public ./public`
-# step can find the directory.
