@@ -5,7 +5,6 @@ metadata:
   version: 1.0
 
 # This section describes the Deployments of the data pipeline
-
 deployments:
   - name: Telemetry Dashboard
     application: telemetry-dashboard
@@ -15,7 +14,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetrydashboard
@@ -67,7 +65,6 @@ deployments:
       limits:
         cpu: 200
         memory: 800
-      replicas: 1
     state:
       enabled: true
       size: 3
@@ -97,7 +94,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -127,7 +123,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -152,7 +147,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
@@ -179,7 +173,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 4000
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -263,7 +256,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager-api
@@ -353,7 +345,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager
@@ -413,7 +404,6 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: acvideobrowser
@@ -437,7 +427,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetryexplorer
@@ -508,7 +497,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: backup-manager
@@ -577,8 +565,7 @@ deployments:
     resources:
       limits:
         cpu: 500
-        memory: 2000
-      replicas: 1
+        memory: 4000
     publicAccess:
       enabled: true
       urlPrefix: quixlab
@@ -598,17 +585,6 @@ deployments:
         inputType: FreeText
         description: "Run mode: 'app' (view only) or 'edit' (full editor)"
         value: edit
-      - name: QUIXLAB_MCP_KEY
-        inputType: ProjectVariable
-        description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent.
-        required: true
-        secret: true
-        variableKey: QUIXLAB_MCP_KEY
-      - name: QUIXLAB_AGENT_ID
-        inputType: ProjectVariable
-        description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent.
-        required: true
-        variableKey: QUIXLAB_AGENT_ID
     plugin:
       embeddedView:
         enabled: true
@@ -635,7 +611,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1500
-      replicas: 1
     configuration:
       topic: ac-telemetry-raw
   - name: leaderboard-service
@@ -646,7 +621,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: leaderboard-service-9cb716a
@@ -732,7 +706,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     variables:
       - name: MONGO_USER
         inputType: ProjectVariable
@@ -763,7 +736,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
@@ -786,7 +758,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     configuration:
       sourceWorkspaceId: demo-acquixbridge-dev
       sourceTopic: ac-telemetry-raw
