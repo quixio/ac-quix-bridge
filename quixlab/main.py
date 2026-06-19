@@ -3,7 +3,7 @@ import quixlab as ql
 canvas = ql.Canvas(title="My Notebook", lake_tree_open=['ac_telemetry_prod', 'ac_telemetry_prod/environment=prague_office', 'ac_telemetry_prod/environment=prague_office/test_rig=fanatec_csl_dd'])
 
 
-@canvas.dataset(position=(420, 78), size=(869, 539), code_height=200, viz={'type': 'table', 'x': '', 'y': ''})
+@canvas.dataset(position=(566, 140), size=(869, 539), code_height=200, viz={'type': 'table', 'x': '', 'y': ''})
 def ac_telemetry_prod(data_selection):
     return ql.sql(f"""SELECT timestamp_ms, speedKmh, rpms, gear, gas, brake, lap
     FROM ac_telemetry_prod
@@ -14,35 +14,13 @@ def ac_telemetry_prod(data_selection):
     """)
 
 
-@canvas.dataset(position=(-2185, -641), size=(844, 613), code_height=230)
-def car_telemetry():
-    return ql.sql("""SELECT date, ts_ms, speed, rpm, n_gear
-    FROM car_telemetry
-    WHERE year = 2023
-      AND circuit = 'Monza'
-      AND session_type = 'Race'
-      AND session_name = 'Race'
-      AND driver_acronym = 'HAM'
-      AND lap_number = 12
-    ORDER BY ts_ms
-    """)
-
-
-@canvas.cell(position=(-1179, -641), size=(937, 630), code_height=200, viz={'type': 'line', 'x': 'ts_ms', 'y': ['speed']})
-def cell_1(car_telemetry):
-    return [
-        ql.ui.markdown(r"""
-    # Channel explorer
-
-    Some **markdown** text.
-    """),
-        car_telemetry]
-
-
-@canvas.cell(position=(1040, 1672), size=(815, 623), code_height=200, viz={'type': 'waveform', 'x': 'timestamp_ms', 'y': ['speedKmh']})
+@canvas.cell(position=(722, 1149), size=(815, 623), code_height=200, viz={'type': 'table', 'x': 'timestamp_ms', 'y': ['speedKmh']})
 def cell_3(stream_1):
-    df = stream_1.df[["timestamp_ms", "completedLaps", "speedKmh", "rpms", "gear"]]
-    return df.tail(2000)
+    import pandas as pd
+
+    df = stream_1.df[stream_1.df["rows"].notna()][["rows"]].iloc[[-1]].explode("rows").dropna(subset=["rows"])
+    rows_df = pd.json_normalize(df["rows"])
+    return rows_df     # peek at the first element
 
 
 @canvas.cell(position=(-445, 97), size=(729, 526), code_height=200)
@@ -57,12 +35,18 @@ def data_selection():
     experiment, driver
 
 
-@canvas.cell(position=(1349, 78), size=(677, 566), code_height=146, viz={'type': 'line', 'x': 'lap_time_ms', 'y': ['1']})
+@canvas.cell(position=(1680, 74), size=(1259, 917), code_height=146, viz={'type': 'line', 'x': 'lap_time_ms', 'y': ['1', '2', '3']})
 def cell_2(ac_telemetry_prod):
     df = ac_telemetry_prod
     df["lap_time_ms"] = df["timestamp_ms"] - df.groupby("lap")["timestamp_ms"].transform("min")
     wide = df.pivot(index="lap_time_ms", columns="lap", values="speedKmh")
+    wide = wide.ffill()
     wide.reset_index()
+
+
+@canvas.stream(position=(-497, 1135), size=(816, 670), code_height=469)
+def stream_1():
+    return ql.topic("best-laps-events", workspace="quixdev-acquixbridge-leadboard", offset="earliest", limit=2000, consumer_group="quixlab-best-laps-events-6p32bn")
 
 
 if __name__ == "__main__":
