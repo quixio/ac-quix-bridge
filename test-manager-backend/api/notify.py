@@ -21,7 +21,15 @@ from .text import driver_name_key
 logger = logging.getLogger(__name__)
 
 
-def _resolve_driver_email(mongo: Database[dict[str, Any]], test_id: str) -> str | None:
+class EmailNotConfigured(Exception):
+    """Raised when SMTP_HOST is unset — the server cannot send mail."""
+
+
+class NoRecipientEmail(Exception):
+    """Raised when the test's driver has no resolvable email."""
+
+
+def resolve_driver_email(mongo: Database[dict[str, Any]], test_id: str) -> str | None:
     """The email of the test's driver, joined by folded name_key, or None."""
     test = mongo.tests.find_one({"_id": test_id}, {"driver": 1})
     if not test or not test.get("driver"):
@@ -40,40 +48,51 @@ def _resolve_driver_email(mongo: Database[dict[str, Any]], test_id: str) -> str 
     return driver.get("email") or None
 
 
+def send_analysis_email(mongo: Database[dict[str, Any]], analysis: Analysis) -> str:
+    """Render the analysis PDF and email it to the test's driver; return the recipient.
+
+    Raises `EmailNotConfigured` (no SMTP), `NoRecipientEmail` (driver has no
+    email), or an `smtplib` error on send failure. The manual-send route surfaces
+    these to the user; the auto path wraps and swallows them.
+    """
+    if not smtp_configured():
+        raise EmailNotConfigured("SMTP_HOST not set")
+    email = resolve_driver_email(mongo, analysis.test_id)
+    if not email:
+        raise NoRecipientEmail(f"no driver email for test {analysis.test_id}")
+
+    pdf = render_analysis_pdf(analysis)
+    safe_test_id = re.sub(r"[^A-Za-z0-9._-]", "_", analysis.test_id)
+    filename = f"analysis-{safe_test_id}-{analysis.id[:8]}.pdf"
+    subject = f"Post-race analysis — {analysis.test_id}"
+    body = (
+        f"The post-race analysis for test {analysis.test_id} is ready.\n\n"
+        f"Session: {analysis.session_id or 'all sessions'}\n\n"
+        "The full report is attached as a PDF."
+    )
+    send_email_with_pdf(
+        to=email, subject=subject, body=body, pdf=pdf, filename=filename
+    )
+    logger.info("[email] sent analysis %s to %s", analysis.id, email)
+    return email
+
+
 def email_completed_analysis(
     mongo: Database[dict[str, Any]], analysis: Analysis
 ) -> None:
-    """Email the analysis PDF to the test's driver. Best-effort: never raises.
+    """Auto-email a completed analysis to the driver. Best-effort: never raises.
 
     Skips (logged) when SMTP is unconfigured or no driver email resolves.
     """
     try:
-        if not smtp_configured():
-            logger.info(
-                "[email] SMTP not configured — skipping analysis %s", analysis.id
-            )
-            return
-        email = _resolve_driver_email(mongo, analysis.test_id)
-        if not email:
-            logger.info(
-                "[email] no driver email for test %s — skipping analysis %s",
-                analysis.test_id,
-                analysis.id,
-            )
-            return
-
-        pdf = render_analysis_pdf(analysis)
-        safe_test_id = re.sub(r"[^A-Za-z0-9._-]", "_", analysis.test_id)
-        filename = f"analysis-{safe_test_id}-{analysis.id[:8]}.pdf"
-        subject = f"Post-race analysis — {analysis.test_id}"
-        body = (
-            f"The post-race analysis for test {analysis.test_id} is ready.\n\n"
-            f"Session: {analysis.session_id or 'all sessions'}\n\n"
-            "The full report is attached as a PDF."
+        send_analysis_email(mongo, analysis)
+    except EmailNotConfigured:
+        logger.info("[email] SMTP not configured — skipping analysis %s", analysis.id)
+    except NoRecipientEmail:
+        logger.info(
+            "[email] no driver email for test %s — skipping analysis %s",
+            analysis.test_id,
+            analysis.id,
         )
-        send_email_with_pdf(
-            to=email, subject=subject, body=body, pdf=pdf, filename=filename
-        )
-        logger.info("[email] sent analysis %s to %s", analysis.id, email)
     except Exception as exc:  # best-effort — must never break save_analysis
         logger.error("[email] failed for analysis %s: %s", analysis.id, exc)

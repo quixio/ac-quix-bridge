@@ -17,8 +17,48 @@ TestFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 DeviceFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 EnvironmentFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 DriverFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
+ExperimentFactory = Callable[..., tuple[dict[str, Any], dict[str, Any]]]
 
 PORTAL_API_PORT = find_free_port()
+
+
+def _weasyprint_available() -> bool:
+    """True if WeasyPrint's native libs (Pango/gobject) load on this host.
+
+    Importing weasyprint triggers the gobject dlopen that fails on macOS
+    unless DYLD_FALLBACK_LIBRARY_PATH points at brew's lib dir — see
+    scripts/test-backend.sh. The container/cloud image always has the libs.
+    """
+    try:
+        import weasyprint  # noqa: F401
+    except (OSError, ImportError):
+        return False
+    return True
+
+
+_WEASYPRINT_OK = _weasyprint_available()
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "requires_weasyprint: test renders a PDF; needs Pango/gobject native libs",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip PDF-rendering tests with a clear hint when the libs can't load."""
+    if _WEASYPRINT_OK:
+        return
+    skip = pytest.mark.skip(
+        reason="WeasyPrint native libs not loadable — run scripts/test-backend.sh "
+        'or set DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib" (macOS)'
+    )
+    for item in items:
+        if "requires_weasyprint" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture(scope="session")
@@ -169,6 +209,20 @@ def create_environment(client: TestClient) -> EnvironmentFactory:
         return input_data, response.json()
 
     return _create_environment
+
+
+@pytest.fixture
+def create_experiment(client: TestClient) -> ExperimentFactory:
+    """Helper fixture to create an Experiment for testing."""
+
+    def _create_experiment(**kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        input_data = {"name": "Test Experiment"}
+        input_data.update(kwargs)
+        response = client.post("/api/v1/experiments", json=input_data)
+        assert response.status_code == 200
+        return input_data, response.json()
+
+    return _create_experiment
 
 
 @pytest.fixture

@@ -1,9 +1,11 @@
 """Entry point: run the State-native SDF pipeline + serve the GET wrapper.
 
 Durable store is QuixStreams' native State (RocksDB) on the ``state:`` volume —
-no other database. The pipeline (``pipeline.py``) folds best laps into State and
-publishes a per-experiment materialized view; the FastAPI app (``api.py``)
-serves ``GET /best-laps`` over that view.
+no other database. The pipeline (``pipeline.py``) folds best laps into State; the
+FastAPI app (``api.py``) serves ``GET /best-laps`` by round-tripping through the
+SDF per request (produce a ``get_request`` event, read State in-context, deliver
+the transient payload back via the ``PendingRequests`` bridge). No best-laps
+payload persists in RAM between requests.
 
 Threading model (resolves the signal-handler issue, spec §6.1/§8.2):
 
@@ -29,8 +31,8 @@ import uvicorn
 
 from best_laps_cache.api import create_app
 from best_laps_cache.enrichment import Enrichment
-from best_laps_cache.materialized import MaterializedView
 from best_laps_cache.pipeline import Pipeline
+from best_laps_cache.request_bridge import PendingRequests
 from best_laps_cache.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -44,9 +46,9 @@ def _configure_logging() -> None:
     )
 
 
-def _serve_http(view: MaterializedView, settings) -> None:
+def _serve_http(pipeline: Pipeline, pending: PendingRequests, settings) -> None:
     """Run uvicorn on a worker thread (no signal handlers off-main-thread)."""
-    app = create_app(view, settings)
+    app = create_app(pipeline, pending, settings)
     server = uvicorn.Server(
         uvicorn.Config(
             app,
@@ -62,13 +64,13 @@ def main() -> int:
     _configure_logging()
     settings = get_settings()
 
-    view = MaterializedView()
+    pending = PendingRequests()
     enrichment = Enrichment(settings)
-    pipeline = Pipeline(settings, enrichment, view)
+    pipeline = Pipeline(settings, enrichment, pending)
 
     http_thread = threading.Thread(
         target=_serve_http,
-        args=(view, settings),
+        args=(pipeline, pending, settings),
         name="http-server",
         daemon=True,
     )
@@ -76,10 +78,12 @@ def main() -> int:
 
     # Proactive cold-start lakehouse seed on a worker thread (never blocks the
     # main thread, which app.run() needs for its signal handlers). It queries the
-    # lake ONCE (gated by the <state_dir>/.seeded marker) and produces one
-    # per-experiment {"type":"seed"} message to best-laps-events; the SDF — once
-    # running — folds each into State in-context. Producing onto the topic before
-    # app.run() has fully started is safe: the messages persist until consumed.
+    # lake ONCE (gated by a seeded flag read from State via the request bridge —
+    # a seed_gate round-trip through the SDF) and produces one per-experiment
+    # {"type":"seed"} message to best-laps-events; the SDF — once running — folds
+    # each into State in-context, then a mark_seeded event sets the flag. Producing
+    # onto the topic before app.run() has fully started is safe: the messages
+    # persist until consumed.
     boot_seed_thread = threading.Thread(
         target=pipeline.run_boot_seed,
         name="boot-seed",

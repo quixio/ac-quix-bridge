@@ -1,10 +1,10 @@
 # AC/ACC Telemetry — Lakehouse Patterns
 
-Reference for the `ac_telemetry` table in Quix Lakehouse. Covers partition layout, telemetry semantic quirks, and canonical SQL patterns. Tool usage, the table-fallback flow, and the hard query rules live in the system prompt — this KB is the SQL/semantic reference.
+Reference for the AC telemetry table in Quix Lakehouse — default `ac_telemetry_prod` (non-prod environments use a sibling `ac_telemetry*` table). Covers partition layout, telemetry semantic quirks, and canonical SQL patterns. Tool usage, the table-fallback flow, and the hard query rules live in the system prompt — this KB is the SQL/semantic reference.
 
 ## Table summary
 
-- **Table name**: `ac_telemetry` (one of several tables in the lake; sibling tables `carcolours_*`, `temperature`, `todata` are unrelated and never relevant to AC queries).
+- **Table name**: `ac_telemetry_prod` by default (the production sink). Non-prod environments use a sibling `ac_telemetry*` table (`ac_telemetry`, `ac_telemetry_dev`, …); if a query returns 0 rows, `list_tables()` and switch to the `ac_telemetry*` table that holds the data. Unrelated lake tables (`carcolours_*`, `temperature`, `todata`) are never relevant to AC queries.
 - **Source**: Assetto Corsa shared memory. Sample rate is configurable per pipeline.
 - **Expected query latency**: narrow partition-filtered SELECT ~500 ms; `SELECT *` for a single session takes 15-22 s due to CSV serialisation — always project only the columns you need.
 
@@ -53,7 +53,7 @@ For "how long did lap N take", use the sim's own lap timer — `MAX(iCurrentTime
 
 ```sql
 SELECT driver, session_id, lap, MAX(iCurrentTime) / 1000.0 AS duration_s
-FROM ac_telemetry
+FROM ac_telemetry_prod
 WHERE environment = 'prague_office' AND track = 'Spa' AND carModel = 'porsche_991ii_gt3_r'
 GROUP BY driver, session_id, lap
 ORDER BY session_id, lap
@@ -100,7 +100,7 @@ FROM (
   FROM (
     SELECT driver, session_id, lap,
            MAX(iCurrentTime) / 1000.0 AS duration_s
-    FROM ac_telemetry
+    FROM ac_telemetry_prod
     WHERE environment = 'prague_office'
       AND track = 'Spa'
       AND carModel = 'porsche_991ii_gt3_r'
@@ -110,7 +110,7 @@ FROM (
   ) lap_table
   JOIN (
     SELECT driver, session_id, MAX(lap) AS last_lap
-    FROM ac_telemetry
+    FROM ac_telemetry_prod
     WHERE environment = 'prague_office'
       AND track = 'Spa'
       AND carModel = 'porsche_991ii_gt3_r'
@@ -135,7 +135,7 @@ Consequence: queries like "two fastest laps", "top N laps", "list all laps with 
 Wrong:
 ```sql
 SELECT lap, MIN(iBestTime) AS ms
-FROM ac_telemetry
+FROM ac_telemetry_prod
 WHERE driver = 'tomas'
 GROUP BY lap
 ORDER BY ms LIMIT 2
@@ -162,10 +162,10 @@ SELECT
     clean.session_id,
     clean.lap,
     MAX(clean.iCurrentTime) / 1000.0 AS duration_s
-FROM ac_telemetry clean
+FROM ac_telemetry_prod clean
 JOIN (
     SELECT driver, session_id, MAX(lap) AS last_lap
-    FROM ac_telemetry
+    FROM ac_telemetry_prod
     WHERE driver = 'tomas'
     GROUP BY driver, session_id
 ) bounds
@@ -198,7 +198,7 @@ FROM (
   FROM (
     SELECT driver, session_id, lap,
            MAX(iCurrentTime) / 1000.0 AS duration_s
-    FROM ac_telemetry
+    FROM ac_telemetry_prod
     WHERE environment = 'prague_office'
       AND track = 'Spa'
       AND carModel = 'porsche_991ii_gt3_r'
@@ -208,7 +208,7 @@ FROM (
   ) lap_table
   JOIN (
     SELECT driver, session_id, MAX(lap) AS last_lap
-    FROM ac_telemetry
+    FROM ac_telemetry_prod
     WHERE environment = 'prague_office'
       AND track = 'Spa'
       AND carModel = 'porsche_991ii_gt3_r'
@@ -240,7 +240,7 @@ Avoid the old `printf('%d', …)` recipe: it needs an *integer* minute, so `MAX(
 ```sql
 SELECT driver, session_id, lap,
        ROUND(MAX(speedKmh), 1) AS peak_speed_kmh
-FROM ac_telemetry
+FROM ac_telemetry_prod
 WHERE environment = 'prague_office'
   AND driver = 'tomas'
   AND track = 'Spa'

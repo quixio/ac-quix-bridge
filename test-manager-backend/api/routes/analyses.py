@@ -16,8 +16,14 @@ from pymongo.database import Database
 from shared.post_race_ai.pdf import render_analysis_pdf
 from shared.post_race_ai.runner import BatchAnalysisAI
 from ..auth import bearer_from_request, read_permission, update_permission
-from ..models import Analysis, AnalysisCreate
+from ..models import Analysis, AnalysisCreate, AnalysisRecipient, EmailSendResult
 from ..mongo import get_mongo
+from ..notify import (
+    EmailNotConfigured,
+    NoRecipientEmail,
+    resolve_driver_email,
+    send_analysis_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +217,61 @@ def get_analysis_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get(
+    "/analyses/{analysis_id}/recipient",
+    response_model=AnalysisRecipient,
+    response_model_by_alias=False,
+)
+def get_analysis_recipient(
+    analysis_id: str,
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    _: None = Depends(read_permission),
+) -> AnalysisRecipient:
+    """Resolve the test driver's email for the manual-send confirmation dialog."""
+    doc = mongo.analyses.find_one({"_id": analysis_id}, {"test_id": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    email = resolve_driver_email(mongo, doc["test_id"])
+    return AnalysisRecipient(email=email, has_email=bool(email))
+
+
+@router.post(
+    "/analyses/{analysis_id}/email",
+    response_model=EmailSendResult,
+    response_model_by_alias=False,
+)
+def send_analysis_email_route(
+    analysis_id: str,
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    _: None = Depends(update_permission),
+) -> EmailSendResult:
+    """Manually email a completed analysis PDF to the test's driver."""
+    doc = mongo.analyses.find_one({"_id": analysis_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    analysis = Analysis(**doc)
+    if analysis.status != "complete":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Analysis not complete (status={analysis.status})",
+        )
+    try:
+        email = send_analysis_email(mongo, analysis)
+    except EmailNotConfigured as exc:
+        raise HTTPException(
+            status_code=503, detail="Email is not configured on the server"
+        ) from exc
+    except NoRecipientEmail as exc:
+        raise HTTPException(
+            status_code=422, detail="The test's driver has no email on file"
+        ) from exc
+    except Exception as exc:  # smtplib/render failure — surface, don't swallow
+        logger.error("[analyses] manual email failed %s: %s", analysis_id, exc)
+        raise HTTPException(status_code=502, detail="Failed to send the email") from exc
+    logger.info("[analyses] POST %s/email -> sent to %s", analysis_id, email)
+    return EmailSendResult(sent=True, email=email)
 
 
 @router.get("/analyses")

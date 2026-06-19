@@ -81,21 +81,18 @@ def test_cold_cache_ws_path_serves_empty_without_lake(monkeypatch):
     assert rows == []
 
 
-def test_cold_cache_http_path_still_refreshes(monkeypatch):
-    """Default `allow_cold_refresh=True` (the polled /live-positions path)
-    keeps the synchronous cold-cache refresh — proving the WS gate is opt-in
-    and doesn't regress the HTTP fallback."""
+def test_http_path_never_hits_lake_on_request(monkeypatch):
+    """State-native contract (read-path-no-ram.md): NO path — WS-connect or the
+    polled HTTP `/live-positions` — runs a synchronous lake refresh. Historicals
+    are read from RocksDB State per request, in-context. With no SDF runtime wired
+    (the unit-test env), the board is empty and the lake is never touched."""
+
+    def _boom(*_a, **_k):
+        raise AssertionError("refresh_best_laps_cache must NOT run on any request")
+
     leaderboard_real = _import_leaderboard_real()
-    called = {"n": 0}
-
-    def _mark_refreshed(*_a, **_k):
-        called["n"] += 1
-        # Simulate a refresh that found no groups → empty (not None) cache.
-        live_telemetry._best_laps_cache = {}
-
-    monkeypatch.setattr(live_telemetry, "refresh_best_laps_cache", _mark_refreshed)
+    monkeypatch.setattr(live_telemetry, "refresh_best_laps_cache", _boom)
     rows = leaderboard_real.build_live_positions(_StubMongo())
-    assert called["n"] == 1
     assert rows == []
 
 

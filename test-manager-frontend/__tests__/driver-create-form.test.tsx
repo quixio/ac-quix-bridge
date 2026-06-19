@@ -103,8 +103,6 @@ describe("DriverCreateForm", () => {
     ).not.toBeInTheDocument();
 
     rerender(<DriverCreateForm onCreated={vi.fn()} onCancel={vi.fn()} />);
-    expect(
-      screen.getByRole("button", { name: /cancel/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
   });
 });

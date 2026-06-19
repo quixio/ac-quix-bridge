@@ -18,6 +18,7 @@ import type {
   TestUpdate,
   TestQuery,
   TestFullData,
+  LastUsedDefaults,
   LogbookEntry,
   LogbookEntryCreate,
   LogbookEntryUpdate,
@@ -256,6 +257,22 @@ export const testsApi = {
   ) => {
     return apiGet<string[]>(
       "/tests/filters/drivers",
+      undefined,
+      token,
+      refreshToken,
+    );
+  },
+
+  /**
+   * Get the most recently created test's field values, for prefilling the
+   * create form. Fields are null when no prior test exists.
+   */
+  getLastUsed: (
+    token?: string | null,
+    refreshToken?: () => Promise<string | null>,
+  ) => {
+    return apiGet<LastUsedDefaults>(
+      "/tests/filters/last-used",
       undefined,
       token,
       refreshToken,
