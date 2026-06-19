@@ -14,7 +14,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetrydashboard
@@ -61,7 +60,6 @@ deployments:
       limits:
         cpu: 200
         memory: 800
-      replicas: 1
     state:
       enabled: true
       size: 3
@@ -91,7 +89,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -121,7 +118,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -146,7 +142,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
@@ -173,7 +168,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 4000
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -257,7 +251,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager-api
@@ -351,7 +344,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager
@@ -411,7 +403,6 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: acvideobrowser
@@ -435,7 +426,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetryexplorer
@@ -506,7 +496,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: backup-manager
@@ -575,8 +564,7 @@ deployments:
     resources:
       limits:
         cpu: 500
-        memory: 2000
-      replicas: 1
+        memory: 4000
     publicAccess:
       enabled: true
       urlPrefix: quixlab
@@ -633,7 +621,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1500
-      replicas: 1
     configuration:
       topic: ac-telemetry-raw
   - name: leaderboard-service
@@ -644,7 +631,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: leaderboard-service-9cb716a
@@ -730,7 +716,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     variables:
       - name: MONGO_USER
         inputType: ProjectVariable
@@ -761,7 +746,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
@@ -784,7 +768,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     configuration:
       sourceWorkspaceId: demo-acquixbridge-dev
       sourceTopic: ac-telemetry-raw
