@@ -833,7 +833,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         description: DCM base URL for session/experiment enrichment
-        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+        value: https://dynamic-configuration-manager
       - name: LAKE_TABLE
         inputType: FreeText
         value: ac_telemetry_prod
@@ -848,7 +848,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-cache-v1.6
+        value: best-laps-cache-v1.0
     blobStorage:
       bind: true
 
