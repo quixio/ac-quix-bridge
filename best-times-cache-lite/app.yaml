@@ -1,0 +1,42 @@
+name: best-times-cache-lite
+language: python
+variables:
+  - name: output
+    inputType: InputTopic
+    description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+    defaultValue: ac-telemetry-raw
+    required: true
+  - name: session_output
+    inputType: InputTopic
+    description: Kafka topic for AC session events (ac-telemetry-session)
+    defaultValue: ac-telemetry-session
+    required: false
+  - name: config_input
+    inputType: InputTopic
+    description: DCM config events topic (ac-telemetry-config)
+    defaultValue: ac-telemetry-config
+    required: false
+  - name: CONFIG_API_URL
+    inputType: FreeText
+    description: DCM base URL for session/experiment enrichment (in-cluster)
+    defaultValue: http://dynamic-configuration-manager
+    required: false
+  - name: LAKE_TABLE
+    inputType: FreeText
+    defaultValue: ac_telemetry_prod
+    required: false
+  - name: LAKE_COL_BEST_TIME
+    inputType: FreeText
+    defaultValue: iBestTime
+    required: false
+  - name: HTTP_PORT
+    inputType: FreeText
+    defaultValue: "80"
+    required: false
+  - name: CONSUMER_GROUP
+    inputType: FreeText
+    defaultValue: best-times-cache-lite
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

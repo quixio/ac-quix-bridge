@@ -829,6 +829,55 @@ deployments:
         value: best-laps-cache-v1.6
     blobStorage:
       bind: true
+  - name: best-times-cache-lite
+    application: best-times-cache-lite
+    version: latest
+    deploymentType: Service
+    desiredStatus: Running
+    resources:
+      limits:
+        cpu: 500
+        memory: 1000
+    publicAccess:
+      enabled: true
+      urlPrefix: best-times-cache-lite
+    state:
+      enabled: true
+      size: 3
+    network:
+      serviceName: best-times-cache-lite
+    variables:
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session)
+        value: ac-telemetry-session
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config)
+        value: ac-telemetry-config
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        description: DCM base URL for session/experiment enrichment
+        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry_prod
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: 80
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: best-times-cache-lite-v1
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
