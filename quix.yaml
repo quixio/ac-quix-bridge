@@ -686,6 +686,14 @@ deployments:
         description: DCM config events topic (ac-telemetry-config) — declared so the pipeline view shows this service consuming it
         required: true
         value: ac-telemetry-config
+      - name: LEADERBOARD_EVENTS_TOPIC
+        inputType: OutputTopic
+        description: Internal experiment-keyed events topic for the State-native pipeline (write/read/seed/get_request). One stream_id -> one RocksDB store.
+        value: leaderboard-events
+      - name: STATE_CONSUMER_GROUP
+        inputType: FreeText
+        description: Consumer group for the State-native SDF (distinct from the active-stream consumer's leaderboard-service-ghost-lap group).
+        value: leaderboard-service-state
       - name: LAKE_TABLE
         inputType: FreeText
         value: AC_TELEMETRY_TABLE_NAME
@@ -700,7 +708,7 @@ deployments:
         value: normalizedCarPosition
       - name: GATE_COUNT
         inputType: FreeText
-        value: 10
+        value: 1200
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false
@@ -710,7 +718,7 @@ deployments:
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: 'Build-time: blue-freeze window ms (baked into UI bundle)'
-        value: 200
+        value: 5
       - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
         inputType: ProjectVariable
         description: 'Build-time: standalone-mode fallback PAT baked into UI bundle'
