@@ -3,14 +3,14 @@ import quixlab as ql
 canvas = ql.Canvas(title="My Notebook", lake_tree_open=['ac_telemetry_prod', 'ac_telemetry_prod/environment=prague_office', 'ac_telemetry_prod/environment=prague_office/test_rig=fanatec_csl_dd'])
 
 
-@canvas.dataset(position=(420, 77), size=(839, 477), code_height=200)
-def ac_telemetry_prod():
-    return ql.sql("""SELECT *
+@canvas.dataset(position=(420, 78), size=(869, 539), code_height=200)
+def ac_telemetry_prod(data_selection):
+    return ql.sql(f"""SELECT timestam_ms, speedKmh, rpms, gear
     FROM ac_telemetry_prod
     WHERE environment = 'prague_office'
       AND test_rig = 'fanatec_csl_dd'
-      AND experiment = 'tyre_pressure'
-      AND driver = 'tomas neubauer'
+      AND experiment = '{data_selection.experiment}'
+      AND driver = '{data_selection.driver}'
     """)
 
 
@@ -45,12 +45,16 @@ def cell_3(stream_1):
     return df.tail(2000)
 
 
-@canvas.cell(position=(-445, 97), size=(560, 420), code_height=200)
-def cell_2():
+@canvas.cell(position=(-445, 97), size=(729, 526), code_height=200)
+def data_selection():
+    # Pin ancestor partition columns to skip the tree fan-out.
+    experiments = ql.partition_values("ac_telemetry_prod", "experiment")
+    experiment = ql.ui.dropdown(experiments, label="Experiment")
 
+    drivers = ql.partition_values("ac_telemetry_prod", "driver", where={"experiment": experiment.value})
+    driver = ql.ui.dropdown(drivers, label="Driver")
 
-    color = ql.ui.dropdown(["red","green","blue"], value="green", label="Color")
-    color
+    experiment, driver
 
 
 if __name__ == "__main__":
