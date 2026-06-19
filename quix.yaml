@@ -44,7 +44,7 @@ deployments:
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
         description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
-        value: http://best-laps-cache
+        value: http://best-times-cache-lite
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
@@ -833,7 +833,6 @@ deployments:
     application: best-times-cache-lite
     version: latest
     deploymentType: Service
-    desiredStatus: Running
     resources:
       limits:
         cpu: 500
@@ -844,6 +843,7 @@ deployments:
     state:
       enabled: true
       size: 3
+    desiredStatus: Running
     network:
       serviceName: best-times-cache-lite
     variables:
