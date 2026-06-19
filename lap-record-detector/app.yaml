@@ -1,0 +1,33 @@
+name: Lap Record Detector
+language: python
+variables:
+  - name: input
+    inputType: InputTopic
+    description: Raw telemetry topic to consume
+    defaultValue: ac-telemetry-raw
+    required: true
+  - name: config_topic
+    inputType: InputTopic
+    description: DCM config topic for driver/track/car enrichment
+    defaultValue: ac-telemetry-config
+    required: true
+  - name: output
+    inputType: OutputTopic
+    description: Topic to publish new lap records to
+    defaultValue: lap-records
+    required: true
+  - name: CONSUMER_GROUP
+    inputType: FreeText
+    description: Kafka consumer group name
+    defaultValue: lap-record-detector
+  - name: AUTO_OFFSET_RESET
+    inputType: FreeText
+    description: Where to start consuming if no offset exists (earliest/latest)
+    defaultValue: earliest
+  - name: LOGLEVEL
+    inputType: FreeText
+    description: Logging level
+    defaultValue: INFO
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
