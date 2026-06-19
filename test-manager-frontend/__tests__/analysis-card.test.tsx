@@ -52,6 +52,7 @@ function fullAnalysis(): Analysis {
     ],
     summary_md: "## Pace\n\nGreat session.",
     extra: {},
+    activity: [],
   };
 }
 

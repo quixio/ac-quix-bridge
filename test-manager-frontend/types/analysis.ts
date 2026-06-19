@@ -23,6 +23,19 @@ export interface RequirementCheck {
   evidence?: string | null;
 }
 
+export type ActivityKind = "tool" | "agent_start" | "agent_step" | "agent_end";
+
+export interface ActivityEvent {
+  ts: string;
+  kind: ActivityKind;
+  tool?: string | null;
+  label: string;
+  detail?: string | null;
+  result?: string | null;
+  error?: boolean;
+  sub?: string | null;
+}
+
 export interface Anomaly {
   severity: "info" | "warn" | "error";
   kind: string;
@@ -56,6 +69,7 @@ export interface Analysis {
   anomalies: Anomaly[];
   summary_md: string;
   extra: Record<string, unknown>;
+  activity: ActivityEvent[];
 }
 
 export interface AnalysisCreateRequest {

@@ -12,9 +12,6 @@ from ....notify import email_completed_analysis
 logger = logging.getLogger(__name__)
 
 
-_TERMINAL_STATUSES = {"complete", "failed"}
-
-
 def save_analysis(
     mongo: Database[dict[str, Any]],
     *,
@@ -30,8 +27,12 @@ def save_analysis(
 
     Raises:
       - ValueError if analysis_id doesn't exist
-      - ValueError if already complete/failed (no overwrite)
+      - ValueError if already `complete` (no overwrite of a finished report)
       - Pydantic ValidationError on bad payload
+
+    A `failed` analysis CAN be overwritten — this is the recovery path for a
+    save that previously errored on a recoverable payload glitch (the run flips
+    to `failed`, then a corrected retry on the same id lands here).
     """
     # Pydantic coerces the dict payloads into KpiValue/RequirementCheck/Anomaly.
     payload = SaveAnalysisPayload(
@@ -47,7 +48,7 @@ def save_analysis(
     doc = mongo.analyses.find_one({"_id": analysis_id})
     if not doc:
         raise ValueError(f"Analysis {analysis_id} not found")
-    if doc["status"] in _TERMINAL_STATUSES:
+    if doc.get("status") == "complete":
         raise ValueError(
             f"Analysis {analysis_id} already complete (status={doc['status']})"
         )
