@@ -670,7 +670,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true
-        value: http://dynamic-configuration-manager
+        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
       - name: output
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
