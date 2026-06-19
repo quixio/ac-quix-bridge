@@ -696,7 +696,7 @@ deployments:
         value: leaderboard-service-state
       - name: LAKE_TABLE
         inputType: FreeText
-        value: acc_telemetry_prod
+        value: ac_telemetry_prod
       - name: LAKE_COL_CURRENT_TIME
         inputType: FreeText
         value: iCurrentTime
