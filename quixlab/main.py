@@ -39,15 +39,16 @@ def cell_1(car_telemetry):
         car_telemetry]
 
 
-@canvas.stream(position=(337, 709), size=(563, 512), code_height=232)
+@canvas.stream(position=(337, 709), size=(559, 870), code_height=420, viz={'refresh': 10, 'type': 'table', 'x': 'packetId', 'y': 'gas'})
 def stream_1():
-    return ql.topic('', limit=200000)
+    return ql.topic("ac-telemetry-raw", workspace="quixdev-acquixbridge-prod", offset="earliest", limit=20000, consumer_group="quixlab-ac-telemetry-raw-3xka5a")
 
 
 @canvas.cell(position=(957, 709), size=(660, 546), code_height=200)
 def cell_2(stream_1):
-    df = stream_1.df
+    df = stream_1.df[["completedLaps", "speedKmh", "rpms", "gear"]]
     df["lap"] = df["completedLaps"] + 1
+
 
     stats_df = df.groupby("lap").agg(["min", "max"])
     return stats_df.reset_index()
