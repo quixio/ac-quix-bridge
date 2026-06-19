@@ -172,7 +172,8 @@ class BatchAnalysisAI:
                 "  3. Pull logbook with list_logbook(test_id, include_test_wide=True).\n"
                 "  4. Query the lake per session (partition-filter on full tuple).\n"
                 "  5. Compose cross-session insights; tag each KPI/anomaly with session_id.\n"
-                "  6. Call save_analysis(analysis_id, payload={...}) exactly once.\n"
+                "  6. Call save_analysis with flat args (analysis_id, summary_md, "
+                "kpis, ...) once — only if you found real telemetry.\n"
             )
         else:
             message = (
@@ -182,7 +183,8 @@ class BatchAnalysisAI:
                 f"session_id:  {session_id}\n\n"
                 "Workspace context: AC telemetry. Resolve the lake table per your "
                 "instructions (do not assume a table name).\n\n"
-                f'Call save_analysis(analysis_id="{analysis_id}", payload={{...}}) exactly once when done.'
+                f'When done, call save_analysis with flat args (analysis_id="{analysis_id}", '
+                "summary_md, kpis, ...) once — only if you found real telemetry."
             )
         return {
             "message": message,

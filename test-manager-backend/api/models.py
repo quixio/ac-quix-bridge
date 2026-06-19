@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
@@ -682,6 +683,27 @@ class SaveAnalysisPayload(BaseModel):
     anomalies: list[Anomaly] = []
     summary_md: str = Field(..., min_length=1)
     extra: dict[str, Any] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_json_strings(cls, data: Any) -> Any:
+        """Recover list/dict fields the agent serialised as a JSON string.
+
+        Agents occasionally send e.g. `extra` as `'{"track": "Spa"}'` instead of
+        an object; without this a recoverable formatting glitch fails the whole
+        save. A genuinely malformed string is left as-is for normal validation.
+        """
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        for key in ("kpis", "requirements_check", "anomalies", "extra"):
+            value = out.get(key)
+            if isinstance(value, str):
+                try:
+                    out[key] = json.loads(value)
+                except (ValueError, TypeError):
+                    pass
+        return out
 
 
 class AnalysisRecipient(BaseModel):
