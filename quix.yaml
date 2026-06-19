@@ -870,3 +870,4 @@ topics:
     configuration:
       retentionInBytes: 524288000
   - name: best-laps-events
+  - name: leaderboard-events
