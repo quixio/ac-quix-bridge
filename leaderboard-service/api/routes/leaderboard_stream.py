@@ -33,12 +33,10 @@ import logging
 import os
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
-from pymongo.database import Database
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
 from .. import live_stream, live_telemetry
 from ..auth import auth
-from ..mongo import get_mongo
 from ..settings import get_settings
 from . import leaderboard_real, live_positions_sim
 
@@ -78,14 +76,14 @@ def _validate_ws_token(token: str | None) -> bool:
         return False
 
 
-def _build_initial_rows_sync(mongo: Database[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_initial_rows_sync() -> list[dict[str, Any]]:
     """Build the initial-snapshot row list on a worker thread.
 
     Mirrors the dispatch logic in
     ``routes/leaderboard.py:get_live_positions``: LOCAL_DEV_MODE uses the
     in-process simulator, every other deployment goes through
     ``leaderboard_real.build_live_positions``. Both functions are
-    synchronous (Mongo, possibly QuixLake on cold cache) which is why
+    synchronous (possibly QuixLake / State on cold cache) which is why
     this helper is called via ``asyncio.to_thread`` — running it inline
     on the event loop would stall every other WebSocket connection
     while the snapshot is built.
@@ -105,7 +103,7 @@ def _build_initial_rows_sync(mongo: Database[dict[str, Any]]) -> list[dict[str, 
         # background TTL refresh (consumer thread) rebroadcasts a populated
         # snapshot once the lake answers. This is the core "live first,
         # DB async" guarantee — see docs/architecture-leaderboard-live-first.md.
-        return leaderboard_real.build_live_positions(mongo, allow_cold_refresh=False)
+        return leaderboard_real.build_live_positions(allow_cold_refresh=False)
     except leaderboard_real.LeaderboardError:
         # Cold start before the lake has any data, missing creds, etc.
         # Treat as "no rows yet" — the client will still get a valid
@@ -119,7 +117,6 @@ def _build_initial_rows_sync(mongo: Database[dict[str, Any]]) -> list[dict[str, 
 async def live_stream_endpoint(
     websocket: WebSocket,
     token: Annotated[str | None, Query()] = None,
-    mongo: Database[dict[str, Any]] = Depends(get_mongo),
 ) -> None:
     """WebSocket endpoint streaming the full leaderboard.
 
@@ -163,7 +160,7 @@ async def live_stream_endpoint(
     # row until the next refresh. Snapshot-first guarantees the client
     # always has a base state to patch against.
     try:
-        rows = await asyncio.to_thread(_build_initial_rows_sync, mongo)
+        rows = await asyncio.to_thread(_build_initial_rows_sync)
         await websocket.send_json({"type": "snapshot", "rows": rows})
         # Send the current active-stream state right after the snapshot
         # so a reconnecting client doesn't have to wait for the next

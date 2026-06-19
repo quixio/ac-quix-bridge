@@ -149,18 +149,14 @@ def compute_per_historical_deltas(
     return out
 
 
-def to_display_name(folded_key: str, lookup: dict[str, str]) -> str:
-    """Map a folded driver key back to the Mongo display-case name.
+def to_display_name(folded_key: str) -> str:
+    """Title-Case a folded driver key for display.
 
-    Falls back to the title-cased folded key (e.g. `"tomas"` →
-    `"Tomas"`) when the lookup has no entry. Empty input returns
-    empty. The caller is expected to cache the `lookup` map (built via
-    `_build_driver_name_lookup(mongo)`) so this is a hot-path-cheap
-    dict.get with a fallback.
+    The lake stores `driver` diacritic-folded + lowercase; this produces a
+    display string (e.g. `"tomas neubauer"` → `"Tomas Neubauer"`). Empty
+    input returns empty. No Mongo lookup — names are sourced from DCM
+    (live) / the lake (historical) and title-cased here.
     """
     if not folded_key:
         return ""
-    display = lookup.get(folded_key)
-    if display:
-        return display
-    return folded_key[:1].upper() + folded_key[1:]
+    return folded_key.title()

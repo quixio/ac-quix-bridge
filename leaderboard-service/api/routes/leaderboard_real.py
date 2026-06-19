@@ -9,7 +9,7 @@ synchronous ``httpx`` shim against the Box Cloud Lakehouse Query API
 (``POST {Quix__Lakehouse__Query__Url}/api/query``). Replaces the former
 ``QuixLakeClient`` / ``quixlake-sdk`` dependency.
 
-Public entry point: `build_live_positions(mongo)`. Raises
+Public entry point: `build_live_positions()`. Raises
 `LeaderboardError` on configuration/upstream failures so the route
 layer can map to a 500 with a useful `detail`.
 
@@ -22,7 +22,7 @@ design (file pending — see dev-planning/leaderboard-consolidated/spec.md).
 Why a separate module from `leaderboard.py`:
 
 * `leaderboard.py` stays a thin router.  Everything that touches the
-  lake, Mongo or the consumer state lives here.
+  lake or the consumer state lives here.
 
 Why no nested SQL / CTE: The Lakehouse Query API (DuckDB-backed)
 silently returns 0 rows for queries that use ``WITH …``
@@ -37,7 +37,6 @@ import unicodedata
 from typing import Any, Literal
 
 import httpx
-from pymongo.database import Database
 
 from leaderboard_service_state.gate_vector import gate_vector_from_samples
 
@@ -84,7 +83,10 @@ class LeaderboardError(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
-# Driver-name display-case lookup (copied from the old /best-laps route).
+# Driver-name folding. The lake stores `driver` diacritic-folded + lowercase;
+# `_fold_driver_name` produces the matching key. Display names are sourced
+# from DCM (live) / the lake (historical) and Title-Cased at the call sites —
+# no Mongo lookup involved (see docs/architecture-leaderboard-dropdowns.md).
 # ---------------------------------------------------------------------------
 
 
@@ -110,30 +112,6 @@ def _fold_driver_name(name: str) -> str:
     if not folded:
         return name.lower()
     return folded
-
-
-def _build_driver_name_lookup(mongo: Database[dict[str, Any]]) -> dict[str, str]:
-    """`{folded_name: display_name}` map from the Mongo `drivers` collection.
-
-    Mongo is an *optional* display-name prettifier: an unreachable or
-    empty Mongo returns `{}` (logged at WARNING) and callers fall back to
-    folded / title-cased driver keys — it must never fail a leaderboard
-    response.
-    """
-    try:
-        lookup: dict[str, str] = {}
-        for doc in mongo.drivers.find({}, {"name": 1}):
-            name = doc.get("name")
-            if isinstance(name, str) and name:
-                lookup[_fold_driver_name(name)] = name
-        return lookup
-    except Exception:
-        logger.warning(
-            "driver-name lookup failed (Mongo unreachable?); "
-            "serving folded driver names",
-            exc_info=True,
-        )
-        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -1017,7 +995,6 @@ def _build_group_rows(
     experiment: str,
     environment: str,
     best_laps_cache: dict[tuple[str, str, str, str], dict[str, int]],
-    driver_name_lookup: dict[str, str],
     active: dict[str, Any] | None,
     gate_vectors_cache: dict[tuple[str, str, str], dict[str, _HistoricalEntry]] | None,
 ) -> list[dict[str, object]]:
@@ -1094,7 +1071,7 @@ def _build_group_rows(
         # Centralised display-case resolution (spec §7.2) — same helper
         # the WS broadcaster uses so HTTP snapshot driver names match the
         # `{"type": "active"}` envelope exactly.
-        display_driver = _resolve_display_name(folded_driver, driver_name_lookup)
+        display_driver = _resolve_display_name(folded_driver)
         entry = group_gate_vectors.get(folded_driver)
         best_lap_number = entry.best_lap_number if entry else None
         # The per-row delta uses the active driver's last_gate_index; if
@@ -1131,10 +1108,13 @@ def _build_group_rows(
     # environment), so we can't end up rendering the same active driver in
     # two groups for different environments.
     if active_in_group and active is not None and active_folded is not None:
-        # Use the centralised resolver — same fallback as WS broadcaster,
-        # so HTTP snapshot driver === WS `{"type":"active"}` driver.
-        # Mismatch freezes the live timer (frontend match is exact-equal).
-        display_driver = _resolve_display_name(active_folded, driver_name_lookup)
+        # Title-Case the RAW DCM driver (not the folded key) so the HTTP
+        # snapshot's active-row driver string is byte-identical to the WS
+        # `{"type":"active"}` envelope (live_telemetry uses `driver.title()`).
+        # The frontend matches by exact string equality; a mismatch freezes
+        # the live timer. Diacritics survive on the live row this way.
+        raw_active_driver = str(active.get("driver") or "")
+        display_driver = raw_active_driver.title()
         lake_best = group_historicals.get(active_folded)
         i_last_time = active.get("best_lap_ms_session")
         try:
@@ -1143,7 +1123,7 @@ def _build_group_rows(
             i_last_int = None
         active_best = _best_for_active(lake_best, i_last_int)
         # Spec §3.8: the merged row inherits the lake's best_lap_number for
-        # the folded driver — Mongo display case, lake-derived best.
+        # the folded driver — raw DCM display name, lake-derived best.
         active_entry = group_gate_vectors.get(active_folded)
         active_best_lap_number = (
             active_entry.best_lap_number if active_entry is not None else None
@@ -1196,7 +1176,6 @@ def _build_group_rows(
 
 def _solo_active_group(
     active: dict[str, Any],
-    driver_name_lookup: dict[str, str],
 ) -> list[dict[str, object]]:
     """Emit a 1-row group for a live driver whose (track, car, exp, env)
     has no historical entries in the lake yet.
@@ -1207,14 +1186,11 @@ def _solo_active_group(
     breakdown column.
     """
     raw_driver = str(active.get("driver") or "")
-    folded_key = _fold_driver_name(raw_driver)
-    # Centralised display-case resolver — same fallback chain as WS
-    # broadcaster output so HTTP snapshot and `{"type": "active"}`
-    # mutations carry identical `driver` strings.
-    display_driver = (
-        _resolve_display_name(folded_key, driver_name_lookup) if folded_key
-        else raw_driver
-    )
+    # Title-Case the RAW DCM driver so the HTTP snapshot and the WS
+    # `{"type": "active"}` mutation (live_telemetry uses `driver.title()`)
+    # carry identical `driver` strings — the frontend matches by exact
+    # equality. Preserves diacritics on the live row.
+    display_driver = raw_driver.title()
     i_last_time = active.get("best_lap_ms_session")
     try:
         i_last_int: int | None = int(i_last_time) if i_last_time else None
@@ -1337,7 +1313,6 @@ def _read_state_historicals(
 
 
 def build_live_positions(
-    mongo: Database[dict[str, Any]],
     *,
     allow_cold_refresh: bool = True,
 ) -> list[dict[str, object]]:
@@ -1366,8 +1341,6 @@ def build_live_positions(
     Each historical row carries only `best_lap_ms` + display fields;
     every gate-state column is `None` until Step 2 lands.
     """
-    driver_name_lookup = _build_driver_name_lookup(mongo)
-
     try:
         active = live_telemetry.get_active_driver()
     except Exception:
@@ -1414,7 +1387,6 @@ def build_live_positions(
                 experiment,
                 environment,
                 best_laps_cache,
-                driver_name_lookup,
                 active,
                 gate_vectors_cache,
             )
@@ -1435,6 +1407,6 @@ def build_live_positions(
             for k in emit_keys
         )
         if not already_emitted:
-            out.extend(_solo_active_group(active, driver_name_lookup))
+            out.extend(_solo_active_group(active))
 
     return out
