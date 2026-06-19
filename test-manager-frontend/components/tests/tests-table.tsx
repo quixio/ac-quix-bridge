@@ -11,6 +11,7 @@ import {
   ColumnDef,
   SortingState,
   OnChangeFn,
+  RowData,
 } from "@tanstack/react-table";
 import {
   Table,
@@ -24,6 +25,13 @@ import { Button } from "@/components/ui/button";
 import type { Test } from "@/types/test";
 import { ArrowUpDown, Loader2, TrendingUp, Database } from "lucide-react";
 import { useDateFormatter } from "@/lib/hooks/use-date-formatter";
+import { cn } from "@/lib/utils/cn";
+
+declare module "@tanstack/react-table" {
+  interface ColumnMeta<TData extends RowData, TValue> {
+    className?: string;
+  }
+}
 
 interface TestsTableProps {
   data: Test[];
@@ -86,6 +94,7 @@ export const TestsTable = memo(function TestsTable({
           );
         },
         cell: ({ row }) => row.getValue("experiment_id"),
+        meta: { className: "hidden lg:table-cell" },
       },
       {
         accessorKey: "environment_id",
@@ -204,7 +213,10 @@ export const TestsTable = memo(function TestsTable({
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
-                <TableHead key={header.id}>
+                <TableHead
+                  key={header.id}
+                  className={header.column.columnDef.meta?.className}
+                >
                   {header.isPlaceholder
                     ? null
                     : flexRender(
@@ -238,7 +250,10 @@ export const TestsTable = memo(function TestsTable({
                     return (
                       <TableCell
                         key={cell.id}
-                        className={isActionsColumn ? "py-2" : ""}
+                        className={cn(
+                          cell.column.columnDef.meta?.className,
+                          isActionsColumn && "py-2",
+                        )}
                       >
                         {index === 0 && isNavigating ? (
                           <div className="flex items-center gap-2">

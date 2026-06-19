@@ -1,6 +1,6 @@
 """Tests for the Analysis Pydantic models and CRUD routes."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -451,20 +451,24 @@ def test_auto_no_secret_required_when_unset(
 
 
 def _insert_analysis_for(
-    test_id: str, session_id: str, status: str, analysis_id: str
+    test_id: str,
+    session_id: str | None,
+    status: str,
+    analysis_id: str,
+    created_at: datetime | None = None,
 ) -> str:
     """Insert an analysis doc bound to a specific (test, session) straight into Mongo."""
     from api.mongo import get_mongo
 
-    now = datetime.now(timezone.utc)
+    ts = created_at or datetime.now(timezone.utc)
     doc = Analysis(
         _id=analysis_id,
         test_id=test_id,
         session_id=session_id,
         status=status,  # type: ignore[arg-type]
         summary_md="x",
-        created_at=now,
-        updated_at=now,
+        created_at=ts,
+        updated_at=ts,
     )
     get_mongo().analyses.insert_one(doc.model_dump(by_alias=True))
     return analysis_id
@@ -523,21 +527,71 @@ def test_auto_dedup_returns_existing_with_200(
     assert second.json()["analysis_id"] == first_id
 
 
-def test_manual_always_creates_fresh(
+def test_manual_dedups_while_in_progress(
     client: TestClient, create_test: TestFactory
 ) -> None:
-    """A human can re-run: manual is never deduped, even if one already exists."""
+    """A second manual click while one is already running returns the existing
+    in-progress analysis (200), not a duplicate run — covers multi-user/tab."""
     test_id, session_id = _create_test_with_session(client, create_test)
 
     first = client.post(
         "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
     )
+    assert first.status_code == 202, first.text
+    first_id = first.json()["analysis_id"]
+
     second = client.post(
         "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
     )
-    assert first.status_code == 202
-    assert second.status_code == 202
-    assert first.json()["analysis_id"] != second.json()["analysis_id"]
+    assert second.status_code == 200, second.text
+    assert second.json()["analysis_id"] == first_id
+
+
+def test_manual_creates_fresh_after_complete(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """A human can re-run once the previous analysis has finished (not in
+    progress): a completed run must NOT block a fresh manual analysis."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+    _insert_analysis_for(test_id, session_id, "complete", "a-done-1")
+
+    resp = client.post(
+        "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
+    )
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["analysis_id"] != "a-done-1"
+
+
+def test_manual_ignores_failed(client: TestClient, create_test: TestFactory) -> None:
+    """A prior failed analysis must NOT block a fresh manual run."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+    _insert_analysis_for(test_id, session_id, "failed", "a-failed-m")
+
+    resp = client.post(
+        "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
+    )
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["analysis_id"] != "a-failed-m"
+
+
+def test_dedup_per_target_session_vs_test_wide_independent(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """An in-progress per-session run must not block a test-wide run (and vice
+    versa) — dedup keys on (test_id, session_id) with session_id=None for
+    test-wide."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+    _insert_analysis_for(test_id, session_id, "running", "a-session-run")
+
+    # Test-wide (session_id=None) is a different target → fresh, not deduped.
+    test_wide = client.post("/api/v1/analyses", json={"test_id": test_id})
+    assert test_wide.status_code == 202, test_wide.text
+    assert test_wide.json()["analysis_id"] != "a-session-run"
+
+    # A second test-wide click now dedups against the one we just started.
+    again = client.post("/api/v1/analyses", json={"test_id": test_id})
+    assert again.status_code == 200, again.text
+    assert again.json()["analysis_id"] == test_wide.json()["analysis_id"]
 
 
 def test_auto_dedup_ignores_failed(
@@ -552,6 +606,38 @@ def test_auto_dedup_ignores_failed(
     )
     assert resp.status_code == 202, resp.text
     assert resp.json()["analysis_id"] != "a-failed-1"
+
+
+def test_dedup_ignores_stale_in_progress(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """A stuck/orphaned in-progress analysis (older than the hard timeout) must
+    NOT block a fresh run — otherwise the button greys forever and no new
+    analysis can ever start for that target."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+    stale = datetime.now(timezone.utc) - timedelta(minutes=30)
+    _insert_analysis_for(test_id, session_id, "running", "a-stale", created_at=stale)
+
+    resp = client.post(
+        "/api/v1/analyses", json={"test_id": test_id, "session_id": session_id}
+    )
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["analysis_id"] != "a-stale"
+
+
+def test_auto_dedup_returns_existing_complete(
+    client: TestClient, create_test: TestFactory
+) -> None:
+    """Auto dedups a *completed* run too (the test-completed event re-fires) —
+    unlike manual, which may re-run a finished analysis."""
+    test_id, session_id = _create_test_with_session(client, create_test)
+    _insert_analysis_for(test_id, session_id, "complete", "a-auto-done")
+
+    resp = client.post(
+        "/api/v1/analyses", json={"session_id": session_id, "triggered_by": "auto"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["analysis_id"] == "a-auto-done"
 
 
 # --- Routes: GET /api/v1/analyses/{id}/pdf (F2) --------------------------- #
@@ -646,14 +732,13 @@ def test_list_analyses_filters_by_test_id(
 def test_list_analyses_sorted_desc_by_created_at(
     client: TestClient, create_test: TestFactory
 ) -> None:
+    # Seed directly (distinct created_at) — same-target POSTs now dedup, so we
+    # can't create two in-progress runs for one (test, session) via the API.
     t, s = _create_test_with_session(client, create_test)
-
-    first = client.post(
-        "/api/v1/analyses", json={"test_id": t, "session_id": s}
-    ).json()["analysis_id"]
-    second = client.post(
-        "/api/v1/analyses", json={"test_id": t, "session_id": s}
-    ).json()["analysis_id"]
+    older = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    newer = datetime(2026, 5, 2, tzinfo=timezone.utc)
+    first = _insert_analysis_for(t, s, "complete", "a-older", created_at=older)
+    second = _insert_analysis_for(t, s, "complete", "a-newer", created_at=newer)
 
     response = client.get(f"/api/v1/analyses?test_id={t}")
     items = response.json()["items"]
@@ -664,8 +749,8 @@ def test_list_analyses_sorted_desc_by_created_at(
 def test_list_analyses_pagination(client: TestClient, create_test: TestFactory) -> None:
     t, s = _create_test_with_session(client, create_test)
 
-    for _ in range(5):
-        client.post("/api/v1/analyses", json={"test_id": t, "session_id": s})
+    for i in range(5):
+        _insert_analysis_for(t, s, "complete", f"a-page-{i}")
 
     response = client.get(f"/api/v1/analyses?test_id={t}&page=1&page_size=2")
     body = response.json()

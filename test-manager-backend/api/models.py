@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
@@ -570,6 +571,24 @@ class Anomaly(BaseModel):
     session_id: str | None = None  # v2: attribution in test-wide mode
 
 
+class ActivityEvent(BaseModel):
+    """One step in the live activity feed — a tool call or a DEEP-mode sandbox step.
+
+    Appended by the runner as it intercepts the agent's SSE stream. `tool`
+    entries are patched in place when their `tool_result` arrives (sets
+    `result` + `error`). See `shared.post_race_ai.activity.ActivityLog`.
+    """
+
+    ts: datetime
+    kind: Literal["tool", "agent_start", "agent_step", "agent_end"]
+    tool: str | None = None  # MCP tool name (tool kind only)
+    label: str  # displayName — "Run query", "Run command", "Write file"
+    detail: str | None = None  # sandbox step's command / file path (mono, after label)
+    result: str | None = None  # tool_result.userSummary / agent_start task, once done
+    error: bool = False  # tool_result.isError / non-completed sandbox end
+    sub: str | None = None  # sandbox step kind (command/file_edit) — drives the icon
+
+
 class Analysis(BaseModel):
     """Persisted analysis result. One doc per click of Analyze."""
 
@@ -578,6 +597,8 @@ class Analysis(BaseModel):
     test_id: str
     session_id: str | None  # null on test-wide rows
     triggered_by: Literal["manual", "auto"] | None = None  # who initiated the run
+    # fetching/analyzing/saving are vestigial (the runner now stays on `running`)
+    # but stay in the union so old persisted docs still validate on read.
     status: Literal[
         "pending",
         "running",
@@ -610,6 +631,9 @@ class Analysis(BaseModel):
     anomalies: list[Anomaly] = []
     summary_md: str = ""  # required at save time; "" while pending
     extra: dict[str, Any] = {}  # freeform escape hatch
+
+    # Live activity feed — runner-appended tool/sandbox steps (polled by the UI)
+    activity: list[ActivityEvent] = []
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -659,6 +683,27 @@ class SaveAnalysisPayload(BaseModel):
     anomalies: list[Anomaly] = []
     summary_md: str = Field(..., min_length=1)
     extra: dict[str, Any] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_json_strings(cls, data: Any) -> Any:
+        """Recover list/dict fields the agent serialised as a JSON string.
+
+        Agents occasionally send e.g. `extra` as `'{"track": "Spa"}'` instead of
+        an object; without this a recoverable formatting glitch fails the whole
+        save. A genuinely malformed string is left as-is for normal validation.
+        """
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        for key in ("kpis", "requirements_check", "anomalies", "extra"):
+            value = out.get(key)
+            if isinstance(value, str):
+                try:
+                    out[key] = json.loads(value)
+                except (ValueError, TypeError):
+                    pass
+        return out
 
 
 class AnalysisRecipient(BaseModel):

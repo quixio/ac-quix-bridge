@@ -53,4 +53,28 @@ describe("buildLakehouseQuery", () => {
     const q = buildLakehouseQuery({ driver: "o'brien" }, null);
     expect(q).toContain("driver = 'o''brien'");
   });
+
+  it("queries the table_name supplied by the backend (per-env)", () => {
+    const q = buildLakehouseQuery(
+      { ...FULL, table_name: "ac_telemetry_prod" },
+      "s1",
+    );
+    expect(q).toContain("FROM ac_telemetry_prod");
+  });
+
+  it("falls back to ac_telemetry when table_name is null/absent", () => {
+    expect(
+      buildLakehouseQuery({ ...FULL, table_name: null }, null),
+    ).toContain("FROM ac_telemetry\n");
+    expect(buildLakehouseQuery(FULL, null)).toContain("FROM ac_telemetry\n");
+  });
+
+  it("ignores a non-identifier table_name (injection guard)", () => {
+    const q = buildLakehouseQuery(
+      { ...FULL, table_name: "ac_telemetry; DROP TABLE x--" },
+      null,
+    );
+    expect(q).toContain("FROM ac_telemetry\n");
+    expect(q).not.toContain("DROP TABLE");
+  });
 });
