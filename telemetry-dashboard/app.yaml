@@ -11,31 +11,25 @@ variables:
     description: Config topic to resolve the current driver from (DCM change events)
     defaultValue: ac-telemetry-config
     required: true
+  - name: session_input
+    inputType: InputTopic
+    description: Session topic to resolve the current track + car from (ac-telemetry-session)
+    defaultValue: ac-telemetry-session
+    required: true
   - name: CONFIG_MANAGER_URL
     inputType: FreeText
     description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
     defaultValue: ""
     required: false
-  - name: TABLE_NAME
+  - name: BEST_LAPS_CACHE_URL
     inputType: FreeText
-    description: Lakehouse table the default leaderboard query reads. Ignored when LEADERBOARD_SQL is set explicitly.
-    defaultValue: ac_telemetry
-    required: false
-  - name: LEADERBOARD_SQL
-    inputType: FreeText
-    multiline: true
-    description: SQL for the leaderboard. Must return columns name, ms (lap time in ms), sorted fastest-first. Leave blank to use the built-in all-time fastest-lap-per-driver query against TABLE_NAME.
-    defaultValue: ""
+    description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
+    defaultValue: http://best-laps-cache
     required: false
   - name: LEADERBOARD_TTL_SECONDS
     inputType: FreeText
     description: Server-side cache TTL for the leaderboard query (seconds)
     defaultValue: "15"
-    required: false
-  - name: DATALAKE_INSECURE_SSL
-    inputType: FreeText
-    description: Set to "true" to skip TLS verification on the lake query call (for self-signed internal/edge certs not in the CA bundle).
-    defaultValue: ""
     required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
