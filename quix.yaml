@@ -48,7 +48,7 @@ deployments:
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
-        value: 60
+        value: 30
     blobStorage:
       bind: true
   - name: MongoDB
@@ -634,7 +634,7 @@ deployments:
       urlPrefix: leaderboard-service-9cb716a
     state:
       enabled: true
-      size: 1
+      size: 2
     network:
       serviceName: leaderboard-service
       ports:
@@ -656,7 +656,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true
-        value: http://dynamic-configuration-manager
+        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
       - name: output
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
@@ -672,11 +672,17 @@ deployments:
         description: DCM config events topic (ac-telemetry-config) — declared so the pipeline view shows this service consuming it
         required: true
         value: ac-telemetry-config
+      - name: LEADERBOARD_EVENTS_TOPIC
+        inputType: OutputTopic
+        description: Internal experiment-keyed events topic for the State-native pipeline (write/read/seed/get_request). One stream_id -> one RocksDB store.
+        value: leaderboard-events
+      - name: STATE_CONSUMER_GROUP
+        inputType: FreeText
+        description: Consumer group for the State-native SDF (distinct from the active-stream consumer's leaderboard-service-ghost-lap group).
+        value: leaderboard-service-state
       - name: LAKE_TABLE
-        inputType: ProjectVariable
-        description: Lakehouse table to query for rankings. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
-        required: true
-        variableKey: AC_TELEMETRY_TABLE_NAME
+        inputType: FreeText
+        value: acc_telemetry_prod
       - name: LAKE_COL_CURRENT_TIME
         inputType: FreeText
         value: iCurrentTime
@@ -688,7 +694,7 @@ deployments:
         value: normalizedCarPosition
       - name: GATE_COUNT
         inputType: FreeText
-        value: 10
+        value: 1200
       - name: LOCAL_DEV_MODE
         inputType: FreeText
         value: false
@@ -698,67 +704,11 @@ deployments:
       - name: NEXT_PUBLIC_FREEZE_MS
         inputType: FreeText
         description: 'Build-time: blue-freeze window ms (baked into UI bundle)'
-        value: 200
+        value: 5
       - name: NEXT_PUBLIC_QUIX_AUTH_TOKEN
         inputType: ProjectVariable
         description: 'Build-time: standalone-mode fallback PAT baked into UI bundle'
         secret: true
-    blobStorage:
-      bind: true
-  - name: best-laps-cache
-    application: best-laps-cache
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 500
-        memory: 1000
-    publicAccess:
-      enabled: true
-      urlPrefix: best-laps-cache
-    state:
-      enabled: true
-      size: 3
-    network:
-      serviceName: best-laps-cache
-      ports:
-        - port: 80
-          targetPort: 80
-    variables:
-      - name: output
-        inputType: InputTopic
-        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
-        required: true
-        value: ac-telemetry-raw
-      - name: session_output
-        inputType: InputTopic
-        description: Kafka topic for AC session events (ac-telemetry-session)
-        value: ac-telemetry-session
-      - name: config_input
-        inputType: InputTopic
-        description: DCM config events topic (ac-telemetry-config)
-        value: ac-telemetry-config
-      - name: CONFIG_API_URL
-        inputType: FreeText
-        description: DCM base URL for session/experiment enrichment
-        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
-      - name: LAKE_TABLE
-        inputType: ProjectVariable
-        description: Lakehouse table to scan for best laps. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment.
-        required: true
-        variableKey: AC_TELEMETRY_TABLE_NAME
-      - name: LAKE_COL_BEST_TIME
-        inputType: FreeText
-        value: iBestTime
-      - name: RECONCILE_INTERVAL_S
-        inputType: FreeText
-        value: 300
-      - name: HTTP_PORT
-        inputType: FreeText
-        value: 80
-      - name: CONSUMER_GROUP
-        inputType: FreeText
-        value: best-laps-cache
     blobStorage:
       bind: true
   - name: track-importer
@@ -833,6 +783,60 @@ deployments:
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
     disabled: true
+  - name: best-laps-cache
+    application: best-laps-cache
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 1000
+    publicAccess:
+      enabled: true
+      urlPrefix: best-laps-cache-6172bf5
+    state:
+      enabled: true
+      size: 3
+    network:
+      serviceName: best-laps-cache
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session)
+        value: ac-telemetry-session
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config)
+        value: ac-telemetry-config
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        description: DCM base URL for session/experiment enrichment
+        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry_prod
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: RECONCILE_INTERVAL_S
+        inputType: FreeText
+        value: 300
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: 80
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: best-laps-cache-v1.6
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -856,3 +860,4 @@ topics:
     configuration:
       retentionInBytes: 524288000
   - name: best-laps-events
+  - name: leaderboard-events
