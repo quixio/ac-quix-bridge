@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 PYTHONIOENCODING=UTF-8
 WORKDIR /app
-COPY --from=git /project/best-times-cache-lite .
+COPY . /app
 RUN pip install --no-cache-dir -r requirements.txt
 ENTRYPOINT ["python3", "main.py"]
