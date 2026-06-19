@@ -695,7 +695,7 @@ deployments:
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
     disabled: true
-  - name: best-laps-cache
+  - name: BestLap cache
     group: Ingestion
     application: best-laps-cache
     version: latest
