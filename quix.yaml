@@ -773,37 +773,6 @@ deployments:
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
     disabled: true
-  - name: Lap Record Detector
-    application: lap-record-detector
-    deploymentType: Service
-    version: latest
-    desiredStatus: Running
-    resources:
-      cpu: 200
-      memory: 300
-      replicas: 1
-    state:
-      enabled: true
-      size: 1
-    variables:
-      - name: input
-        inputType: InputTopic
-        value: ac-telemetry-raw
-      - name: config_topic
-        inputType: InputTopic
-        value: ac-telemetry-config
-      - name: output
-        inputType: OutputTopic
-        value: lap-records
-      - name: CONSUMER_GROUP
-        inputType: FreeText
-        value: lap-record-detector
-      - name: AUTO_OFFSET_RESET
-        inputType: FreeText
-        value: earliest
-      - name: LOGLEVEL
-        inputType: FreeText
-        value: INFO
 
 # This section describes the Topics of the data pipeline
 topics:
