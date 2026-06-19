@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import live_stream, live_telemetry, mongo
+from . import live_stream, live_telemetry
 from .routes.leaderboard import router as leaderboard_router
 from .routes.leaderboard_dropdowns import router as leaderboard_dropdowns_router
 from .routes.leaderboard_stream import router as leaderboard_stream_router
@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("=" * 60)
         logger.info("STARTING IN LOCAL DEVELOPMENT MODE")
         logger.info("=" * 60)
-        logger.info("Using local MongoDB and Config API")
+        logger.info("Using local Config API")
         logger.info("Using mock authentication (all requests allowed)")
         logger.info(
             "API authentication: %s",
@@ -70,15 +70,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     _probe_config_api(settings.config_api_url, settings.sdk_token)
 
-    mongo.connect(settings.mongo)
-
     await live_stream.start_broadcaster()
     live_telemetry.start()
 
     yield
     live_telemetry.stop()
     await live_stream.stop_broadcaster()
-    mongo.disconnect()
 
 
 def _probe_config_api(url: str, sdk_token: str) -> None:

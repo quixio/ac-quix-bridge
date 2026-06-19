@@ -299,7 +299,7 @@ def publish_full_snapshot(rows: list[dict[str, Any]]) -> None:
     new historicals.
 
     ``rows`` is the same flat list of ``LivePositionEntry``-shaped dicts
-    ``leaderboard_real.build_live_positions(mongo)`` returns. The list
+    ``leaderboard_real.build_live_positions()`` returns. The list
     is wrapped in ``{"type": "snapshot", "rows": [...]}`` and sent as
     one JSON message to every WebSocket client. Identical shape to what
     a freshly-connected client receives on connect (see

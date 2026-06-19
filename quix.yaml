@@ -641,18 +641,6 @@ deployments:
         - port: 80
           targetPort: 8080
     variables:
-      - name: MONGO_USER
-        inputType: ProjectVariable
-        required: true
-        variableKey: MONGO_USER
-      - name: MONGO_PASSWORD
-        inputType: ProjectVariable
-        required: true
-        variableKey: MONGO_ROOT_PASSWORD
-      - name: MONGO_HOST
-        inputType: FreeText
-        required: true
-        value: mongodb
       - name: CONFIG_API_URL
         inputType: FreeText
         required: true

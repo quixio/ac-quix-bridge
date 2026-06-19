@@ -16,14 +16,11 @@ design (file pending — see dev-planning/leaderboard-consolidated/spec.md).
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pymongo.database import Database
 
 from ..auth import read_permission
 from ..models import LivePositionEntry
-from ..mongo import get_mongo
 from . import leaderboard_real
 
 logger = logging.getLogger(__name__)
@@ -39,7 +36,6 @@ router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
 @router.get("/live-positions", response_model=list[LivePositionEntry])
 async def get_live_positions(
     _auth: None = Depends(read_permission),
-    mongo: Database[dict[str, Any]] = Depends(get_mongo),
 ) -> list[LivePositionEntry]:
     """Return the full multi-driver leaderboard.
 
@@ -48,7 +44,7 @@ async def get_live_positions(
     `leaderboard_real.build_live_positions()`.
     """
     try:
-        rows = leaderboard_real.build_live_positions(mongo)
+        rows = leaderboard_real.build_live_positions()
     except leaderboard_real.LeaderboardError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

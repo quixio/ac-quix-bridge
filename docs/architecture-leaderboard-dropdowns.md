@@ -30,12 +30,14 @@ Three new REST endpoints under `/api/v1/leaderboard/`, all in
 return 500 with `detail=str(e)` on lake / credentials failure, and emit
 422 automatically when the required query params are missing.
 
-The module reuses three helpers from `leaderboard_real.py`:
-`_format_sql_string` (single-quote escaper), `_fold_driver_name` (NFKD
-ASCII fold), `_build_driver_name_lookup` (folded→display map from the
-Mongo `drivers` collection). Pulling them in instead of re-implementing
-keeps the lake-key↔Mongo-key contract single-sourced; if the fold
-algorithm ever changes, every leaderboard endpoint changes in lockstep.
+The module reuses two helpers from `leaderboard_real.py`:
+`_format_sql_string` (single-quote escaper) and `_fold_driver_name`
+(NFKD ASCII fold). Pulling them in instead of re-implementing keeps the
+fold contract single-sourced; if the fold algorithm ever changes, every
+leaderboard endpoint changes in lockstep. Driver display names are NOT
+sourced from Mongo (removed — see
+`docs/architecture-leaderboard-drop-mongo-names.md`); the folded lake
+key is Title-Cased for display.
 
 ### GET /api/v1/leaderboard/experiments
 
@@ -66,8 +68,11 @@ ORDER BY carModel
 ### GET /api/v1/leaderboard/best-laps?experiment&track&car
 
 Returns `list[{"driver": str, "best_lap_ms": int}]`, sorted ascending
-by `best_lap_ms`. Driver names are mapped from the lake's folded form
-(`str.lower()` + NFKD strip) back to the Mongo display case.
+by `best_lap_ms`. Driver names come from the lake's folded form
+(`str.lower()` + NFKD strip), Title-Cased per word for display
+(`"tomas neubauer"` → `"Tomas Neubauer"`) rather than served
+raw-lowercase. No Mongo lookup is involved; only the displayed string is
+title-cased, the folded key stays the matching key.
 
 ```sql
 SELECT driver, MIN(iBestTime) FILTER (WHERE iBestTime > 0) AS best_lap_ms
@@ -178,7 +183,7 @@ renders the `m:ss.SSS` cell.
 | `/leaderboard/live-positions` | `leaderboard.py` | No | Unchanged. Still drives Live Sector Comparison via WS. |
 | `/leaderboard/live-stream` | `leaderboard_stream.py`, `useLiveStream` | No | Unchanged. Left table still consumes it. |
 | Live consumer state | `live_telemetry.py` | No | Out of scope. |
-| Driver-name folding | `_fold_driver_name` / `_build_driver_name_lookup` | Reused | Single source of truth for lake↔Mongo mapping. |
+| Driver-name folding | `_fold_driver_name` | Reused | Single source of truth for the fold; display is `folded.title()` (no Mongo). |
 | SQL escaper | `_format_sql_string` | Reused | Same escape semantics as `/live-positions`. |
 
 ## Step 2 outlook (not in this PR)

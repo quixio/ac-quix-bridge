@@ -1,18 +1,6 @@
 name: leaderboard-service
 language: python
 variables:
-  - name: MONGO_USER
-    inputType: Secret
-    required: true
-    defaultValue: MONGO_USER
-  - name: MONGO_PASSWORD
-    inputType: Secret
-    required: true
-    defaultValue: MONGO_PASSWORD
-  - name: MONGO_HOST
-    inputType: FreeText
-    required: true
-    defaultValue: mongodb
   - name: CONFIG_API_URL
     inputType: FreeText
     required: true

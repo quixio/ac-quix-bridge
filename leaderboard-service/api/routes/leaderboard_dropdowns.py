@@ -23,9 +23,10 @@ role in the tree anymore — an empty Mongo `tests` collection no longer
 blanks the dropdowns, and only combos that actually have lake data
 appear (the enumeration guarantees it).
 
-Driver-name display-case folding is reused from `leaderboard_real`
-(`_build_driver_name_lookup`, `_fold_driver_name`) so the UI shows the
-Mongo display case even though the lake stores `str.lower()` keys.
+Driver names are sourced from the lake's folded-lowercase `driver` key
+and Title-Cased for display (e.g. `"tomas neubauer"` ->
+`"Tomas Neubauer"`). Mongo plays no role — the lake value (DCM-enriched
+at write time) is the only source.
 
 The existing `/live-positions` endpoint stays untouched — Live Sector
 Comparison still uses it. This module owns the lake-driven Best Laps
@@ -41,15 +42,12 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pymongo.database import Database
 
 from .. import live_telemetry, partition_index
 from ..auth import read_permission
-from ..mongo import get_mongo
 from ..settings import get_settings
 from .leaderboard_real import (
     LeaderboardError,
-    _build_driver_name_lookup,
     _fold_driver_name,
     _query_best_laps_min,
 )
@@ -147,15 +145,13 @@ async def get_best_laps(
     track: str = Query(..., min_length=1),
     car: str = Query(..., min_length=1),
     _auth: None = Depends(read_permission),
-    mongo: Database[dict[str, Any]] = Depends(get_mongo),
 ) -> list[dict[str, Any]]:
     """Return per-driver best-lap rows for one (experiment, track, car).
 
     Shape: `[{"driver": "Ludvík", "best_lap_ms": 119054}, ...]`, sorted
     ascending by `best_lap_ms` (contract unchanged —
-    `ui/lib/api/leaderboard.ts:79-92`). Driver names are
-    mapped from the lake's folded-lowercase form back to the Mongo
-    display case.
+    `ui/lib/api/leaderboard.ts:79-92`). Driver names are the lake's
+    folded-lowercase form, Title-Cased for display (no Mongo lookup).
 
     Source order (spec §6.5):
       1. `live_telemetry`'s shared best-laps cache — entries matching
@@ -221,11 +217,12 @@ async def get_best_laps(
                     logger.exception("GET /leaderboard/best-laps failed")
                     raise HTTPException(status_code=500, detail=str(e)) from e
 
-    driver_name_lookup = _build_driver_name_lookup(mongo)
-
     out: list[dict[str, Any]] = []
     for folded, best_ms in best_by_folded.items():
-        display = driver_name_lookup.get(folded, folded)
+        # Title-Case each word of the folded lake key (e.g. "tomas neubauer"
+        # -> "Tomas Neubauer"). Only the displayed string is title-cased —
+        # the folded key stays the matching key everywhere else. No Mongo.
+        display = folded.title()
         out.append({"driver": display, "best_lap_ms": best_ms})
     out.sort(key=lambda r: r["best_lap_ms"])
     sample = ", ".join(f"{r['driver']}={r['best_lap_ms']}" for r in out[:3])

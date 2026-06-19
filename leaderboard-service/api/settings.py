@@ -1,29 +1,14 @@
 import re
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, computed_field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings
 
 # Lake table names are inlined into SQL (QuixLake doesn't expose
 # parameterised queries), so anything other than a plain SQL identifier
 # is an injection vector. Reject at settings load time rather than per
 # query so a bad env var fails the deployment loudly.
 _LAKE_TABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-class MongoSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="MONGO_")
-
-    user: str = Field(..., description="MongoDB username")
-    password: str = Field(..., description="MongoDB password")
-    host: str = Field("localhost", description="MongoDB host address")
-    port: int = Field(27017, description="MongoDB port")
-    database: str = Field("test_manager", description="MongoDB database name")
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def url(self) -> str:
-        return f"mongodb://{self.user}:{self.password}@{self.host}:{self.port}"
 
 
 class Settings(BaseSettings):
@@ -271,9 +256,6 @@ class Settings(BaseSettings):
                 f"value must match {_LAKE_TABLE_PATTERN.pattern!r}; got {value!r}"
             )
         return value
-
-    # Nested settings
-    mongo: MongoSettings = Field(default_factory=MongoSettings)
 
 
 @lru_cache(maxsize=1)

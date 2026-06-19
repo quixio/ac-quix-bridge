@@ -100,6 +100,20 @@ GATE_COUNT = int(os.environ.get("GATE_COUNT", "650"))
 # still reads ~1.0 (finish line) before wrapping to ~0.0.
 _LAP_START_POS_THRESHOLD = 0.5
 
+# Minimum `iCurrentTime` drop (ms) that counts as a genuine lap reset. AC's
+# lap clock is *not* strictly monotonic within a lap: in practice/hotlap
+# sessions it can jitter backwards by a few ms tick-to-tick (and momentarily
+# during sector/invalid-lap transitions). The old detector flagged a rollover
+# on ANY decrease (`i_current < prev_i_current`), so a single jittered tick
+# anywhere on the lap re-armed `awaiting_lap_start`; with the car still in the
+# back half of the lap (normPos > _LAP_START_POS_THRESHOLD) gate stamping was
+# then suppressed until the next S/F crossing — so `last_gate_index` never
+# advanced and the Live Sector Comparison froze. A real lap reset takes the
+# clock from a large value back toward ~0, so we require BOTH a large drop and
+# a small new value before treating it as a rollover.
+_LAP_RESET_MIN_DROP_MS = 5_000
+_LAP_RESET_MAX_NEW_MS = 2_000
+
 # DCM experiment lookups: timeouts and a cache TTL fence. The TTL only
 # matters as a safety net — the primary invalidation event is a new session
 # message for the same hostname (which triggers a fresh fetch). 5 s timeout
@@ -408,19 +422,6 @@ class _GroupDiff:
     removed_folded: frozenset[str]
 
 
-# Fold→display driver-name lookup. Cached at module level so the per-tick
-# WS publish path doesn't hit Mongo every time. Refreshed lazily on cache
-# miss inside `_get_driver_name_lookup` and force-refreshed by the
-# best-laps refresh (the natural "something material changed" signal —
-# also the moment the assembly layer rebuilds full snapshots).
-#
-# Missing-key warning suppression: the assembly layer logs once per
-# unknown folded key so a noisy AC session doesn't spam the log.
-_driver_lookup_lock = threading.RLock()
-_driver_name_lookup: dict[str, str] | None = None
-_logged_missing_driver_keys: set[str] = set()
-
-
 # Active-stream tracking. The WS broadcaster sends an `active_state`
 # envelope on connect AND on every transition. `_active_state` is the
 # last-known canonical state; comparisons happen on the consumer thread
@@ -555,81 +556,18 @@ def _fold_for_lookup(name: str) -> str:
     return folded or name.lower()
 
 
-def _get_driver_name_lookup() -> dict[str, str]:
-    """Return the cached `{folded_key: display_name}` lookup.
+def _resolve_display_name(folded_key: str) -> str:
+    """Title-Case a folded driver key for display.
 
-    Lazy-built on first call by querying Mongo via the singleton handle.
-    Re-queried after every successful `refresh_best_laps_cache` call (see
-    `_invalidate_driver_name_lookup`). Returns an empty dict on any
-    error — the caller falls back to title-cased folded keys.
-    """
-    with _driver_lookup_lock:
-        if _driver_name_lookup is not None:
-            return _driver_name_lookup
-    return _refresh_driver_name_lookup()
-
-
-def _refresh_driver_name_lookup() -> dict[str, str]:
-    """(Re)build the fold→display map from Mongo `drivers.name`.
-
-    Returns the new map and stores it in `_driver_name_lookup`. Errors
-    leave the previous map (or `None`) in place and return an empty dict
-    so callers can keep going.
-    """
-    try:
-        from . import mongo as mongo_mod
-
-        db = mongo_mod.get_mongo()
-        lookup: dict[str, str] = {}
-        for doc in db.drivers.find({}, {"name": 1}):
-            name = doc.get("name")
-            if isinstance(name, str) and name:
-                lookup[_fold_for_lookup(name)] = name
-        with _driver_lookup_lock:
-            global _driver_name_lookup
-            _driver_name_lookup = lookup
-            # Reset missing-key warnings so the next pass through an
-            # unknown driver re-logs (rare, helpful when QA is adding
-            # drivers to Mongo).
-            _logged_missing_driver_keys.clear()
-        return lookup
-    except Exception:
-        logger.exception("driver-name lookup refresh failed; using empty lookup")
-        return {}
-
-
-def _invalidate_driver_name_lookup() -> None:
-    """Drop the cached driver-name lookup so the next read repopulates.
-
-    Called after best-laps cache refresh so a freshly-added driver in
-    Mongo flows to the wire envelope without waiting for a process
-    restart.
-    """
-    with _driver_lookup_lock:
-        global _driver_name_lookup
-        _driver_name_lookup = None
-
-
-def _resolve_display_name(folded_key: str, lookup: dict[str, str]) -> str:
-    """Map a folded driver key to Mongo display case.
-
-    Falls back to a title-cased folded key when the lookup misses. Logs a
-    WARNING once per unknown key so repeated misses don't spam the log.
+    The lake stores `driver` as a diacritic-folded lowercase key; the wire
+    envelope carries a Title-Cased form (e.g. `"tomas neubauer"` ->
+    `"Tomas Neubauer"`). Empty input returns empty. No Mongo lookup feeds
+    this — names are sourced from DCM (live) / the lake (historical) and
+    title-cased here (see docs/architecture-leaderboard-dropdowns.md).
     """
     if not folded_key:
         return ""
-    display = lookup.get(folded_key)
-    if display:
-        return display
-    with _driver_lookup_lock:
-        if folded_key not in _logged_missing_driver_keys:
-            _logged_missing_driver_keys.add(folded_key)
-            logger.warning(
-                "driver-name lookup miss for folded_key=%r; "
-                "wire will carry title-cased fallback",
-                folded_key,
-            )
-    return folded_key[:1].upper() + folded_key[1:]
+    return folded_key.title()
 
 
 def _lookup_gate_vectors_group(
@@ -1175,10 +1113,12 @@ def _record_message(payload: dict[str, Any]) -> None:
     Bugs A + B (spec §5.6 + §5.3) are fixed here:
 
     * **Bug A — display name on the wire.** The lake-folded `driver` key
-      (e.g. `"tomas"`) is the internal cache key; the WS envelope MUST
-      carry the Mongo display case (`"Tomás"`). We consult
-      `_get_driver_name_lookup()` (cached, refreshed on best-laps
-      refresh) before publishing.
+      (e.g. `"tomas"`) is the internal cache key; the WS envelope carries
+      a display name sourced WITHOUT Mongo. For the live (left) row this
+      is the raw DCM driver (`_record_message`'s `driver`, e.g.
+      `"Ludvík"`) Title-Cased, preserving diacritics; for the
+      per-historical maps it is the lake-folded key Title-Cased (no raw
+      name in hand there). See `_resolve_display_name`.
     * **Bug B — per-tick gate-state recompute.** When a new gate is
       crossed during this call, look up the historical gate vectors in
       `_gate_vectors_cache` for the active driver's
@@ -1263,10 +1203,22 @@ def _record_message(payload: dict[str, Any]) -> None:
         # where the lap counter stays at 0 but the lap clock falls back to
         # 0 ms.
         prev_i_current = int(prev.get("iCurrentTime") or 0) if prev else 0
+        # A genuine lap-clock reset (S/F crossing) takes iCurrentTime from a
+        # large value back toward ~0. Require a substantial drop AND a small
+        # new value so transient backward jitter mid-lap no longer masquerades
+        # as a rollover (which would re-arm `awaiting_lap_start` and freeze
+        # gate progression). The completedLaps-increment clause still catches
+        # the normal race-session rollover; this clause backstops sessions
+        # where completedLaps does not increment (practice/hotlap).
+        clock_reset = (
+            prev is not None
+            and prev_i_current - i_current >= _LAP_RESET_MIN_DROP_MS
+            and i_current <= _LAP_RESET_MAX_NEW_MS
+        )
         rollover = (
             prev is None
             or prev.get("completedLaps", -1) != completed
-            or i_current < prev_i_current
+            or clock_reset
         )
         # A genuine lap completion = completedLaps strictly increased. Used
         # below to re-read the best-laps DB so a freshly-completed lap (in
@@ -1344,7 +1296,6 @@ def _record_message(payload: dict[str, Any]) -> None:
     # empty `historical_deltas` dict skips the per-row patch entirely
     # (see `patchActiveRow` in `use-live-stream.ts`). ~80 B per gate
     # crossing × ≤10 gates per lap = trivial.
-    name_lookup = _get_driver_name_lookup()
     if newly_crossed:
         from . import gate_math
 
@@ -1352,7 +1303,7 @@ def _record_message(payload: dict[str, Any]) -> None:
             gate_times, historicals_for_group, GATE_COUNT
         )
         historical_deltas = {
-            _resolve_display_name(folded, name_lookup): delta_ms
+            _resolve_display_name(folded): delta_ms
             for folded, delta_ms in folded_deltas.items()
         }
         # Two per-historical maps (spec §4.2 / §4.3) — both keyed by
@@ -1378,7 +1329,7 @@ def _record_message(payload: dict[str, Any]) -> None:
             next_idx = min(current_gate_idx + 1, GATE_COUNT - 1)
             last_idx = min(current_gate_idx, GATE_COUNT - 1)
             for folded, hist in historicals_for_group.items():
-                display = _resolve_display_name(folded, name_lookup)
+                display = _resolve_display_name(folded)
                 if 0 <= next_idx < len(hist.gate_vector):
                     historical_at_positions_next[display] = int(
                         hist.gate_vector[next_idx]
@@ -1392,9 +1343,13 @@ def _record_message(payload: dict[str, Any]) -> None:
         historical_at_positions_next = {}
         historical_at_positions_at_crossing = {}
 
-    # Bug A: resolve the active-row driver name to display case BEFORE
-    # publish so snapshots and active mutations carry identical text.
-    display_driver = _resolve_display_name(_fold_for_lookup(driver), name_lookup)
+    # Bug A: resolve the active-row driver name BEFORE publish so snapshots
+    # and active mutations carry identical text. Use the RAW DCM driver
+    # (Title-Cased) rather than the folded key so diacritics survive on the
+    # live row (e.g. "Ludvík" stays "Ludvík", not folded to "Ludvik"). The
+    # historical (right) table has no raw name in hand, so it title-cases the
+    # folded lake key instead — display strings still match for ASCII names.
+    display_driver = driver.title() if driver else ""
 
     # Active's cumulative time AT the just-crossed gate (= gate_times_ms[i*]).
     # This is the stable reference the frontend's dual gap chips (spec §3.5)
@@ -1483,7 +1438,17 @@ def get_active_driver() -> dict[str, Any] | None:
     # detection across config swaps mid-test.
     key, entry = max(candidates, key=lambda kv: kv[1]["last_seen_epoch"])
     track, car, driver = key
-    best = entry["iBestTime"] or None
+    # The live "best lap" overlay must reflect a *completed* lap, not AC's
+    # `iBestTime`: in practice/hotlap sessions AC populates `iBestTime` with a
+    # partial / not-yet-valid lap (e.g. a ~28 s value on a 2:18 Spa lap), which
+    # then displayed as a garbage "best" on the Left table. `iLastTime` is the
+    # most-recently *completed* lap and is 0 until the first lap finishes, so we
+    # prefer it and fall back to `iBestTime` only when it is a plausible
+    # completed lap. `_best_for_active` (routes/leaderboard_real.py) still
+    # MIN-merges this with the lake/State historical best.
+    last_lap = int(entry.get("iLastTime") or 0)
+    best_time = int(entry.get("iBestTime") or 0)
+    best = (last_lap or best_time) or None
     gate_times = entry.get("gate_times_ms") or [None] * GATE_COUNT
     return {
         "driver": driver,
@@ -2532,11 +2497,6 @@ def refresh_best_laps_cache(
     # on a cold cache, and the flight lock is not reentrant.
     refresh_gate_vectors_cache(quixlake_url, quix_lake_token, changed=changed)
 
-    # Best-laps changed → drop the driver-name lookup so a newly added
-    # driver flows to the wire envelope on the next publish without
-    # waiting for a process restart.
-    _invalidate_driver_name_lookup()
-
     # Historicals changed → broadcast a fresh full snapshot to every WS
     # client so the leaderboard tab updates without waiting for the next
     # connect. Best-effort: any failure inside the broadcast helpers is
@@ -2946,29 +2906,23 @@ def _broadcast_full_snapshot_safely() -> None:
     Called from the Kafka consumer thread after the best-laps cache
     has been swapped. We must:
 
-    * Resolve the Mongo handle the assembly code needs without forcing
-      callers to thread it through. `api.mongo.get_mongo()` is a
-      module-level singleton populated in the FastAPI lifespan, so it's
-      safe to read from a background thread once the app has started.
-    * Run `build_live_positions(mongo)` synchronously here — we're
-      already on a worker thread (Kafka consumer), not the event loop,
-      so the seconds-long Mongo / lake calls don't block any HTTP
-      request. `publish_full_snapshot` does the cross-thread handoff
-      onto the FastAPI loop.
-    * Swallow every exception. A Mongo timeout or a missing-creds
-      `LeaderboardError` must not propagate; the next refresh will try
-      again.
+    * Run `build_live_positions()` synchronously here — we're already on a
+      worker thread (Kafka consumer), not the event loop, so the
+      seconds-long State / lake calls don't block any HTTP request.
+      `publish_full_snapshot` does the cross-thread handoff onto the
+      FastAPI loop.
+    * Swallow every exception. A missing-creds `LeaderboardError` must not
+      propagate; the next refresh will try again.
     """
     try:
         # Lazy imports for the same one-way ordering reason
         # `refresh_best_laps_cache` itself uses: `leaderboard_real`
         # already imports `live_telemetry`, and `live_stream` is a leaf
         # pulled in by `api/app.py` at startup.
-        from . import live_stream, mongo
+        from . import live_stream
         from .routes.leaderboard_real import build_live_positions
 
-        mongo_db = mongo.get_mongo()
-        rows = build_live_positions(mongo_db)
+        rows = build_live_positions()
         live_stream.publish_full_snapshot(rows)
     except Exception:
         logger.exception(

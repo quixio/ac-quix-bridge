@@ -185,14 +185,36 @@ The Python reducer (`_reduce_to_gate_vectors`):
 ## Server-side stickiness and lap rollover
 
 `live_telemetry._record_message` is now responsible for:
-- Maintaining `gate_times_ms` (length 20) on every raw tick.
-- Detecting lap rollover on **either** `completedLaps` increment **or**
-  `iCurrentTime` reset (`i_current < prev_i_current`) — spec §8.7. Both
-  conditions clear `gate_times_ms` to `[None]*20`, reset `prev_pos` to
-  `0.0`, AND clear the sticky `last_gate_*` triple so the previous
-  lap's colour doesn't bleed into the new lap.
+- Maintaining `gate_times_ms` (length `GATE_COUNT`) on every raw tick.
+- Detecting lap rollover on **either** `completedLaps` increment **or** a
+  *guarded* `iCurrentTime` reset. The reset clause is no longer a bare
+  `i_current < prev_i_current`: AC's lap clock is not strictly monotonic
+  within a lap (it jitters backwards by a few ms in practice/hotlap
+  sessions and around sector/invalid-lap transitions), and the bare check
+  flagged a rollover on any such jitter. A jittered rollover re-armed
+  `awaiting_lap_start`, which — with the car still in the back half of the
+  lap (`normPos > _LAP_START_POS_THRESHOLD`) — suppressed all gate stamping
+  until the next start/finish crossing, so `last_gate_index` never advanced
+  and the Live Sector Comparison table froze. The guarded clause
+  (`clock_reset`) now requires BOTH a substantial drop
+  (`prev_i_current - i_current >= _LAP_RESET_MIN_DROP_MS`, 5 s) AND a small
+  new value (`i_current <= _LAP_RESET_MAX_NEW_MS`, 2 s) — i.e. the clock
+  genuinely fell back toward lap start. The `completedLaps`-increment clause
+  still catches the normal race-session rollover; `clock_reset` backstops
+  sessions where `completedLaps` does not increment.
+  Rollover clears `gate_times_ms` to `[None]*GATE_COUNT`, rebases `prev_pos`,
+  AND clears the sticky `last_gate_*` triple so the previous lap's colour
+  doesn't bleed into the new lap.
 - Carrying the sticky `last_gate_*` triple forward unchanged between
   ticks otherwise.
+
+The live "best lap" overlay (`get_active_driver().best_lap_ms_session`) is
+sourced from AC's `iLastTime` (most-recently *completed* lap), falling back
+to `iBestTime` only when `iLastTime` is 0. Previously it mirrored `iBestTime`
+directly, which AC populates with a partial/not-yet-valid lap in
+practice/hotlap sessions — that surfaced as an implausible "best" (e.g. a
+~28 s value on a ~2:18 Spa lap) on the Left table. `_best_for_active` still
+MIN-merges this value with the lake/State historical best.
 
 `leaderboard_real._build_group_rows` is responsible for:
 - Reading `active.gate_times_ms` and finding the latest crossed gate
