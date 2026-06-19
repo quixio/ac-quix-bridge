@@ -39,26 +39,18 @@ def cell_1(car_telemetry):
         car_telemetry]
 
 
-@canvas.stream(position=(337, 709), size=(559, 870), code_height=496, viz={'refresh': 10, 'type': 'table', 'x': 'packetId', 'y': 'gas'})
-def stream_1():
-    return ql.topic("ac-telemetry-raw", workspace="quixdev-acquixbridge-prod", offset="earliest", limit=200000, consumer_group="quixlab-ac-telemetry-raw-ipz94c")
-
-
-@canvas.cell(position=(1014, 1344), size=(815, 623), code_height=200, viz={'type': 'waveform', 'x': 'timestamp_ms', 'y': ['speedKmh']})
+@canvas.cell(position=(1040, 1672), size=(815, 623), code_height=200, viz={'type': 'waveform', 'x': 'timestamp_ms', 'y': ['speedKmh']})
 def cell_3(stream_1):
     df = stream_1.df[["timestamp_ms", "completedLaps", "speedKmh", "rpms", "gear"]]
     return df.tail(2000)
 
 
-@canvas.notebook(position=(957, 709), size=(660, 546), code_height=200)
-def cell_2(stream_1):
-    # %%
-    df = stream_1.df[["completedLaps", "speedKmh", "rpms", "gear"]]
-    df["lap"] = df["completedLaps"] + 1
+@canvas.cell(position=(-445, 97), size=(560, 420), code_height=200)
+def cell_2():
 
 
-    stats_df = df.groupby("lap").agg(["min", "max"])
-    return stats_df.reset_index()
+    color = ql.ui.dropdown(["red","green","blue"], value="green", label="Color")
+    color
 
 
 if __name__ == "__main__":
