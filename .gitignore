@@ -39,3 +39,7 @@ dev-planning/
 quix-ai-config/.env
 quix-ai-config/.env.*
 !quix-ai-config/.env.example
+
+# Local post-race telemetry viz DATA (tooling is committed; data regenerated locally)
+mock_lake_api/data/*.csv
+test-manager-backend/scripts/seed_data/
