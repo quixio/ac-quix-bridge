@@ -335,6 +335,8 @@ deployments:
         inputType: ProjectVariable
         description: Lakehouse table the "View Data" embed queries. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment. Defaults to ac_telemetry if unset.
         variableKey: AC_TELEMETRY_TABLE_NAME
+    blobStorage:
+      bind: true
   - name: Test Manager - Frontend
     group: Test Manager
     application: test-manager-frontend
