@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from api.models import Analysis, SessionInfo, Test
 from shared.post_race_ai import telemetry_viz as tv
 
 
@@ -134,9 +135,6 @@ def test_render_returns_svg_without_valid_lap() -> None:
     series = tv.clean_laps(df)
     svg = tv.render_telemetry_svg(series)
     assert svg is not None and "<svg" in svg
-
-
-from api.models import Analysis, SessionInfo, Test
 
 
 def _analysis(session_id="2026-06-19T11:06:54.186Z", driver="Tomas Eviltwin", status="complete") -> Analysis:
