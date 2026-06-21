@@ -38,12 +38,16 @@ export function TelemetrySection({
   return (
     <section>
       <SectionHeading>Telemetry</SectionHeading>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={dataUri}
-        alt="Lap telemetry"
-        style={{ maxWidth: "100%", height: "auto" }}
-      />
+      {/* White panel so the white-background chart reads as an intentional
+          chart card in both light and dark mode. */}
+      <div className="w-fit max-w-full rounded-lg border bg-white p-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={dataUri}
+          alt="Lap telemetry"
+          style={{ maxWidth: "100%", height: "auto" }}
+        />
+      </div>
     </section>
   );
 }
