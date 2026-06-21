@@ -305,7 +305,7 @@ deployments:
       - name: SMTP_HOST
         inputType: FreeText
         description: SMTP server host for emailing completed post-race analyses (F4). Unset = email disabled (analysis still completes; emailing is best-effort).
-        value: smtp.gmail.com
+        value: smtp.sendgrid.net
       - name: SMTP_PORT
         inputType: FreeText
         description: SMTP server port (STARTTLS submission default).
@@ -335,6 +335,8 @@ deployments:
         inputType: ProjectVariable
         description: Lakehouse table the "View Data" embed queries. Per-environment project variable — must match the AC Telemetry Lake sink's table for this environment. Defaults to ac_telemetry if unset.
         variableKey: AC_TELEMETRY_TABLE_NAME
+    blobStorage:
+      bind: true
   - name: Test Manager - Frontend
     group: Test Manager
     application: test-manager-frontend

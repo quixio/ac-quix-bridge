@@ -8,6 +8,7 @@ Pango libraries unless a PDF is actually generated.
 from __future__ import annotations
 
 import html
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -36,6 +37,8 @@ th { background: #f3f5fb; font-size: 10px; text-transform: uppercase; letter-spa
 .muted { color: #787886; }
 .band { background: #0a0b24; border-bottom: 3px solid #ff7828; margin: 0 0 18px 0; padding: 16px 1.6cm; overflow: hidden; }
 .band svg { width: 88px; height: auto; float: right; display: block; }
+.telemetry { break-before: page; }
+.telemetry-fig { width: 100%; height: auto; break-inside: avoid; }
 """
 
 # Quix wordmark (white letters + brand-color dots) for the dark report band.
@@ -62,6 +65,36 @@ def _fmt_session(session_id: str | None) -> str:
     except ValueError:
         return session_id
     return dt.strftime("%-d %b %Y, %H:%M UTC")
+
+
+def _fmt_date_compact(session_id: str | None) -> str | None:
+    """Session timestamp → '15Jun2026' for filenames; None when unparseable/null."""
+    if not session_id:
+        return None
+    try:
+        dt = datetime.fromisoformat(session_id.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    # f"{dt.day}" (not %-d) → zero-free + portable (Windows lacks %-d), and
+    # matches the frontend's getUTCDate().
+    return f"{dt.day}{dt.strftime('%b%Y')}"
+
+
+def analysis_pdf_filename(analysis: Analysis) -> str:
+    """Download/attachment filename for an analysis PDF.
+
+    Session run with a resolved track → `Quix-Post-Race-<track>-<date>.pdf`
+    (meaningful to a recipient). Test-wide, or any missing piece, falls back to
+    `Quix-Post-Race-Analysis-<test_id>.pdf`. Always sanitised to filename-safe
+    chars so an odd track/test_id can't produce a broken name.
+    """
+    track = analysis.context.track if analysis.context else None
+    date = _fmt_date_compact(analysis.session_id)
+    if track and date:
+        stem = f"Quix-Post-Race-{track}-{date}"
+    else:
+        stem = f"Quix-Post-Race-Analysis-{analysis.test_id}"
+    return re.sub(r"[^A-Za-z0-9._-]", "_", stem) + ".pdf"
 
 
 def _safe_url_fetcher(url: str, *args: object, **kwargs: object) -> dict:
@@ -108,6 +141,20 @@ def _requirements_table(analysis: Analysis) -> str:
     )
 
 
+def _telemetry_section(svg: str | None) -> str:
+    """Render the deterministic telemetry figure into a page-broken section, or ''."""
+    if not svg:
+        return ""
+    import base64
+
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return (
+        '<section class="telemetry"><h2>Telemetry</h2>'
+        f'<img class="telemetry-fig" src="data:image/svg+xml;base64,{b64}" />'
+        "</section>"
+    )
+
+
 def _anomalies_table(analysis: Analysis) -> str:
     if not analysis.anomalies:
         return ""
@@ -125,16 +172,20 @@ def _anomalies_table(analysis: Analysis) -> str:
     )
 
 
-def render_analysis_pdf(analysis: Analysis) -> bytes:
+def render_analysis_pdf(analysis: Analysis, telemetry_svg: str | None = None) -> bytes:
     """Render a completed Analysis to a PDF report and return the bytes."""
     import markdown as md
     from weasyprint import HTML
 
-    extras = " · ".join(
-        analysis.extra[k]
-        for k in ("driver", "track", "car_model")
-        if isinstance(analysis.extra.get(k), str) and analysis.extra.get(k)
+    # Subheading extras: backend-stamped context first (reliable), else the
+    # agent's free-form `extra` (legacy / pre-context docs).
+    ctx = analysis.context
+    ctx_vals = (
+        [ctx.driver, ctx.track, ctx.car_model]
+        if ctx and any((ctx.driver, ctx.track, ctx.car_model))
+        else [analysis.extra.get(k) for k in ("driver", "track", "car_model")]
     )
+    extras = " · ".join(v for v in ctx_vals if isinstance(v, str) and v)
     summary_html = (
         f'<div class="summary">{md.markdown(analysis.summary_md, extensions=["tables"])}</div>'
         if analysis.summary_md
@@ -157,6 +208,7 @@ def render_analysis_pdf(analysis: Analysis) -> bytes:
 <h2>KPIs</h2>{_kpi_table(analysis)}
 {_requirements_table(analysis)}
 {_anomalies_table(analysis)}
+{_telemetry_section(telemetry_svg)}
 </div>
 </body></html>"""
     return HTML(string=doc, url_fetcher=_safe_url_fetcher).write_pdf()

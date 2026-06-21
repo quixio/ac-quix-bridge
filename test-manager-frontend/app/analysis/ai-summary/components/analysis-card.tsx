@@ -1,6 +1,8 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useState } from "react";
+import { TelemetrySection } from "./telemetry-section";
+import { SectionHeading } from "./section-heading";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
@@ -39,22 +41,54 @@ function formatSessionDate(sessionId: string): string {
   const d = new Date(sessionId);
   if (Number.isNaN(d.getTime())) return sessionId.slice(0, 16);
   return (
-    d.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
+    d.toLocaleString("en-GB", {
       day: "numeric",
+      month: "short",
+      year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: false,
       timeZone: "UTC",
     }) + " UTC"
   );
 }
 
-function subtitleExtras(extra: Record<string, unknown>): string {
-  const parts = [extra.driver, extra.track, extra.car_model].filter(
-    (v): v is string => typeof v === "string" && v.length > 0,
-  );
-  return parts.join(" · ");
+// Subheading extras: prefer backend-stamped context (reliable driver/track/car),
+// fall back to the agent's free-form `extra` for legacy/pre-context docs.
+function subtitleExtras(analysis: Analysis): string {
+  const c = analysis.context;
+  const vals =
+    c && (c.driver || c.track || c.car_model)
+      ? [c.driver, c.track, c.car_model]
+      : [analysis.extra.driver, analysis.extra.track, analysis.extra.car_model];
+  return vals
+    .filter((v): v is string => typeof v === "string" && v.length > 0)
+    .join(" · ");
+}
+
+// Compact session date for filenames → "15Jun2026" (matches the backend's
+// %-d%b%Y); null when missing/unparseable.
+function compactDate(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  const d = new Date(sessionId);
+  if (Number.isNaN(d.getTime())) return null;
+  // getUTCDate/Year are zero-free + deterministic (Intl day-padding is
+  // implementation-defined); matches the backend's f"{dt.day}{%b%Y}".
+  const day = String(d.getUTCDate());
+  const mon = d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
+  const year = String(d.getUTCFullYear());
+  return `${day}${mon}${year}`;
+}
+
+// PDF download filename — mirrors the backend `analysis_pdf_filename`.
+function pdfFilename(analysis: Analysis): string {
+  const track = analysis.context?.track;
+  const date = compactDate(analysis.session_id);
+  const stem =
+    track && date
+      ? `Quix-Post-Race-${track}-${date}`
+      : `Quix-Post-Race-Analysis-${analysis.test_id}`;
+  return stem.replace(/[^A-Za-z0-9._-]/g, "_") + ".pdf";
 }
 
 function MetVerdict({ met }: { met: boolean | null | undefined }) {
@@ -90,15 +124,6 @@ const SEVERITY_STYLES: Record<string, string> = {
   error: "bg-[hsl(var(--destructive)/0.15)] text-destructive",
 };
 const SEVERITY_FALLBACK = "border border-border text-muted-foreground";
-
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-      <span className="h-4 w-1 rounded-full bg-primary" />
-      {children}
-    </h3>
-  );
-}
 
 function SessionBadge({ sessionId }: { sessionId?: string | null }) {
   if (!sessionId) return null;
@@ -165,10 +190,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `analysis-${analysis.test_id}-${analysis.id.slice(
-        0,
-        8,
-      )}.pdf`;
+      a.download = pdfFilename(analysis);
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -190,14 +212,14 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
     analysis.session_id
       ? `Session ${formatSessionDate(analysis.session_id)}`
       : "Test-wide",
-    subtitleExtras(analysis.extra),
+    subtitleExtras(analysis),
   ]
     .filter(Boolean)
     .join(" · ");
 
   // Anything that isn't a finished report (failed, or a stale/orphaned run that
   // never saved) has no KPIs/narrative — render a clear state instead of an
-  // empty "Post-Race Summary" shell.
+  // empty "Post-Race Analysis" shell.
   if (analysis.status !== "complete") {
     const failed = analysis.status === "failed";
     const title = failed ? "Analysis failed" : "Analysis didn't finish";
@@ -259,7 +281,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       <div className="space-y-6 p-6">
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-0.5">
-            <h2 className="text-lg font-semibold">Post-Race Summary</h2>
+            <h2 className="text-lg font-semibold">Post-Race Analysis</h2>
             <p className="text-sm text-muted-foreground">{subtitle}</p>
           </div>
           {analysis.status === "complete" && (
@@ -435,6 +457,8 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
             </ReactMarkdown>
           </section>
         )}
+
+        <TelemetrySection analysisId={analysis.id} status={analysis.status} />
 
         {/* Footer */}
         <footer className="text-xs text-muted-foreground border-t pt-3 flex flex-wrap gap-3">

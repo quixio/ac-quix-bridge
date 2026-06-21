@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from api.models import (
     Analysis,
+    AnalysisContext,
     AnalysisCreate,
     AnalysisListQuery,
     Anomaly,
@@ -15,7 +16,48 @@ from api.models import (
     RequirementCheck,
     SaveAnalysisPayload,
 )
+from api.routes.analyses import _build_analysis_context
 from tests.conftest import TestFactory
+
+
+# --- _build_analysis_context (pure; no DB) --------------------------------- #
+
+_TEST_DOC = {
+    "driver": "Daniel",
+    "sessions": [
+        {"session_id": "S1", "track": "Spa", "car_model": "porsche_991ii_gt3_r"},
+        {"session_id": "S2", "track": "Zandvoort", "car_model": "ferrari_488_gt3"},
+    ],
+}
+
+
+def test_build_context_session_match() -> None:
+    ctx = _build_analysis_context(_TEST_DOC, "S1")
+    assert ctx == AnalysisContext(
+        driver="Daniel", track="Spa", car_model="porsche_991ii_gt3_r"
+    )
+
+
+def test_build_context_test_wide_driver_only() -> None:
+    ctx = _build_analysis_context(_TEST_DOC, None)
+    assert ctx is not None
+    assert ctx.driver == "Daniel"
+    assert ctx.track is None and ctx.car_model is None
+
+
+def test_build_context_unmatched_session_driver_only() -> None:
+    ctx = _build_analysis_context(_TEST_DOC, "NOPE")
+    assert ctx is not None
+    assert ctx.driver == "Daniel"
+    assert ctx.track is None
+
+
+def test_build_context_missing_test_returns_none() -> None:
+    assert _build_analysis_context(None, "S1") is None
+
+
+def test_build_context_empty_test_returns_none() -> None:
+    assert _build_analysis_context({}, "S1") is None
 
 
 def _create_test_with_session(
@@ -803,3 +845,74 @@ def test_analysis_allows_null_session_id_and_bumps_schema_version() -> None:
     a = Analysis(_id="uuid-twa", test_id="t", session_id=None, status="pending")
     assert a.session_id is None
     assert a.schema_version == 2
+
+
+@pytest.mark.requires_weasyprint
+def test_pdf_includes_telemetry(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from api.routes import analyses as analyses_route
+
+    calls = []
+    def _fake_build(a, t, table):
+        calls.append((a, t, table))
+        return "<svg width='10' height='10'></svg>"
+    monkeypatch.setattr(analyses_route, "build_analysis_telemetry_svg", _fake_build)
+    analysis_id = _insert_analysis(status="complete")
+    from api.mongo import get_mongo
+
+    get_mongo().tests.insert_one({
+        "_id": "TST-0001",
+        "name": "t",
+        "driver": "d",
+        "test_rig_device_id": "DEV-0001",
+        "environment_id": "ENV-0001",
+        "experiment_id": "x",
+        "pc_device_id": "DEV-0002",
+        "config_id": "cfg-0001",
+        "sessions": [],
+    })
+    resp = client.get(f"/api/v1/analyses/{analysis_id}/pdf")
+    assert resp.status_code == 200, resp.text
+    assert resp.content[:4] == b"%PDF"
+    assert len(calls) == 1
+
+
+# --- Routes: GET /api/v1/analyses/{id}/telemetry (Task 9) ----------------- #
+
+
+def test_telemetry_endpoint_404(client: TestClient) -> None:
+    assert client.get("/api/v1/analyses/nope/telemetry").status_code == 404
+
+
+def test_telemetry_endpoint_null_when_incomplete(client: TestClient) -> None:
+    analysis_id = _insert_analysis(status="running", analysis_id="a-tel-run")
+    resp = client.get(f"/api/v1/analyses/{analysis_id}/telemetry")
+    assert resp.status_code == 200
+    assert resp.json() == {"svg": None}
+
+
+def test_telemetry_endpoint_returns_svg(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from api.mongo import get_mongo
+    from api.routes import analyses as analyses_route
+
+    calls: list[tuple] = []
+
+    def _fake_build(a, t, table):  # type: ignore[no-untyped-def]
+        calls.append((a, t, table))
+        return "<svg/>"
+
+    monkeypatch.setattr(analyses_route, "build_analysis_telemetry_svg", _fake_build)
+    analysis_id = _insert_analysis(status="complete", analysis_id="a-tel-ok")
+    get_mongo().tests.insert_one({
+        "_id": "TST-0001",
+        "driver": "d",
+        "test_rig_device_id": "DEV-0001",
+        "environment_id": "ENV-0001",
+        "experiment_id": "x",
+        "pc_device_id": "DEV-0002",
+        "config_id": "cfg-0001",
+        "sessions": [],
+    })
+    resp = client.get(f"/api/v1/analyses/{analysis_id}/telemetry")
+    assert resp.status_code == 200
+    assert resp.json() == {"svg": "<svg/>"}
+    assert len(calls) == 1, "build_analysis_telemetry_svg must have been called"

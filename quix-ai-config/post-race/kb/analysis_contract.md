@@ -37,6 +37,16 @@ One entry per measurable. `name` is a **display label shown verbatim** in the UI
 {"name": "Max Brake Temp FR", "value": 612.0, "unit": "°C", "notes": "spike lap 7 entry T1"}
 ```
 
+### Lap-time KPI discipline — valid vs clean vs fastest
+
+These three words are NOT interchangeable. Getting them wrong produces contradictory KPIs (a recurring failure).
+
+- **Valid lap** = `isValidLap = 1` — AC did not cut it for track limits.
+- **Clean lap** = passes the full clean-lap filter, which *includes* `MIN(isValidLap) = 1`. So **a clean lap is by definition valid.** A cut/invalidated lap is therefore **never** a clean lap.
+- **`Fastest Clean Lap`** = the lap with the **minimum** time among laps that pass the clean+valid filter. Its value must be the fastest such lap — **never** the slowest lap or the out-lap. Sanity-check before saving: the value must match the superlative in the name.
+- **Never describe an invalid/cut lap as "clean" or "best clean".** The fastest lap *overall* may be invalid (a cut quick lap). If it's worth surfacing, fold it into the `notes` of the canonical KPI — e.g. `"fastest overall 2:36.6 (lap 2) was invalidated — track limits"` — do **not** mint a second contradictory KPI for it.
+- Emit **one** canonical fast-lap KPI (`Fastest Clean Lap`). Do **not** also emit near-duplicates like `Best Lap` + `Best Valid Lap` + `Fastest Clean Lap` for the same session — they confuse the reader and collide. One clear lap-time KPI; put nuance in `notes`.
+
 ## requirements_check (optional, list of RequirementCheck)
 
 One entry per discrete requirement extracted from `Test.requirements` free text.

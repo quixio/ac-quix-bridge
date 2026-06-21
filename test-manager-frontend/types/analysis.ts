@@ -46,6 +46,12 @@ export interface Anomaly {
   session_id?: string | null;
 }
 
+export interface AnalysisContext {
+  driver?: string | null;
+  track?: string | null;
+  car_model?: string | null;
+}
+
 export interface Analysis {
   id: string;
   schema_version: number;
@@ -69,6 +75,7 @@ export interface Analysis {
   anomalies: Anomaly[];
   summary_md: string;
   extra: Record<string, unknown>;
+  context?: AnalysisContext | null;
   activity: ActivityEvent[];
 }
 
