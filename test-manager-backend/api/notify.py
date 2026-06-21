@@ -13,8 +13,10 @@ from pymongo.database import Database
 
 from shared.post_race_ai.email import send_email_with_pdf, smtp_configured
 from shared.post_race_ai.pdf import analysis_pdf_filename, render_analysis_pdf
+from shared.post_race_ai.telemetry_viz import build_analysis_telemetry_svg
 
-from .models import Analysis
+from .models import Analysis, Test
+from .settings import get_settings
 from .text import driver_name_key
 
 logger = logging.getLogger(__name__)
@@ -60,7 +62,16 @@ def send_analysis_email(mongo: Database[dict[str, Any]], analysis: Analysis) -> 
     if not email:
         raise NoRecipientEmail(f"no driver email for test {analysis.test_id}")
 
-    pdf = render_analysis_pdf(analysis)
+    telemetry_svg = None
+    try:
+        test_doc = mongo.tests.find_one({"_id": analysis.test_id})
+        if test_doc:
+            telemetry_svg = build_analysis_telemetry_svg(
+                analysis, Test(**test_doc), get_settings().telemetry_table_name
+            )
+    except Exception:
+        logger.warning("[email] telemetry build failed for %s", analysis.id, exc_info=True)
+    pdf = render_analysis_pdf(analysis, telemetry_svg=telemetry_svg)
     filename = analysis_pdf_filename(analysis)
     subject = "Thanks for visiting the Quix booth at the Automotive Testing Expo 2026"
     body = (
