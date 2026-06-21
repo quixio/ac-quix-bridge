@@ -27,3 +27,83 @@ def test_build_session_sql_escapes_quote() -> None:
 def test_build_session_sql_rejects_bad_table() -> None:
     with pytest.raises(ValueError):
         tv.build_session_sql("t; DROP TABLE x", "s", "d", "Spa", "car")
+
+
+import numpy as np
+import pandas as pd
+
+
+def _lap_df(lap: int, n: int, *, pos_start: float = 0.0, pos_end: float = 1.0, invalid: int = 0, speed: float = 200.0, lap_ms: int = 100000) -> pd.DataFrame:
+    """One synthetic lap: monotonic pos pos_start..pos_end, ict ramps to lap_ms."""
+    pos = np.linspace(pos_start, pos_end, n)
+    return pd.DataFrame(
+        {
+            "lap": lap,
+            "pos": pos,
+            "speedKmh": np.full(n, speed),
+            "gas": np.full(n, 0.8),
+            "brake": np.zeros(n),
+            "gear": np.full(n, 4),
+            "iCurrentTime": np.linspace(0, lap_ms, n).astype(int),
+            "isValidLap": np.array([0 if i < invalid else 1 for i in range(n)]),
+            "timestamp_ms": np.arange(n) * 20,
+        }
+    )
+
+
+def test_clean_laps_drops_last_lap_and_sliver() -> None:
+    df = pd.concat([
+        _lap_df(1, 5000, lap_ms=100000),
+        _lap_df(2, 5000, lap_ms=99000),
+        _lap_df(3, 300),   # sliver (<=1000) — but also not last; dropped as sliver
+        _lap_df(4, 200),   # last lap — dropped
+    ], ignore_index=True)
+    series = tv.clean_laps(df)
+    kept = [lp.lap for lp in series.laps]
+    assert kept == [1, 2]  # 3 sliver-dropped, 4 last-dropped
+
+
+def test_clean_laps_fastest_valid() -> None:
+    df = pd.concat([
+        _lap_df(1, 5000, lap_ms=100000, invalid=0),  # valid, slower
+        _lap_df(2, 5000, lap_ms=98000, invalid=3000),  # faster but INVALID
+        _lap_df(3, 5000, lap_ms=99000, invalid=0),  # valid, fastest valid
+        _lap_df(4, 200),  # last, dropped
+    ], ignore_index=True)
+    series = tv.clean_laps(df)
+    assert series.fastest_valid_idx is not None
+    assert series.laps[series.fastest_valid_idx].lap == 3
+
+
+def test_clean_laps_no_valid_lap() -> None:
+    df = pd.concat([
+        _lap_df(1, 5000, invalid=4000),
+        _lap_df(2, 5000, invalid=4000),
+        _lap_df(3, 200),  # last
+    ], ignore_index=True)
+    series = tv.clean_laps(df)
+    assert len(series.laps) == 2
+    assert series.fastest_valid_idx is None
+
+
+def test_clean_laps_trims_lap1_staging() -> None:
+    # lap 1: staging 0.9->1.0 then wrap to 0.0->1.0 (non-monotonic in time)
+    staging = _lap_df(1, 1500, pos_start=0.9, pos_end=1.0)
+    flying = _lap_df(1, 5000, pos_start=0.0, pos_end=1.0)
+    flying["timestamp_ms"] = flying["timestamp_ms"] + 100000  # later in time
+    df = pd.concat([staging, flying, _lap_df(2, 200)], ignore_index=True)
+    series = tv.clean_laps(df)
+    assert len(series.laps) == 1
+    # after trim+sort+downsample, pos is monotonic non-decreasing
+    pos = series.laps[0].pos
+    assert all(pos[i] <= pos[i + 1] + 1e-9 for i in range(len(pos) - 1))
+
+
+def test_clean_laps_downsamples() -> None:
+    df = pd.concat([_lap_df(1, 8000), _lap_df(2, 200)], ignore_index=True)
+    series = tv.clean_laps(df, n_bins=400)
+    assert 0 < len(series.laps[0].pos) <= 400
+
+
+def test_clean_laps_empty() -> None:
+    assert tv.clean_laps(pd.DataFrame()).laps == []
