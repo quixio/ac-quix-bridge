@@ -134,3 +134,60 @@ def test_render_returns_svg_without_valid_lap() -> None:
     series = tv.clean_laps(df)
     svg = tv.render_telemetry_svg(series)
     assert svg is not None and "<svg" in svg
+
+
+from api.models import Analysis, SessionInfo, Test
+
+
+def _analysis(session_id="2026-06-19T11:06:54.186Z", driver="Tomas Eviltwin", status="complete") -> Analysis:
+    from api.models import AnalysisContext
+
+    return Analysis(
+        _id="a1",
+        test_id="TST-0001",
+        session_id=session_id,
+        status=status,
+        context=AnalysisContext(driver=driver, track="Spa", car_model="porsche_991ii_gt3_r"),
+    )
+
+
+def _test_with_session(session_id="2026-06-19T11:06:54.186Z") -> Test:
+    return Test(
+        _id="TST-0001",
+        name="t",
+        driver="Tomas Eviltwin",
+        pc_device_id="DEV-0001",
+        test_rig_device_id="DEV-0001",
+        environment_id="ENV-0001",
+        experiment_id="ConferenceBrno",
+        config_id="cfg-001",
+        sessions=[SessionInfo(session_id=session_id, track="Spa", car_model="porsche_991ii_gt3_r")],
+    )
+
+
+def test_resolve_lake_keys_lowercases_driver() -> None:
+    keys = tv.resolve_lake_keys(_analysis(), _test_with_session())
+    assert keys == ("tomas eviltwin", "Spa", "porsche_991ii_gt3_r")
+
+
+def test_resolve_lake_keys_none_without_session() -> None:
+    assert tv.resolve_lake_keys(_analysis(session_id=None), _test_with_session()) is None
+
+
+def test_build_svg_happy(monkeypatch: pytest.MonkeyPatch) -> None:
+    df = pd.concat([_lap_df(1, 5000), _lap_df(2, 5000, lap_ms=99000), _lap_df(3, 200)], ignore_index=True)
+    monkeypatch.setattr(tv, "lake_query", lambda sql: df)
+    svg = tv.build_analysis_telemetry_svg(_analysis(), _test_with_session(), "ac_telemetry_prod")
+    assert svg is not None and "<svg" in svg
+
+
+def test_build_svg_swallows_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(sql):  # noqa: ANN001, ANN202
+        raise RuntimeError("no creds")
+
+    monkeypatch.setattr(tv, "lake_query", boom)
+    assert tv.build_analysis_telemetry_svg(_analysis(), _test_with_session(), "t") is None
+
+
+def test_build_svg_none_for_test_wide() -> None:
+    assert tv.build_analysis_telemetry_svg(_analysis(session_id=None), _test_with_session(), "t") is None

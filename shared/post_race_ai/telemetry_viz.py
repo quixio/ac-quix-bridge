@@ -18,6 +18,8 @@ import pandas as pd
 if TYPE_CHECKING:
     from api.models import Analysis, Test
 
+from .lake import lake_query
+
 logger = logging.getLogger(__name__)
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -246,3 +248,57 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
     fig.savefig(buf, format="svg", bbox_inches="tight")
     plt.close(fig)
     return buf.getvalue()
+
+
+def resolve_lake_keys(analysis: "Analysis", test: "Test") -> tuple[str, str, str] | None:
+    """Resolve (driver_lowercased, track, car_model) for the lake query, or None.
+
+    Session-level only. driver from context/extra (lowercased to match the lake
+    partition); track + car_model prefer the matching SessionInfo (authoritative).
+    """
+    if not analysis.session_id:
+        return None
+    ctx = analysis.context
+    extra = analysis.extra or {}
+    driver = (ctx.driver if ctx else None) or extra.get("driver")
+    track = (ctx.track if ctx else None) or extra.get("track")
+    car = (ctx.car_model if ctx else None) or extra.get("car_model")
+    for s in test.sessions:
+        if s.session_id == analysis.session_id:
+            track = s.track or track
+            car = s.car_model or car
+            break
+    if not (driver and track and car):
+        logger.info(
+            "[viz] resolve_lake_keys: incomplete (driver=%s track=%s car=%s)",
+            driver,
+            track,
+            car,
+        )
+        return None
+    return driver.lower(), track, car
+
+
+def build_analysis_telemetry_svg(
+    analysis: "Analysis", test: "Test", table: str
+) -> str | None:
+    """Best-effort: resolve keys, query the lake, clean, render. Never raises."""
+    try:
+        keys = resolve_lake_keys(analysis, test)
+        if keys is None:
+            return None
+        driver, track, car = keys
+        sql = build_session_sql(table, analysis.session_id, driver, track, car)
+        df = lake_query(sql)
+        series = clean_laps(df)
+        svg = render_telemetry_svg(series)
+        if svg is None:
+            logger.info("[viz] no telemetry plots for analysis %s", analysis.id)
+        return svg
+    except Exception:
+        logger.warning(
+            "[viz] telemetry build failed for analysis %s",
+            getattr(analysis, "id", "?"),
+            exc_info=True,
+        )
+        return None
