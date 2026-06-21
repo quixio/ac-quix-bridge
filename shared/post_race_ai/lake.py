@@ -34,7 +34,7 @@ def lake_query(sql: str, *, timeout: float = 60.0) -> pd.DataFrame:
         f"{url}/query",
         content=sql.encode("utf-8"),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
-        timeout=timeout,
+        timeout=httpx.Timeout(connect=5.0, read=timeout, write=timeout, pool=timeout),
     )
     resp.raise_for_status()
     df = pd.read_csv(io.StringIO(resp.text))

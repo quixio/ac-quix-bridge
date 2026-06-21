@@ -851,9 +851,11 @@ def test_analysis_allows_null_session_id_and_bumps_schema_version() -> None:
 def test_pdf_includes_telemetry(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from api.routes import analyses as analyses_route
 
-    monkeypatch.setattr(
-        analyses_route, "build_analysis_telemetry_svg", lambda a, t, table: "<svg width='10' height='10'></svg>"
-    )
+    calls = []
+    def _fake_build(a, t, table):
+        calls.append((a, t, table))
+        return "<svg width='10' height='10'></svg>"
+    monkeypatch.setattr(analyses_route, "build_analysis_telemetry_svg", _fake_build)
     analysis_id = _insert_analysis(status="complete")
     from api.mongo import get_mongo
 
@@ -871,6 +873,7 @@ def test_pdf_includes_telemetry(client: TestClient, monkeypatch: pytest.MonkeyPa
     resp = client.get(f"/api/v1/analyses/{analysis_id}/pdf")
     assert resp.status_code == 200, resp.text
     assert resp.content[:4] == b"%PDF"
+    assert len(calls) == 1
 
 
 # --- Routes: GET /api/v1/analyses/{id}/telemetry (Task 9) ----------------- #
