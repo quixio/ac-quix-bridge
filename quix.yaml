@@ -305,7 +305,7 @@ deployments:
       - name: SMTP_HOST
         inputType: FreeText
         description: SMTP server host for emailing completed post-race analyses (F4). Unset = email disabled (analysis still completes; emailing is best-effort).
-        value: smtp.gmail.com
+        value: smtp.sendgrid.net
       - name: SMTP_PORT
         inputType: FreeText
         description: SMTP server port (STARTTLS submission default).
