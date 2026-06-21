@@ -180,9 +180,9 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
 
-    has_fastest = series.fastest_valid_idx is not None
+    fast_idx = series.fastest_valid_idx
     rows: list[tuple[str, int]] = [("speed", 3)]
-    if has_fastest:
+    if fast_idx is not None:
         rows += [("pedals", 2), ("gear", 1)]
     rows.append(("laptimes", 2))
 
@@ -204,11 +204,11 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
     ax.set_ylabel("km/h", fontsize=8)
     ax.set_xlim(0, 1)
     ax.legend(fontsize=6, loc="lower center", ncol=min(len(series.laps), 4))
-    if not has_fastest:
+    if fast_idx is None:
         ax.set_xlabel("Track position", fontsize=8)
 
-    if has_fastest:
-        fast = series.laps[series.fastest_valid_idx]
+    if fast_idx is not None:
+        fast = series.laps[fast_idx]
         ax = axes["pedals"]
         ax.plot(fast.pos, fast.gas, color="#00b3a4", linewidth=1.0, label="Throttle")
         ax.plot(fast.pos, fast.brake, color="#d12d2d", linewidth=1.0, label="Brake")
@@ -288,6 +288,7 @@ def build_analysis_telemetry_svg(
         if keys is None:
             return None
         driver, track, car = keys
+        assert analysis.session_id is not None
         sql = build_session_sql(table, analysis.session_id, driver, track, car)
         df = lake_query(sql)
         series = clean_laps(df)

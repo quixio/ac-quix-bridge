@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from shared.post_race_ai import lake
@@ -21,7 +23,7 @@ def test_lake_query_missing_creds_raises(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_lake_query_parses_csv(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("Quix__Lakehouse__Query__Url", "http://lake")
     monkeypatch.setenv("Quix__Lakehouse__Query__AuthToken", "tok")
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     def fake_post(url, content, headers, timeout):  # noqa: ANN001, ANN202
         captured["url"] = url

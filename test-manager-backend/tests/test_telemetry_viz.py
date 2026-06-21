@@ -152,7 +152,6 @@ def _analysis(session_id="2026-06-19T11:06:54.186Z", driver="Tomas Eviltwin", st
 def _test_with_session(session_id="2026-06-19T11:06:54.186Z") -> Test:
     return Test(
         _id="TST-0001",
-        name="t",
         driver="Tomas Eviltwin",
         pc_device_id="DEV-0001",
         test_rig_device_id="DEV-0001",
