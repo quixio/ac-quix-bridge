@@ -155,3 +155,93 @@ def clean_laps(
         "[viz] clean_laps: kept %d laps, fastest_valid_idx=%s", len(out), fastest
     )
     return LapSeries(laps=out, fastest_valid_idx=fastest)
+
+
+# Quix palette
+_LAP_COLORS = ["#0064ff", "#ff7828", "#00b3a4", "#9b51e0", "#e0218a", "#434352"]
+_VALID_BAR = "#0064ff"
+_INVALID_BAR = "#b8bdc9"
+_FASTEST_BAR = "#ff7828"
+
+
+def render_telemetry_svg(series: LapSeries) -> str | None:
+    """Render the combined telemetry figure to one SVG string, or None if empty."""
+    if not series.laps:
+        return None
+
+    import io
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+
+    has_fastest = series.fastest_valid_idx is not None
+    rows: list[tuple[str, int]] = [("speed", 3)]
+    if has_fastest:
+        rows += [("pedals", 2), ("gear", 1)]
+    rows.append(("laptimes", 2))
+
+    fig = plt.figure(figsize=(7.0, 9.5))
+    gs = GridSpec(len(rows), 1, height_ratios=[h for _, h in rows], hspace=0.5)
+    axes = {key: fig.add_subplot(gs[i]) for i, (key, _) in enumerate(rows)}
+
+    # 1. Speed — all laps
+    ax = axes["speed"]
+    for i, lp in enumerate(series.laps):
+        ax.plot(
+            lp.pos,
+            lp.speed,
+            color=_LAP_COLORS[i % len(_LAP_COLORS)],
+            linewidth=1.0,
+            label=f"L{lp.lap} · {format_lap_ms(lp.lap_ms)}",
+        )
+    ax.set_title("Speed — all laps", fontsize=9, loc="left")
+    ax.set_ylabel("km/h", fontsize=8)
+    ax.set_xlim(0, 1)
+    ax.legend(fontsize=6, loc="lower center", ncol=min(len(series.laps), 4))
+    if not has_fastest:
+        ax.set_xlabel("Track position", fontsize=8)
+
+    if has_fastest:
+        fast = series.laps[series.fastest_valid_idx]
+        ax = axes["pedals"]
+        ax.plot(fast.pos, fast.gas, color="#00b3a4", linewidth=1.0, label="Throttle")
+        ax.plot(fast.pos, fast.brake, color="#d12d2d", linewidth=1.0, label="Brake")
+        ax.set_title(
+            f"Throttle & brake — fastest lap (L{fast.lap}, {format_lap_ms(fast.lap_ms)})",
+            fontsize=9,
+            loc="left",
+        )
+        ax.set_ylabel("0–1", fontsize=8)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1.05)
+        ax.legend(fontsize=6, loc="upper right")
+
+        ax = axes["gear"]
+        ax.step(fast.pos, fast.gear, color="#0a0b24", linewidth=1.0, where="post")
+        ax.set_title("Gear — fastest lap", fontsize=9, loc="left")
+        ax.set_ylabel("gear", fontsize=8)
+        ax.set_xlim(0, 1)
+        ax.set_xlabel("Track position", fontsize=8)
+
+    # 4. Lap times
+    ax = axes["laptimes"]
+    xs = list(range(len(series.laps)))
+    colors = [
+        _FASTEST_BAR
+        if i == series.fastest_valid_idx
+        else (_VALID_BAR if lp.valid else _INVALID_BAR)
+        for i, lp in enumerate(series.laps)
+    ]
+    ax.bar(xs, [lp.lap_ms / 1000 for lp in series.laps], color=colors)
+    ax.set_xticks(xs)
+    ax.set_xticklabels([f"L{lp.lap}" for lp in series.laps], fontsize=7)
+    ax.set_title("Lap times (orange=fastest, grey=invalid)", fontsize=9, loc="left")
+    ax.set_ylabel("seconds", fontsize=8)
+
+    buf = io.StringIO()
+    fig.savefig(buf, format="svg", bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()

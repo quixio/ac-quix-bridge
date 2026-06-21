@@ -107,3 +107,23 @@ def test_clean_laps_downsamples() -> None:
 
 def test_clean_laps_empty() -> None:
     assert tv.clean_laps(pd.DataFrame()).laps == []
+
+
+def test_render_none_when_empty() -> None:
+    assert tv.render_telemetry_svg(tv.LapSeries()) is None
+
+
+def test_render_returns_svg_with_fastest() -> None:
+    df = pd.concat([_lap_df(1, 5000, lap_ms=100000), _lap_df(2, 5000, lap_ms=99000), _lap_df(3, 200)], ignore_index=True)
+    series = tv.clean_laps(df)
+    svg = tv.render_telemetry_svg(series)
+    assert svg is not None
+    assert svg.lstrip().startswith("<?xml") or "<svg" in svg
+    assert "</svg>" in svg
+
+
+def test_render_returns_svg_without_valid_lap() -> None:
+    df = pd.concat([_lap_df(1, 5000, invalid=4000), _lap_df(2, 5000, invalid=4000), _lap_df(3, 200)], ignore_index=True)
+    series = tv.clean_laps(df)
+    svg = tv.render_telemetry_svg(series)
+    assert svg is not None and "<svg" in svg
