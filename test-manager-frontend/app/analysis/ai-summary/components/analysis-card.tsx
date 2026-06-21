@@ -39,12 +39,13 @@ function formatSessionDate(sessionId: string): string {
   const d = new Date(sessionId);
   if (Number.isNaN(d.getTime())) return sessionId.slice(0, 16);
   return (
-    d.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
+    d.toLocaleString("en-GB", {
       day: "numeric",
+      month: "short",
+      year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: false,
       timeZone: "UTC",
     }) + " UTC"
   );
