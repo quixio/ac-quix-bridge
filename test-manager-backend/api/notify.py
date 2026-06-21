@@ -64,11 +64,11 @@ def send_analysis_email(mongo: Database[dict[str, Any]], analysis: Analysis) -> 
     pdf = render_analysis_pdf(analysis)
     safe_test_id = re.sub(r"[^A-Za-z0-9._-]", "_", analysis.test_id)
     filename = f"analysis-{safe_test_id}-{analysis.id[:8]}.pdf"
-    subject = f"Post-race analysis — {analysis.test_id}"
+    subject = "Thanks for visiting the Quix booth at the Automotive Testing Expo 2026"
     body = (
-        f"The post-race analysis for test {analysis.test_id} is ready.\n\n"
-        f"Session: {analysis.session_id or 'all sessions'}\n\n"
-        "The full report is attached as a PDF."
+        "Your post-race analysis is ready, find it attached to this email.\n\n"
+        "To discuss your results and learn more about Quix, book a session with our "
+        "test engineering team here: https://quix.io/book-a-demo/"
     )
     send_email_with_pdf(
         to=email, subject=subject, body=body, pdf=pdf, filename=filename
