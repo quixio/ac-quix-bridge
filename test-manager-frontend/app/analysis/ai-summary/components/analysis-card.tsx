@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState, type ReactNode } from "react";
+import { TelemetrySection } from "./telemetry-section";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
@@ -123,7 +124,7 @@ const SEVERITY_STYLES: Record<string, string> = {
 };
 const SEVERITY_FALLBACK = "border border-border text-muted-foreground";
 
-function SectionHeading({ children }: { children: ReactNode }) {
+export function SectionHeading({ children }: { children: ReactNode }) {
   return (
     <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
       <span className="h-4 w-1 rounded-full bg-primary" />
@@ -464,6 +465,8 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
             </ReactMarkdown>
           </section>
         )}
+
+        <TelemetrySection analysisId={analysis.id} status={analysis.status} />
 
         {/* Footer */}
         <footer className="text-xs text-muted-foreground border-t pt-3 flex flex-wrap gap-3">

@@ -104,6 +104,23 @@ export const analysesApi = {
   },
 
   /**
+   * Fetch the deterministic telemetry figure (SVG) for a completed session
+   * analysis. {svg: null} when there is nothing to show.
+   */
+  getTelemetry: (
+    analysisId: string,
+    token?: string | null,
+    refreshToken?: () => Promise<string | null>,
+  ) => {
+    return apiGet<{ svg: string | null }>(
+      `/analyses/${analysisId}/telemetry`,
+      undefined,
+      token,
+      refreshToken,
+    );
+  },
+
+  /**
    * Manually email a completed analysis PDF to the test's driver.
    */
   sendEmail: (
