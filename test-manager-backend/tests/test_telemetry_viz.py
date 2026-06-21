@@ -1,3 +1,5 @@
+import numpy as np
+import pandas as pd
 import pytest
 
 from shared.post_race_ai import telemetry_viz as tv
@@ -29,11 +31,16 @@ def test_build_session_sql_rejects_bad_table() -> None:
         tv.build_session_sql("t; DROP TABLE x", "s", "d", "Spa", "car")
 
 
-import numpy as np
-import pandas as pd
-
-
-def _lap_df(lap: int, n: int, *, pos_start: float = 0.0, pos_end: float = 1.0, invalid: int = 0, speed: float = 200.0, lap_ms: int = 100000) -> pd.DataFrame:
+def _lap_df(
+    lap: int,
+    n: int,
+    *,
+    pos_start: float = 0.0,
+    pos_end: float = 1.0,
+    invalid: int = 0,
+    speed: float = 200.0,
+    lap_ms: int = 100000,
+) -> pd.DataFrame:
     """One synthetic lap: monotonic pos pos_start..pos_end, ict ramps to lap_ms."""
     pos = np.linspace(pos_start, pos_end, n)
     return pd.DataFrame(

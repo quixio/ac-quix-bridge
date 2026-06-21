@@ -173,7 +173,8 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
 
     import matplotlib
 
-    matplotlib.use("Agg")
+    if matplotlib.get_backend().lower() != "agg":
+        matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
 
