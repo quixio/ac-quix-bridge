@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useState } from "react";
 import { TelemetrySection } from "./telemetry-section";
+import { SectionHeading } from "./section-heading";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
@@ -123,15 +124,6 @@ const SEVERITY_STYLES: Record<string, string> = {
   error: "bg-[hsl(var(--destructive)/0.15)] text-destructive",
 };
 const SEVERITY_FALLBACK = "border border-border text-muted-foreground";
-
-export function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-      <span className="h-4 w-1 rounded-full bg-primary" />
-      {children}
-    </h3>
-  );
-}
 
 function SessionBadge({ sessionId }: { sessionId?: string | null }) {
   if (!sessionId) return null;

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAnalysesApi } from "@/lib/hooks/use-api";
-import { SectionHeading } from "./analysis-card";
+import { SectionHeading } from "./section-heading";
 
 export function TelemetrySection({
   analysisId,
