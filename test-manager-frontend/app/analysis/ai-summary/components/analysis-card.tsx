@@ -197,7 +197,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
 
   // Anything that isn't a finished report (failed, or a stale/orphaned run that
   // never saved) has no KPIs/narrative — render a clear state instead of an
-  // empty "Post-Race Summary" shell.
+  // empty "Post-Race Analysis" shell.
   if (analysis.status !== "complete") {
     const failed = analysis.status === "failed";
     const title = failed ? "Analysis failed" : "Analysis didn't finish";
@@ -259,7 +259,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       <div className="space-y-6 p-6">
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-0.5">
-            <h2 className="text-lg font-semibold">Post-Race Summary</h2>
+            <h2 className="text-lg font-semibold">Post-Race Analysis</h2>
             <p className="text-sm text-muted-foreground">{subtitle}</p>
           </div>
           {analysis.status === "complete" && (
