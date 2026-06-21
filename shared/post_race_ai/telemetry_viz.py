@@ -318,16 +318,20 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
 def resolve_lake_keys(analysis: "Analysis", test: "Test") -> tuple[str, str, str] | None:
     """Resolve (driver_lowercased, track, car_model) for the lake query, or None.
 
-    Session-level only. driver from context/extra (lowercased to match the lake
-    partition); track + car_model prefer the matching SessionInfo (authoritative).
+    Session-level only. Values must equal the lake's partition values EXACTLY, so
+    they come only from authoritative sources, never the AI-supplied `extra`:
+    - driver: `context.driver` (a stamped copy of `test.driver`) else `test.driver`,
+      lowercased — the same rule the lake used (`build_partition_values`:
+      `test.driver.lower()`).
+    - track / car_model: the matching `SessionInfo` (verbatim AC codes, exactly what
+      the lake stored), falling back to the stamped `context`.
     """
     if not analysis.session_id:
         return None
     ctx = analysis.context
-    extra = analysis.extra or {}
-    driver = (ctx.driver if ctx else None) or extra.get("driver")
-    track = (ctx.track if ctx else None) or extra.get("track")
-    car = (ctx.car_model if ctx else None) or extra.get("car_model")
+    driver = (ctx.driver if ctx else None) or test.driver
+    track = ctx.track if ctx else None
+    car = ctx.car_model if ctx else None
     for s in test.sessions:
         if s.session_id == analysis.session_id:
             track = s.track or track

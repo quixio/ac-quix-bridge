@@ -171,6 +171,38 @@ def test_resolve_lake_keys_none_without_session() -> None:
     assert tv.resolve_lake_keys(_analysis(session_id=None), _test_with_session()) is None
 
 
+def test_resolve_lake_keys_falls_back_to_test_driver() -> None:
+    # Legacy analysis with no stamped context → driver resolves from the test.
+    a = Analysis(
+        _id="a-legacy",
+        test_id="TST-0001",
+        session_id="2026-06-19T11:06:54.186Z",
+        status="complete",
+    )
+    assert tv.resolve_lake_keys(a, _test_with_session()) == (
+        "tomas eviltwin",
+        "Spa",
+        "porsche_991ii_gt3_r",
+    )
+
+
+def test_resolve_lake_keys_ignores_ai_extra() -> None:
+    # AI-supplied `extra` must NEVER feed the partition keys (it may not match the
+    # lake's exact partition value); authoritative test/session sources win.
+    a = Analysis(
+        _id="a-extra",
+        test_id="TST-0001",
+        session_id="2026-06-19T11:06:54.186Z",
+        status="complete",
+        extra={"driver": "wrong", "track": "wrong", "car_model": "wrong"},
+    )
+    assert tv.resolve_lake_keys(a, _test_with_session()) == (
+        "tomas eviltwin",
+        "Spa",
+        "porsche_991ii_gt3_r",
+    )
+
+
 def test_build_svg_happy(monkeypatch: pytest.MonkeyPatch) -> None:
     df = pd.concat([_lap_df(1, 5000), _lap_df(2, 5000, lap_ms=99000), _lap_df(3, 200)], ignore_index=True)
     monkeypatch.setattr(tv, "lake_query", lambda sql: df)
