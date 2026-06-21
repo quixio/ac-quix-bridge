@@ -14,6 +14,7 @@ from pymongo.database import Database
 
 from shared.post_race_ai.pdf import analysis_pdf_filename, render_analysis_pdf
 from shared.post_race_ai.runner import BatchAnalysisAI
+from shared.post_race_ai.telemetry_viz import build_analysis_telemetry_svg
 from ..auth import bearer_from_request, read_permission, update_permission
 from ..models import (
     Analysis,
@@ -21,7 +22,9 @@ from ..models import (
     AnalysisCreate,
     AnalysisRecipient,
     EmailSendResult,
+    Test,
 )
+from ..settings import get_settings
 from ..mongo import get_mongo
 from ..notify import (
     EmailNotConfigured,
@@ -268,7 +271,18 @@ def get_analysis_pdf(
             status_code=409,
             detail=f"Analysis not complete (status={analysis.status})",
         )
-    pdf = render_analysis_pdf(analysis)
+    telemetry_svg = None
+    try:
+        test_doc = mongo.tests.find_one({"_id": analysis.test_id})
+        if test_doc:
+            telemetry_svg = build_analysis_telemetry_svg(
+                analysis, Test(**test_doc), get_settings().telemetry_table_name
+            )
+    except Exception:
+        logger.warning(
+            "[analyses] telemetry build failed for %s", analysis_id, exc_info=True
+        )
+    pdf = render_analysis_pdf(analysis, telemetry_svg=telemetry_svg)
     filename = analysis_pdf_filename(analysis)
     logger.info("[analyses] GET %s/pdf -> %d bytes", analysis_id, len(pdf))
     return Response(

@@ -845,3 +845,29 @@ def test_analysis_allows_null_session_id_and_bumps_schema_version() -> None:
     a = Analysis(_id="uuid-twa", test_id="t", session_id=None, status="pending")
     assert a.session_id is None
     assert a.schema_version == 2
+
+
+@pytest.mark.requires_weasyprint
+def test_pdf_includes_telemetry(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from api.routes import analyses as analyses_route
+
+    monkeypatch.setattr(
+        analyses_route, "build_analysis_telemetry_svg", lambda a, t, table: "<svg width='10' height='10'></svg>"
+    )
+    analysis_id = _insert_analysis(status="complete")
+    from api.mongo import get_mongo
+
+    get_mongo().tests.insert_one({
+        "_id": "TST-0001",
+        "name": "t",
+        "driver": "d",
+        "test_rig_device_id": "DEV-0001",
+        "environment_id": "ENV-0001",
+        "experiment_id": "x",
+        "pc_device_id": "DEV-0002",
+        "config_id": "cfg-0001",
+        "sessions": [],
+    })
+    resp = client.get(f"/api/v1/analyses/{analysis_id}/pdf")
+    assert resp.status_code == 200, resp.text
+    assert resp.content[:4] == b"%PDF"
