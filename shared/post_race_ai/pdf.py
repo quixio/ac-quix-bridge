@@ -37,6 +37,8 @@ th { background: #f3f5fb; font-size: 10px; text-transform: uppercase; letter-spa
 .muted { color: #787886; }
 .band { background: #0a0b24; border-bottom: 3px solid #ff7828; margin: 0 0 18px 0; padding: 16px 1.6cm; overflow: hidden; }
 .band svg { width: 88px; height: auto; float: right; display: block; }
+.telemetry { break-before: page; }
+.telemetry-fig { width: 100%; height: auto; break-inside: avoid; }
 """
 
 # Quix wordmark (white letters + brand-color dots) for the dark report band.
@@ -139,6 +141,20 @@ def _requirements_table(analysis: Analysis) -> str:
     )
 
 
+def _telemetry_section(svg: str | None) -> str:
+    """Render the deterministic telemetry figure into a page-broken section, or ''."""
+    if not svg:
+        return ""
+    import base64
+
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return (
+        '<section class="telemetry"><h2>Telemetry</h2>'
+        f'<img class="telemetry-fig" src="data:image/svg+xml;base64,{b64}" />'
+        "</section>"
+    )
+
+
 def _anomalies_table(analysis: Analysis) -> str:
     if not analysis.anomalies:
         return ""
@@ -156,7 +172,7 @@ def _anomalies_table(analysis: Analysis) -> str:
     )
 
 
-def render_analysis_pdf(analysis: Analysis) -> bytes:
+def render_analysis_pdf(analysis: Analysis, telemetry_svg: str | None = None) -> bytes:
     """Render a completed Analysis to a PDF report and return the bytes."""
     import markdown as md
     from weasyprint import HTML
@@ -192,6 +208,7 @@ def render_analysis_pdf(analysis: Analysis) -> bytes:
 <h2>KPIs</h2>{_kpi_table(analysis)}
 {_requirements_table(analysis)}
 {_anomalies_table(analysis)}
+{_telemetry_section(telemetry_svg)}
 </div>
 </body></html>"""
     return HTML(string=doc, url_fetcher=_safe_url_fetcher).write_pdf()

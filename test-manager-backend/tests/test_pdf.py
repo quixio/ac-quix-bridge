@@ -12,6 +12,7 @@ from api.models import Analysis, AnalysisContext, Anomaly, KpiValue, Requirement
 from shared.post_race_ai.pdf import (
     _fmt_date_compact,
     _safe_url_fetcher,
+    _telemetry_section,
     analysis_pdf_filename,
     render_analysis_pdf,
 )
@@ -115,3 +116,23 @@ def test_pdf_filename_sanitizes_unsafe_chars() -> None:
     name = analysis_pdf_filename(a)
     assert "/" not in name and " " not in name
     assert name.endswith(".pdf")
+
+
+# --- Telemetry section (pure; no weasyprint) -------------------------------- #
+
+
+def test_telemetry_section_empty() -> None:
+    assert _telemetry_section(None) == ""
+    assert _telemetry_section("") == ""
+
+
+def test_telemetry_section_embeds_svg() -> None:
+    html = _telemetry_section("<svg></svg>")
+    assert "data:image/svg+xml;base64," in html
+    assert "Telemetry" in html
+
+
+@pytest.mark.requires_weasyprint
+def test_render_includes_telemetry_when_svg_passed() -> None:
+    pdf = render_analysis_pdf(_complete_analysis(), telemetry_svg="<svg width='10' height='10'></svg>")
+    assert pdf[:4] == b"%PDF"
