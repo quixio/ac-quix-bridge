@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from api.models import (
     Analysis,
+    AnalysisContext,
     AnalysisCreate,
     AnalysisListQuery,
     Anomaly,
@@ -15,7 +16,48 @@ from api.models import (
     RequirementCheck,
     SaveAnalysisPayload,
 )
+from api.routes.analyses import _build_analysis_context
 from tests.conftest import TestFactory
+
+
+# --- _build_analysis_context (pure; no DB) --------------------------------- #
+
+_TEST_DOC = {
+    "driver": "Daniel",
+    "sessions": [
+        {"session_id": "S1", "track": "Spa", "car_model": "porsche_991ii_gt3_r"},
+        {"session_id": "S2", "track": "Zandvoort", "car_model": "ferrari_488_gt3"},
+    ],
+}
+
+
+def test_build_context_session_match() -> None:
+    ctx = _build_analysis_context(_TEST_DOC, "S1")
+    assert ctx == AnalysisContext(
+        driver="Daniel", track="Spa", car_model="porsche_991ii_gt3_r"
+    )
+
+
+def test_build_context_test_wide_driver_only() -> None:
+    ctx = _build_analysis_context(_TEST_DOC, None)
+    assert ctx is not None
+    assert ctx.driver == "Daniel"
+    assert ctx.track is None and ctx.car_model is None
+
+
+def test_build_context_unmatched_session_driver_only() -> None:
+    ctx = _build_analysis_context(_TEST_DOC, "NOPE")
+    assert ctx is not None
+    assert ctx.driver == "Daniel"
+    assert ctx.track is None
+
+
+def test_build_context_missing_test_returns_none() -> None:
+    assert _build_analysis_context(None, "S1") is None
+
+
+def test_build_context_empty_test_returns_none() -> None:
+    assert _build_analysis_context({}, "S1") is None
 
 
 def _create_test_with_session(

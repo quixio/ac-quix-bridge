@@ -51,11 +51,42 @@ function formatSessionDate(sessionId: string): string {
   );
 }
 
-function subtitleExtras(extra: Record<string, unknown>): string {
-  const parts = [extra.driver, extra.track, extra.car_model].filter(
-    (v): v is string => typeof v === "string" && v.length > 0,
-  );
-  return parts.join(" · ");
+// Subheading extras: prefer backend-stamped context (reliable driver/track/car),
+// fall back to the agent's free-form `extra` for legacy/pre-context docs.
+function subtitleExtras(analysis: Analysis): string {
+  const c = analysis.context;
+  const vals =
+    c && (c.driver || c.track || c.car_model)
+      ? [c.driver, c.track, c.car_model]
+      : [analysis.extra.driver, analysis.extra.track, analysis.extra.car_model];
+  return vals
+    .filter((v): v is string => typeof v === "string" && v.length > 0)
+    .join(" · ");
+}
+
+// Compact session date for filenames → "15Jun2026" (matches the backend's
+// %-d%b%Y); null when missing/unparseable.
+function compactDate(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  const d = new Date(sessionId);
+  if (Number.isNaN(d.getTime())) return null;
+  // getUTCDate/Year are zero-free + deterministic (Intl day-padding is
+  // implementation-defined); matches the backend's f"{dt.day}{%b%Y}".
+  const day = String(d.getUTCDate());
+  const mon = d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
+  const year = String(d.getUTCFullYear());
+  return `${day}${mon}${year}`;
+}
+
+// PDF download filename — mirrors the backend `analysis_pdf_filename`.
+function pdfFilename(analysis: Analysis): string {
+  const track = analysis.context?.track;
+  const date = compactDate(analysis.session_id);
+  const stem =
+    track && date
+      ? `Quix-Post-Race-${track}-${date}`
+      : `Quix-Post-Race-Analysis-${analysis.test_id}`;
+  return stem.replace(/[^A-Za-z0-9._-]/g, "_") + ".pdf";
 }
 
 function MetVerdict({ met }: { met: boolean | null | undefined }) {
@@ -166,10 +197,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `analysis-${analysis.test_id}-${analysis.id.slice(
-        0,
-        8,
-      )}.pdf`;
+      a.download = pdfFilename(analysis);
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -191,7 +219,7 @@ export function AnalysisCard({ analysis }: { analysis: Analysis }) {
     analysis.session_id
       ? `Session ${formatSessionDate(analysis.session_id)}`
       : "Test-wide",
-    subtitleExtras(analysis.extra),
+    subtitleExtras(analysis),
   ]
     .filter(Boolean)
     .join(" · ");

@@ -589,6 +589,21 @@ class ActivityEvent(BaseModel):
     sub: str | None = None  # sandbox step kind (command/file_edit) — drives the icon
 
 
+class AnalysisContext(BaseModel):
+    """Display context resolved from the test/session at create time.
+
+    Stamped by the backend (not the AI agent) so the report subheading +
+    PDF filename always have reliable driver/track/car — independent of
+    whatever free-form keys the agent happens to put in `extra`. All fields
+    optional: test-wide runs have no single track/car; a resolution failure
+    leaves them null and the renderers fall back gracefully.
+    """
+
+    driver: str | None = None
+    track: str | None = None
+    car_model: str | None = None
+
+
 class Analysis(BaseModel):
     """Persisted analysis result. One doc per click of Analyze."""
 
@@ -631,6 +646,9 @@ class Analysis(BaseModel):
     anomalies: list[Anomaly] = []
     summary_md: str = ""  # required at save time; "" while pending
     extra: dict[str, Any] = {}  # freeform escape hatch
+    # Backend-stamped display context (driver/track/car) for subheading + PDF
+    # filename. None on old docs → renderers fall back to `extra`.
+    context: AnalysisContext | None = None
 
     # Live activity feed — runner-appended tool/sandbox steps (polled by the UI)
     activity: list[ActivityEvent] = []

@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import os
-import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -13,10 +12,16 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.responses import Response
 from pymongo.database import Database
 
-from shared.post_race_ai.pdf import render_analysis_pdf
+from shared.post_race_ai.pdf import analysis_pdf_filename, render_analysis_pdf
 from shared.post_race_ai.runner import BatchAnalysisAI
 from ..auth import bearer_from_request, read_permission, update_permission
-from ..models import Analysis, AnalysisCreate, AnalysisRecipient, EmailSendResult
+from ..models import (
+    Analysis,
+    AnalysisContext,
+    AnalysisCreate,
+    AnalysisRecipient,
+    EmailSendResult,
+)
 from ..mongo import get_mongo
 from ..notify import (
     EmailNotConfigured,
@@ -40,6 +45,38 @@ STALE_IN_PROGRESS_AFTER = timedelta(minutes=20)
 # Hold strong refs to spawned tasks so Python's GC doesn't kill them
 # mid-run (asyncio.create_task only holds a weak reference).
 _RUNNING_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _build_analysis_context(
+    test_doc: dict[str, Any] | None, session_id: str | None
+) -> AnalysisContext | None:
+    """Resolve display context (driver/track/car) from the test + session.
+
+    Best-effort + cosmetic: any failure returns None (the renderers fall back),
+    never raises into analysis creation. driver comes from the test; track/car
+    from the matching SessionInfo (absent on test-wide or an unlinked session).
+    """
+    if not test_doc:
+        return None
+    try:
+        driver = test_doc.get("driver") or None
+        track = car_model = None
+        if session_id:
+            for s in test_doc.get("sessions", []):
+                if s.get("session_id") == session_id:
+                    track = s.get("track") or None
+                    car_model = s.get("car_model") or None
+                    break
+        if not (driver or track or car_model):
+            return None
+        return AnalysisContext(driver=driver, track=track, car_model=car_model)
+    except Exception:
+        logger.warning(
+            "[analyses] context build failed (session=%s) — continuing without it",
+            session_id,
+            exc_info=True,
+        )
+        return None
 
 
 @router.post(
@@ -109,6 +146,7 @@ async def create_analysis(
                 owners[0]["_id"],
             )
         test_id = owners[0]["_id"]
+        test = mongo.tests.find_one({"_id": test_id})
 
     # Dedup against an already-running analysis for the same target so a second
     # click (a different user, tab, or the auto re-fire) returns the in-flight
@@ -149,6 +187,7 @@ async def create_analysis(
 
     analysis_id = str(uuid4())
     now = datetime.now(timezone.utc)
+    context = _build_analysis_context(test, payload.session_id)
     doc = Analysis(
         _id=analysis_id,
         test_id=test_id,
@@ -157,6 +196,7 @@ async def create_analysis(
         status="pending",
         created_at=now,
         updated_at=now,
+        context=context,
     )
     mongo.analyses.insert_one(doc.model_dump(by_alias=True))
     logger.info(
@@ -229,8 +269,7 @@ def get_analysis_pdf(
             detail=f"Analysis not complete (status={analysis.status})",
         )
     pdf = render_analysis_pdf(analysis)
-    safe_test_id = re.sub(r"[^A-Za-z0-9._-]", "_", analysis.test_id)
-    filename = f"analysis-{safe_test_id}-{analysis_id[:8]}.pdf"
+    filename = analysis_pdf_filename(analysis)
     logger.info("[analyses] GET %s/pdf -> %d bytes", analysis_id, len(pdf))
     return Response(
         content=pdf,
