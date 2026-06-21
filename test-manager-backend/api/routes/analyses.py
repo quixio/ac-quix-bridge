@@ -292,6 +292,39 @@ def get_analysis_pdf(
     )
 
 
+@router.get("/analyses/{analysis_id}/telemetry")
+def get_analysis_telemetry(
+    analysis_id: str,
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    _: None = Depends(read_permission),
+) -> dict[str, str | None]:
+    """Telemetry figure SVG for a completed session analysis (best-effort).
+
+    {"svg": "<svg...>"} when available; {"svg": null} when there is nothing to
+    show (incomplete, test-wide, no lake creds, no usable laps, or any error).
+    """
+    doc = mongo.analyses.find_one({"_id": analysis_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    analysis = Analysis(**doc)
+    if analysis.status != "complete":
+        return {"svg": None}
+    try:
+        test_doc = mongo.tests.find_one({"_id": analysis.test_id})
+        if not test_doc:
+            return {"svg": None}
+        svg = build_analysis_telemetry_svg(
+            analysis, Test(**test_doc), get_settings().telemetry_table_name
+        )
+    except Exception:
+        logger.warning(
+            "[analyses] telemetry endpoint failed for %s", analysis_id, exc_info=True
+        )
+        svg = None
+    logger.info("[analyses] GET %s/telemetry -> %s", analysis_id, "svg" if svg else "none")
+    return {"svg": svg}
+
+
 @router.get(
     "/analyses/{analysis_id}/recipient",
     response_model=AnalysisRecipient,

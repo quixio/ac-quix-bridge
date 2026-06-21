@@ -871,3 +871,45 @@ def test_pdf_includes_telemetry(client: TestClient, monkeypatch: pytest.MonkeyPa
     resp = client.get(f"/api/v1/analyses/{analysis_id}/pdf")
     assert resp.status_code == 200, resp.text
     assert resp.content[:4] == b"%PDF"
+
+
+# --- Routes: GET /api/v1/analyses/{id}/telemetry (Task 9) ----------------- #
+
+
+def test_telemetry_endpoint_404(client: TestClient) -> None:
+    assert client.get("/api/v1/analyses/nope/telemetry").status_code == 404
+
+
+def test_telemetry_endpoint_null_when_incomplete(client: TestClient) -> None:
+    analysis_id = _insert_analysis(status="running", analysis_id="a-tel-run")
+    resp = client.get(f"/api/v1/analyses/{analysis_id}/telemetry")
+    assert resp.status_code == 200
+    assert resp.json() == {"svg": None}
+
+
+def test_telemetry_endpoint_returns_svg(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from api.mongo import get_mongo
+    from api.routes import analyses as analyses_route
+
+    calls: list[tuple] = []
+
+    def _fake_build(a, t, table):  # type: ignore[no-untyped-def]
+        calls.append((a, t, table))
+        return "<svg/>"
+
+    monkeypatch.setattr(analyses_route, "build_analysis_telemetry_svg", _fake_build)
+    analysis_id = _insert_analysis(status="complete", analysis_id="a-tel-ok")
+    get_mongo().tests.insert_one({
+        "_id": "TST-0001",
+        "driver": "d",
+        "test_rig_device_id": "DEV-0001",
+        "environment_id": "ENV-0001",
+        "experiment_id": "x",
+        "pc_device_id": "DEV-0002",
+        "config_id": "cfg-0001",
+        "sessions": [],
+    })
+    resp = client.get(f"/api/v1/analyses/{analysis_id}/telemetry")
+    assert resp.status_code == 200
+    assert resp.json() == {"svg": "<svg/>"}
+    assert len(calls) == 1, "build_analysis_telemetry_svg must have been called"
