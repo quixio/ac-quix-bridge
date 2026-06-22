@@ -161,8 +161,16 @@ def clean_laps(
 
 # matplotlib "tab10" — 10 distinct categorical colours, 1:1 with the speed legend.
 _LAP_COLORS = [
-    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
 ]
 # Quix bar palette for the lap-time chart
 _VALID_BAR = "#0064ff"
@@ -195,6 +203,11 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
         matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
+    from matplotlib.patches import Patch
+
+    # Thicker hatch lines so the diagonal reads in the small legend swatch
+    # (hatch line width is global — there's no per-artist override).
+    matplotlib.rcParams["hatch.linewidth"] = 1.8
 
     lap_colors = _LAP_COLORS
     legend_kw = {
@@ -206,7 +219,13 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
     }
     legends = []
 
+    # Prefer the fastest valid lap for the pedal/gear detail; if none is valid
+    # (e.g. every lap cut track limits) fall back to the fastest lap overall so
+    # the throttle/brake/gear traces still render — labelled invalid.
     fast_idx = series.fastest_valid_idx
+    if fast_idx is None and series.laps:
+        fast_idx = min(range(len(series.laps)), key=lambda i: series.laps[i].lap_ms)
+    fast_is_valid = fast_idx is not None and series.laps[fast_idx].valid
     rows: list[tuple[str, int]] = [("speed", 6)]
     if fast_idx is not None:
         rows += [("pedals", 5), ("gear", 5)]
@@ -237,6 +256,10 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
 
     if fast_idx is not None:
         fast = series.laps[fast_idx]
+        lap_kind = "fastest valid lap" if fast_is_valid else "fastest lap"
+        lap_label = f"L{fast.lap}, {format_lap_ms(fast.lap_ms)}"
+        if not fast_is_valid:
+            lap_label += " · invalid"
         # 2. Throttle + brake (filled) — fastest lap.
         ax = axes["pedals"]
         ax.fill_between(fast.pos, 0, fast.gas, color=_THROTTLE, alpha=0.35, linewidth=0)
@@ -244,8 +267,9 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
         ax.fill_between(fast.pos, 0, fast.brake, color=_BRAKE, alpha=0.30, linewidth=0)
         ax.plot(fast.pos, fast.brake, color=_BRAKE, linewidth=0.9, label="Brake")
         ax.set_title(
-            f"Throttle & brake — fastest lap (L{fast.lap}, {format_lap_ms(fast.lap_ms)})",
-            fontsize=8, fontweight="bold",
+            f"Throttle & brake — {lap_kind} ({lap_label})",
+            fontsize=8,
+            fontweight="bold",
             loc="center",
         )
         ax.set_ylabel("Throttle / Brake [-]", fontsize=8)
@@ -259,8 +283,9 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
         real_gear = [g - 1 for g in fast.gear]
         ax.step(fast.pos, real_gear, color=_GEAR, linewidth=1.1, where="post")
         ax.set_title(
-            f"Gear — fastest lap (L{fast.lap}, {format_lap_ms(fast.lap_ms)})",
-            fontsize=8, fontweight="bold",
+            f"Gear — {lap_kind} ({lap_label})",
+            fontsize=8,
+            fontweight="bold",
             loc="center",
         )
         ax.set_ylabel("Gear [-]", fontsize=8)
@@ -275,8 +300,10 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
     ax = axes["laptimes"]
     xs = list(range(len(series.laps)))
     lap_s = [lp.lap_ms / 1000 for lp in series.laps]
+    # Orange = fastest VALID lap only (matches the legend); the pedal/gear
+    # fallback to an invalid lap must NOT colour a bar orange.
     colors = [
-        _FASTEST_BAR if i == fast_idx else _VALID_BAR
+        _FASTEST_BAR if i == series.fastest_valid_idx else _VALID_BAR
         for i in range(len(series.laps))
     ]
     bars = ax.bar(xs, lap_s, color=colors)
@@ -291,13 +318,18 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
     ax.set_ylim(lo - pad, hi + pad)
     ax.set_xticks(xs)
     ax.set_xticklabels([f"L{lp.lap}" for lp in series.laps], fontsize=7)
-    ax.set_title(
-        "Lap times (orange=fastest valid, blue=valid, hatched=invalid)",
-        fontsize=8, fontweight="bold",
-        loc="center",
-    )
+    ax.set_title("Lap times", fontsize=8, fontweight="bold", loc="center")
     ax.set_ylabel("Lap Time [s]", fontsize=8)
     ax.set_xlabel("Lap [-]", fontsize=8)
+    bar_legend = [
+        Patch(facecolor=_FASTEST_BAR, label="Fastest valid"),
+        Patch(facecolor=_VALID_BAR, label="Valid"),
+        Patch(facecolor=_VALID_BAR, hatch="///", edgecolor="white", label="Invalid"),
+    ]
+    # Bigger uniform handle so the hatch reads and all swatches match in size.
+    legends.append(
+        ax.legend(handles=bar_legend, handlelength=2.6, handleheight=1.4, **legend_kw)
+    )
     for bar, lp in zip(bars, series.laps):
         ax.annotate(
             format_lap_ms(lp.lap_ms),
@@ -315,7 +347,9 @@ def render_telemetry_svg(series: LapSeries) -> str | None:
     return buf.getvalue()
 
 
-def resolve_lake_keys(analysis: "Analysis", test: "Test") -> tuple[str, str, str] | None:
+def resolve_lake_keys(
+    analysis: "Analysis", test: "Test"
+) -> tuple[str, str, str] | None:
     """Resolve (driver_lowercased, track, car_model) for the lake query, or None.
 
     Session-level only. Values must equal the lake's partition values EXACTLY, so

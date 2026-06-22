@@ -13,7 +13,13 @@ def test_format_lap_ms() -> None:
 
 
 def test_build_session_sql_clauses() -> None:
-    sql = tv.build_session_sql("ac_telemetry_prod", "2026-06-19T11:06:54.186Z", "tomas eviltwin", "Spa", "porsche_991ii_gt3_r")
+    sql = tv.build_session_sql(
+        "ac_telemetry_prod",
+        "2026-06-19T11:06:54.186Z",
+        "tomas eviltwin",
+        "Spa",
+        "porsche_991ii_gt3_r",
+    )
     assert "FROM ac_telemetry_prod" in sql
     assert "session_id = '2026-06-19T11:06:54.186Z'" in sql
     assert "driver = 'tomas eviltwin'" in sql
@@ -60,35 +66,44 @@ def _lap_df(
 
 
 def test_clean_laps_drops_last_lap_and_sliver() -> None:
-    df = pd.concat([
-        _lap_df(1, 5000, lap_ms=100000),
-        _lap_df(2, 5000, lap_ms=99000),
-        _lap_df(3, 300),   # sliver (<=1000) — but also not last; dropped as sliver
-        _lap_df(4, 200),   # last lap — dropped
-    ], ignore_index=True)
+    df = pd.concat(
+        [
+            _lap_df(1, 5000, lap_ms=100000),
+            _lap_df(2, 5000, lap_ms=99000),
+            _lap_df(3, 300),  # sliver (<=1000) — but also not last; dropped as sliver
+            _lap_df(4, 200),  # last lap — dropped
+        ],
+        ignore_index=True,
+    )
     series = tv.clean_laps(df)
     kept = [lp.lap for lp in series.laps]
     assert kept == [1, 2]  # 3 sliver-dropped, 4 last-dropped
 
 
 def test_clean_laps_fastest_valid() -> None:
-    df = pd.concat([
-        _lap_df(1, 5000, lap_ms=100000, invalid=0),  # valid, slower
-        _lap_df(2, 5000, lap_ms=98000, invalid=3000),  # faster but INVALID
-        _lap_df(3, 5000, lap_ms=99000, invalid=0),  # valid, fastest valid
-        _lap_df(4, 200),  # last, dropped
-    ], ignore_index=True)
+    df = pd.concat(
+        [
+            _lap_df(1, 5000, lap_ms=100000, invalid=0),  # valid, slower
+            _lap_df(2, 5000, lap_ms=98000, invalid=3000),  # faster but INVALID
+            _lap_df(3, 5000, lap_ms=99000, invalid=0),  # valid, fastest valid
+            _lap_df(4, 200),  # last, dropped
+        ],
+        ignore_index=True,
+    )
     series = tv.clean_laps(df)
     assert series.fastest_valid_idx is not None
     assert series.laps[series.fastest_valid_idx].lap == 3
 
 
 def test_clean_laps_no_valid_lap() -> None:
-    df = pd.concat([
-        _lap_df(1, 5000, invalid=4000),
-        _lap_df(2, 5000, invalid=4000),
-        _lap_df(3, 200),  # last
-    ], ignore_index=True)
+    df = pd.concat(
+        [
+            _lap_df(1, 5000, invalid=4000),
+            _lap_df(2, 5000, invalid=4000),
+            _lap_df(3, 200),  # last
+        ],
+        ignore_index=True,
+    )
     series = tv.clean_laps(df)
     assert len(series.laps) == 2
     assert series.fastest_valid_idx is None
@@ -122,22 +137,46 @@ def test_render_none_when_empty() -> None:
 
 
 def test_render_returns_svg_with_fastest() -> None:
-    df = pd.concat([_lap_df(1, 5000, lap_ms=100000), _lap_df(2, 5000, lap_ms=99000), _lap_df(3, 200)], ignore_index=True)
+    df = pd.concat(
+        [
+            _lap_df(1, 5000, lap_ms=100000),
+            _lap_df(2, 5000, lap_ms=99000),
+            _lap_df(3, 200),
+        ],
+        ignore_index=True,
+    )
     series = tv.clean_laps(df)
     svg = tv.render_telemetry_svg(series)
     assert svg is not None
     assert svg.lstrip().startswith("<?xml") or "<svg" in svg
     assert "</svg>" in svg
+    # A valid lap exists → pedal/gear titles say "fastest valid lap", not invalid.
+    assert "fastest valid lap" in svg
+    # Lap times legend includes "invalid" to explain hatch pattern, but panel titles shouldn't have it.
+    assert "· invalid" not in svg
 
 
 def test_render_returns_svg_without_valid_lap() -> None:
-    df = pd.concat([_lap_df(1, 5000, invalid=4000), _lap_df(2, 5000, invalid=4000), _lap_df(3, 200)], ignore_index=True)
+    df = pd.concat(
+        [
+            _lap_df(1, 5000, invalid=4000),
+            _lap_df(2, 5000, invalid=4000),
+            _lap_df(3, 200),
+        ],
+        ignore_index=True,
+    )
     series = tv.clean_laps(df)
     svg = tv.render_telemetry_svg(series)
     assert svg is not None and "<svg" in svg
+    # No valid lap → pedal/gear fall back to the fastest lap overall, labelled invalid.
+    assert "fastest lap" in svg
+    assert "invalid" in svg
+    assert "fastest valid lap" not in svg
 
 
-def _analysis(session_id="2026-06-19T11:06:54.186Z", driver="Tomas Eviltwin", status="complete") -> Analysis:
+def _analysis(
+    session_id="2026-06-19T11:06:54.186Z", driver="Tomas Eviltwin", status="complete"
+) -> Analysis:
     from api.models import AnalysisContext
 
     return Analysis(
@@ -145,7 +184,9 @@ def _analysis(session_id="2026-06-19T11:06:54.186Z", driver="Tomas Eviltwin", st
         test_id="TST-0001",
         session_id=session_id,
         status=status,
-        context=AnalysisContext(driver=driver, track="Spa", car_model="porsche_991ii_gt3_r"),
+        context=AnalysisContext(
+            driver=driver, track="Spa", car_model="porsche_991ii_gt3_r"
+        ),
     )
 
 
@@ -158,7 +199,11 @@ def _test_with_session(session_id="2026-06-19T11:06:54.186Z") -> Test:
         environment_id="ENV-0001",
         experiment_id="ConferenceBrno",
         config_id="cfg-001",
-        sessions=[SessionInfo(session_id=session_id, track="Spa", car_model="porsche_991ii_gt3_r")],
+        sessions=[
+            SessionInfo(
+                session_id=session_id, track="Spa", car_model="porsche_991ii_gt3_r"
+            )
+        ],
     )
 
 
@@ -168,7 +213,9 @@ def test_resolve_lake_keys_lowercases_driver() -> None:
 
 
 def test_resolve_lake_keys_none_without_session() -> None:
-    assert tv.resolve_lake_keys(_analysis(session_id=None), _test_with_session()) is None
+    assert (
+        tv.resolve_lake_keys(_analysis(session_id=None), _test_with_session()) is None
+    )
 
 
 def test_resolve_lake_keys_falls_back_to_test_driver() -> None:
@@ -204,9 +251,14 @@ def test_resolve_lake_keys_ignores_ai_extra() -> None:
 
 
 def test_build_svg_happy(monkeypatch: pytest.MonkeyPatch) -> None:
-    df = pd.concat([_lap_df(1, 5000), _lap_df(2, 5000, lap_ms=99000), _lap_df(3, 200)], ignore_index=True)
+    df = pd.concat(
+        [_lap_df(1, 5000), _lap_df(2, 5000, lap_ms=99000), _lap_df(3, 200)],
+        ignore_index=True,
+    )
     monkeypatch.setattr(tv, "lake_query", lambda sql: df)
-    svg = tv.build_analysis_telemetry_svg(_analysis(), _test_with_session(), "ac_telemetry_prod")
+    svg = tv.build_analysis_telemetry_svg(
+        _analysis(), _test_with_session(), "ac_telemetry_prod"
+    )
     assert svg is not None and "<svg" in svg
 
 
@@ -215,8 +267,15 @@ def test_build_svg_swallows_errors(monkeypatch: pytest.MonkeyPatch) -> None:
         raise RuntimeError("no creds")
 
     monkeypatch.setattr(tv, "lake_query", boom)
-    assert tv.build_analysis_telemetry_svg(_analysis(), _test_with_session(), "t") is None
+    assert (
+        tv.build_analysis_telemetry_svg(_analysis(), _test_with_session(), "t") is None
+    )
 
 
 def test_build_svg_none_for_test_wide() -> None:
-    assert tv.build_analysis_telemetry_svg(_analysis(session_id=None), _test_with_session(), "t") is None
+    assert (
+        tv.build_analysis_telemetry_svg(
+            _analysis(session_id=None), _test_with_session(), "t"
+        )
+        is None
+    )
