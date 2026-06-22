@@ -230,6 +230,20 @@ export function AiSummaryTab() {
     setHistory([]);
   }, [selectedTestId, selectedSessionId, mode]);
 
+  // Once a polled run reaches a terminal state and the refetched history
+  // contains it, drop the active id. This nulls `polled` so the finished run
+  // falls through to history[0] and the History dropdown reappears. Gating on
+  // the row being present-and-terminal in history avoids a blank/flicker.
+  useEffect(() => {
+    if (!polledTerminal || !activeAnalysisId) return;
+    const landed = history.some(
+      (h) =>
+        h.id === activeAnalysisId &&
+        (h.status === "complete" || h.status === "failed"),
+    );
+    if (landed) setActiveAnalysisId(null);
+  }, [polledTerminal, activeAnalysisId, history]);
+
   // Display priority: actively-polling run > user-picked from history > newest
   const pickedFromHistory =
     selectedAnalysisId != null
