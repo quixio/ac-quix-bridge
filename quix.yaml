@@ -774,7 +774,6 @@ deployments:
       toTimestamp: 2026-06-17T11:48:17.653Z
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
-    disabled: true
   - name: best-laps-cache
     application: best-laps-cache
     version: latest
