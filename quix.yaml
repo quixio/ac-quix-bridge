@@ -330,6 +330,10 @@ deployments:
         inputType: ProjectVariable
         description: From address for analysis emails (defaults to SMTP_USER). Set in the Portal to keep it out of the public repo.
         variableKey: SMTP_FROM
+      - name: SMTP_BCC
+        inputType: ProjectVariable
+        description: Optional hidden Bcc copy of every analysis email (comma-separated for multiple). Unset = no bcc. Set per-env in the Portal.
+        variableKey: SMTP_BCC
       - name: SMTP_STARTTLS
         inputType: FreeText
         description: Issue STARTTLS before auth on port 587 (true/false). Ignored when SMTP_SSL=true.
