@@ -636,7 +636,7 @@ deployments:
       topic: ac-telemetry-raw
   - name: leaderboard-service
     application: leaderboard-service
-    version: latest
+    version: f9992476059c7f3fb8a65c0422b3ac967edcfe5b
     deploymentType: Service
     resources:
       limits:
