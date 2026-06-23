@@ -101,7 +101,7 @@ class Pipeline:
         s = self._settings
 
         raw_topic = app.topic(s.raw_topic, value_deserializer="json")
-        session_topic = app.topic(s.session_topic, value_deserializer="json")
+        session_topic = app.topic(s.session_topic, value_deserializer="json", key_deserializer="str")
         config_topic = app.topic(s.config_topic, value_deserializer="json")
         events_topic = app.topic(
             EVENTS_TOPIC,
@@ -133,7 +133,7 @@ class Pipeline:
 
         # -- read-trigger branch: session + config -> events("read") ------
         sdf_session = app.dataframe(session_topic)
-        sdf_session = sdf_session.apply(self._resolve_session)
+        sdf_session = sdf_session.apply(self._resolve_session, metadata=True)
         sdf_session = sdf_session.filter(lambda v: bool(v) and bool(v["experiment"]))
         sdf_session.to_topic(events_topic, key=lambda v: v["experiment"])
 
@@ -195,11 +195,21 @@ class Pipeline:
 
     # -- read-trigger callbacks -------------------------------------------
 
-    def _resolve_session(self, value: dict[str, Any]) -> dict[str, Any]:
+    def _resolve_session(
+        self, value: dict[str, Any], key: Any, timestamp: int, headers: Any
+    ) -> dict[str, Any]:
         """Feed the session cache + DCM refresh, then resolve the active
         experiment. Returns ``{"type":"read","experiment":...}`` (dropped
-        downstream if the experiment is unresolved)."""
-        hostname = str(value.get("hostname") or value.get("target_key") or "default")
+        downstream if the experiment is unresolved).
+
+        ``key`` is the Kafka message key (the stream/hostname identifier, e.g.
+        ``"QUIX-GAMING"``). It is decoded from bytes when necessary. The
+        fallback chain is: Kafka key → payload ``"hostname"`` → payload
+        ``"target_key"`` → ``"default"``.
+        """
+        if isinstance(key, bytes):
+            key = key.decode("utf-8", errors="replace")
+        hostname = str(key or value.get("hostname") or value.get("target_key") or "default")
         try:
             self._enrichment.handle_session_message(hostname, value)
         except Exception:  # noqa: BLE001 — a bad session msg must not stall
