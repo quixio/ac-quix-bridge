@@ -716,7 +716,7 @@ deployments:
   - name: BestLap cache
     group: Ingestion
     application: best-laps-cache
-    version: latest
+    version: DynLBv1.1
     deploymentType: Service
     resources:
       limits:
@@ -767,10 +767,6 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         value: best-laps-cache-v1.5
-      - name: VALID_LAPS_ONLY
-        inputType: FreeText
-        description: When 'true' (default), only AC-valid laps count towards best-lap. When 'false', all finished laps (including invalid) are eligible; uses iLastTime instead of iBestTime.
-        value: false
     blobStorage:
       bind: true
 
