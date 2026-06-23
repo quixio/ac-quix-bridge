@@ -769,7 +769,8 @@ deployments:
         value: best-laps-cache-v1.2
       - name: VALID_LAPS_ONLY
         inputType: FreeText
-        value: "true"
+        description: When 'true' (default), only AC-valid laps count towards best-lap. When 'false', all finished laps (including invalid) are eligible; uses iLastTime instead of iBestTime.
+        value: false
     blobStorage:
       bind: true
 
