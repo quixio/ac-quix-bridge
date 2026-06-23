@@ -844,7 +844,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-cache-v1.8
+        value: best-laps-cache-v1.9
     blobStorage:
       bind: true
 
