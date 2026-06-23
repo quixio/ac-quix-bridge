@@ -20,12 +20,9 @@ Topology (three SDF roots under one ``app.run()``):
 * **Stateful branch** — consumes the **events topic** (one source → one
   ``stream_id`` → one State store). ``type="lap"``/``type="seed"`` fold into
   ``state[experiment]`` (write-only); ``type="read"`` reads ``state[experiment]``
-  and lazily seeds it from the lakehouse when empty (also write-only — it builds
-  no served snapshot); ``type="get_request"`` reads ``state[experiment]`` and
-  delivers the **transient** payload back to the waiting HTTP handler via the
-  :class:`~best_laps_cache.request_bridge.PendingRequests` bridge, correlated by
-  ``req_id``. No best-laps payload persists in RAM between requests — the
-  former persistent materialized view is gone.
+  and lazily seeds it from the lakehouse when empty. After each successful fold
+  the in-memory :class:`~best_laps_cache.mirror.BestLapsMirror` is updated so
+  the HTTP thread can read directly without a Kafka round-trip.
 
 Why the events topic (not two ``group_by("experiment")`` branches sharing a
 store): in QuixStreams 3.x a state store is scoped by ``stream_id``, and
@@ -45,9 +42,9 @@ from typing import Any
 from quixstreams import Application
 from quixstreams.state import State
 
-from .boot_seed import _GATE_FLAG, run_boot_seed
+from .boot_seed import run_boot_seed
 from .enrichment import Enrichment
-from .request_bridge import PendingRequests
+from .mirror import BestLapsMirror
 from .seed import seed_experiment_payload
 from .settings import Settings
 from .state_model import INT_MAX, fold_lap
@@ -79,11 +76,11 @@ class Pipeline:
         self,
         settings: Settings,
         enrichment: Enrichment,
-        pending: PendingRequests,
+        mirror: BestLapsMirror,
     ) -> None:
         self._settings = settings
         self._enrichment = enrichment
-        self._pending = pending
+        self._mirror = mirror
         self._app = build_application(settings)
         # Set in _build(); the boot seeder serialises against this exact Topic
         # so its messages ride the same JSON contract the SDF consumes.
@@ -142,7 +139,7 @@ class Pipeline:
         sdf_config = sdf_config.filter(lambda v: bool(v) and bool(v["experiment"]))
         sdf_config.to_topic(events_topic, key=lambda v: v["experiment"])
 
-        # -- stateful branch: events -> State (write) / get_request (read) -
+        # -- stateful branch: events -> State (write) / mirror (read) -----
         sdf_events = app.dataframe(events_topic)
         sdf_events.update(self._handle_event, stateful=True)
 
@@ -215,60 +212,11 @@ class Pipeline:
         """The ONE stateful op.
 
         Write-only event types (``lap``/``seed``/``read``) fold best laps into
-        State; ``read`` additionally lazily seeds an empty experiment. None of
-        them materialise a served snapshot — there is no persistent view. The
-        ``get_request`` type is the read path: it reads State in-context and
-        delivers the transient payload back to the waiting HTTP handler. The
-        ``seed_gate`` / ``mark_seeded`` types read/write the boot-seed ``seeded``
-        flag under ``boot_seed.GATE_KEY`` in-context, gating the proactive boot
-        seed.
+        State and update the in-memory mirror. ``read`` additionally lazily
+        seeds an empty experiment from the lakehouse in-context.
         """
         experiment = str(value.get("experiment") or "")
         event_type = value.get("type")
-
-        if event_type == "get_request":
-            # On-demand read round-trip from the HTTP thread. Read State for this
-            # experiment key IN-CONTEXT and hand the payload back via the bridge,
-            # correlated by req_id. The GET path never seeds (empty -> empty board).
-            req_id = str(value.get("req_id") or "")
-            if not req_id:
-                return
-            payload = state.get(experiment) if experiment else None
-            # Cheap one-line stat for the in-context read (counts only, no dump).
-            groups = (
-                {k: v for k, v in payload.items() if isinstance(v, dict)}
-                if isinstance(payload, dict)
-                else {}
-            )
-            logger.info(
-                "state.get(experiment=%s): %d tracks, %d car groups, %d driver entries",
-                experiment or "<active>",
-                len(groups),
-                sum(len(c) for c in groups.values()),
-                sum(len(d) for c in groups.values() for d in c.values()),
-            )
-            self._pending.deliver(req_id, payload)
-            return
-
-        if event_type == "seed_gate":
-            # Boot-seed gate read (boot_seed.run_boot_seed). Read the State-native
-            # seeded flag for GATE_KEY IN-CONTEXT and hand the bool back via the
-            # bridge, correlated by req_id. Placed before the empty-experiment
-            # guard because gate events carry experiment=GATE_KEY, not a real one.
-            req_id = str(value.get("req_id") or "")
-            if not req_id:
-                return
-            seeded = bool(state.get(_GATE_FLAG))
-            logger.info("seed_gate -> seeded=%s", seeded)
-            self._pending.deliver(req_id, {"seeded": seeded})
-            return
-
-        if event_type == "mark_seeded":
-            # Boot-seed gate write: set the State-native flag in-context so a later
-            # boot (retained store) skips the lake query. No reply.
-            state.set(_GATE_FLAG, True)
-            logger.info("mark_seeded -> State flag set")
-            return
 
         if not experiment:
             return
@@ -285,6 +233,7 @@ class Pipeline:
             )
             if changed:
                 state.set(experiment, payload)
+                self._mirror.update(experiment, payload)
             return
 
         if event_type == "seed":
@@ -297,11 +246,13 @@ class Pipeline:
                 payload, changed = self._fold_seed_rows(value, payload)
                 if changed:
                     state.set(experiment, payload)
+                    self._mirror.update(experiment, payload)
             return
 
         if event_type == "read":
             # Write-only trigger: lazily seed a genuinely empty experiment from
-            # the lakehouse in-context. Builds no served snapshot.
+            # the lakehouse in-context. Updates the mirror so HTTP reads are warm
+            # even before a lap arrives.
             payload = state.get(experiment)
             if not payload:
                 payload, seeded = seed_experiment_payload(
@@ -309,6 +260,7 @@ class Pipeline:
                 )
                 if seeded:
                     state.set(experiment, payload)
+                    self._mirror.update(experiment, payload)
 
     @staticmethod
     def _fold_seed_rows(
@@ -336,7 +288,7 @@ class Pipeline:
             any_changed = any_changed or changed
         return result, any_changed
 
-    # -- HTTP-thread read round-trip --------------------------------------
+    # -- public accessors --------------------------------------------------
 
     def active_experiment(self) -> str:
         """Resolve the current/active experiment from the enrichment caches.
@@ -347,18 +299,6 @@ class Pipeline:
         """
         return str(self._enrichment.enrich({}).get("experiment") or "")
 
-    def produce_get_request(self, experiment: str, req_id: str) -> None:
-        """Produce one ``{"type":"get_request",experiment,req_id}`` event.
-
-        Called from the HTTP thread. Keyed by *experiment* so it co-partitions
-        onto the same RocksDB instance the stateful SDF reads in-context. Uses the
-        same events-topic serializers / a short-lived producer as the seed path.
-        """
-        self._produce_event_message(
-            experiment,
-            {"type": "get_request", "experiment": experiment, "req_id": req_id},
-        )
-
     # -- boot seed ---------------------------------------------------------
 
     def run_boot_seed(self) -> bool:
@@ -366,17 +306,13 @@ class Pipeline:
 
         Delegates to :func:`best_laps_cache.boot_seed.run_boot_seed`, supplying the
         ``_produce_event_message`` closure (serialises each event against the events
-        Topic and produces it via a short-lived producer) and the
-        :class:`~best_laps_cache.request_bridge.PendingRequests` bridge (for the
-        State-native seeded-flag gate round-trip). The stateful SDF then folds seed
-        messages in-context (the only place a RocksDB write may happen) and answers
-        the gate read. ``run_boot_seed`` is itself non-raising; the wrapper is a
-        belt-and-braces guard so the boot thread can never crash startup.
+        Topic and produces it via a short-lived producer). The stateful SDF then
+        folds seed messages in-context (the only place a RocksDB write may happen).
+        ``run_boot_seed`` is itself non-raising; the wrapper is a belt-and-braces
+        guard so the boot thread can never crash startup.
         """
         try:
-            return run_boot_seed(
-                self._settings, self._produce_event_message, self._pending
-            )
+            return run_boot_seed(self._settings, self._produce_event_message)
         except Exception:  # noqa: BLE001 — boot seed must never crash startup
             logger.exception("boot seed failed; lazy in-context seed remains")
             return False
@@ -384,12 +320,10 @@ class Pipeline:
     def _produce_event_message(self, key: str, message: dict[str, Any]) -> None:
         """Serialise + produce one event message to the events topic.
 
-        Shared by the boot seed (``type="seed"`` / ``seed_gate`` / ``mark_seeded``)
-        and the on-demand read round-trip (``type="get_request"``). Uses the same
-        ``self._events_topic``
-        serializers the stateful SDF consumes with, so the message is
-        wire-identical to a normal event. A fresh producer is opened and flushed
-        per call; the SDF owns the consumer side, so this only needs the
+        Used by the boot seed (``type="seed"``). Uses the same
+        ``self._events_topic`` serializers the stateful SDF consumes with, so the
+        message is wire-identical to a normal event. A fresh producer is opened and
+        flushed per call; the SDF owns the consumer side, so this only needs the
         lightweight producer path.
         """
         topic = self._events_topic
