@@ -66,6 +66,7 @@ def main() -> int:
 
     pending = PendingRequests()
     enrichment = Enrichment(settings)
+    enrichment.prefetch_from_dcm()
     pipeline = Pipeline(settings, enrichment, pending)
 
     http_thread = threading.Thread(
