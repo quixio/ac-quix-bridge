@@ -829,7 +829,7 @@ deployments:
       - name: CONFIG_API_URL
         inputType: FreeText
         description: DCM base URL for session/experiment enrichment
-        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+        value: http://dynamic-configuration-manager
       - name: LAKE_TABLE
         inputType: FreeText
         value: ac_telemetry_prod
@@ -845,6 +845,11 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         value: best-laps-cache-v1.9
+      - name: VALID_LAPS_ONLY
+        inputType: FreeText
+        description: "When 'true' (default), only AC-valid laps count towards best-lap. When 'false', all finished laps (including invalid) are eligible; uses iLastTime instead of iBestTime."
+        required: false
+        value: "true"
     blobStorage:
       bind: true
 
