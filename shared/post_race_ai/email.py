@@ -27,7 +27,8 @@ def send_email_with_pdf(
     """Send a plain-text email with a PDF attachment via SMTP.
 
     Env config: `SMTP_HOST` (required), `SMTP_PORT` (587), `SMTP_USER`,
-    `SMTP_PASSWORD`, `SMTP_FROM` (defaults to `SMTP_USER`), `SMTP_TIMEOUT` (20s),
+    `SMTP_PASSWORD`, `SMTP_FROM` (defaults to `SMTP_USER`), `SMTP_BCC` (optional
+    hidden copy; comma-separated), `SMTP_TIMEOUT` (20s),
     and one of two TLS modes — `SMTP_SSL` (true → implicit TLS, port 465) or
     `SMTP_STARTTLS` (default true → STARTTLS, port 587). Raises on any SMTP
     failure, and refuses to send credentials over a cleartext connection;
@@ -41,6 +42,7 @@ def send_email_with_pdf(
     use_ssl = os.getenv("SMTP_SSL", "false").lower() == "true"
     use_starttls = os.getenv("SMTP_STARTTLS", "true").lower() == "true"
     timeout = int(os.getenv("SMTP_TIMEOUT", "20"))
+    bcc = os.getenv("SMTP_BCC", "")
 
     if user and password and not (use_ssl or use_starttls):
         raise RuntimeError(
@@ -51,6 +53,10 @@ def send_email_with_pdf(
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = to
+    if bcc:
+        # send_message delivers to Bcc recipients but strips the header before
+        # transmit, so the To recipient never sees the hidden copy.
+        msg["Bcc"] = bcc
     msg["Subject"] = subject
     msg.set_content(body)
     msg.add_attachment(pdf, maintype="application", subtype="pdf", filename=filename)
@@ -75,4 +81,15 @@ def send_email_with_pdf(
             server.starttls(context=context)
         if user and password:
             server.login(user, password)
-        server.send_message(msg)
+        # send_message returns a dict of recipients the server refused at RCPT
+        # time (empty = all accepted). It does NOT confirm delivery — SendGrid
+        # accepts then bounces async; true delivery needs the Event Webhook.
+        refused = server.send_message(msg)
+    if refused:
+        logger.warning("[email] SMTP refused recipients: %s", sorted(refused))
+    logger.info(
+        "[email] SMTP accepted to=%s%s (pdf %d KB)",
+        to,
+        f" bcc={bcc}" if bcc else "",
+        len(pdf) // 1024,
+    )
