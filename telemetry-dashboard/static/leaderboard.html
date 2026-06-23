@@ -85,7 +85,15 @@
     gap: 0 1.6vw;
     overflow: hidden;
   }
-  .lb-col { display: flex; flex-direction: column; gap: .35vh; min-width: 0; min-height: 0; }
+  .lb-col {
+    display: flex; flex-direction: column; gap: .35vh; min-width: 0; min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  .lb-col::-webkit-scrollbar { width: 4px; }
+  .lb-col::-webkit-scrollbar-track { background: transparent; }
+  .lb-col::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .lb-col::-webkit-scrollbar-thumb:hover { background: var(--dim); }
 
   /* ---------- Leaderboard rows (ported from scichart.html) ---------- */
   .lb-row {
@@ -236,7 +244,7 @@ function buildRows() {
     rows.push({ name: driverName, ms: liveLapMs, live: true });
   }
   rows.sort((a, b) => a.ms - b.ms);
-  return rows.slice(0, MAX_ROWS);
+  return rows;
 }
 
 function rowHtml(r, i, leaderMs, prevMs, me, flashMe) {
