@@ -41,19 +41,33 @@ const integrationItems: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { collapsed, toggle } = useSidebar();
+  const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebar();
+  const closeMobile = () => setMobileOpen(false);
+  // collapsed = desktop slim mode; meaningless for the full-width mobile drawer
+  const isSlim = collapsed && !mobileOpen;
 
   return (
-    <div
-      className={cn(
-        "fixed left-0 top-0 z-40 h-screen transition-all duration-300",
-        "border-r bg-card flex flex-col",
-        collapsed ? "w-16" : "w-64",
+    <>
+      {/* Backdrop (tablet/mobile drawer only) */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={closeMobile}
+          aria-hidden="true"
+        />
       )}
-    >
+      <div
+        className={cn(
+          "fixed left-0 top-0 z-50 h-screen transition-all duration-300",
+          "border-r bg-card flex flex-col w-64",
+          isSlim ? "lg:w-16" : "lg:w-64",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+          "lg:translate-x-0",
+        )}
+      >
       {/* Logo Section */}
       <div className="flex h-16 items-center border-b px-4">
-        {!collapsed ? (
+        {!isSlim ? (
           <div className="flex items-baseline gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary">
               <span className="text-sm font-bold text-primary-foreground">
@@ -90,13 +104,14 @@ export function Sidebar() {
                 isActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:text-accent-foreground",
-                collapsed && "justify-center",
+                isSlim && "justify-center",
               )}
-              title={collapsed ? item.label : undefined}
+              title={isSlim ? item.label : undefined}
               aria-current={isActive ? "page" : undefined}
+              onClick={closeMobile}
             >
               <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />
-              {!collapsed && <span className="ml-3">{item.label}</span>}
+              {!isSlim && <span className="ml-3">{item.label}</span>}
             </Link>
           );
         })}
@@ -123,13 +138,14 @@ export function Sidebar() {
                 isActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:text-accent-foreground",
-                collapsed && "justify-center",
+                isSlim && "justify-center",
               )}
-              title={collapsed ? item.label : undefined}
+              title={isSlim ? item.label : undefined}
               aria-current={isActive ? "page" : undefined}
+              onClick={closeMobile}
             >
               <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />
-              {!collapsed && <span className="ml-3">{item.label}</span>}
+              {!isSlim && <span className="ml-3">{item.label}</span>}
             </Link>
           );
         })}
@@ -139,7 +155,7 @@ export function Sidebar() {
       <div
         className={cn(
           "mt-auto p-3 border-t",
-          collapsed ? "space-y-2" : "flex items-center gap-2",
+          isSlim ? "space-y-2" : "flex items-center gap-2",
         )}
       >
         {/* Settings Link */}
@@ -151,20 +167,21 @@ export function Sidebar() {
             pathname === "/settings"
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:text-accent-foreground",
-            collapsed ? "justify-center" : "flex-1",
+            isSlim ? "justify-center" : "flex-1",
           )}
-          title={collapsed ? "Settings" : undefined}
+          title={isSlim ? "Settings" : undefined}
           aria-current={pathname === "/settings" ? "page" : undefined}
+          onClick={closeMobile}
         >
           <Settings className="h-6 w-6 shrink-0" aria-hidden="true" />
-          {!collapsed && <span className="ml-3">Settings</span>}
+          {!isSlim && <span className="ml-3">Settings</span>}
         </Link>
 
         {/* Collapse Button */}
         <button
           onClick={toggle}
           className={cn(
-            "rounded-lg p-2.5 hover:bg-accent/50 min-w-[44px] min-h-[44px] flex items-center justify-center",
+            "rounded-lg p-2.5 hover:bg-accent/50 min-w-[44px] min-h-[44px] hidden lg:flex items-center justify-center",
             "text-muted-foreground hover:text-accent-foreground transition-colors",
             collapsed ? "w-full mx-auto" : "w-auto",
           )}
@@ -180,6 +197,7 @@ export function Sidebar() {
           />
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

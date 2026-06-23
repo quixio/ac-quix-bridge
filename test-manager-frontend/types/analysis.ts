@@ -23,6 +23,19 @@ export interface RequirementCheck {
   evidence?: string | null;
 }
 
+export type ActivityKind = "tool" | "agent_start" | "agent_step" | "agent_end";
+
+export interface ActivityEvent {
+  ts: string;
+  kind: ActivityKind;
+  tool?: string | null;
+  label: string;
+  detail?: string | null;
+  result?: string | null;
+  error?: boolean;
+  sub?: string | null;
+}
+
 export interface Anomaly {
   severity: "info" | "warn" | "error";
   kind: string;
@@ -31,6 +44,12 @@ export interface Anomaly {
   description: string;
   evidence?: string | null;
   session_id?: string | null;
+}
+
+export interface AnalysisContext {
+  driver?: string | null;
+  track?: string | null;
+  car_model?: string | null;
 }
 
 export interface Analysis {
@@ -56,6 +75,8 @@ export interface Analysis {
   anomalies: Anomaly[];
   summary_md: string;
   extra: Record<string, unknown>;
+  context?: AnalysisContext | null;
+  activity: ActivityEvent[];
 }
 
 export interface AnalysisCreateRequest {

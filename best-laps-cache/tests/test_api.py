@@ -1,8 +1,8 @@
-"""Smoke tests for GET /best-laps — direct in-memory mirror read.
+"""Smoke tests for the /best-laps on-demand State read round-trip.
 
-No live broker: a fake Pipeline stand-in plus a real BestLapsMirror replace the
-old round-trip. This exercises CSV/JSON wire-compat, driver filter, empty-board
-paths, and the healthz endpoint.
+No live broker: a fake Pipeline stand-in replaces the produce + SDF read with a
+direct, in-process correlation (and the State payload to "read"). This exercises
+the req_id correlation, timeout path, and CSV/JSON wire-compat.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ os.environ.setdefault("LAKE_TABLE", "ac_telemetry_prod")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from best_laps_cache.api import build_best_laps_table, create_app  # noqa: E402
-from best_laps_cache.mirror import BestLapsMirror  # noqa: E402
+from best_laps_cache.request_bridge import PendingRequests  # noqa: E402
 from best_laps_cache.settings import get_settings  # noqa: E402
 from best_laps_cache.state_model import fold_lap  # noqa: E402
 
@@ -24,7 +24,7 @@ EXP = "baseline"
 
 
 def _payload() -> dict:
-    """A nested State payload as the SDF would write to the mirror."""
+    """A nested State payload as the SDF would read it in-context."""
     payload, _ = fold_lap(
         None, "ks_nurburgring", "bmw_1m", "Ludvík", 91234, environment="prod-rig"
     )
@@ -35,23 +35,44 @@ def _payload() -> dict:
 
 
 class _FakePipeline:
-    """Stand-in for Pipeline — just exposes active_experiment()."""
+    """Stand-in for Pipeline.
 
-    def __init__(self, active: str = EXP) -> None:
+    `produce_get_request` synchronously delivers the configured payload to the
+    pending slot — simulating the SDF reading State in-context — unless
+    `simulate_timeout` is set (then it never delivers).
+    """
+
+    def __init__(
+        self,
+        pending: PendingRequests,
+        *,
+        payload: dict | None,
+        active: str = EXP,
+        simulate_timeout: bool = False,
+    ) -> None:
+        self._pending = pending
+        self._payload = payload
         self._active = active
+        self._simulate_timeout = simulate_timeout
+        self.produced: list[tuple[str, str]] = []
 
     def active_experiment(self) -> str:
         return self._active
 
-
-def _client(pipeline: _FakePipeline, mirror: BestLapsMirror) -> TestClient:
-    return TestClient(create_app(pipeline, mirror, get_settings()))
-
-
-# -- build_best_laps_table (payload core) ---------------------------------
+    def produce_get_request(self, experiment: str, req_id: str) -> None:
+        self.produced.append((experiment, req_id))
+        if not self._simulate_timeout:
+            self._pending.deliver(req_id, self._payload)
 
 
-def test_build_table_from_payload():
+def _client(pipeline: _FakePipeline, pending: PendingRequests) -> TestClient:
+    return TestClient(create_app(pipeline, pending, get_settings()))
+
+
+# -- build_best_laps_table (transient payload core) -----------------------
+
+
+def test_build_table_from_transient_payload():
     rows = build_best_laps_table(EXP, _payload())
     assert len(rows) == 2
     assert rows[0]["driver"] == "Ada"  # fastest first within group
@@ -70,14 +91,13 @@ def test_build_table_empty_payload():
     assert build_best_laps_table(EXP, None) == []
 
 
-# -- GET /best-laps via mirror --------------------------------------------
+# -- round-trip via the API -----------------------------------------------
 
 
 def test_csv_shape_matches_lake_query():
-    mirror = BestLapsMirror()
-    mirror.update(EXP, _payload())
-    pipeline = _FakePipeline()
-    resp = _client(pipeline, mirror).get("/best-laps")
+    pending = PendingRequests()
+    pipeline = _FakePipeline(pending, payload=_payload())
+    resp = _client(pipeline, pending).get("/best-laps")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/csv")
     reader = csv.DictReader(io.StringIO(resp.text))
@@ -93,33 +113,25 @@ def test_csv_shape_matches_lake_query():
     assert len(rows) == 2
     assert rows[0]["driver"] == "Ada"
     assert rows[0]["iBestTime"] == "90000"
-
-
-def test_csv_empty_when_mirror_not_yet_warm():
-    """Mirror has no entry yet → empty board, not an error."""
-    mirror = BestLapsMirror()  # nothing in it
-    pipeline = _FakePipeline()
-    resp = _client(pipeline, mirror).get("/best-laps")
-    assert resp.status_code == 200
-    rows = list(csv.DictReader(io.StringIO(resp.text)))
-    assert rows == []
+    # The handler produced exactly one get_request keyed by the active experiment.
+    assert pipeline.produced and pipeline.produced[0][0] == EXP
+    # No payload retained: the slot was consumed + deleted.
+    assert pending.pending_count() == 0
 
 
 def test_filter_by_driver_backcompat():
-    mirror = BestLapsMirror()
-    mirror.update(EXP, _payload())
-    pipeline = _FakePipeline()
-    resp = _client(pipeline, mirror).get("/best-laps", params={"driver": "Ludvík"})
+    pending = PendingRequests()
+    pipeline = _FakePipeline(pending, payload=_payload())
+    resp = _client(pipeline, pending).get("/best-laps", params={"driver": "Ludvík"})
     rows = list(csv.DictReader(io.StringIO(resp.text)))
     assert len(rows) == 1
     assert rows[0]["driver"] == "Ludvík"
 
 
 def test_json_envelope():
-    mirror = BestLapsMirror()
-    mirror.update(EXP, _payload())
-    pipeline = _FakePipeline()
-    resp = _client(pipeline, mirror).get("/best-laps", params={"format": "json"})
+    pending = PendingRequests()
+    pipeline = _FakePipeline(pending, payload=_payload())
+    resp = _client(pipeline, pending).get("/best-laps", params={"format": "json"})
     body = resp.json()
     assert body["table"] == "ac_telemetry_prod"
     assert body["columns"][-1] == "iBestTime"
@@ -127,21 +139,42 @@ def test_json_envelope():
     assert body["source"] == "best-laps-cache"
 
 
+def test_timeout_returns_empty_board_200():
+    pending = PendingRequests()
+    pipeline = _FakePipeline(pending, payload=_payload(), simulate_timeout=True)
+    # Patch the module-level timeout so the test does not block for 3s.
+    import best_laps_cache.api as api_mod
+
+    orig = api_mod._READ_TIMEOUT_S
+    api_mod._READ_TIMEOUT_S = 0.05
+    try:
+        resp = _client(pipeline, pending).get("/best-laps")
+    finally:
+        api_mod._READ_TIMEOUT_S = orig
+    assert resp.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(resp.text)))
+    assert rows == []
+    # Timed-out slot must be cleaned up.
+    assert pending.pending_count() == 0
+
+
 def test_no_active_experiment_empty_board():
-    mirror = BestLapsMirror()
-    pipeline = _FakePipeline(active="")
-    resp = _client(pipeline, mirror).get("/best-laps")
+    pending = PendingRequests()
+    pipeline = _FakePipeline(pending, payload=_payload(), active="")
+    resp = _client(pipeline, pending).get("/best-laps")
     assert resp.status_code == 200
     assert list(csv.DictReader(io.StringIO(resp.text))) == []
+    # No experiment -> no round-trip produced.
+    assert pipeline.produced == []
 
 
 def test_healthz():
-    mirror = BestLapsMirror()
-    mirror.update(EXP, _payload())
-    pipeline = _FakePipeline()
-    resp = _client(pipeline, mirror).get("/healthz")
+    pending = PendingRequests()
+    pipeline = _FakePipeline(pending, payload=_payload())
+    resp = _client(pipeline, pending).get("/healthz")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
     assert body["active_experiment"] == EXP
-    assert body["materialized_experiments"] == [EXP]
+    assert body["in_flight_requests"] == 0
+    assert "materialized_experiments" not in body

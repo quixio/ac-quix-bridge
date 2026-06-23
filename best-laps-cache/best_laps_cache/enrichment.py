@@ -179,6 +179,62 @@ class Enrichment:
                 best = cand
         return None if best is None else (best[1], best[2])
 
+    def prefetch_from_dcm(self) -> None:
+        """Best-effort startup prefetch: warm the experiment cache for every
+        hostname that currently has an experiment config in DCM.
+
+        Call this once after ``Enrichment`` is created and before the Kafka
+        consumer starts so that the first raw ticks are not silently dropped
+        due to an empty ``_experiment_cache``.
+        """
+        logger.info("prefetch_from_dcm: warming enrichment caches from DCM")
+        base_url = self._settings.config_api_url
+        if not base_url:
+            logger.info("prefetch_from_dcm: config_api_url not set, skipping")
+            return
+        base = f"{base_url.rstrip('/')}/api/v1"
+        headers: dict[str, str] = {}
+        if self._settings.sdk_token:
+            headers["Authorization"] = f"Bearer {self._settings.sdk_token}"
+        try:
+            with httpx.Client(timeout=self._settings.dcm_timeout_s) as client:
+                resp = client.get(f"{base}/configurations", headers=headers)
+                if resp.status_code != 200:
+                    logger.warning(
+                        "prefetch_from_dcm: DCM list returned %d, skipping prefetch",
+                        resp.status_code,
+                    )
+                    return
+                data = resp.json()
+                configs = (
+                    data
+                    if isinstance(data, list)
+                    else data.get("data", data.get("items", []))
+                )
+                target_keys: set[str] = set()
+                for cfg in configs:
+                    meta = cfg.get("metadata") or {}
+                    if meta.get("type") == "experiment":
+                        key = str(meta.get("target_key") or "").strip()
+                        if key:
+                            target_keys.add(key)
+        except Exception:
+            logger.exception(
+                "prefetch_from_dcm: failed to list DCM configurations, skipping prefetch"
+            )
+            return
+        for target_key in target_keys:
+            try:
+                self._refresh_experiment(target_key)
+                logger.info(
+                    "prefetch_from_dcm: warmed cache for hostname=%s", target_key
+                )
+            except Exception:
+                logger.exception(
+                    "prefetch_from_dcm: failed to warm cache for hostname=%s",
+                    target_key,
+                )
+
     def _refresh_experiment(self, hostname: str) -> None:
         """Fetch experiment / driver / environment from DCM for *hostname*
         and cache it. Best-effort: failures cache empty strings."""

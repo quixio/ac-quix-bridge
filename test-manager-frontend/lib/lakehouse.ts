@@ -18,6 +18,8 @@ interface PartitionParams {
   driver?: string | null;
   track?: string | null;
   carModel?: string | null;
+  // Per-env lakehouse table from the backend; falls back to ac_telemetry.
+  table_name?: string | null;
 }
 
 /**
@@ -47,7 +49,13 @@ export function buildLakehouseQuery(
   }
   const whereClause =
     where.length > 0 ? `\nWHERE ${where.join("\n  AND ")}` : "";
-  return `SELECT *\nFROM ac_telemetry${whereClause}\nLIMIT 100`;
+  // table_name is server-provided, but it's interpolated raw (not quoted), so
+  // guard it to a SQL identifier shape before trusting it.
+  const candidate = p.table_name ?? "";
+  const table = /^[A-Za-z_][A-Za-z0-9_.]*$/.test(candidate)
+    ? candidate
+    : "ac_telemetry";
+  return `SELECT *\nFROM ${table}${whereClause}\nLIMIT 100`;
 }
 
 /** Build the Lakehouse UI iframe URL with the query prefilled (no auto-run —

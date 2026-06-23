@@ -357,11 +357,11 @@ test.describe("Inline add-driver on the test form", () => {
     await dialog.getByRole("button", { name: "Create Driver" }).click();
 
     // Dialog closes and the new driver is auto-selected in the Driver select
-    // (4th of the five comboboxes: PC, Rig, Env, Driver, Mode).
+    // (5th of the six comboboxes: PC, Rig, Env, Experiment, Driver, Mode).
     await expect(
       page.getByRole("heading", { name: "Add Driver" }),
     ).toBeHidden();
-    await expect(page.getByRole("combobox").nth(3)).toContainText(name);
+    await expect(page.getByRole("combobox").nth(4)).toContainText(name);
   });
 });
 

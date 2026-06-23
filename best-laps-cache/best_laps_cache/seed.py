@@ -30,16 +30,31 @@ from .state_model import INT_MAX, fold_lap
 logger = logging.getLogger(__name__)
 
 
-def build_reconcile_sql(lake_table: str, best_col: str) -> str:
-    """One full-table raw scan — partition keys + best time, positives only.
+def build_reconcile_sql(
+    lake_table: str, best_col: str, valid_laps_only: bool = True
+) -> str:
+    """Full-table raw scan — partition keys + best time, positives only.
 
+    When *valid_laps_only* is ``True`` (default) the query reads ``best_col``
+    (``iBestTime``) directly — byox-safe: no ``GROUP BY``, no ``MIN``, no CTE.
+
+    When *valid_laps_only* is ``False`` the query aggregates ``iLastTime`` per
+    group (the last completed lap time, valid or not) and aliases it as
+    ``iBestTime`` so ``reduce_rows`` and ``fold_lap`` need no changes.
     Identifiers are validated at settings load time, so inlining is safe.
-    Kept byox-safe: no ``GROUP BY``, no ``MIN(...)``, no CTE.
     """
+    if valid_laps_only:
+        return (
+            f"SELECT environment, experiment, track, carModel, driver, {best_col} "
+            f"FROM {lake_table} "
+            f"WHERE {best_col} > 0 AND {best_col} < {INT_MAX}"
+        )
     return (
-        f"SELECT environment, experiment, track, carModel, driver, {best_col} "
+        f"SELECT environment, experiment, track, carModel, driver, "
+        f"MIN(iLastTime) AS iBestTime "
         f"FROM {lake_table} "
-        f"WHERE {best_col} > 0 AND {best_col} < {INT_MAX}"
+        f"WHERE iLastTime > 0 AND iLastTime < {INT_MAX} "
+        f"GROUP BY environment, experiment, track, carModel, driver"
     )
 
 
@@ -99,7 +114,7 @@ def seed_experiment_payload(
         )
         return (payload or {}), False
 
-    sql = build_reconcile_sql(settings.lake_table, settings.col_best_time)
+    sql = build_reconcile_sql(settings.lake_table, settings.col_best_time, settings.valid_laps_only)
     logger.info("cold-start seed for experiment=%s — lake scan SQL: %s", experiment, sql)
     try:
         client = LakehouseClient(url, settings.lakehouse_query_token)

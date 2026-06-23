@@ -34,8 +34,8 @@ export function MainLayout({
       <Sidebar />
       <div
         className={cn(
-          "flex-1 transition-all duration-300",
-          mounted && collapsed ? "ml-16" : "ml-64",
+          "flex-1 min-w-0 transition-all duration-300",
+          mounted && collapsed ? "lg:ml-16" : "lg:ml-64",
         )}
       >
         <Header backLink={backLink} />

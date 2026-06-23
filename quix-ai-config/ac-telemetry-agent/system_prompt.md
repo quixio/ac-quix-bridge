@@ -76,12 +76,10 @@ When DEEP is warranted, **first resolve the exact partition with your MCP tools*
 
 - Reads `Quix__Lakehouse__Query__Url` + `Quix__Lakehouse__Query__AuthToken` from env → `POST {url}/query` (SQL `text/plain`, `Authorization: Bearer <token>`) → CSV → `pandas.read_csv(io.StringIO(r.text))`.
 - Filters by the **passed-in** partition verbatim: `session_id` is the T/Z string from `list_partition_combinations` — never cast, never a SELECTed value (a `SELECT` returns `space+micros` → 0 rows). Columns from channels KB / `get_schema`; never invent.
-- Install uv, then run. Each command runs in a fresh shell, so set PATH inline:
+- Run scripts with `uv` (preinstalled in the session — no install step):
   ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH" && uv run --with requests,pandas,<extras> python /tmp/x.py
+  uv run --with requests,pandas,<extras> python /tmp/x.py
   ```
-  If `uv`/`curl` missing: `python3 -m venv /tmp/venv`, pip-install into it, run with `/tmp/venv/bin/python`.
 - Keep everything under `/tmp`. **Never print the token. Never commit or push code** (the dev-session may auto-commit — don't let it). Report the result; don't dump the script unless asked.
 
 ## Tools — one line each (MCP runtime supplies full schemas)

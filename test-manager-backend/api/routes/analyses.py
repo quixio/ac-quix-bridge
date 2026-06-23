@@ -3,9 +3,8 @@
 import asyncio
 import logging
 import os
-import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -13,10 +12,19 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.responses import Response
 from pymongo.database import Database
 
-from shared.post_race_ai.pdf import render_analysis_pdf
+from shared.post_race_ai.pdf import analysis_pdf_filename, render_analysis_pdf
 from shared.post_race_ai.runner import BatchAnalysisAI
+from shared.post_race_ai.telemetry_viz import build_analysis_telemetry_svg
 from ..auth import bearer_from_request, read_permission, update_permission
-from ..models import Analysis, AnalysisCreate, AnalysisRecipient, EmailSendResult
+from ..models import (
+    Analysis,
+    AnalysisContext,
+    AnalysisCreate,
+    AnalysisRecipient,
+    EmailSendResult,
+    Test,
+)
+from ..settings import get_settings
 from ..mongo import get_mongo
 from ..notify import (
     EmailNotConfigured,
@@ -31,9 +39,47 @@ router = APIRouter()
 
 IN_PROGRESS_STATUSES = ("pending", "running", "fetching", "analyzing", "saving")
 
+# An in-progress analysis older than this is treated as stale (orphaned by a
+# crash/restart, or a run that never started) — it no longer blocks a new run,
+# so the UI can't get stuck "Analyzing…" forever. Well past the runner's 15-min
+# hard timeout.
+STALE_IN_PROGRESS_AFTER = timedelta(minutes=20)
+
 # Hold strong refs to spawned tasks so Python's GC doesn't kill them
 # mid-run (asyncio.create_task only holds a weak reference).
 _RUNNING_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _build_analysis_context(
+    test_doc: dict[str, Any] | None, session_id: str | None
+) -> AnalysisContext | None:
+    """Resolve display context (driver/track/car) from the test + session.
+
+    Best-effort + cosmetic: any failure returns None (the renderers fall back),
+    never raises into analysis creation. driver comes from the test; track/car
+    from the matching SessionInfo (absent on test-wide or an unlinked session).
+    """
+    if not test_doc:
+        return None
+    try:
+        driver = test_doc.get("driver") or None
+        track = car_model = None
+        if session_id:
+            for s in test_doc.get("sessions", []):
+                if s.get("session_id") == session_id:
+                    track = s.get("track") or None
+                    car_model = s.get("car_model") or None
+                    break
+        if not (driver or track or car_model):
+            return None
+        return AnalysisContext(driver=driver, track=track, car_model=car_model)
+    except Exception:
+        logger.warning(
+            "[analyses] context build failed (session=%s) — continuing without it",
+            session_id,
+            exc_info=True,
+        )
+        return None
 
 
 @router.post(
@@ -103,32 +149,48 @@ async def create_analysis(
                 owners[0]["_id"],
             )
         test_id = owners[0]["_id"]
+        test = mongo.tests.find_one({"_id": test_id})
 
-    # Dedup auto re-fires: the test-completed event re-emits for the same
-    # session_id while it stays silent. Return the existing non-failed run
-    # instead of starting a duplicate. Manual is never deduped (a human can
-    # always force a re-run).
+    # Dedup against an already-running analysis for the same target so a second
+    # click (a different user, tab, or the auto re-fire) returns the in-flight
+    # run instead of spawning a duplicate. Auto additionally dedups a *complete*
+    # run (the test-completed event re-emits for a session); a human may still
+    # re-run a finished analysis manually. `failed` never blocks either path.
+    # Non-atomic find-then-insert: two truly-simultaneous requests could both
+    # miss — acceptable for seconds-apart human clicks; no atomic guard yet.
+    # In-progress only blocks while it's fresh (a stale/orphaned run expires);
+    # auto also dedups a completed run, at any age.
+    fresh_cutoff = datetime.now(timezone.utc) - STALE_IN_PROGRESS_AFTER
+    dedup_conds: list[dict[str, Any]] = [
+        {
+            "status": {"$in": list(IN_PROGRESS_STATUSES)},
+            "created_at": {"$gte": fresh_cutoff},
+        }
+    ]
     if payload.triggered_by == "auto":
-        existing = mongo.analyses.find_one(
-            {
-                "test_id": test_id,
-                "session_id": payload.session_id,
-                "status": {"$in": [*IN_PROGRESS_STATUSES, "complete"]},
-            },
-            sort=[("created_at", -1)],
+        dedup_conds.append({"status": "complete"})
+    existing = mongo.analyses.find_one(
+        {
+            "test_id": test_id,
+            "session_id": payload.session_id,
+            "$or": dedup_conds,
+        },
+        sort=[("created_at", -1)],
+    )
+    if existing:
+        logger.info(
+            "[analyses] dedup — existing %s for (test=%s session=%s by=%s)",
+            existing["_id"],
+            test_id,
+            payload.session_id,
+            payload.triggered_by,
         )
-        if existing:
-            logger.info(
-                "[analyses] auto dedup — existing %s for (test=%s session=%s)",
-                existing["_id"],
-                test_id,
-                payload.session_id,
-            )
-            response.status_code = status.HTTP_200_OK
-            return {"analysis_id": existing["_id"]}
+        response.status_code = status.HTTP_200_OK
+        return {"analysis_id": existing["_id"]}
 
     analysis_id = str(uuid4())
     now = datetime.now(timezone.utc)
+    context = _build_analysis_context(test, payload.session_id)
     doc = Analysis(
         _id=analysis_id,
         test_id=test_id,
@@ -137,6 +199,7 @@ async def create_analysis(
         status="pending",
         created_at=now,
         updated_at=now,
+        context=context,
     )
     mongo.analyses.insert_one(doc.model_dump(by_alias=True))
     logger.info(
@@ -208,15 +271,58 @@ def get_analysis_pdf(
             status_code=409,
             detail=f"Analysis not complete (status={analysis.status})",
         )
-    pdf = render_analysis_pdf(analysis)
-    safe_test_id = re.sub(r"[^A-Za-z0-9._-]", "_", analysis.test_id)
-    filename = f"analysis-{safe_test_id}-{analysis_id[:8]}.pdf"
+    telemetry_svg = None
+    try:
+        test_doc = mongo.tests.find_one({"_id": analysis.test_id})
+        if test_doc:
+            telemetry_svg = build_analysis_telemetry_svg(
+                analysis, Test(**test_doc), get_settings().telemetry_table_name
+            )
+    except Exception:
+        logger.warning(
+            "[analyses] telemetry build failed for %s", analysis_id, exc_info=True
+        )
+    pdf = render_analysis_pdf(analysis, telemetry_svg=telemetry_svg)
+    filename = analysis_pdf_filename(analysis)
     logger.info("[analyses] GET %s/pdf -> %d bytes", analysis_id, len(pdf))
     return Response(
         content=pdf,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/analyses/{analysis_id}/telemetry")
+def get_analysis_telemetry(
+    analysis_id: str,
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    _: None = Depends(read_permission),
+) -> dict[str, str | None]:
+    """Telemetry figure SVG for a completed session analysis (best-effort).
+
+    {"svg": "<svg...>"} when available; {"svg": null} when there is nothing to
+    show (incomplete, test-wide, no lake creds, no usable laps, or any error).
+    """
+    doc = mongo.analyses.find_one({"_id": analysis_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    analysis = Analysis(**doc)
+    if analysis.status != "complete":
+        return {"svg": None}
+    try:
+        test_doc = mongo.tests.find_one({"_id": analysis.test_id})
+        if not test_doc:
+            return {"svg": None}
+        svg = build_analysis_telemetry_svg(
+            analysis, Test(**test_doc), get_settings().telemetry_table_name
+        )
+    except Exception:
+        logger.warning(
+            "[analyses] telemetry endpoint failed for %s", analysis_id, exc_info=True
+        )
+        svg = None
+    logger.info("[analyses] GET %s/telemetry -> %s", analysis_id, "svg" if svg else "none")
+    return {"svg": svg}
 
 
 @router.get(

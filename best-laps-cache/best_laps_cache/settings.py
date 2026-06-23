@@ -87,6 +87,9 @@ class Settings:
     # Boot seed
     boot_seed_gate_timeout_s: float
 
+    # Lap eligibility
+    valid_laps_only: bool
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -125,4 +128,5 @@ def get_settings() -> Settings:
         boot_seed_gate_timeout_s=float(
             os.environ.get("BOOT_SEED_GATE_TIMEOUT_S", "60.0")
         ),
+        valid_laps_only=os.environ.get("VALID_LAPS_ONLY", "true").strip().lower() == "true",
     )

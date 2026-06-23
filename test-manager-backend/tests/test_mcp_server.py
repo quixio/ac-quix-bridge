@@ -430,3 +430,37 @@ def test_save_analysis_invalid_payload_raises(
 
     with pytest.raises(ValidationError):
         save_analysis_handler(mongo_db, analysis_id=aid, summary_md="")
+
+
+def test_save_analysis_overwrites_failed(
+    mongo_db: Database[dict[str, Any]],
+    client: TestClient,
+    create_test: TestFactory,
+) -> None:
+    """A `failed` analysis is recoverable — a corrected retry lands."""
+    test_id, sid = _create_test_with_session(client, create_test)
+    aid = _make_pending_analysis(mongo_db, test_id, sid)
+    mongo_db.analyses.update_one({"_id": aid}, {"$set": {"status": "failed"}})
+
+    result = save_analysis_handler(mongo_db, analysis_id=aid, summary_md="recovered")
+    assert result["ok"] is True
+    doc = mongo_db.analyses.find_one({"_id": aid})
+    assert doc is not None
+    assert doc["status"] == "complete"
+    assert doc["summary_md"] == "recovered"
+
+
+def test_save_analysis_payload_coerces_stringified_json() -> None:
+    """A field sent as a JSON string (agent glitch) is recovered, not rejected."""
+    from api.models import SaveAnalysisPayload
+
+    p = SaveAnalysisPayload.model_validate(
+        {
+            "analysis_id": "a1",
+            "summary_md": "s",
+            "extra": '{"track": "Spa"}',
+            "kpis": '[{"name": "best_lap", "value": "1:45.3"}]',
+        }
+    )
+    assert p.extra == {"track": "Spa"}
+    assert p.kpis[0].name == "best_lap"

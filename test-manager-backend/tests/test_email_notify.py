@@ -77,7 +77,8 @@ def _stub_email(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         captured.update(kwargs)
 
     monkeypatch.setattr(notify, "smtp_configured", lambda: True)
-    monkeypatch.setattr(notify, "render_analysis_pdf", lambda a: b"PDFBYTES")
+    monkeypatch.setattr(notify, "render_analysis_pdf", lambda a, telemetry_svg=None: b"PDFBYTES")
+    monkeypatch.setattr(notify, "build_analysis_telemetry_svg", lambda a, t, table: None)
     monkeypatch.setattr(notify, "send_email_with_pdf", _send)
     return captured
 

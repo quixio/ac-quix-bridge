@@ -6,6 +6,7 @@ module owns only the transport. All config comes from env vars so any provider
 (Gmail app-password, SendGrid/SES/Mailgun SMTP) works without code changes.
 """
 
+import json
 import logging
 import os
 import smtplib
@@ -53,6 +54,16 @@ def send_email_with_pdf(
     msg["Subject"] = subject
     msg.set_content(body)
     msg.add_attachment(pdf, maintype="application", subtype="pdf", filename=filename)
+    # Disable SendGrid click + open tracking so links stay raw (the tracking
+    # redirect looks like phishing). No-op on non-SendGrid SMTP providers.
+    msg["X-SMTPAPI"] = json.dumps(
+        {
+            "filters": {
+                "clicktrack": {"settings": {"enable": "0"}},
+                "opentrack": {"settings": {"enable": "0"}},
+            }
+        }
+    )
 
     context = ssl.create_default_context()
     if use_ssl:

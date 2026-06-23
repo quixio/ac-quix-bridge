@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Search, User, X, ArrowLeft, LogOut } from "lucide-react";
+import { Search, User, X, ArrowLeft, LogOut, Menu } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useQuixAuth } from "@/lib/contexts/quix-auth-context";
+import { useSidebar } from "@/lib/contexts/sidebar-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,9 +28,18 @@ export function Header({ backLink }: HeaderProps) {
   const [searchInput, setSearchInput] = useState("");
   const { userName, userEmail, isEmbedded, clearTokenAndPrompt } =
     useQuixAuth();
+  const { toggleMobile, mobileOpen } = useSidebar();
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center border-b bg-background px-6">
+    <header className="sticky top-0 z-30 flex h-16 items-center border-b bg-background px-4 lg:px-6">
+      <button
+        onClick={toggleMobile}
+        className="mr-2 flex h-10 w-10 items-center justify-center rounded-lg hover:bg-accent lg:hidden"
+        aria-label={mobileOpen ? "Close navigation menu" : "Open navigation menu"}
+        aria-expanded={mobileOpen}
+      >
+        <Menu className="h-6 w-6" />
+      </button>
       <div className="flex flex-1 items-center justify-between">
         {/* Left side - Search or Back Navigation */}
         <div className="flex flex-1 items-center space-x-4">

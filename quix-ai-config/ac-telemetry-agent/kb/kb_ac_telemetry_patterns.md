@@ -84,6 +84,8 @@ Mention the filter in the answer ("dropped the final partial/idle lap and any ou
 
 AC marks a lap invalid (`isValidLap` flips to `0`) when the driver cuts or exceeds track limits, and `iBestTime` / the on-screen best **exclude invalid laps**. A `MAX(iCurrentTime)` ranking that ignores this can crown a cut lap — verified on the lake: a driver's "best" read ~7 s faster than their true best because the fast lap was invalidated. For any **best / fastest / leaderboard** query keep only valid laps with `HAVING ... AND MIN(isValidLap) = 1` (valid iff it never dropped to 0); this makes the result match `iBestTime` exactly. Drop the filter only if the user explicitly wants all laps, including cuts. (For worst/average/consistency it's optional — mention whether cuts are included.)
 
+**Terminology** (keep these distinct when wording the answer): a **clean lap** already requires `isValidLap = 1`, so a clean lap is always valid — **never** describe a cut/invalid lap as "clean". The fastest lap *overall* can be invalid; if so, say so explicitly rather than calling it the "best clean lap".
+
 ## Canonical SQL patterns (analysis mode)
 
 All lap-time aggregates use `MAX(iCurrentTime)` for the lap time and the clean-lap subquery for filtering. `iBestTime` is a fallback shortcut for "best lap" only — it cannot give "worst" or stddev.

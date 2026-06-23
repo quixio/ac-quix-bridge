@@ -9,6 +9,7 @@ from pymongo.database import Database
 from ..auth import update_permission, read_permission
 from ..mongo import get_mongo
 from ..config_api import get_config_api_client, safe_call
+from ..settings import get_settings
 from ..models import (
     Test,
     TestCreate,
@@ -373,6 +374,7 @@ def get_telemetry_params(
         "track": track,
         "carModel": car_model,
         "session_ids": [s["session_id"] for s in sessions],
+        "table_name": get_settings().telemetry_table_name,
     }
 
 

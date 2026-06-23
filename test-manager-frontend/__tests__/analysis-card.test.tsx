@@ -3,13 +3,14 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AnalysisCard } from "@/app/analysis/ai-summary/components/analysis-card";
 import type { Analysis } from "@/types/analysis";
 
-const { getPdf, toast } = vi.hoisted(() => ({
+const { getPdf, getTelemetry, toast } = vi.hoisted(() => ({
   getPdf: vi.fn(),
+  getTelemetry: vi.fn(),
   toast: vi.fn(),
 }));
 
 vi.mock("@/lib/hooks/use-api", () => ({
-  useAnalysesApi: () => ({ getPdf }),
+  useAnalysesApi: () => ({ getPdf, getTelemetry }),
 }));
 vi.mock("@/lib/hooks/use-toast", () => ({
   useToast: () => ({ toast }),
@@ -18,6 +19,7 @@ vi.mock("@/lib/hooks/use-toast", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   getPdf.mockResolvedValue(new Blob(["%PDF-1.7"], { type: "application/pdf" }));
+  getTelemetry.mockResolvedValue({ svg: null });
   // jsdom doesn't implement these:
   global.URL.createObjectURL = vi.fn(() => "blob:mock");
   global.URL.revokeObjectURL = vi.fn();
@@ -52,6 +54,7 @@ function fullAnalysis(): Analysis {
     ],
     summary_md: "## Pace\n\nGreat session.",
     extra: {},
+    activity: [],
   };
 }
 

@@ -8,8 +8,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from api.models import Analysis, Anomaly, KpiValue, RequirementCheck
-from shared.post_race_ai.pdf import _safe_url_fetcher, render_analysis_pdf
+from api.models import Analysis, AnalysisContext, Anomaly, KpiValue, RequirementCheck
+from shared.post_race_ai.pdf import (
+    _fmt_date_compact,
+    _safe_url_fetcher,
+    _telemetry_section,
+    analysis_pdf_filename,
+    render_analysis_pdf,
+)
 
 
 @pytest.mark.parametrize(
@@ -72,4 +78,61 @@ def test_render_handles_empty_content() -> None:
     analysis.summary_md = ""
 
     pdf = render_analysis_pdf(analysis)
+    assert pdf[:4] == b"%PDF"
+
+
+# --- PDF filename (pure; no weasyprint) ------------------------------------ #
+
+
+def test_fmt_date_compact() -> None:
+    assert _fmt_date_compact("2026-01-01T00:00:00Z") == "1Jan2026"
+    assert _fmt_date_compact("2026-06-15T11:50:08.499Z") == "15Jun2026"
+    assert _fmt_date_compact(None) is None
+    assert _fmt_date_compact("not-a-date") is None
+
+
+def test_pdf_filename_session_with_track() -> None:
+    a = _complete_analysis()  # session_id 2026-01-01
+    a.context = AnalysisContext(driver="Daniel", track="Spa", car_model="p991")
+    assert analysis_pdf_filename(a) == "Quix-Post-Race-Spa-1Jan2026.pdf"
+
+
+def test_pdf_filename_no_context_falls_back_to_test_id() -> None:
+    a = _complete_analysis()
+    a.context = None
+    assert analysis_pdf_filename(a) == "Quix-Post-Race-Analysis-TST-0001.pdf"
+
+
+def test_pdf_filename_test_wide_uses_test_id() -> None:
+    a = _complete_analysis()
+    a.session_id = None  # test-wide
+    a.context = AnalysisContext(driver="Daniel")  # no track
+    assert analysis_pdf_filename(a) == "Quix-Post-Race-Analysis-TST-0001.pdf"
+
+
+def test_pdf_filename_sanitizes_unsafe_chars() -> None:
+    a = _complete_analysis()
+    a.context = AnalysisContext(track="Spa/Franco rchamps")
+    name = analysis_pdf_filename(a)
+    assert "/" not in name and " " not in name
+    assert name.endswith(".pdf")
+
+
+# --- Telemetry section (pure; no weasyprint) -------------------------------- #
+
+
+def test_telemetry_section_empty() -> None:
+    assert _telemetry_section(None) == ""
+    assert _telemetry_section("") == ""
+
+
+def test_telemetry_section_embeds_svg() -> None:
+    html = _telemetry_section("<svg></svg>")
+    assert "data:image/svg+xml;base64," in html
+    assert "Telemetry" in html
+
+
+@pytest.mark.requires_weasyprint
+def test_render_includes_telemetry_when_svg_passed() -> None:
+    pdf = render_analysis_pdf(_complete_analysis(), telemetry_svg="<svg width='10' height='10'></svg>")
     assert pdf[:4] == b"%PDF"

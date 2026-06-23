@@ -14,23 +14,33 @@ How it works (within the State-only constraint)
 Because State cannot be written from the main/worker thread, the boot seeder does
 NOT touch RocksDB directly. It drives the existing SDF:
 
-1. **Query the lakehouse ONCE** with the existing byox-safe full Arrow scan
+1. **Gate on a State-native ``seeded`` flag via the request bridge.** State cannot
+   be probed outside the processing context, so the boot thread produces a
+   ``{"type":"seed_gate", ...}`` event keyed by :data:`GATE_KEY` and waits (bounded
+   timeout) on the :class:`~best_laps_cache.request_bridge.PendingRequests` bridge.
+   The stateful SDF reads ``state.get("seeded")`` in-context and delivers the bool
+   back, correlated by ``req_id``. Flag set → State already populated → skip. Flag
+   absent → proceed. A timeout also proceeds (the fold is idempotent). The flag
+   lives in the consumer-group/state-dir-scoped RocksDB store, so changing
+   ``CONSUMER_GROUP`` / ``Quix__State__Dir`` wipes it and triggers a fresh reseed.
+2. **Query the lakehouse ONCE** with the existing byox-safe full Arrow scan
    (:func:`best_laps_cache.seed.build_reconcile_sql` +
    :class:`best_laps_cache.lakehouse_client.LakehouseClient` +
    :func:`best_laps_cache.seed.reduce_rows`).
-2. **Group the reduced bests by experiment** (:func:`group_reduced_by_experiment`)
+3. **Group the reduced bests by experiment** (:func:`group_reduced_by_experiment`)
    and, for each experiment, **produce one ``{"type":"seed", ...}`` message** to
    the internal ``best-laps-events`` topic, keyed by that experiment — using the
    same producer/serializers the pipeline already uses for that topic.
-3. The stateful SDF (``pipeline._handle_event``) consumes each seed message
+4. The stateful SDF (``pipeline._handle_event``) consumes each seed message
    in-context for its experiment key and folds the carried rows into
    ``state[experiment]`` — the actual RocksDB write, idempotently (no clobber if
    already populated). That keeps every State write inside the SDF context.
+5. After all seed messages are produced, **produce a ``{"type":"mark_seeded", ...}``
+   event keyed by :data:`GATE_KEY`** so the SDF sets ``state.set("seeded", True)``
+   in-context; a restart with a retained State volume then re-queries nothing.
 
-The seed fold is idempotent (``fold_lap`` only writes if the value is strictly
-better), so re-seeding on every restart is harmless. A lake failure or empty
-result logs a WARNING and leaves State empty for the existing in-context lazy seed
-to fill later.
+A lake failure or empty result logs a WARNING and leaves the flag unset, so the
+pipeline still falls back to the existing in-context lazy seed.
 """
 
 from __future__ import annotations
@@ -44,6 +54,15 @@ from .seed import build_reconcile_sql, reduce_rows
 from .settings import Settings
 
 logger = logging.getLogger(__name__)
+
+# Reserved State key the gate events co-partition onto, so the read (seed_gate),
+# the write (mark_seeded) and any future gate touch all land on one consistent
+# RocksDB store partition. Defined HERE (not pipeline.py) to avoid an import
+# cycle: pipeline.py already imports from boot_seed.py (spec §8 resolved risk).
+GATE_KEY = "__boot_seed_gate__"
+
+# Sub-key under GATE_KEY's State context that holds the seeded flag.
+_GATE_FLAG = "seeded"
 
 # Carried in every boot message so the stateful handler can recognise it.
 SEED_EVENT_TYPE = "seed"
@@ -106,22 +125,44 @@ def build_seed_messages(
 def run_boot_seed(
     settings: Settings,
     produce_event: Callable[[str, dict[str, Any]], None],
+    pending: Any,
 ) -> bool:
     """Proactively seed State once at boot, driving writes through the SDF.
 
     *produce_event* is ``(key, message_dict) -> None`` — the caller (the pipeline)
-    supplies it so this module never touches Kafka serializers directly.
+    supplies it so this module never touches Kafka serializers directly. *pending*
+    is the :class:`~best_laps_cache.request_bridge.PendingRequests` bridge, used to
+    round-trip the State-native seeded-flag read through the SDF.
 
-    Queries the lakehouse once, groups results by experiment, and produces one
-    ``{"type":"seed", ...}`` message per experiment to ``best-laps-events``. The
-    stateful SDF folds each message in-context idempotently (no clobber when State
-    is already populated). Always runs on every boot; the fold is safe to replay.
+    Gate: produce a ``seed_gate`` event keyed :data:`GATE_KEY` and wait on the
+    bridge. If the flag is already set → skip (``return False``). Flag absent OR
+    gate timeout → proceed with the one-time lake query. A successful seed produces
+    a ``mark_seeded`` event so the SDF sets the flag in-context.
 
-    Returns ``True`` if seed messages were produced, ``False`` if skipped (no lake
-    URL / empty result / failure). Never raises: any error logs a WARNING and falls
-    back to the lazy in-context seed.
+    Returns ``True`` if a seed actually ran (and ``mark_seeded`` was produced),
+    ``False`` if skipped (flag set / no lake URL / empty result / failure). Never
+    raises: any error logs a WARNING and falls back to the lazy in-context seed,
+    leaving the flag unset so a later boot can retry.
     """
     try:
+        req_id = pending.open()
+        produce_event(
+            GATE_KEY,
+            {"type": "seed_gate", "experiment": GATE_KEY, "req_id": req_id},
+        )
+        delivered, payload = pending.wait(req_id, settings.boot_seed_gate_timeout_s)
+        if delivered and payload and payload.get("seeded"):
+            logger.info("boot-seed skipped: State flag set")
+            return False
+        if not delivered:
+            # Proceeding on a timeout is safe: the in-context ``seed`` fold is
+            # idempotent (pipeline._handle_event never clobbers a populated
+            # experiment) and a successful seed produces ``mark_seeded``. Favors a
+            # populated board over a wrongly-skipped empty one.
+            logger.info("boot-seed gate timed out → proceeding (idempotent)")
+        else:
+            logger.info("boot-seed: State flag absent → querying lake")
+
         url = settings.lakehouse_query_url
         if not url:
             logger.warning(
@@ -131,21 +172,23 @@ def run_boot_seed(
             )
             return False
 
-        sql = build_reconcile_sql(settings.lake_table, settings.col_best_time)
+        sql = build_reconcile_sql(settings.lake_table, settings.col_best_time, settings.valid_laps_only)
         logger.info("boot-seed: one-time lake scan SQL: %s", sql)
         try:
             client = LakehouseClient(url, settings.lakehouse_query_token)
             df = client.query(sql)
         except Exception as exc:  # noqa: BLE001 — never break startup
             logger.warning(
-                "boot-seed lake query failed (%s); lazy seed remains the fallback",
+                "boot-seed lake query failed (%s); flag NOT set, lazy seed "
+                "remains the fallback",
                 exc,
             )
             return False
 
         if df.empty:
             logger.info(
-                "boot-seed: lake scan returned 0 rows; lazy seed remains the fallback"
+                "boot-seed: lake scan returned 0 rows; flag NOT set so a later "
+                "boot can retry once data exists"
             )
             return False
 
@@ -164,6 +207,9 @@ def run_boot_seed(
             len(messages),
             len(reduced),
         )
+
+        produce_event(GATE_KEY, {"type": "mark_seeded", "experiment": GATE_KEY})
+        logger.info("boot-seed: mark_seeded produced")
         return True
     except Exception:  # noqa: BLE001 — boot seed must never crash startup
         logger.warning("boot-seed failed; lazy in-context seed remains", exc_info=True)

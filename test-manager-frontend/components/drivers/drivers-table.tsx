@@ -92,6 +92,7 @@ export const DriversTable = memo(function DriversTable({
           </Button>
         ),
         cell: ({ row }) => row.getValue<string | null>("email") ?? "—",
+        meta: { className: "hidden lg:table-cell" },
       },
       {
         accessorKey: "company",
@@ -107,6 +108,7 @@ export const DriversTable = memo(function DriversTable({
           </Button>
         ),
         cell: ({ row }) => row.getValue<string | null>("company") ?? "—",
+        meta: { className: "hidden lg:table-cell" },
       },
       {
         accessorKey: "created_at",
@@ -143,7 +145,10 @@ export const DriversTable = memo(function DriversTable({
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
-                <TableHead key={header.id}>
+                <TableHead
+                  key={header.id}
+                  className={header.column.columnDef.meta?.className}
+                >
                   {header.isPlaceholder
                     ? null
                     : flexRender(
@@ -170,7 +175,10 @@ export const DriversTable = memo(function DriversTable({
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell
+                      key={cell.id}
+                      className={cell.column.columnDef.meta?.className}
+                    >
                       {isNavigating && cell.column.id === "driver_id" ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
