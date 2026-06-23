@@ -161,7 +161,7 @@
 // ============================================================
 const now = () => performance.now();
 const INT_MAX = 2147483647;          // AC's "no time set" sentinel
-const PER_COL = 22;                  // drivers per column
+const PER_COL = 500;                 // drivers per column (large so scroll is the limit)
 const COLS = 4;                      // columns on the board
 const MAX_ROWS = PER_COL * COLS;     // 88
 const LB_POLL_MS = 20000;
