@@ -172,7 +172,7 @@ def run_boot_seed(
             )
             return False
 
-        sql = build_reconcile_sql(settings.lake_table, settings.col_best_time)
+        sql = build_reconcile_sql(settings.lake_table, settings.col_best_time, settings.valid_laps_only)
         logger.info("boot-seed: one-time lake scan SQL: %s", sql)
         try:
             client = LakehouseClient(url, settings.lakehouse_query_token)

@@ -38,6 +38,11 @@ variables:
   - name: CONSUMER_GROUP
     inputType: FreeText
     defaultValue: best-laps-cache
+  - name: VALID_LAPS_ONLY
+    inputType: FreeText
+    description: "When 'true' (default), only AC-valid laps count towards best-lap. When 'false', all finished laps (including invalid) are eligible; uses iLastTime instead of iBestTime."
+    defaultValue: "true"
+    required: false
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py

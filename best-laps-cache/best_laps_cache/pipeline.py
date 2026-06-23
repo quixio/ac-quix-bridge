@@ -153,9 +153,18 @@ class Pipeline:
 
         Reuses :meth:`Enrichment.enrich` verbatim. Returns a normalized dict;
         invalid ticks return a sentinel the downstream ``filter`` drops.
+
+        When ``settings.valid_laps_only`` is ``True`` (default), reads
+        ``iBestTime`` (only AC-valid laps carry a positive value here). When
+        ``False``, reads ``iLastTime`` (the most-recently-completed lap time,
+        valid or not); the existing ``0 < best_ms < INT_MAX`` filter downstream
+        still rejects sentinels.
         """
         try:
-            best_ms = int(value.get("iBestTime") or 0)
+            if self._settings.valid_laps_only:
+                best_ms = int(value.get("iBestTime") or 0)
+            else:
+                best_ms = int(value.get("iLastTime") or 0)
         except (TypeError, ValueError):
             return {}
         fields = self._enrichment.enrich(value)

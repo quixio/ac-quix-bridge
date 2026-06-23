@@ -52,6 +52,7 @@ def _settings(**overrides: Any) -> Settings:
         "http_port": 80,
         "state_dir": "state",
         "boot_seed_gate_timeout_s": 5.0,
+        "valid_laps_only": True,
     }
     defaults.update(overrides)
     return Settings(**defaults)

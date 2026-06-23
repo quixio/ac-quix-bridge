@@ -767,6 +767,9 @@ deployments:
       - name: CONSUMER_GROUP
         inputType: FreeText
         value: best-laps-cache-v1.2
+      - name: VALID_LAPS_ONLY
+        inputType: FreeText
+        value: "true"
     blobStorage:
       bind: true
 
