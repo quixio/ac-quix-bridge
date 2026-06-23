@@ -37,7 +37,7 @@ variables:
     defaultValue: "80"
   - name: CONSUMER_GROUP
     inputType: FreeText
-    defaultValue: best-laps-cache
+    defaultValue: best-laps-cache-v2
 dockerfile: dockerfile
 runEntryPoint: main.py
 defaultFile: main.py
