@@ -821,9 +821,7 @@ function renderLeaderboard(flashName) {
   const flash = flashName ? flashName.toLowerCase() : (now() < lbFlashUntil ? me : null);
   const full = buildRows();
   const leaderMs = full.length ? full[0].ms : 0;
-  lbBody.innerHTML = computeVisible(full).map((it) => {
-    if (it.gap) return '<div class="lb-gaprow">···</div>';
-    const r = it.row, rank = it.rank;
+  lbBody.innerHTML = full.map((r, rank) => {
     const isMe = r.name.toLowerCase() === me;
     // No valid lap yet (AC sentinel) → first lap in progress. Sorts last, so it's never P1.
     const noLap = !hasLap(r.ms);
