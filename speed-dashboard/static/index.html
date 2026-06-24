@@ -51,6 +51,46 @@
       from { box-shadow: 0 0 8px 2px rgba(255, 30, 30, 0.45); }
       to   { box-shadow: 0 0 18px 6px rgba(255, 30, 30, 0.75); }
     }
+
+    /* ── Safe-speed light ───────────────────────────────────────────────────── */
+    #safe-light {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      border: 2px solid #333;
+      background: #1a1a1a;
+      color: #555;
+      transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+      user-select: none;
+    }
+    #safe-light .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    #safe-light.active {
+      background: rgba(20, 220, 20, 0.15);
+      border-color: #22ff22;
+      color: #44ff44;
+      box-shadow: 0 0 12px 3px rgba(30, 255, 30, 0.55);
+      animation: pulse-glow-green 0.8s ease-in-out infinite alternate;
+    }
+    #safe-light.active .dot {
+      background: #22ff22;
+      box-shadow: 0 0 8px 3px rgba(30, 255, 30, 0.8);
+    }
+    @keyframes pulse-glow-green {
+      from { box-shadow: 0 0 8px 2px rgba(30, 255, 30, 0.45); }
+      to   { box-shadow: 0 0 18px 6px rgba(30, 255, 30, 0.75); }
+    }
   </style>
 </head>
 <body>
@@ -58,6 +98,10 @@
   <div id="warning-light" title="Speed exceeds 200 km/h">
     <span class="dot"></span>
     <span class="label">200+ km/h</span>
+  </div>
+  <div id="safe-light" title="Speed below 100 km/h">
+    <span class="dot"></span>
+    <span class="label">UNDER 100 km/h</span>
   </div>
   <div id="chart-container">
     <canvas id="chart"></canvas>
@@ -142,13 +186,20 @@
     }
 
     const warningLight = document.getElementById("warning-light");
+    const safeLight = document.getElementById("safe-light");
     const SPEED_THRESHOLD = 200;
+    const SAFE_THRESHOLD = 100;
 
     function updateWarningLight(speed) {
       if (speed > SPEED_THRESHOLD) {
         warningLight.classList.add("active");
       } else {
         warningLight.classList.remove("active");
+      }
+      if (speed < SAFE_THRESHOLD) {
+        safeLight.classList.add("active");
+      } else {
+        safeLight.classList.remove("active");
       }
     }
 
