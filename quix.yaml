@@ -832,7 +832,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-cache-v2.4
+        value: best-laps-cache-v2.5
       - name: VALID_LAPS_ONLY
         inputType: FreeText
         description: When 'true' (default), only AC-valid laps count towards best-lap. When 'false', all finished laps (including invalid) are eligible; uses iLastTime instead of iBestTime.
