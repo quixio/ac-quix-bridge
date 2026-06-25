@@ -11,6 +11,7 @@
     h1 { margin-bottom: 1rem; font-size: 1.4rem; letter-spacing: 0.1em; color: #e8ff00; }
     #chart-container { width: 90vw; max-width: 1200px; height: 32vh; }
     #brake-container { width: 90vw; max-width: 1200px; height: 22vh; margin-top: 0.75rem; }
+    #throttle-container { width: 90vw; max-width: 1200px; height: 22vh; margin-top: 0.75rem; }
     h2.section-label { margin-top: 0.75rem; font-size: 1rem; letter-spacing: 0.08em; color: #ff8800; }
     #status { margin-top: 0.75rem; font-size: 0.8rem; color: #888; }
 
@@ -112,6 +113,10 @@
   <div id="brake-container">
     <canvas id="brake-chart"></canvas>
   </div>
+  <h2 class="section-label" style="color:#00e676;">Throttle</h2>
+  <div id="throttle-container">
+    <canvas id="throttle-chart"></canvas>
+  </div>
   <div id="status">Connecting…</div>
 
   <script>
@@ -120,6 +125,7 @@
     const speedValues = [];
     const accGxValues = [];
     const brakeValues = [];
+    const gasValues = [];
 
     const ctx = document.getElementById("chart").getContext("2d");
     const chart = new Chart(ctx, {
@@ -225,6 +231,48 @@
       }
     });
 
+    const throttleCtx = document.getElementById("throttle-chart").getContext("2d");
+    const throttleChart = new Chart(throttleCtx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Throttle (%)",
+            data: gasValues,
+            borderColor: "#00e676",
+            backgroundColor: "rgba(0,230,118,0.08)",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: true,
+            yAxisID: "yGas",
+          }
+        ]
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#e0e0e0" } } },
+        scales: {
+          x: {
+            ticks: { color: "#888", maxTicksLimit: 10, maxRotation: 0 },
+            grid: { color: "#222" }
+          },
+          yGas: {
+            type: "linear",
+            position: "left",
+            min: 0,
+            max: 100,
+            title: { display: true, text: "Throttle (%)", color: "#00e676" },
+            ticks: { color: "#00e676" },
+            grid: { color: "#222" }
+          }
+        }
+      }
+    });
+
     function fmt(ts) {
       const d = new Date(ts);
       const hh = String(d.getHours()).padStart(2, "0");
@@ -252,20 +300,23 @@
       }
     }
 
-    function addPoint(t, v, a, b) {
+    function addPoint(t, v, a, b, g) {
       labels.push(fmt(t));
       speedValues.push(v);
       accGxValues.push(a !== undefined ? a : null);
       brakeValues.push(b !== undefined ? b : null);
+      gasValues.push(g !== undefined && g !== null ? g * 100 : null);
       if (labels.length > MAX_POINTS) {
         labels.shift();
         speedValues.shift();
         accGxValues.shift();
         brakeValues.shift();
+        gasValues.shift();
       }
       updateWarningLight(v);
       chart.update("none");
       brakeChart.update("none");
+      throttleChart.update("none");
     }
 
     function connect() {
@@ -284,9 +335,10 @@
           speedValues.length = 0;
           accGxValues.length = 0;
           brakeValues.length = 0;
-          msg.data.forEach(p => addPoint(p.t, p.v, p.a, p.b));
+          gasValues.length = 0;
+          msg.data.forEach(p => addPoint(p.t, p.v, p.a, p.b, p.g));
         } else if (msg.type === "point") {
-          addPoint(msg.data.t, msg.data.v, msg.data.a, msg.data.b);
+          addPoint(msg.data.t, msg.data.v, msg.data.a, msg.data.b, msg.data.g);
         }
       };
 
