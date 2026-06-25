@@ -33,25 +33,30 @@ logger = logging.getLogger(__name__)
 def build_reconcile_sql(
     lake_table: str, best_col: str, valid_laps_only: bool = True
 ) -> str:
-    """Full-table raw scan — partition keys + best time, positives only.
+    """Aggregated scan — one row per (environment, experiment, track, carModel, driver).
 
-    When *valid_laps_only* is ``True`` (default) the query reads ``best_col``
-    (``iBestTime``) directly — byox-safe: no ``GROUP BY``, no ``MIN``, no CTE.
+    Both paths use ``MIN() GROUP BY`` so the lakehouse returns at most one row
+    per distinct group rather than every raw 50 Hz tick. Without aggregation the
+    result can be millions of rows; materialising them into Python dicts causes
+    an OOM kill before any State write can be committed.
 
-    When *valid_laps_only* is ``False`` the query aggregates ``iLastTime`` per
-    group (the last completed lap time, valid or not) and aliases it as
-    ``iBestTime`` so ``reduce_rows`` and ``fold_lap`` need no changes.
+    When *valid_laps_only* is ``True`` (default) the query aggregates ``best_col``
+    (``iBestTime``) — the AC-valid best-lap column. When ``False`` it aggregates
+    ``iLastTime`` (the most-recently-completed lap, valid or not) and aliases it
+    as ``best_col`` so ``reduce_rows`` and ``fold_lap`` need no changes.
     Identifiers are validated at settings load time, so inlining is safe.
     """
     if valid_laps_only:
         return (
-            f"SELECT environment, experiment, track, carModel, driver, {best_col} "
+            f"SELECT environment, experiment, track, carModel, driver, "
+            f"MIN({best_col}) AS {best_col} "
             f"FROM {lake_table} "
-            f"WHERE {best_col} > 0 AND {best_col} < {INT_MAX}"
+            f"WHERE {best_col} > 0 AND {best_col} < {INT_MAX} "
+            f"GROUP BY environment, experiment, track, carModel, driver"
         )
     return (
         f"SELECT environment, experiment, track, carModel, driver, "
-        f"MIN(iLastTime) AS iBestTime "
+        f"MIN(iLastTime) AS {best_col} "
         f"FROM {lake_table} "
         f"WHERE iLastTime > 0 AND iLastTime < {INT_MAX} "
         f"GROUP BY environment, experiment, track, carModel, driver"

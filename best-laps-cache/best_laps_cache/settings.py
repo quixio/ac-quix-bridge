@@ -124,7 +124,7 @@ def get_settings() -> Settings:
         col_best_time=col_best_time,
         http_host=os.environ.get("HTTP_HOST", "0.0.0.0"),
         http_port=int(os.environ.get("HTTP_PORT", "80")),
-        state_dir=os.environ.get("Quix__State__Dir", "state"),
+        state_dir=_first_env("Quix__State__Dir", "Quix__Deployment__State__Path") or "state",
         boot_seed_gate_timeout_s=float(
             os.environ.get("BOOT_SEED_GATE_TIMEOUT_S", "60.0")
         ),
