@@ -786,8 +786,8 @@ deployments:
     deploymentType: Service
     resources:
       limits:
-        cpu: 500
-        memory: 1000
+        cpu: 1000
+        memory: 2000
       replicas: 1
     publicAccess:
       enabled: true
@@ -832,7 +832,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-cache-v2.9
+        value: best-laps-cache-v3.0
       - name: VALID_LAPS_ONLY
         inputType: FreeText
         description: When 'true' (default), only AC-valid laps count towards best-lap. When 'false', all finished laps (including invalid) are eligible; uses iLastTime instead of iBestTime.
