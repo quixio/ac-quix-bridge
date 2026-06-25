@@ -686,7 +686,7 @@ deployments:
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
-    desiredStatus: Stopped
+    desiredStatus: Running
     variables:
       - name: input
         inputType: InputTopic
