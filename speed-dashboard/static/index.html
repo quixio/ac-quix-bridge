@@ -7,9 +7,11 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0d0d0d; color: #e0e0e0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+    body { background: #0d0d0d; color: #e0e0e0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 0.5rem 0; }
     h1 { margin-bottom: 1rem; font-size: 1.4rem; letter-spacing: 0.1em; color: #e8ff00; }
-    #chart-container { width: 90vw; max-width: 1200px; height: 60vh; }
+    #chart-container { width: 90vw; max-width: 1200px; height: 32vh; }
+    #brake-container { width: 90vw; max-width: 1200px; height: 22vh; margin-top: 0.75rem; }
+    h2.section-label { margin-top: 0.75rem; font-size: 1rem; letter-spacing: 0.08em; color: #ff8800; }
     #status { margin-top: 0.75rem; font-size: 0.8rem; color: #888; }
 
     /* ── Warning light ─────────────────────────────────────────────────────── */
@@ -106,6 +108,10 @@
   <div id="chart-container">
     <canvas id="chart"></canvas>
   </div>
+  <h2 class="section-label">Brake Pedal</h2>
+  <div id="brake-container">
+    <canvas id="brake-chart"></canvas>
+  </div>
   <div id="status">Connecting…</div>
 
   <script>
@@ -113,6 +119,7 @@
     const labels = [];
     const speedValues = [];
     const accGxValues = [];
+    const brakeValues = [];
 
     const ctx = document.getElementById("chart").getContext("2d");
     const chart = new Chart(ctx, {
@@ -176,6 +183,48 @@
       }
     });
 
+    const brakeCtx = document.getElementById("brake-chart").getContext("2d");
+    const brakeChart = new Chart(brakeCtx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Brake Pedal (0–1)",
+            data: brakeValues,
+            borderColor: "#ff8800",
+            backgroundColor: "rgba(255,136,0,0.08)",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: true,
+            yAxisID: "yBrake",
+          }
+        ]
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#e0e0e0" } } },
+        scales: {
+          x: {
+            ticks: { color: "#888", maxTicksLimit: 10, maxRotation: 0 },
+            grid: { color: "#222" }
+          },
+          yBrake: {
+            type: "linear",
+            position: "left",
+            min: 0,
+            max: 1,
+            title: { display: true, text: "Brake Pedal", color: "#ff8800" },
+            ticks: { color: "#ff8800" },
+            grid: { color: "#222" }
+          }
+        }
+      }
+    });
+
     function fmt(ts) {
       const d = new Date(ts);
       const hh = String(d.getHours()).padStart(2, "0");
@@ -203,17 +252,20 @@
       }
     }
 
-    function addPoint(t, v, a) {
+    function addPoint(t, v, a, b) {
       labels.push(fmt(t));
       speedValues.push(v);
       accGxValues.push(a !== undefined ? a : null);
+      brakeValues.push(b !== undefined ? b : null);
       if (labels.length > MAX_POINTS) {
         labels.shift();
         speedValues.shift();
         accGxValues.shift();
+        brakeValues.shift();
       }
       updateWarningLight(v);
       chart.update("none");
+      brakeChart.update("none");
     }
 
     function connect() {
@@ -231,9 +283,10 @@
           labels.length = 0;
           speedValues.length = 0;
           accGxValues.length = 0;
-          msg.data.forEach(p => addPoint(p.t, p.v, p.a));
+          brakeValues.length = 0;
+          msg.data.forEach(p => addPoint(p.t, p.v, p.a, p.b));
         } else if (msg.type === "point") {
-          addPoint(msg.data.t, msg.data.v, msg.data.a);
+          addPoint(msg.data.t, msg.data.v, msg.data.a, msg.data.b);
         }
       };
 
