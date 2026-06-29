@@ -849,12 +849,6 @@ deployments:
         memory: 1000
       replicas: 1
     variables:
-      - name: Quix__Sdk__Token
-        inputType: ProjectVariable
-        description: Quix SDK token (auto-connects QuixStreams to the broker)
-        required: true
-        secret: true
-        variableKey: PAT_TOKEN
       - name: output
         inputType: OutputTopic
         description: Name of the output topic to write replayed telemetry into
