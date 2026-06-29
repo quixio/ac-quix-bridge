@@ -749,7 +749,7 @@ deployments:
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
-    desiredStatus: Running
+    desiredStatus: Stopped
     variables:
       - name: input
         inputType: InputTopic
@@ -805,11 +805,11 @@ deployments:
         inputType: InputTopic
         description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
         required: true
-        value: ac-telemetry-raw
+        value: ac-telemetry-raw-debug
       - name: session_output
         inputType: InputTopic
         description: Kafka topic for AC session events (ac-telemetry-session)
-        value: ac-telemetry-session
+        value: ac-telemetry-session-debug
       - name: config_input
         inputType: InputTopic
         description: DCM config events topic (ac-telemetry-config)
@@ -832,7 +832,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-cache-v3.0
+        value: best-laps-cache-v3.1
       - name: VALID_LAPS_ONLY
         inputType: FreeText
         description: When 'true' (default), only AC-valid laps count towards best-lap. When 'false', all finished laps (including invalid) are eligible; uses iLastTime instead of iBestTime.
