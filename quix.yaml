@@ -877,6 +877,62 @@ deployments:
         inputType: FreeText
         description: Replay the corpus forever when true, single pass when false
         value: true
+  - name: best-laps-lite
+    application: best-laps-lite
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 1000
+        memory: 2000
+      replicas: 1
+    state:
+      enabled: true
+      size: 3
+    variables:
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw-debug
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session); source of track/carModel
+        value: ac-telemetry-session-debug
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config); resolves experiment/driver/environment
+        value: ac-telemetry-config
+      - name: best_time_output
+        inputType: OutputTopic
+        description: Full-board snapshot emitted on a new/improved best
+        value: ac-best-laps
+      - name: event_output
+        inputType: OutputTopic
+        description: Rich per-new-best event topic
+        value: ac-best-laps-events
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        description: DCM base URL for experiment enrichment
+        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry_prod
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: 80
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: best-laps-lite-v1.0
+      - name: Quix__State__Dir
+        inputType: FreeText
+        description: RocksDB managed-State dir; mount a `state:` volume here for durability
+        value: state
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -903,3 +959,4 @@ topics:
   - name: leaderboard-events
   - name: ac-telemetry-raw-debug
   - name: ac-telemetry-session-debug
+  - name: ac-best-laps
