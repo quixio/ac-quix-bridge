@@ -425,9 +425,15 @@ app = Application(
     state_dir=os.environ.get("Quix__State__Dir", "state"),
 )
 
-raw_topic = app.topic(os.environ.get("output", "ac-telemetry-raw"), value_deserializer="json")
+raw_topic = app.topic(
+    os.environ.get("output", "ac-telemetry-raw"),
+    value_deserializer="json",
+    key_deserializer="str",  # join_lookup matches config by sha1(type-key); a bytes key never matches
+)
 session_topic = app.topic(
-    os.environ.get("session_output", "ac-telemetry-session"), value_deserializer="json"
+    os.environ.get("session_output", "ac-telemetry-session"),
+    value_deserializer="json",
+    key_deserializer="str",  # keep SESSION_BY_HOST keyed by the same str key shape() looks up
 )
 config_topic = app.topic(os.environ.get("config_input", "ac-telemetry-config"))
 best_time_topic = app.topic(
