@@ -16,9 +16,11 @@ folds into State. This single-store funnel is what lets a **cold-start boot
 seeder** put *all* experiments — including never-driven ones — into durable State
 at boot: it produces `{type:"seed", …}` messages the same stateful op folds
 in-context (State is writable only inside the SDF context for the message's key,
-so a worker thread cannot write it directly). The seeder gates on **on-disk
-State-dir emptiness**: cold → one aggregated `MIN`/`GROUP BY` lake query
-(OOM-safe) → seed messages; warm → skip the lake, trust State + the topic tail.
+so a worker thread cannot write it directly). The seeder gates on a
+**State-native `seeded` flag** read via a round-trip that doubles as a
+latest-offset readiness barrier: cold (flag absent) → one aggregated `MIN`/`GROUP
+BY` lake query (OOM-safe) → seed messages → a `mark_seeded` write; warm (flag
+set) → skip the lake, trust State + the topic tail.
 `auto_offset_reset="latest"`: history from the seed, live laps from the tail.
 
 Two output topics (`ac-best-laps` snapshot, `ac-best-laps-events` rich event) are
@@ -72,19 +74,36 @@ v2 RAM-mirror base (`dev-planning/best-laps-lite-v2/spec.md`).
   `dict(EXP_ENV)`) before building its response. Without this, a coincident GET
   could raise `RuntimeError: dictionary changed size during iteration`
   (intermittent 500).
-- **Cold-start boot seed (gate = on-disk State emptiness).** A worker daemon
-  thread, started before `app.run()`, probes the State dir for real RocksDB
-  content. **Warm** (content present) → skip the lake entirely. **Cold** → run
-  ONE aggregated `MIN`/`GROUP BY` query over all experiments (not per-experiment,
-  not a raw 50 Hz scan — OOM-safe; no CTE per `feedback_quixlake_no_cte`), reduce
-  to best-per-driver, group by experiment, and produce one `{type:"seed", …}`
-  message per experiment to `best-laps-events`. `handle` folds each into
-  `state["board"]` idempotently (min-update never clobbers a populated/faster
-  value), which is the durable write. A lake timeout retries 2–3× @ ~60 s backoff,
-  then fail-soft (WARN, leave un-seeded — a later boot retries while the volume is
-  still cold); the boot thread never crashes startup. No `seed_gate`/`mark_seeded`
-  round-trip and no request bridge — the on-disk probe is the gate and the
-  idempotent fold is the double-seed safety net.
+- **Cold-start boot seed (authoritative gate = State-native `seeded` flag).** A
+  worker daemon thread, started before `app.run()`, gates on a `seeded` flag held
+  in RocksDB State at `GATE_KEY` (best-laps-cache's `GATE_KEY`/`mark_seeded`
+  pattern). Because State is scoped to `<state_dir>/<consumer_group>`, the flag is
+  naturally absent after a state-volume wipe OR a consumer-group change → reseed.
+  **Warm** (flag set) → skip the lake. **Cold** (flag absent) → run ONE aggregated
+  `MIN`/`GROUP BY` query over all experiments (not per-experiment, not a raw 50 Hz
+  scan — OOM-safe; no CTE per `feedback_quixlake_no_cte`), reduce to
+  best-per-driver, group by experiment, produce one `{type:"seed", …}` per
+  experiment to `best-laps-events`, then a `{type:"mark_seeded"}` so `handle` sets
+  the flag. `handle` folds each seed into `state["board"]` idempotently (min-update
+  never clobbers a populated/faster value) — the durable write. A lake timeout
+  retries 2–3× @ ~60 s backoff, then fail-soft (WARN, leave the flag unset — a
+  later boot retries); the boot thread never crashes startup. The idempotent fold
+  is the double-seed safety net. A cheap on-disk `state_has_rocksdb_content` check
+  is logged as a hint but is **not** authoritative.
+- **Readiness barrier folded into the gate (latest-offset race).** With
+  `auto_offset_reset="latest"` the events consumer positions at the tail on
+  assignment, so a message produced *before* assignment is skipped — a seed
+  produced too early would be **silently lost**. The gate round-trip doubles as
+  the barrier: `run_boot_seed` re-produces a `{type:"seed_gate"}` event keyed
+  `GATE_KEY` every ~2 s (bounded ~120 s) until `handle` processes one — which
+  reads the flag in-context, records it in `_GATE_RESULT`, and sets `_GATE_EVENT`.
+  Re-producing defeats the race for the probe itself (an early one is missed, the
+  next post-assignment one is read). Only after the event is set are the seed
+  messages produced, guaranteed to land after the consumer's position. A barrier
+  timeout proceeds as not-seeded (the idempotent fold is the safety net). One
+  mechanism gates and confirms readiness; there is no separate ping and no request
+  bridge. (Keeping `latest` avoids re-reading the huge raw history that `earliest`
+  would force.)
 - **track/carModel from the session topic, not DCM.** The live session document
   is more authoritative for the *active* car/track than a DCM `type="session"`
   config document. v1's two DCM `json_field(type="session")` lookups are gone; a
@@ -117,18 +136,22 @@ ac-telemetry-raw ─► app.dataframe(raw_topic)
                      .apply(tag_lap)                       # value["type"]="lap"
                      .to_topic(best-laps-events, key=experiment)
                                           │
-   boot-seed (daemon thread) ────────────┤  cold only: build_reconcile_sql (MIN/GROUP BY, all exps)
-   gate: state_has_rocksdb_content(...)  │  -> query_lake_with_retry -> reduce_rows -> build_seed_messages
-   cold -> produce per-exp seed msgs ────┤  -> producer.produce({type:"seed", experiment, environment, rows})
+   boot-seed (daemon thread)             │  gate+readiness round-trip: re-produce {type:"seed_gate"}@~2s
+     wait_for_seed_gate(produce_gate) ───┤    until handle sets _GATE_EVENT (records state["seeded"])
+     if _GATE_RESULT["seeded"]: skip     │  if NOT seeded: build_reconcile_sql (MIN/GROUP BY, all exps)
+     else (cold) produce seeds ──────────┤    -> query_lake_with_retry -> reduce_rows -> build_seed_messages
+     then {type:"mark_seeded"} ──────────┤    -> produce {type:"seed",...} per exp, then {type:"mark_seeded"}
                                           ▼
 best-laps-events ─► app.dataframe(events_topic).apply(handle, stateful=True, metadata=True)
                           │  handle(value, key, ts, headers, state):   # State keyed by experiment
+                          │    if type=="seed_gate": _GATE_RESULT["seeded"]=bool(state.get("seeded")); _GATE_EVENT.set(); return   # readiness+gate
+                          │    if type=="mark_seeded": state.set("seeded", True); return
                           │    board = state.get("board") or {}
                           │    if type=="seed": for r in rows: _fold(board, r)   # idempotent min-update
                           │                     if any folded: state.set("board", board)   # no emit
                           │    else (type=="lap"): changed, prev = _fold(board, value)
                           │                     if changed: state.set("board", board); annotate _changed/_board/_previous_ms/_timestamp_ms
-                          │    _project_ram(exp, board, env)   # EVERY message: with _RAM_LOCK BOARD_RAM[exp]=deepcopy(board)
+                          │    _project_ram(exp, board, env)   # seed/lap: with _RAM_LOCK BOARD_RAM[exp]=deepcopy(board)
                           ▼
                      sdf.filter(v["_changed"])              # seeds never set _changed
                           ├─► .apply(to_best_time_payload).to_topic(ac-best-laps,        key=experiment)
@@ -139,20 +162,26 @@ GET /best-laps  ◄─ uvicorn (worker daemon thread) ◄─ snapshot BOARD_RAM/
 
 ### State / value shapes
 
-- **State** (keyed by `experiment`, one store via the events topic): `board =
-  {track: {carModel: {driver: best_ms}}}`. `best_ms` is integer milliseconds
-  (`iBestTime`); INT_MAX (2147483647) and `<=0` are never stored. **There is no
-  `seeded` State flag** — the "have we seeded?" signal is on-disk State-dir
-  emptiness; a populated board IS the durable record.
+- **State** (keyed by `experiment`, one store via the events topic): real
+  experiment partitions hold `board = {track: {carModel: {driver: best_ms}}}`
+  (`best_ms` integer ms; INT_MAX (2147483647) and `<=0` are never stored). The
+  reserved `GATE_KEY` (`"__seed_gate__"`) partition holds the `seeded` bool — the
+  authoritative cold/warm gate, scoped to `<state_dir>/<consumer_group>` so a
+  volume wipe or group change drops it.
 - **`BOARD_RAM`**: `{experiment: board}` — the RAM projection, the sole GET read
-  source, re-built from State every message. **`EXP_ENV`**: `{experiment:
-  environment}` — carried separately so rows-mode output can emit `environment`
-  (which isn't in the nested board).
+  source, re-built from State every fold-carrying message. **`EXP_ENV`**:
+  `{experiment: environment}` — carried separately so rows-mode output can emit
+  `environment` (which isn't in the nested board).
 - **`SESSION_BY_HOST`**: `{hostname: {track, carModel, session_id}}`.
+- **Boot-gate module state:** `_GATE_EVENT` (threading.Event, set when `handle`
+  answers a `seed_gate`) and `_GATE_RESULT` (`{"seeded": bool}`, the in-context
+  flag read handed back to the boot thread).
 - **`best-laps-events` (internal topic):** `{type:"lap", experiment, environment,
   track, carModel, driver, iBestTime, session_id?}` from the raw branch;
   `{type:"seed", experiment, environment, rows:[{track, carModel, driver,
-  best_lap_ms}]}` from the boot seeder. JSON value, `str` key (experiment).
+  best_lap_ms}]}` and the gate events `{type:"seed_gate", experiment:GATE_KEY}` /
+  `{type:"mark_seeded", experiment:GATE_KEY}` from the boot seeder. JSON value,
+  `str` key (experiment / GATE_KEY).
 
 ### `_fold` contract
 
@@ -201,26 +230,41 @@ both daemon threads. The boot seeder produces seed messages and exits; producing
 onto `best-laps-events` before `app.run()` is fully consuming is safe (messages
 persist until consumed).
 
-## Cold-start boot seed (State-dir gate, aggregated query, retry)
+## Cold-start boot seed (State-native gate + readiness round-trip, retry)
 
-The boot seeder (`run_boot_seed`, worker daemon thread) decides cold vs warm by
-**probing the on-disk State directory** for real RocksDB content, then either
-seeds State for all experiments or skips the lake.
+The boot seeder (`run_boot_seed`, worker daemon thread) decides cold vs warm via a
+**State-native `seeded` flag** read through a round-trip that also serves as the
+latest-offset readiness barrier, then seeds State for all experiments or skips the
+lake.
 
-**State-dir probe (`state_has_rocksdb_content`, verified against installed
-`quixstreams==3.24.*`).** QS lays State out as
-`<Quix__State__Dir>/<consumer_group>/<store>/<stream_id>/<partition>/`:
-`StateStoreManager.__init__` appends `group_id` to the state dir; `RocksDBStore`
-appends the store name (default `"default"`), then the `stream_id` (the events
-topic name), then the integer partition. A RocksDB partition that has been opened
-or committed always contains a `CURRENT` file (and `MANIFEST-*` / `*.sst` once
-data is flushed). The probe walks the `<state_dir>/<consumer_group>` subtree
-(falling back to the whole state dir) and reports **warm** only when it finds a
-`CURRENT` / `MANIFEST-*` / `*.sst` marker — **not** on bare directory existence,
-so a process that created the dir but never committed still counts as **cold**
-(re-seedable). Verified empirically: opening a `rocksdict.Rdict` writes `CURRENT`,
-`MANIFEST-*`, `IDENTITY`, `*.sst`, `LOG`, `LOCK`. `LOG`/`LOCK` alone are not
-treated as a commit marker.
+**Gate + readiness round-trip (`wait_for_seed_gate`).** With
+`auto_offset_reset="latest"` a message produced before the events consumer has
+assigned/positioned is skipped, so the gate read and the readiness check are one
+mechanism: `run_boot_seed` re-produces a `{type:"seed_gate", experiment:GATE_KEY}`
+event every ~2 s (bounded ~120 s) until `handle` processes one. `handle`'s
+`seed_gate` branch reads `state.get("seeded")` **in-context** (the only place
+State is reachable), records it in `_GATE_RESULT`, and sets `_GATE_EVENT` — which
+also proves the consumer is live. Re-producing defeats the race for the probe
+itself (an early `seed_gate` is missed; the next post-assignment one is read). If
+`_GATE_RESULT["seeded"]` is True → **warm**, skip the lake. Else → **cold**, seed,
+then produce `{type:"mark_seeded"}` so `handle` sets the flag. A round-trip
+timeout proceeds as not-seeded (idempotent fold is the safety net). The flag is
+scoped to `<state_dir>/<consumer_group>`, so a volume wipe or a consumer-group
+change drops it → reseed.
+
+**On-disk probe (`state_has_rocksdb_content`) — cheap hint only, NOT
+authoritative.** Logged at boot to characterise the volume. Verified against the
+installed `quixstreams==3.24.*`: QS lays State out as
+`<Quix__State__Dir>/<consumer_group>/<store>/<stream_id>/<partition>/`
+(`StateStoreManager.__init__` appends `group_id`; `RocksDBStore` appends the store
+name [default `"default"`], the `stream_id`, then the integer partition). A
+RocksDB partition that has been opened/committed always contains a `CURRENT` file
+(and `MANIFEST-*` / `*.sst` once flushed). The probe walks the
+`<state_dir>/<consumer_group>` subtree and returns warm only on a `CURRENT` /
+`MANIFEST-*` / `*.sst` marker — not bare directory existence. Verified
+empirically: opening a `rocksdict.Rdict` writes `CURRENT`, `MANIFEST-*`,
+`IDENTITY`, `*.sst`, `LOG`, `LOCK`; `LOG`/`LOCK` alone are not treated as a commit
+marker.
 
 **Aggregated query (OOM-safe).** On cold, `build_reconcile_sql` emits a
 single-level `MIN`/`GROUP BY` over all experiments —
@@ -260,7 +304,7 @@ forbids without a full re-consume (out of scope).
 
 | File | Change | Why |
 |------|--------|-----|
-| `best-laps-lite/main.py` | Rewritten | Single file: session branch + raw→`best-laps-events` producer (`tag_lap`) + one stateful `handle` consuming the events topic; State-as-truth with RAM re-projected every message under `_RAM_LOCK`; cold-start `run_boot_seed` (daemon thread) gated by `state_has_rocksdb_content`, aggregated `build_reconcile_sql` + `query_lake_with_retry` + `reduce_rows`/`build_seed_messages`; `auto_offset_reset="latest"`; inline FastAPI csv/json/nested GET; `ProdDCMConfigurationService` redirecting DCM content to `CONFIG_API_URL`; diagnostic logging. Removed the per-experiment `query_lake` lazy seed and the `seeded` State flag. |
+| `best-laps-lite/main.py` | Rewritten | Single file: session branch + raw→`best-laps-events` producer (`tag_lap`) + one stateful `handle` (dispatch `seed_gate`/`mark_seeded`/`seed`/`lap`) consuming the events topic; State-as-truth with RAM re-projected every fold message under `_RAM_LOCK`; cold-start `run_boot_seed` (daemon thread) gated by a State-native `seeded` flag via `wait_for_seed_gate` (round-trip = gate + latest-offset readiness barrier), aggregated `build_reconcile_sql` + `query_lake_with_retry` + `reduce_rows`/`build_seed_messages`, `mark_seeded` write; `auto_offset_reset="latest"`; inline FastAPI csv/json/nested GET; `ProdDCMConfigurationService` redirecting DCM content to `CONFIG_API_URL`; diagnostic logging. Removed the per-experiment `query_lake` lazy seed. |
 | `best-laps-lite/app.yaml` | Modified | Added `events_topic` (FreeText, default `best-laps-events`) alongside the prior `best_time_output`/`event_output`/`session_output`/byox lake var declarations. |
 | `best-laps-lite/requirements.txt` | Modified | Pinned `quixstreams==3.24.*`; `fastapi`, `uvicorn[standard]`, `httpx` unchanged. |
 | `best-laps-lite/dockerfile` | Unchanged | python:3.13-slim, EXPOSE 80, `python main.py`. |

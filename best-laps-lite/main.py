@@ -22,15 +22,23 @@ experiments in-context):
               improvement sets State + annotates snapshot/event for emit.
 
 Cold-start boot seed (worker daemon thread, started before app.run()):
-  Gate on on-disk State-dir emptiness. COLD (no RocksDB content under
-  <Quix__State__Dir>/<consumer_group>/) -> run ONE aggregated MIN/GROUP BY lake
-  query (all experiments, OOM-safe), reduce, group by experiment, produce one
-  {type:"seed", experiment, environment, rows:[...]} per experiment to
-  EVENTS_TOPIC; the stateful handle folds each into state["board"] in-context
-  (the durable write). WARM (RocksDB content present) -> skip the lake, trust
-  State + the topic tail. Lake timeout -> retry 2-3x @ ~60s backoff, then
-  fail-soft (WARN, leave un-seeded; a later boot retries while the volume is
-  cold). auto_offset_reset="latest": history from the seed, live laps from the tail.
+  Authoritative gate = a State-native `seeded` flag (GATE_KEY), read via a
+  round-trip that ALSO serves as the latest-offset readiness barrier (one
+  mechanism). The seeder re-produces a {type:"seed_gate"} event keyed GATE_KEY
+  every ~2s (bounded ~120s) until handle reads state["seeded"] in-context, records
+  it, and sets _GATE_EVENT — which also proves the events consumer is live and
+  positioned (a message produced before assignment at latest-offset is skipped, so
+  re-producing defeats that race). If the flag is set -> WARM (retained volume +
+  same consumer group) -> skip the lake. Else -> COLD -> ONE aggregated MIN/GROUP
+  BY lake query (all experiments, OOM-safe; retry 2-3x @ ~60s, then fail-soft),
+  reduce, group by experiment, produce one {type:"seed", ...} per experiment to
+  EVENTS_TOPIC (now guaranteed to land after the consumer's position), then a
+  {type:"mark_seeded"} so handle sets state["seeded"]=True. The stateful handle
+  folds each seed into state["board"] in-context (the durable write). The flag is
+  scoped to <Quix__State__Dir>/<consumer_group>, so a volume wipe OR a group change
+  drops it -> reseed. A cheap on-disk state_has_rocksdb_content check is logged as
+  a hint but is NOT authoritative. auto_offset_reset="latest": history from the
+  seed, live laps from the tail.
 
 Accepted residual: a seeded-but-never-driven experiment is in State (durable)
 but absent from BOARD_RAM after a WARM restart until a message for it arrives —
@@ -111,6 +119,19 @@ EXP_ENV: dict[str, str] = {}
 # for a GET (otherwise an intermittent "dictionary changed size during iteration"
 # 500). handle publishes a deep copy under the lock; readers snapshot under it.
 _RAM_LOCK = threading.Lock()
+
+# Boot-seed gate (State-native flag) + readiness barrier, folded into ONE
+# round-trip. With auto_offset_reset="latest" the events consumer positions at the
+# tail on assignment, so a message produced BEFORE assignment is skipped. The boot
+# seeder re-produces a {type:"seed_gate"} event keyed GATE_KEY until `handle`
+# processes one (proving the consumer is live AND reading the gate's State flag
+# in-context) and sets _GATE_EVENT with the flag in _GATE_RESULT. The flag lives
+# in RocksDB State (scoped to <state_dir>/<consumer_group>), so it is naturally
+# absent after a state-volume wipe OR a consumer-group change -> reseed. Mirrors
+# best-laps-cache's GATE_KEY/mark_seeded pattern.
+GATE_KEY = "__seed_gate__"
+_GATE_EVENT = threading.Event()
+_GATE_RESULT: dict[str, bool] = {}
 
 # Diagnostic log throttles for the ~50Hz hot path (shape/is_valid). Each logs its
 # first N events at INFO then suppresses, so the enrichment/drop reason is visible
@@ -493,9 +514,13 @@ def _project_ram(exp: str, board: dict, env: str) -> None:
 def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(stateful+metadata) order: value,key,ts,headers,state
     """The ONE stateful op (State keyed by experiment via the events topic).
 
-    State is the ground truth; on EVERY consumed message it re-projects
-    ``state["board"]`` into BOARD_RAM/EXP_ENV (RAM never leads State). Dispatches
-    on ``value["type"]``:
+    Dispatches on ``value["type"]``:
+      * ``"seed_gate"`` — the boot-seed gate + readiness probe (one mechanism).
+        Reads the State-native ``seeded`` flag IN-CONTEXT, records it in
+        ``_GATE_RESULT`` and sets ``_GATE_EVENT`` (the consumer processing this
+        proves it is live and positioned). No fold/State-write/emit.
+      * ``"mark_seeded"`` — set ``state["seeded"]=True`` (the durable gate write
+        after a successful seed). No emit.
       * ``"seed"`` — fold the carried lake rows into the board IDEMPOTENTLY via
         ``_fold`` (min-update never clobbers a populated/faster value); set State
         + re-project RAM; does NOT emit (``_changed`` stays False).
@@ -503,13 +528,32 @@ def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(sta
         improvement set State and annotate ``_changed/_board/_previous_ms/
         _timestamp_ms`` for the output branch.
 
+    State is the ground truth; on every fold-carrying message (seed/lap) it
+    re-projects ``state["board"]`` into BOARD_RAM/EXP_ENV (RAM never leads State).
     The returned value carries ``_changed`` (the output branch filters on it).
     """
+    value["_changed"] = False
+    msg_type = value.get("type")
+
+    if msg_type == "seed_gate":
+        # Boot-seed gate read + readiness signal (one round-trip). Read the
+        # State-native flag in-context and hand it back; the boot thread waits on
+        # _GATE_EVENT. No fold, no State write, no RAM touch, never emits.
+        _GATE_RESULT["seeded"] = bool(state.get("seeded"))
+        _GATE_EVENT.set()
+        return value
+
+    if msg_type == "mark_seeded":
+        # Boot-seed gate write: set the durable flag so a later boot (retained
+        # volume + same consumer group) skips the lake query. No emit.
+        state.set("seeded", True)
+        logger.info("handle: mark_seeded -> state[seeded]=True")
+        return value
+
     exp = value.get("experiment", "")
     board = state.get("board") or {}
-    value["_changed"] = False
 
-    if value.get("type") == "seed":
+    if msg_type == "seed":
         folded = 0
         for r in value.get("rows", []):
             # seed rows carry best_lap_ms; map to the BEST_COL key _fold reads.
@@ -566,34 +610,87 @@ def tag_lap(value: dict) -> dict:
     return value
 
 
+def wait_for_seed_gate(produce_gate, total_s: float = 120.0, interval_s: float = 2.0) -> bool:
+    """Drive the gate round-trip until ``_GATE_EVENT`` is set; return the readiness.
+
+    This is BOTH the boot-seed gate read AND the latest-offset readiness barrier
+    (one mechanism). With auto_offset_reset="latest" the events consumer reads from
+    the tail, so a gate event produced before assignment is missed. Re-producing one
+    ``seed_gate`` every *interval_s* defeats that race: the first gate event read by
+    ``handle`` records ``state["seeded"]`` into ``_GATE_RESULT`` and sets
+    ``_GATE_EVENT``. Returns True once the event is set (gate answered + consumer
+    confirmed live), or False if *total_s* elapses first (caller proceeds as if not
+    seeded — the idempotent fold is the safety net).
+
+    *produce_gate* is a no-arg callable producing one ``seed_gate`` message;
+    injected so this is unit-testable without a broker.
+    """
+    deadline = time.monotonic() + total_s
+    while True:
+        produce_gate()
+        if _GATE_EVENT.wait(timeout=interval_s):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+
+
 def run_boot_seed() -> bool:
-    """Cold-start seed: query the lake ONCE and produce one seed message per exp.
+    """Cold-start seed gated on a State-native ``seeded`` flag (round-trip).
 
-    Runs on a worker daemon thread before app.run(). Gate on on-disk State-dir
-    emptiness: WARM (RocksDB content present) -> skip (trust State + topic tail).
-    COLD -> aggregated MIN/GROUP BY query (retry/fail-soft), reduce, group by
-    experiment, and produce ``{type:"seed", experiment, environment, rows}`` to
-    EVENTS_TOPIC keyed by experiment. The stateful ``handle`` folds each into
-    ``state["board"]`` in-context (the durable write) once app.run() is consuming;
-    producing before the consumer is fully up is safe (messages persist).
+    Runs on a worker daemon thread before app.run(). The authoritative gate is the
+    State flag at ``GATE_KEY`` — naturally absent after a state-volume wipe OR a
+    consumer-group change (State is scoped to <state_dir>/<consumer_group>), so
+    either triggers a reseed. Mirrors best-laps-cache's GATE_KEY/mark_seeded.
 
-    Never raises — any failure logs a WARNING and leaves State un-seeded so a
-    later boot can retry while the volume is still cold.
+    Flow:
+      1. (cheap hint) log the on-disk ``state_has_rocksdb_content`` fast-path.
+      2. GATE + READINESS round-trip: ``wait_for_seed_gate`` re-produces a
+         ``seed_gate`` every ~2s (bounded ~120s) until ``handle`` reads the flag
+         in-context and sets ``_GATE_EVENT``. This also defeats the latest-offset
+         race (a message produced before consumer assignment is skipped) and
+         confirms the consumer is live before any seed is produced.
+      3. If the flag is True -> State already seeded (retained volume + same group)
+         -> skip the lake, return False.
+      4. Else -> aggregated MIN/GROUP BY query (retry/fail-soft), reduce, group by
+         experiment, produce ``{type:"seed", ...}`` per experiment, then produce
+         ``{type:"mark_seeded"}`` so ``handle`` sets ``state["seeded"]=True``.
+
+    Never raises — any failure logs a WARNING and leaves the flag unset so a later
+    boot retries.
     """
     try:
-        if state_has_rocksdb_content(STATE_DIR, CONSUMER_GROUP):
+        topic = events_topic
+        cold_hint = not state_has_rocksdb_content(STATE_DIR, CONSUMER_GROUP)
+        logger.info(
+            "boot: state_dir=%s cg=%s offset=latest on-disk=%s -> gating on State seeded flag",
+            STATE_DIR,
+            CONSUMER_GROUP,
+            "empty(cold-hint)" if cold_hint else "has-content",
+        )
+
+        # Gate + readiness round-trip (re-produce seed_gate until handle answers).
+        def _produce_gate() -> None:
+            msg = topic.serialize(key=GATE_KEY, value={"type": "seed_gate", "experiment": GATE_KEY})
+            with app.get_producer() as producer:
+                producer.produce(topic=topic.name, key=msg.key, value=msg.value)
+
+        if wait_for_seed_gate(_produce_gate):
+            logger.info("boot-seed: gate answered seeded=%s", _GATE_RESULT.get("seeded"))
+        else:
+            logger.warning(
+                "boot-seed: gate round-trip timed out; proceeding as NOT seeded "
+                "(idempotent fold + later boot are the safety nets)"
+            )
+
+        if _GATE_RESULT.get("seeded"):
             logger.info(
-                "boot: state_dir=%s cg=%s -> WARM (RocksDB content present) -> "
-                "skipping lake, trusting State + topic",
-                STATE_DIR,
+                "boot: cg=%s -> WARM (State seeded flag set) -> skipping lake, "
+                "trusting State + topic",
                 CONSUMER_GROUP,
             )
             return False
-        logger.info(
-            "boot: state_dir=%s cg=%s offset=latest -> COLD (no RocksDB content)",
-            STATE_DIR,
-            CONSUMER_GROUP,
-        )
+        logger.info("boot: cg=%s -> COLD (State seeded flag absent)", CONSUMER_GROUP)
+
         if not LAKE_URL:
             logger.warning(
                 "boot-seed skipped: no Lakehouse Query URL configured "
@@ -616,14 +713,17 @@ def run_boot_seed() -> bool:
             logger.info("boot-seed: no experiment-keyed rows after reduction; skipping")
             return False
 
-        topic = events_topic
+        # Consumer is confirmed live (gate round-trip above), so the seed + the
+        # mark_seeded write are guaranteed to land after the consumer's position.
         with app.get_producer() as producer:
             for message in messages:
                 kafka_msg = topic.serialize(key=message["experiment"], value=message)
                 producer.produce(topic=topic.name, key=kafka_msg.key, value=kafka_msg.value)
+            gate_msg = topic.serialize(key=GATE_KEY, value={"type": "mark_seeded", "experiment": GATE_KEY})
+            producer.produce(topic=topic.name, key=gate_msg.key, value=gate_msg.value)
         logger.info(
             "boot-seed: %d lake groups across %d experiments -> produced %d seed "
-            "messages to %s",
+            "messages + mark_seeded to %s",
             len(reduced),
             len(messages),
             len(messages),
