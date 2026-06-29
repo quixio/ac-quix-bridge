@@ -40,7 +40,7 @@ deployments:
         value: ac-telemetry-session-debug
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
-        description: DCM base URL for fetching config content. Use the PROD public edge (https) — the in-cluster dynamic-configuration-manager is empty, and the edge host 301-redirects http→https so it must be https. Leave blank to use the contentUrl carried in each event.
+        description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
         value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
