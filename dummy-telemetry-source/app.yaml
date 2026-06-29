@@ -1,10 +1,6 @@
 name: Dummy Telemetry Source
 language: python
 variables:
-  - name: Quix__Sdk__Token
-    inputType: Secret
-    description: Quix SDK token (auto-connects QuixStreams to the broker)
-    required: true
   - name: output
     inputType: OutputTopic
     description: Name of the output topic to write replayed telemetry into
