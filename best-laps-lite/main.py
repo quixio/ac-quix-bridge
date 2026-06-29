@@ -34,6 +34,7 @@ import os
 import sys
 import threading
 import time
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import uvicorn
@@ -63,6 +64,12 @@ LAKE_TOKEN = os.environ.get("Quix__Lakehouse__Query__AuthToken") or os.environ.g
 )
 LAKE_TABLE = os.environ.get("LAKE_TABLE", "ac_telemetry_prod")
 BEST_COL = os.environ.get("LAKE_COL_BEST_TIME", "iBestTime")
+# Prod-edge DCM base. The byox in-cluster DCM stamps contentUrl=
+# http://dynamic-configuration-manager (an EMPTY DCM), so the native lookup
+# fetches empty content and enrichment returns blank experiment/driver. We
+# rewrite scheme+host of each contentUrl to this base (the real prod configs).
+# Falsy -> no rewrite (other envs where the in-cluster contentUrl is correct).
+DCM_CONTENT_BASE = os.environ.get("CONFIG_API_URL")
 HTTP_HOST = os.environ.get("HTTP_HOST", "0.0.0.0")
 HTTP_PORT = int(os.environ.get("HTTP_PORT", "80"))
 
@@ -83,6 +90,21 @@ _RAM_LOCK = threading.Lock()
 # --------------------------------------------------------------------------- #
 # Pure helpers (unit-tested offline)
 # --------------------------------------------------------------------------- #
+def rewrite_content_url(content_url: str, base: str | None) -> str:
+    """Swap scheme+host of a DCM contentUrl to *base*, keeping path/query/fragment.
+
+    If *base* is falsy, return *content_url* unchanged (other envs where the
+    in-cluster contentUrl is already correct). Otherwise take *base*'s scheme and
+    netloc and *content_url*'s path/query/fragment. A trailing slash or any path
+    on *base* is ignored — only its scheme+netloc are used.
+    """
+    if not base:
+        return content_url
+    b = urlsplit(base)
+    parts = urlsplit(content_url)
+    return urlunsplit((b.scheme, b.netloc, parts.path, parts.query, parts.fragment))
+
+
 def query_lake(experiment: str) -> list[dict]:
     """Scan the whole table for one experiment -> rows (best per driver via fold).
 
@@ -302,6 +324,39 @@ def handle(value: dict, state, key, timestamp, headers) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Config service: fetch content from the prod-edge DCM, not the empty in-cluster
+# one. NOTE: this overrides QuixConfigurationService._fetch_version_content, a
+# PRIVATE QS method (verified against the installed quixstreams==3.24.* source:
+# `_fetch_version_content(self, version) -> Optional[bytes]`, fetching
+# version.contentUrl via self._client). If a future QS release renames/reworks
+# it, enrichment silently returns None again — re-verify on QS upgrades.
+# --------------------------------------------------------------------------- #
+class ProdDCMConfigurationService(QuixConfigurationService):
+    """Fetch config content from CONFIG_API_URL (prod DCM) instead of the
+    in-cluster contentUrl the byox DCM stamps (which points at an empty DCM).
+    Env-driven via ``content_base``; falsy base -> native behavior unchanged."""
+
+    def __init__(self, *args, content_base: str | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._content_base = content_base
+        # prod edge is self-signed -> verify=False; preserve the Bearer/User-Agent
+        # headers the base client set up from the SDK token.
+        self._client = httpx.Client(
+            follow_redirects=True, verify=False, headers=self._client.headers
+        )
+
+    def _fetch_version_content(self, version):  # -> Optional[bytes] (base contract)
+        url = rewrite_content_url(version.contentUrl, self._content_base)
+        try:
+            r = self._client.get(url, timeout=self._request_timeout)
+            r.raise_for_status()
+            return r.content
+        except Exception:  # a DCM hiccup must not crash enrichment — return None like the base
+            logger.warning("config content fetch failed: %s", url)
+            return None
+
+
+# --------------------------------------------------------------------------- #
 # QuixStreams app + topics + SDF branches
 # --------------------------------------------------------------------------- #
 app = Application(
@@ -324,7 +379,13 @@ event_topic = app.topic(
 )
 
 # DCM enrichment: experiment / driver / environment ONLY (track/car now from session).
-lookup = QuixConfigurationService(config_topic, app_config=app.config, fallback="default")
+# Content fetched from the prod-edge DCM (CONFIG_API_URL), not the empty in-cluster one.
+lookup = ProdDCMConfigurationService(
+    config_topic,
+    app_config=app.config,
+    fallback="default",
+    content_base=DCM_CONTENT_BASE,
+)
 fields = {
     "experiment": lookup.json_field("$.experiment_id", type="experiment", default=""),
     "driver": lookup.json_field("$.driver", type="experiment", default=""),

@@ -2,17 +2,20 @@
 
 ## What this is
 
-A rewrite of the `best-laps-lite` service into a single-file, class-free
-QuixStreams (QS 3.24) leaderboard cache. It maintains per-experiment best laps
-in **RocksDB State**, mirrors that State board into an **in-process RAM dict**
-(`BOARD_RAM`), serves the board over **HTTP GET** (read straight from RAM, never
-from State off-thread), and **emits to two output topics** on a new/improved
-best. State cold-starts from the LakeHouse when empty. Unlike v1, `carModel` and
-`track` are sourced from the **session topic** (`ac-telemetry-session`), not from
-DCM; the DCM `join_lookup` now supplies `experiment` / `driver` / `environment`
-only. Threading mirrors `best-laps-cache`: `app.run()` owns the main thread,
-uvicorn runs on a worker daemon thread. The whole service is
-`best-laps-lite/main.py` (~340 lines, no classes).
+A rewrite of the `best-laps-lite` service into a single-file QuixStreams
+(QS 3.24) leaderboard cache. It maintains per-experiment best laps in **RocksDB
+State**, mirrors that State board into an **in-process RAM dict** (`BOARD_RAM`),
+serves the board over **HTTP GET** (read straight from RAM, never from State
+off-thread), and **emits to two output topics** on a new/improved best. State
+cold-starts from the LakeHouse when empty. Unlike v1, `carModel` and `track` are
+sourced from the **session topic** (`ac-telemetry-session`), not from DCM; the
+DCM `join_lookup` now supplies `experiment` / `driver` / `environment` only.
+Threading mirrors `best-laps-cache`: `app.run()` owns the main thread, uvicorn
+runs on a worker daemon thread. The whole service is `best-laps-lite/main.py`
+(~390 lines). It has no domain classes; the one class is a thin
+`QuixConfigurationService` subclass (`ProdDCMConfigurationService`) that
+overrides a single private method to redirect DCM content fetches to the
+prod-edge DCM (see "DCM content-URL rewrite" below).
 
 ## Why this design
 
@@ -169,7 +172,7 @@ absent) and the board builds live-only.
 
 | File | Change | Why |
 |------|--------|-----|
-| `best-laps-lite/main.py` | Rewritten | Single-file v2: session/raw/handle branches, lock-guarded RAM mirror, inline FastAPI (`/best-laps` as a drop-in replica of best-laps-cache's CSV+filters contract), two output topics, lazy lake seed. |
+| `best-laps-lite/main.py` | Rewritten | Single-file v2: session/raw/handle branches, lock-guarded RAM mirror, inline FastAPI (`/best-laps` as a drop-in replica of best-laps-cache's CSV+filters contract), two output topics, lazy lake seed, and `ProdDCMConfigurationService` redirecting DCM content fetches to `CONFIG_API_URL` (prod-edge) via `rewrite_content_url`. |
 | `best-laps-lite/app.yaml` | Modified | Added `best_time_output` (`ac-best-laps`) + `event_output` (`ac-best-laps-events`) OutputTopics; added `session_output` default; declared byox `Quix__Lakehouse__Query__Url`/`__AuthToken` (not auto-injected on byox); kept `output`/`config_input`/`CONFIG_API_URL`/`LAKE_TABLE`/`LAKE_COL_BEST_TIME`/`HTTP_PORT`/`CONSUMER_GROUP`/`Quix__State__Dir`. |
 | `best-laps-lite/requirements.txt` | Modified | Pinned `quixstreams==3.24.*`; `fastapi`, `uvicorn[standard]`, `httpx` unchanged. |
 | `best-laps-lite/dockerfile` | Unchanged | python:3.13-slim, EXPOSE 80, `python main.py`. |
@@ -187,6 +190,24 @@ absent) and the board builds live-only.
   idiom as `ac-telemetry-lake` and v1, keyed by `hostname == target_key`, but
   resolves only `experiment`/`driver`/`environment` (no `type="session"`
   fields). See memory `reference_quixstreams_config_lookup`.
+- **DCM content-URL rewrite (byox).** Each config event carries a `contentUrl`
+  the native `QuixConfigurationService` fetches verbatim. On byox the in-cluster
+  DCM stamps `contentUrl=http://dynamic-configuration-manager`, which is an
+  **empty** DCM — so enrichment returned blank `experiment`/`driver`, every raw
+  tick failed `is_valid`, and State never populated (observed: `/best-laps` 0
+  rows, `/healthz` boards=0). The real configs live on the prod-edge DCM, which
+  the service already has as the `CONFIG_API_URL` env var. `ProdDCMConfigurationService`
+  subclasses the lookup and overrides the private `_fetch_version_content` to
+  fetch from a URL rewritten by `rewrite_content_url(version.contentUrl,
+  CONFIG_API_URL)` — it swaps scheme+host to the prod-edge base and keeps
+  path/query/fragment. The override rebuilds the httpx client with `verify=False`
+  (prod edge is self-signed) while preserving the base's Bearer/User-Agent
+  headers, never mutates the (frozen) `version`, and returns `None` on failure
+  like the base. If `CONFIG_API_URL` is falsy, `rewrite_content_url` is a no-op,
+  so other envs where the in-cluster `contentUrl` is correct are unaffected.
+  **Risk:** `_fetch_version_content` is a private QS method; verified against the
+  installed `quixstreams==3.24.*` source — re-verify on any QS upgrade, since a
+  rename would silently revert enrichment to fetching the empty in-cluster URL.
 - **Session topic** (`ac-telemetry-session`, emitted by `ac-telemetry-source` on
   session change) is now an input, supplying track/carModel/session_id. Because
   AC publishes session on session change *before* any lap, the session normally
@@ -201,9 +222,13 @@ absent) and the board builds live-only.
 
 ## Constraints honoured
 
-Single file, no classes, QS 3.24 primitives only. The only raw HTTP is the lake
-cold-start `httpx` query and the inline FastAPI GET server; everything else is
-native QS (`Application`, `apply`/`update`/`filter`, `State`, `join_lookup` +
-`QuixConfigurationService`, `group_by`, `to_topic`, `value_(de)serializer="json"`).
+Single file, QS 3.24 primitives only, no domain classes — the sole class is the
+thin `ProdDCMConfigurationService` lookup subclass (one overridden private
+method). Raw HTTP is confined to three places: the lake cold-start `httpx`
+query, the DCM content fetch in `ProdDCMConfigurationService._fetch_version_content`
+(both `verify=False` against byox self-signed edges), and the inline FastAPI GET
+server. Everything else is native QS (`Application`, `apply`/`update`/`filter`,
+`State`, `join_lookup` + `QuixConfigurationService`, `group_by`, `to_topic`,
+`value_(de)serializer="json"`).
 The HTTP thread never calls `state.get()`. `ruff check` passes with default
 rules.
