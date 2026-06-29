@@ -41,11 +41,11 @@ deployments:
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
-        value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
+        value: http://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
         description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
-        value: https://best-laps-lite-bbecd2a-demo-simrigtelemetry-prodsp2.edge.byox.demo
+        value: http://best-laps-lite-bbecd2a-demo-simrigtelemetry-prodsp2.edge.byox.demo
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
