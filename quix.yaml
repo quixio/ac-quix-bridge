@@ -44,8 +44,8 @@ deployments:
         value: https://config-api-svc-demo-simrigtelemetry-prod.edge.byox.demo
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
-        description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
-        value: https://best-laps-lite-bbecd2a-demo-simrigtelemetry-prodsp2.edge.byox.demo
+        description: Base URL of the leaderboard source (best-laps-lite) serving GET /best-laps. In-cluster service name (hyphens, not underscores) — best-laps-lite must declare network.serviceName=best-laps-lite + port 80. Sole source for the leaderboard standings.
+        value: http://best-laps-lite
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
@@ -880,6 +880,14 @@ deployments:
         cpu: 1000
         memory: 2000
       replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: best-laps-lite
+    network:
+      serviceName: best-laps-lite
+      ports:
+        - port: 80
+          targetPort: 80
     state:
       enabled: true
       size: 3
