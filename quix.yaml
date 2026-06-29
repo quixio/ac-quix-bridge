@@ -882,16 +882,7 @@ deployments:
       replicas: 1
     publicAccess:
       enabled: true
-<<<<<<< HEAD
-      urlPrefix: best-laps-lite
-    network:
-      serviceName: best-laps-lite
-      ports:
-        - port: 80
-          targetPort: 80
-=======
       urlPrefix: best-laps-lite-bc9e41b
->>>>>>> origin/leadboard-sp-box
     state:
       enabled: true
       size: 3
