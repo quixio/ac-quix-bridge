@@ -902,3 +902,4 @@ topics:
   - name: best-laps-events
   - name: leaderboard-events
   - name: ac-telemetry-raw-debug
+  - name: ac-telemetry-session-debug
