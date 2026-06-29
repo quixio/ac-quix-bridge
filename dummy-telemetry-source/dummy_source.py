@@ -18,6 +18,7 @@ best-laps cache / leaderboard.
 import gzip
 import json
 import logging
+import random
 import time
 from datetime import datetime, timezone
 
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 # pathological gap in the captured timestamps (e.g. a pause during capture)
 # turning into a multi-minute stall on replay.
 _MAX_SLEEP_S = 2.0
+
+# Sentinel AC writes into iBestTime/iLastTime before the first valid lap closes.
+# Records carrying this value (lap 1) are passed through untouched.
+_INT_MAX = 2147483647
 
 
 class DummyReplaySource(Source):
@@ -44,6 +49,8 @@ class DummyReplaySource(Source):
         hostname: str,
         loop: bool,
         max_messages: int,
+        base_best_ms: int,
+        max_best_delta_ms: int,
     ):
         super().__init__(name=name)
         self._session_topic = session_topic
@@ -53,7 +60,13 @@ class DummyReplaySource(Source):
         self._hostname = hostname
         self._loop = loop
         self._max_messages = max_messages
+        self._base_best_ms = base_best_ms
+        self._max_best_delta_ms = max_best_delta_ms
         self._session_id = None
+        # Per-lap best-time override state, reset at the start of every replay
+        # loop so each loop re-randomizes (see _reset_lap_state / run).
+        self._current_lap = None
+        self._current_best = None
 
     def _new_session_id(self) -> str:
         # Mirrors ac_source._new_session_id: UTC ISO-8601 to ms + "Z".
@@ -93,6 +106,36 @@ class DummyReplaySource(Source):
             headers=msg.headers,
         )
 
+    def _reset_lap_state(self) -> None:
+        """Clear per-lap best-time state so the next loop re-randomizes."""
+        self._current_lap = None
+        self._current_best = None
+
+    def _apply_best_override(self, out: dict) -> None:
+        """Overwrite ``iBestTime``/``iLastTime`` with a per-lap random best.
+
+        On the first valid-best tick of a lap (``completedLaps`` differs from
+        the lap we last minted a best for) a fresh random best is drawn:
+        ``base_best_ms - randint(0, max_best_delta_ms)``. That value is held
+        CONSTANT for every subsequent valid tick of the same lap, so the
+        downstream per-(track, car, driver) min-fold settles on exactly it
+        rather than the per-tick minimum. INT_MAX ticks (lap 1, before any
+        valid lap closes) are left untouched. Mutates ``out`` in place.
+        """
+        cl = out.get("completedLaps")
+        ib = out.get("iBestTime")
+        if not (isinstance(ib, int) and 0 < ib < _INT_MAX):
+            return
+
+        if cl != self._current_lap:
+            self._current_lap = cl
+            self._current_best = self._base_best_ms - random.randint(
+                0, self._max_best_delta_ms
+            )
+
+        out["iBestTime"] = self._current_best
+        out["iLastTime"] = self._current_best
+
     def run(self):
         records = self._load_corpus()
         template = self._load_session_template()
@@ -114,6 +157,9 @@ class DummyReplaySource(Source):
             self._publish_session_metadata(template)
             logger.info("New session: %s (loop %d)", self._session_id, loop_count)
 
+            # Fresh randoms per loop: otherwise loop N's completedLaps==1 would
+            # reuse loop N-1's best (state carries the same lap numbers).
+            self._reset_lap_state()
             prev_ts = None
             laps = 0
             for rec in records:
@@ -135,6 +181,7 @@ class DummyReplaySource(Source):
                 # Stamp with the current session + ingest wall-clock, mirroring
                 # the live source (timestamp_ms is ingest time, not lap-relative).
                 out = dict(rec)
+                self._apply_best_override(out)
                 out["session_id"] = self._session_id
                 out["timestamp_ms"] = int(time.time() * 1000)
 

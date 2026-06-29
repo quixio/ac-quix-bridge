@@ -63,6 +63,8 @@ def main():
     hostname = os.environ.get("DUMMY_HOSTNAME", "QUIX-GAMING")
     loop = os.environ.get("LOOP", "true").lower() == "true"
     max_messages = int(os.environ.get("MAX_MESSAGES", "0"))
+    base_best_ms = int(os.environ.get("BASE_BEST_MS", "165000"))
+    max_best_delta_ms = int(os.environ.get("MAX_BEST_DELTA_MS", "20000"))
     corpus_path = os.environ.get("CORPUS_PATH", _DEFAULT_CORPUS)
     session_template_path = os.environ.get(
         "SESSION_TEMPLATE_PATH", _DEFAULT_SESSION_TEMPLATE
@@ -91,6 +93,8 @@ def main():
         hostname=hostname,
         loop=loop,
         max_messages=max_messages,
+        base_best_ms=base_best_ms,
+        max_best_delta_ms=max_best_delta_ms,
     )
 
     app.add_source(source=source, topic=output_topic)
