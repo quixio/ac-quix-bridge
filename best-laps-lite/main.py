@@ -317,7 +317,7 @@ def remember_session(value: dict, key, timestamp, headers) -> None:
     )
 
 
-def handle(value: dict, state, key, timestamp, headers) -> dict:
+def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(stateful+metadata) order: value,key,ts,headers,state
     """Per-experiment stateful core (keyed by experiment after group_by).
 
     Reads board from State; lazily seeds State from the lake once per experiment;
