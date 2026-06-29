@@ -86,6 +86,12 @@ EXP_ENV: dict[str, str] = {}
 # 500). handle publishes a deep copy under the lock; readers snapshot under it.
 _RAM_LOCK = threading.Lock()
 
+# Diagnostic log throttles for the ~50Hz hot path (shape/is_valid). Each logs its
+# first N events at INFO then suppresses, so the enrichment/drop reason is visible
+# at startup without flooding the log. Rare paths (DCM fetch, session) are unthrottled.
+_SHAPE_LOG_BUDGET = 30
+_DROP_LOG_BUDGET = 30
+
 
 # --------------------------------------------------------------------------- #
 # Pure helpers (unit-tested offline)
@@ -163,7 +169,7 @@ def shape(value: dict, key, timestamp, headers) -> dict:
     session seen for that host (SESSION_BY_HOST), NOT from DCM.
     """
     sess = SESSION_BY_HOST.get(key, {})
-    return {
+    result = {
         "experiment": value.get("experiment", ""),
         "driver": value.get("driver", ""),
         "environment": value.get("environment", ""),
@@ -172,6 +178,26 @@ def shape(value: dict, key, timestamp, headers) -> dict:
         "session_id": sess.get("session_id", ""),
         BEST_COL: int(value.get(BEST_COL) or 0),
     }
+    # Throttled diagnostic: log the first N enriched ticks so we can see whether
+    # DCM (experiment/driver/environment) and session (track/carModel) resolved.
+    global _SHAPE_LOG_BUDGET
+    if _SHAPE_LOG_BUDGET > 0:
+        _SHAPE_LOG_BUDGET -= 1
+        logger.info(
+            "enrich[#%d] key=%s experiment=%r driver=%r environment=%r "
+            "track=%r carModel=%r iBestTime=%s",
+            30 - _SHAPE_LOG_BUDGET,
+            key,
+            result["experiment"],
+            result["driver"],
+            result["environment"],
+            result["track"],
+            result["carModel"],
+            result[BEST_COL],
+        )
+        if _SHAPE_LOG_BUDGET == 0:
+            logger.info("enrichment logging budget exhausted, suppressing further")
+    return result
 
 
 def is_valid(value: dict) -> bool:
@@ -179,10 +205,27 @@ def is_valid(value: dict) -> bool:
 
     A tick with no session yet (blank track/car) fails here and is dropped.
     """
-    return (
+    ok = (
         bool(value["experiment"] and value["track"] and value["carModel"] and value["driver"])
         and 0 < value[BEST_COL] < INT_MAX
     )
+    # Throttled diagnostic: on the first N drops, log which field(s) are missing.
+    if not ok:
+        global _DROP_LOG_BUDGET
+        if _DROP_LOG_BUDGET > 0:
+            _DROP_LOG_BUDGET -= 1
+            logger.info(
+                "DROP[#%d]: experiment=%s track=%s carModel=%s driver=%s ibest_ok=%s",
+                30 - _DROP_LOG_BUDGET,
+                bool(value["experiment"]),
+                bool(value["track"]),
+                bool(value["carModel"]),
+                bool(value["driver"]),
+                0 < value[BEST_COL] < INT_MAX,
+            )
+            if _DROP_LOG_BUDGET == 0:
+                logger.info("drop logging budget exhausted, suppressing further")
+    return ok
 
 
 def to_rows(boards: dict[str, dict], envs: dict[str, str]) -> list[dict]:
@@ -264,6 +307,14 @@ def remember_session(value: dict, key, timestamp, headers) -> None:
         "carModel": value.get("carModel", ""),
         "session_id": value.get("session_id", ""),
     }
+    sess = SESSION_BY_HOST[key]
+    logger.info(
+        "session cached: host=%s track=%r carModel=%r session_id=%r",
+        key,
+        sess["track"],
+        sess["carModel"],
+        sess["session_id"],
+    )
 
 
 def handle(value: dict, state, key, timestamp, headers) -> dict:
@@ -347,12 +398,20 @@ class ProdDCMConfigurationService(QuixConfigurationService):
 
     def _fetch_version_content(self, version):  # -> Optional[bytes] (base contract)
         url = rewrite_content_url(version.contentUrl, self._content_base)
+        # Rare path (lookup caches per version) -> log every call, no throttle.
+        logger.info("DCM fetch: orig contentUrl=%s -> rewritten=%s", version.contentUrl, url)
         try:
             r = self._client.get(url, timeout=self._request_timeout)
             r.raise_for_status()
+            logger.info(
+                "DCM resp: status=%s len=%s body[:300]=%r",
+                r.status_code,
+                len(r.content),
+                r.text[:300],
+            )
             return r.content
-        except Exception:  # a DCM hiccup must not crash enrichment — return None like the base
-            logger.warning("config content fetch failed: %s", url)
+        except Exception as exc:  # a DCM hiccup must not crash enrichment — return None like the base
+            logger.warning("DCM fetch FAILED url=%s err=%r", url, exc)
             return None
 
 
@@ -540,6 +599,7 @@ if __name__ == "__main__":
         os.environ.get("Quix__State__Dir", "state"),
         "yes" if LAKE_URL else "no",
     )
+    logger.info("DCM content base (CONFIG_API_URL) = %r", DCM_CONTENT_BASE)
     http_thread = threading.Thread(target=_serve_http, name="http-server", daemon=True)
     http_thread.start()
     logger.info("app.run() on MAIN thread; uvicorn on daemon thread '%s'", http_thread.name)
