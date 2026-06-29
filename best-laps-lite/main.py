@@ -36,9 +36,8 @@ Cold-start boot seed (worker daemon thread, started before app.run()):
   {type:"mark_seeded"} so handle sets state["seeded"]=True. The stateful handle
   folds each seed into state["board"] in-context (the durable write). The flag is
   scoped to <Quix__State__Dir>/<consumer_group>, so a volume wipe OR a group change
-  drops it -> reseed. A cheap on-disk state_has_rocksdb_content check is logged as
-  a hint but is NOT authoritative. auto_offset_reset="latest": history from the
-  seed, live laps from the tail.
+  drops it -> reseed. auto_offset_reset="latest": history from the seed, live laps
+  from the tail.
 
 Accepted residual: a seeded-but-never-driven experiment is in State (durable)
 but absent from BOARD_RAM after a WARM restart until a message for it arrives —
@@ -290,33 +289,6 @@ def build_seed_messages(reduced: dict[tuple[str, str, str, str, str], int]) -> l
         }
         for exp, payload in grouped.items()
     ]
-
-
-def state_has_rocksdb_content(state_dir: str, consumer_group: str) -> bool:
-    """True iff a RocksDB store exists on disk (warm) under the state dir.
-
-    QS 3.24 lays State out as ``<state_dir>/<consumer_group>/<store>/<stream_id>/
-    <partition>/`` (verified against the installed quixstreams: StateStoreManager
-    appends ``group_id`` to ``state_dir``; RocksDBStore appends the store name
-    [default "default"] then the stream_id then the int partition). A RocksDB
-    partition that has been opened/committed always contains a ``CURRENT`` file
-    plus a ``MANIFEST-*`` and ``*.sst`` once data is flushed.
-
-    We walk the consumer-group subtree (falling back to the whole state dir) and
-    report warm only when a real RocksDB marker (``CURRENT`` / ``MANIFEST-*`` /
-    ``*.sst``) is present — NOT on bare directory existence, so a process that
-    created the dir but never committed still counts as COLD (re-seedable).
-    """
-    root = os.path.join(state_dir, consumer_group)
-    if not os.path.isdir(root):
-        root = state_dir  # tolerate a flat layout / probe the whole tree
-    if not os.path.isdir(root):
-        return False
-    for _dirpath, _dirnames, filenames in os.walk(root):
-        for name in filenames:
-            if name == "CURRENT" or name.startswith("MANIFEST-") or name.endswith(".sst"):
-                return True
-    return False
 
 
 def _fold(board: dict, row: dict) -> tuple[bool, int | None]:
@@ -638,20 +610,20 @@ def run_boot_seed() -> bool:
     """Cold-start seed gated on a State-native ``seeded`` flag (round-trip).
 
     Runs on a worker daemon thread before app.run(). The authoritative gate is the
-    State flag at ``GATE_KEY`` — naturally absent after a state-volume wipe OR a
-    consumer-group change (State is scoped to <state_dir>/<consumer_group>), so
-    either triggers a reseed. Mirrors best-laps-cache's GATE_KEY/mark_seeded.
+    State flag at ``GATE_KEY`` — held in RocksDB State scoped to
+    <state_dir>/<consumer_group>, so it is naturally absent after a state-volume
+    wipe OR a consumer-group change, either of which triggers a reseed. Mirrors
+    best-laps-cache's GATE_KEY/mark_seeded.
 
     Flow:
-      1. (cheap hint) log the on-disk ``state_has_rocksdb_content`` fast-path.
-      2. GATE + READINESS round-trip: ``wait_for_seed_gate`` re-produces a
+      1. GATE + READINESS round-trip: ``wait_for_seed_gate`` re-produces a
          ``seed_gate`` every ~2s (bounded ~120s) until ``handle`` reads the flag
          in-context and sets ``_GATE_EVENT``. This also defeats the latest-offset
          race (a message produced before consumer assignment is skipped) and
          confirms the consumer is live before any seed is produced.
-      3. If the flag is True -> State already seeded (retained volume + same group)
+      2. If the flag is True -> State already seeded (retained volume + same group)
          -> skip the lake, return False.
-      4. Else -> aggregated MIN/GROUP BY query (retry/fail-soft), reduce, group by
+      3. Else -> aggregated MIN/GROUP BY query (retry/fail-soft), reduce, group by
          experiment, produce ``{type:"seed", ...}`` per experiment, then produce
          ``{type:"mark_seeded"}`` so ``handle`` sets ``state["seeded"]=True``.
 
@@ -660,12 +632,10 @@ def run_boot_seed() -> bool:
     """
     try:
         topic = events_topic
-        cold_hint = not state_has_rocksdb_content(STATE_DIR, CONSUMER_GROUP)
         logger.info(
-            "boot: state_dir=%s cg=%s offset=latest on-disk=%s -> gating on State seeded flag",
+            "boot: state_dir=%s cg=%s offset=latest -> gating on State seeded flag",
             STATE_DIR,
             CONSUMER_GROUP,
-            "empty(cold-hint)" if cold_hint else "has-content",
         )
 
         # Gate + readiness round-trip (re-produce seed_gate until handle answers).

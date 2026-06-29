@@ -88,8 +88,7 @@ v2 RAM-mirror base (`dev-planning/best-laps-lite-v2/spec.md`).
   never clobbers a populated/faster value) — the durable write. A lake timeout
   retries 2–3× @ ~60 s backoff, then fail-soft (WARN, leave the flag unset — a
   later boot retries); the boot thread never crashes startup. The idempotent fold
-  is the double-seed safety net. A cheap on-disk `state_has_rocksdb_content` check
-  is logged as a hint but is **not** authoritative.
+  is the double-seed safety net.
 - **Readiness barrier folded into the gate (latest-offset race).** With
   `auto_offset_reset="latest"` the events consumer positions at the tail on
   assignment, so a message produced *before* assignment is skipped — a seed
@@ -252,19 +251,12 @@ timeout proceeds as not-seeded (idempotent fold is the safety net). The flag is
 scoped to `<state_dir>/<consumer_group>`, so a volume wipe or a consumer-group
 change drops it → reseed.
 
-**On-disk probe (`state_has_rocksdb_content`) — cheap hint only, NOT
-authoritative.** Logged at boot to characterise the volume. Verified against the
-installed `quixstreams==3.24.*`: QS lays State out as
-`<Quix__State__Dir>/<consumer_group>/<store>/<stream_id>/<partition>/`
-(`StateStoreManager.__init__` appends `group_id`; `RocksDBStore` appends the store
-name [default `"default"`], the `stream_id`, then the integer partition). A
-RocksDB partition that has been opened/committed always contains a `CURRENT` file
-(and `MANIFEST-*` / `*.sst` once flushed). The probe walks the
-`<state_dir>/<consumer_group>` subtree and returns warm only on a `CURRENT` /
-`MANIFEST-*` / `*.sst` marker — not bare directory existence. Verified
-empirically: opening a `rocksdict.Rdict` writes `CURRENT`, `MANIFEST-*`,
-`IDENTITY`, `*.sst`, `LOG`, `LOCK`; `LOG`/`LOCK` alone are not treated as a commit
-marker.
+The gate flag lives in RocksDB State, which QS 3.24 lays out under
+`<Quix__State__Dir>/<consumer_group>/…` (`StateStoreManager.__init__` appends
+`group_id` to the state dir). That scoping is why wiping the state volume or
+changing `CONSUMER_GROUP` drops the flag → reseed. (An earlier on-disk RocksDB
+content probe was removed: the `seed_gate` round-trip is the authoritative gate,
+so the probe was dead weight.)
 
 **Aggregated query (OOM-safe).** On cold, `build_reconcile_sql` emits a
 single-level `MIN`/`GROUP BY` over all experiments —
