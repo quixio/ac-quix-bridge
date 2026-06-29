@@ -25,6 +25,11 @@ variables:
     description: Rich per-new-best event topic
     required: false
     defaultValue: ac-best-laps-events
+  - name: events_topic
+    inputType: FreeText
+    description: Internal experiment-keyed events topic (raw laps + boot-seed messages funnel here into one stateful store)
+    required: false
+    defaultValue: best-laps-events
   # Quix__Lakehouse__Query__Url / Quix__Lakehouse__Query__AuthToken are NOT
   # declared here. They are auto-injected by Quix Cloud at runtime because the
   # deployment has `blobStorage: bind: true`. Declaring them here forces a

@@ -1,27 +1,47 @@
-"""best-laps-lite v2 — RAM-mirror cache (single file, no classes).
+"""best-laps-lite — State-as-truth cache with cold-start boot seed (single file).
 
-Idiomatic QuixStreams (QS 3.24): one Application, one app.run(), three SDF
-branches, RocksDB State as the durable store, an in-process RAM mirror
-(BOARD_RAM) read by an inline FastAPI GET, and two output topics emitted on a
-new/improved best. Cold-starts State from the LakeHouse when empty. track and
-carModel come from the session topic (NOT from DCM); DCM (via join_lookup +
-QuixConfigurationService) supplies experiment / driver / environment only.
+Idiomatic QuixStreams (QS 3.24): one Application, one app.run(). **RocksDB State
+is the ground truth; the in-process BOARD_RAM mirror is a projection** re-built
+from State on EVERY consumed message (RAM never leads State). An inline FastAPI
+GET serves from BOARD_RAM (csv/json/nested). track/carModel come from the
+session topic (NOT DCM); DCM (join_lookup + ProdDCMConfigurationService) supplies
+experiment/driver/environment only.
 
-Topology (one line each):
+Topology — events-topic indirection (so the boot seeder can write State for ALL
+experiments in-context):
   session: app.dataframe(session_topic).update(remember_session, metadata=True)
            -> SESSION_BY_HOST[host] = {track, carModel, session_id}
   raw:     app.dataframe(raw_topic).join_lookup(lookup, fields)
-           .apply(shape, metadata=True) .filter(is_valid) .group_by("experiment")
-           .apply(handle, stateful=True, metadata=True)  [-> two to_topic branches]
-  handle:  read board from State -> ALWAYS mirror BOARD_RAM[exp]+EXP_ENV[exp]
-           -> lazy lake seed once (seeded flag) -> _fold tick
-           -> on change: state.set("board") + annotate snapshot/event for emit
+           .apply(shape, metadata=True) .filter(is_valid)
+           .group_by("experiment") .apply(tag_lap) .to_topic(EVENTS_TOPIC)   # {type:"lap", ...}
+  events:  app.dataframe(EVENTS_TOPIC).apply(handle, stateful=True, metadata=True)
+           -> filter(_changed) -> two to_topic (ac-best-laps snapshot, ac-best-laps-events event)
+  handle:  read board from State -> ALWAYS re-project BOARD_RAM[exp]+EXP_ENV[exp]
+           -> dispatch type: "seed" folds carried rows idempotently (min-update,
+              State+RAM, no emit); "lap" folds the tick, and on a strict
+              improvement sets State + annotates snapshot/event for emit.
+
+Cold-start boot seed (worker daemon thread, started before app.run()):
+  Gate on on-disk State-dir emptiness. COLD (no RocksDB content under
+  <Quix__State__Dir>/<consumer_group>/) -> run ONE aggregated MIN/GROUP BY lake
+  query (all experiments, OOM-safe), reduce, group by experiment, produce one
+  {type:"seed", experiment, environment, rows:[...]} per experiment to
+  EVENTS_TOPIC; the stateful handle folds each into state["board"] in-context
+  (the durable write). WARM (RocksDB content present) -> skip the lake, trust
+  State + the topic tail. Lake timeout -> retry 2-3x @ ~60s backoff, then
+  fail-soft (WARN, leave un-seeded; a later boot retries while the volume is
+  cold). auto_offset_reset="latest": history from the seed, live laps from the tail.
+
+Accepted residual: a seeded-but-never-driven experiment is in State (durable)
+but absent from BOARD_RAM after a WARM restart until a message for it arrives —
+RAM re-warms on traffic. After a COLD seed the seed message itself re-projects
+the board into RAM (no live tick needed). Eliminating it would require replaying
+State into RAM at boot, which State's in-context-only access forbids.
 
 Threading mirrors best-laps-cache: app.run() owns the MAIN thread (it installs
-SIGINT/SIGTERM via signal.signal); uvicorn runs on a worker daemon thread
-(off-main -> uvicorn capture_signals is a no-op, so no signal clash). On
-SIGTERM, app.run() returns and the process exits, tearing down the daemon HTTP
-thread. There is no boot-seed thread — seeding is lazy inside handle.
+SIGINT/SIGTERM via signal.signal); uvicorn + the boot seeder run on worker daemon
+threads (off-main -> uvicorn capture_signals is a no-op, so no signal clash). On
+SIGTERM, app.run() returns and the process exits, tearing down the daemon threads.
 """
 
 from __future__ import annotations
@@ -72,6 +92,12 @@ BEST_COL = os.environ.get("LAKE_COL_BEST_TIME", "iBestTime")
 DCM_CONTENT_BASE = os.environ.get("CONFIG_API_URL")
 HTTP_HOST = os.environ.get("HTTP_HOST", "0.0.0.0")
 HTTP_PORT = int(os.environ.get("HTTP_PORT", "80"))
+CONSUMER_GROUP = os.environ.get("CONSUMER_GROUP", "best-laps-lite")
+STATE_DIR = os.environ.get("Quix__State__Dir", "state")
+# Internal experiment-keyed events topic: raw laps AND boot-seed messages funnel
+# here so ONE stateful SDF (one stream_id -> one RocksDB store) folds all
+# experiments into State. Env-overridable.
+EVENTS_TOPIC = os.environ.get("events_topic", "best-laps-events")
 
 # --- in-process projections (read by the HTTP thread; never State off-thread) ---
 # Latest session per host (key == hostname), the source of track/carModel/session_id.
@@ -111,17 +137,30 @@ def rewrite_content_url(content_url: str, base: str | None) -> str:
     return urlunsplit((b.scheme, b.netloc, parts.path, parts.query, parts.fragment))
 
 
-def query_lake(experiment: str) -> list[dict]:
-    """Scan the whole table for one experiment -> rows (best per driver via fold).
+def build_reconcile_sql(lake_table: str, best_col: str) -> str:
+    """Aggregated all-experiments scan — one row per (env, exp, track, car, driver).
 
-    Carried verbatim from v1: POST raw SQL to {LAKE_URL}/query, verify=False
-    (byox self-signed cert), Bearer token if present, parse CSV, raise on error.
+    Mirrors best-laps-cache/seed.build_reconcile_sql: a single-level MIN/GROUP BY
+    (NO CTE — feedback_quixlake_no_cte; NO per-experiment raw scan — OOM-safe).
+    The lakehouse returns at most one row per driver group instead of every 50 Hz
+    tick. Identifiers come from validated env vars, so inlining is safe.
     """
-    exp = experiment.replace("'", "''")
-    sql = (
-        f"SELECT track, carModel, driver, {BEST_COL} FROM {LAKE_TABLE} "
-        f"WHERE {BEST_COL} > 0 AND {BEST_COL} < {INT_MAX} AND experiment = '{exp}'"
+    return (
+        f"SELECT environment, experiment, track, carModel, driver, "
+        f"MIN({best_col}) AS {best_col} "
+        f"FROM {lake_table} "
+        f"WHERE {best_col} > 0 AND {best_col} < {INT_MAX} "
+        f"GROUP BY environment, experiment, track, carModel, driver"
     )
+
+
+def query_lake_once(sql: str) -> list[dict]:
+    """POST one SQL query to the lakehouse and parse the CSV rows.
+
+    byox mechanics: POST raw SQL to {LAKE_URL}/query, verify=False (self-signed),
+    Bearer if a token is set. Raises on a `# ERROR:` body or any transport error
+    (the caller's retry/fail-soft loop handles it).
+    """
     headers = {"Content-Type": "text/plain"}
     if LAKE_TOKEN:
         headers["Authorization"] = f"Bearer {LAKE_TOKEN}"
@@ -129,12 +168,134 @@ def query_lake(experiment: str) -> list[dict]:
         f"{LAKE_URL.rstrip('/')}/query",
         content=sql,
         headers=headers,
-        timeout=30.0,
+        timeout=60.0,
         verify=False,
     )
     if resp.text.lstrip().startswith("# ERROR:"):
         raise RuntimeError(resp.text)
     return list(csv.DictReader(io.StringIO(resp.text)))
+
+
+def query_lake_with_retry(sql: str, retries: int = 3, backoff_s: float = 60.0) -> list[dict] | None:
+    """Run the seed query, retrying transport/timeout errors with a backoff.
+
+    QuixLake can time out on aggregated tables (feedback_quixlake_aggregation_slow).
+    Retry up to *retries* times with ~*backoff_s* between attempts; after the last
+    failure return ``None`` (fail-soft — the caller leaves State un-seeded and a
+    later boot retries while the volume is still cold). A successful query returns
+    the row list (possibly empty).
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            return query_lake_once(sql)
+        except Exception as exc:  # transport/timeout/HTTP error — retry then fail soft
+            if attempt < retries:
+                logger.warning(
+                    "boot-seed lake query attempt %d/%d failed (%r); retrying in %.0fs",
+                    attempt,
+                    retries,
+                    exc,
+                    backoff_s,
+                )
+                time.sleep(backoff_s)
+            else:
+                logger.warning(
+                    "boot-seed lake query failed after %d attempts (%r); leaving "
+                    "State un-seeded (a later boot retries while the volume is cold)",
+                    retries,
+                    exc,
+                )
+    return None
+
+
+def reduce_rows(rows: list[dict]) -> dict[tuple[str, str, str, str, str], int]:
+    """Reduce lake rows to ``{(env, exp, track, car, driver): min_ms}``.
+
+    Drops blank-driver / non-positive / INT_MAX rows. Mirrors
+    best-laps-cache/seed.reduce_rows; the key is the five-tuple of partition
+    fields so seed messages can be grouped by experiment without re-parsing.
+    """
+    out: dict[tuple[str, str, str, str, str], int] = {}
+    for row in rows:
+        driver = str(row.get("driver") or "").strip()
+        if not driver:
+            continue
+        raw_best = row.get(BEST_COL)
+        if raw_best is None or raw_best == "":
+            continue
+        try:
+            best_ms = int(float(raw_best))
+        except (TypeError, ValueError):
+            continue
+        if not (0 < best_ms < INT_MAX):
+            continue
+        key = (
+            str(row.get("environment") or "").strip(),
+            str(row.get("experiment") or "").strip(),
+            str(row.get("track") or "").strip(),
+            str(row.get("carModel") or "").strip(),
+            driver,
+        )
+        prev = out.get(key)
+        if prev is None or best_ms < prev:
+            out[key] = best_ms
+    return out
+
+
+def build_seed_messages(reduced: dict[tuple[str, str, str, str, str], int]) -> list[dict]:
+    """Group reduced bests by experiment into one ``{type:"seed", ...}`` per exp.
+
+    Mirrors best-laps-cache/boot_seed.{group_reduced_by_experiment,build_seed_messages}.
+    Output rides the EVENTS_TOPIC JSON contract and is folded in-context by
+    ``handle``. Blank experiments are skipped; the per-experiment environment is
+    the first non-blank env seen for that experiment.
+    """
+    grouped: dict[str, dict] = {}
+    for (env, exp, track, car, driver), best_ms in reduced.items():
+        if not exp:
+            continue
+        bucket = grouped.setdefault(exp, {"environment": "", "rows": []})
+        if env and not bucket["environment"]:
+            bucket["environment"] = env
+        bucket["rows"].append(
+            {"track": track, "carModel": car, "driver": driver, "best_lap_ms": int(best_ms)}
+        )
+    return [
+        {
+            "type": "seed",
+            "experiment": exp,
+            "environment": payload["environment"],
+            "rows": payload["rows"],
+        }
+        for exp, payload in grouped.items()
+    ]
+
+
+def state_has_rocksdb_content(state_dir: str, consumer_group: str) -> bool:
+    """True iff a RocksDB store exists on disk (warm) under the state dir.
+
+    QS 3.24 lays State out as ``<state_dir>/<consumer_group>/<store>/<stream_id>/
+    <partition>/`` (verified against the installed quixstreams: StateStoreManager
+    appends ``group_id`` to ``state_dir``; RocksDBStore appends the store name
+    [default "default"] then the stream_id then the int partition). A RocksDB
+    partition that has been opened/committed always contains a ``CURRENT`` file
+    plus a ``MANIFEST-*`` and ``*.sst`` once data is flushed.
+
+    We walk the consumer-group subtree (falling back to the whole state dir) and
+    report warm only when a real RocksDB marker (``CURRENT`` / ``MANIFEST-*`` /
+    ``*.sst``) is present — NOT on bare directory existence, so a process that
+    created the dir but never committed still counts as COLD (re-seedable).
+    """
+    root = os.path.join(state_dir, consumer_group)
+    if not os.path.isdir(root):
+        root = state_dir  # tolerate a flat layout / probe the whole tree
+    if not os.path.isdir(root):
+        return False
+    for _dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            if name == "CURRENT" or name.startswith("MANIFEST-") or name.endswith(".sst"):
+                return True
+    return False
 
 
 def _fold(board: dict, row: dict) -> tuple[bool, int | None]:
@@ -317,33 +478,64 @@ def remember_session(value: dict, key, timestamp, headers) -> None:
     )
 
 
-def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(stateful+metadata) order: value,key,ts,headers,state
-    """Per-experiment stateful core (keyed by experiment after group_by).
+def _project_ram(exp: str, board: dict, env: str) -> None:
+    """Re-project a State board into the RAM mirror under the lock (deep copy).
 
-    Reads board from State; lazily seeds State from the lake once per experiment;
-    folds the tick; on a new/improved best, writes State and annotates the value
-    for the to_topic branches. State writes + topic emits happen ONLY on a change.
-
-    At the end it publishes the board into the RAM mirror under ``_RAM_LOCK`` as a
-    DEEP COPY (so the stored mirror is never mutated in place by a later tick),
-    whenever the content changed OR RAM is still cold for this experiment. The
-    "cold" clause re-hydrates RAM from durable State on the first raw tick of any
-    kind after a restart (always-warm RAM, §1a Q1/Q3) without paying a per-tick
-    deepcopy on every non-best tick.
+    State is ground truth; RAM is a projection. The deep copy decouples the
+    published mirror from the in-context ``board`` so a later in-place fold never
+    mutates what a concurrent GET is serializing.
     """
-    exp = value["experiment"]
+    with _RAM_LOCK:
+        BOARD_RAM[exp] = copy.deepcopy(board)
+        EXP_ENV[exp] = env or EXP_ENV.get(exp, "")
+
+
+def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(stateful+metadata) order: value,key,ts,headers,state
+    """The ONE stateful op (State keyed by experiment via the events topic).
+
+    State is the ground truth; on EVERY consumed message it re-projects
+    ``state["board"]`` into BOARD_RAM/EXP_ENV (RAM never leads State). Dispatches
+    on ``value["type"]``:
+      * ``"seed"`` — fold the carried lake rows into the board IDEMPOTENTLY via
+        ``_fold`` (min-update never clobbers a populated/faster value); set State
+        + re-project RAM; does NOT emit (``_changed`` stays False).
+      * ``"lap"`` (or untyped legacy) — fold the live tick; on a strict
+        improvement set State and annotate ``_changed/_board/_previous_ms/
+        _timestamp_ms`` for the output branch.
+
+    The returned value carries ``_changed`` (the output branch filters on it).
+    """
+    exp = value.get("experiment", "")
     board = state.get("board") or {}
+    value["_changed"] = False
 
-    # Lazy one-time lake seed per experiment partition (gated by `seeded`).
-    if not state.get("seeded"):
-        try:
-            for r in query_lake(exp):
-                _fold(board, r)
-        except Exception:  # a lake hiccup must not crash the fold; live ticks still build State
-            logger.exception("lake seed failed for experiment=%s — continuing live-only", exp)
-        state.set("seeded", True)
-        state.set("board", board)
+    if value.get("type") == "seed":
+        folded = 0
+        for r in value.get("rows", []):
+            # seed rows carry best_lap_ms; map to the BEST_COL key _fold reads.
+            changed, _prev = _fold(
+                board,
+                {
+                    "track": r.get("track"),
+                    "carModel": r.get("carModel"),
+                    "driver": r.get("driver"),
+                    BEST_COL: r.get("best_lap_ms"),
+                },
+            )
+            folded += int(changed)
+        if folded:
+            state.set("board", board)
+        _project_ram(exp, board, value.get("environment", ""))
+        logger.info(
+            "handle: seed folded exp=%s rows=%d new=%d -> state[board] %s, BOARD_RAM mirrored",
+            exp,
+            len(value.get("rows", [])),
+            folded,
+            "set" if folded else "unchanged",
+        )
+        return value
 
+    # type == "lap" (or untyped legacy): fold the live tick.
     changed, previous_ms = _fold(board, value)
     value["_changed"] = changed
     value["_board"] = board
@@ -352,26 +544,95 @@ def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(sta
 
     if changed:
         state.set("board", board)
-        boards_n = sum(
-            len(d) for cars in board.values() for d in cars.values()
-        )
+        boards_n = sum(len(d) for cars in board.values() for d in cars.values())
         logger.info(
             "new best exp=%s track=%s car=%s driver=%s ms=%s (board boards=%d)",
             exp,
-            value["track"],
-            value["carModel"],
-            value["driver"],
-            value[BEST_COL],
+            value.get("track"),
+            value.get("carModel"),
+            value.get("driver"),
+            value.get(BEST_COL),
             boards_n,
         )
 
-    # Publish to RAM under the lock as a deep copy (decoupled from `board`).
-    env = value.get("environment", "") or EXP_ENV.get(exp, "")
-    if changed or exp not in BOARD_RAM:
-        with _RAM_LOCK:
-            BOARD_RAM[exp] = copy.deepcopy(board)
-            EXP_ENV[exp] = env
+    # State is truth -> re-project RAM on EVERY message (not only on change).
+    _project_ram(exp, board, value.get("environment", ""))
     return value
+
+
+def tag_lap(value: dict) -> dict:
+    """Tag a shaped+validated raw tick as a ``"lap"`` event for EVENTS_TOPIC."""
+    value["type"] = "lap"
+    return value
+
+
+def run_boot_seed() -> bool:
+    """Cold-start seed: query the lake ONCE and produce one seed message per exp.
+
+    Runs on a worker daemon thread before app.run(). Gate on on-disk State-dir
+    emptiness: WARM (RocksDB content present) -> skip (trust State + topic tail).
+    COLD -> aggregated MIN/GROUP BY query (retry/fail-soft), reduce, group by
+    experiment, and produce ``{type:"seed", experiment, environment, rows}`` to
+    EVENTS_TOPIC keyed by experiment. The stateful ``handle`` folds each into
+    ``state["board"]`` in-context (the durable write) once app.run() is consuming;
+    producing before the consumer is fully up is safe (messages persist).
+
+    Never raises — any failure logs a WARNING and leaves State un-seeded so a
+    later boot can retry while the volume is still cold.
+    """
+    try:
+        if state_has_rocksdb_content(STATE_DIR, CONSUMER_GROUP):
+            logger.info(
+                "boot: state_dir=%s cg=%s -> WARM (RocksDB content present) -> "
+                "skipping lake, trusting State + topic",
+                STATE_DIR,
+                CONSUMER_GROUP,
+            )
+            return False
+        logger.info(
+            "boot: state_dir=%s cg=%s offset=latest -> COLD (no RocksDB content)",
+            STATE_DIR,
+            CONSUMER_GROUP,
+        )
+        if not LAKE_URL:
+            logger.warning(
+                "boot-seed skipped: no Lakehouse Query URL configured "
+                "(Quix__Lakehouse__Query__Url / LAKE_API_URL); live laps will fill State"
+            )
+            return False
+
+        sql = build_reconcile_sql(LAKE_TABLE, BEST_COL)
+        logger.info("boot-seed: lake scan SQL: %s", sql)
+        rows = query_lake_with_retry(sql)
+        if rows is None:
+            return False  # retries exhausted; already logged
+        if not rows:
+            logger.info("boot-seed: lake scan returned 0 rows; nothing to seed")
+            return False
+
+        reduced = reduce_rows(rows)
+        messages = build_seed_messages(reduced)
+        if not messages:
+            logger.info("boot-seed: no experiment-keyed rows after reduction; skipping")
+            return False
+
+        topic = events_topic
+        with app.get_producer() as producer:
+            for message in messages:
+                kafka_msg = topic.serialize(key=message["experiment"], value=message)
+                producer.produce(topic=topic.name, key=kafka_msg.key, value=kafka_msg.value)
+        logger.info(
+            "boot-seed: %d lake groups across %d experiments -> produced %d seed "
+            "messages to %s",
+            len(reduced),
+            len(messages),
+            len(messages),
+            topic.name,
+        )
+        return True
+    except Exception:  # boot seed must NEVER crash startup
+        logger.warning("boot-seed failed; State left un-seeded (retryable)", exc_info=True)
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -420,9 +681,9 @@ class ProdDCMConfigurationService(QuixConfigurationService):
 # --------------------------------------------------------------------------- #
 app = Application(
     broker_address=os.environ.get("BROKER_ADDRESS") or None,
-    consumer_group=os.environ.get("CONSUMER_GROUP", "best-laps-lite"),
-    auto_offset_reset="earliest",
-    state_dir=os.environ.get("Quix__State__Dir", "state"),
+    consumer_group=CONSUMER_GROUP,
+    auto_offset_reset="latest",  # trust committed offsets; history comes from the boot seed
+    state_dir=STATE_DIR,
 )
 
 raw_topic = app.topic(
@@ -436,6 +697,16 @@ session_topic = app.topic(
     key_deserializer="str",  # keep SESSION_BY_HOST keyed by the same str key shape() looks up
 )
 config_topic = app.topic(os.environ.get("config_input", "ac-telemetry-config"))
+# One internal events topic both the raw branch and the boot seeder produce to,
+# consumed by the single stateful SDF. Experiment-keyed (str) so all events for an
+# experiment co-partition onto one RocksDB store.
+events_topic = app.topic(
+    EVENTS_TOPIC,
+    value_deserializer="json",
+    value_serializer="json",
+    key_deserializer="str",
+    key_serializer="str",
+)
 best_time_topic = app.topic(
     os.environ.get("best_time_output", "ac-best-laps"), value_serializer="json"
 )
@@ -460,15 +731,21 @@ fields = {
 # Branch 1 — session: keep latest {track, carModel, session_id} per host.
 app.dataframe(session_topic).update(remember_session, metadata=True)
 
-# Branch 2 — raw: enrich -> shape -> validate -> re-key -> fold (in handle).
-sdf = app.dataframe(raw_topic).join_lookup(lookup, fields)
-sdf = sdf.apply(shape, metadata=True)
-sdf = sdf.filter(is_valid)
-sdf = sdf.group_by("experiment")
-sdf = sdf.apply(handle, stateful=True, metadata=True)
+# Branch 2 — raw -> events: enrich -> shape -> validate -> re-key -> produce a
+# "lap" event to the internal events topic (the to_topic key re-partitions by
+# experiment, so all events for an experiment land on one RocksDB store).
+raw_sdf = app.dataframe(raw_topic).join_lookup(lookup, fields)
+raw_sdf = raw_sdf.apply(shape, metadata=True)
+raw_sdf = raw_sdf.filter(is_valid)
+raw_sdf = raw_sdf.group_by("experiment")
+raw_sdf = raw_sdf.apply(tag_lap)
+raw_sdf.to_topic(events_topic, key=lambda v: v["experiment"])
 
-# Branch 3 — outputs: emit ONLY on a new/improved best (key == experiment).
-changed = sdf.filter(lambda v: v["_changed"])
+# Branch 3 — events -> State: the ONE stateful op. Consumes lap + seed events,
+# folds into state["board"], re-projects RAM every message; on a new best emits
+# to the two output topics (seed events never set _changed).
+events_sdf = app.dataframe(events_topic).apply(handle, stateful=True, metadata=True)
+changed = events_sdf.filter(lambda v: v["_changed"])
 changed.apply(to_best_time_payload).to_topic(best_time_topic, key=lambda v: v["experiment"])
 changed.apply(to_event_payload).to_topic(event_topic, key=lambda v: v["experiment"])
 
@@ -590,23 +867,33 @@ def _serve_http() -> None:
 
 if __name__ == "__main__":
     logger.info(
-        "boot: raw=%s session=%s config=%s best_time=%s event=%s "
-        "lake_table=%s best_col=%s http=%s:%d cg=%s state_dir=%s lake_url=%s",
+        "boot: raw=%s session=%s config=%s events=%s best_time=%s event=%s "
+        "lake_table=%s best_col=%s http=%s:%d cg=%s state_dir=%s offset=latest lake_url=%s",
         raw_topic.name,
         session_topic.name,
         config_topic.name,
+        events_topic.name,
         best_time_topic.name,
         event_topic.name,
         LAKE_TABLE,
         BEST_COL,
         HTTP_HOST,
         HTTP_PORT,
-        os.environ.get("CONSUMER_GROUP", "best-laps-lite"),
-        os.environ.get("Quix__State__Dir", "state"),
+        CONSUMER_GROUP,
+        STATE_DIR,
         "yes" if LAKE_URL else "no",
     )
     logger.info("DCM content base (CONFIG_API_URL) = %r", DCM_CONTENT_BASE)
+    # uvicorn on a daemon thread; boot seeder on another daemon thread; app.run()
+    # on the MAIN thread (it owns SIGINT/SIGTERM). The seeder gates on State-dir
+    # emptiness and produces seed messages the stateful SDF folds once consuming.
     http_thread = threading.Thread(target=_serve_http, name="http-server", daemon=True)
     http_thread.start()
-    logger.info("app.run() on MAIN thread; uvicorn on daemon thread '%s'", http_thread.name)
+    boot_seed_thread = threading.Thread(target=run_boot_seed, name="boot-seed", daemon=True)
+    boot_seed_thread.start()
+    logger.info(
+        "app.run() on MAIN thread; uvicorn on daemon '%s'; boot-seed on daemon '%s'",
+        http_thread.name,
+        boot_seed_thread.name,
+    )
     app.run()  # blocking, MAIN thread; installs SIGINT/SIGTERM
