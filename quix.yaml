@@ -880,6 +880,9 @@ deployments:
         cpu: 1000
         memory: 2000
       replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: best-laps-lite-bc9e41b
     state:
       enabled: true
       size: 3
