@@ -38,11 +38,16 @@ import time
 import httpx
 import uvicorn
 from fastapi import FastAPI, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from quixstreams import Application
 from quixstreams.dataframe.joins.lookups import QuixConfigurationService
 
 INT_MAX = 2147483647  # AC "no lap set" sentinel — never store/serve it
+
+# Column order the dashboard's leaderboard path consumes — a drop-in replica of
+# best-laps-cache/best_laps_cache/api.py's `_CSV_COLUMNS` so the dashboard's
+# `/leaderboard` -> GET /best-laps path works against lite v2 unchanged.
+_CSV_COLUMNS = ["environment", "experiment", "track", "carModel", "driver", "iBestTime"]
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
@@ -182,6 +187,20 @@ def to_rows(boards: dict[str, dict], envs: dict[str, str]) -> list[dict]:
                     )
     rows.sort(key=lambda r: (r["experiment"], r["track"], r["carModel"], r["iBestTime"]))
     return rows
+
+
+def _to_csv(rows: list[dict]) -> str:
+    """Serialize rows to CSV in the exact _CSV_COLUMNS order (header + rows).
+
+    Drop-in replica of best-laps-cache's _to_csv so the dashboard parses lite v2
+    identically. Empty rows -> header line only.
+    """
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=_CSV_COLUMNS)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue()
 
 
 def to_best_time_payload(value: dict) -> dict:
@@ -347,40 +366,85 @@ def create_http_app() -> FastAPI:
 
     @api.get("/best-laps")
     def best_laps(
+        environment: str | None = Query(None),  # accepted, not a filter (single env)
         experiment: str | None = Query(None),
-        format: str = Query("nested"),  # noqa: A002 — public query-param name
+        track: str | None = Query(None),
+        carModel: str | None = Query(None),  # noqa: N803 — public query-param name
+        driver: str | None = Query(None),  # accepted for back-compat; filter only if given
+        format: str = Query("csv"),  # noqa: A002 — public query-param name
     ):
         # Snapshot RAM under the lock, then build the response from the snapshot —
         # never serialize the live dicts the SDF thread mutates in _fold/handle.
         with _RAM_LOCK:
-            boards = copy.deepcopy(BOARD_RAM)
+            all_boards = copy.deepcopy(BOARD_RAM)
             envs = dict(EXP_ENV)
 
-        # Flat rows mode (dashboard-compatible: best-laps-cache's row contract).
-        if format.lower() == "rows":
-            if experiment is not None:
-                boards = {experiment: boards.get(experiment, {})}
-            return JSONResponse(to_rows(boards, envs))
-
-        # Nested mode (default).
-        as_of = time.time()
+        # Target experiment: the explicit param selects that board; omitted means
+        # ALL experiments (lite has no single "active experiment" like the cache).
         if experiment is not None:
+            boards = {experiment: all_boards.get(experiment, {})}
+        else:
+            boards = all_boards
+
+        # Nested mode (kept available; NOT the default).
+        if format.lower() == "nested":
+            as_of = time.time()
+            if experiment is not None:
+                return JSONResponse(
+                    {
+                        "experiment": experiment,
+                        "board": boards.get(experiment, {}),
+                        "as_of_epoch": as_of,
+                        "source": "best-laps-lite-ram",
+                    }
+                )
             return JSONResponse(
                 {
-                    "experiment": experiment,
-                    "board": boards.get(experiment, {}),
+                    "boards": boards,
+                    "experiments": list(boards),
                     "as_of_epoch": as_of,
                     "source": "best-laps-lite-ram",
                 }
             )
-        return JSONResponse(
-            {
-                "boards": boards,
-                "experiments": list(boards),
-                "as_of_epoch": as_of,
-                "source": "best-laps-lite-ram",
-            }
+
+        # Flat dashboard contract (default csv / json). Flatten -> filter -> sort.
+        rows = to_rows(boards, envs)
+        if track is not None:
+            rows = [r for r in rows if r["track"] == track]
+        if carModel is not None:
+            rows = [r for r in rows if r["carModel"] == carModel]
+        if driver:  # accepted for back-compat; the dashboard overlays "me" client-side
+            rows = [r for r in rows if r["driver"] == driver]
+        rows.sort(key=lambda r: (r["track"], r["carModel"], r["iBestTime"]))
+
+        applied = {
+            k: v
+            for k, v in {
+                "experiment": experiment,
+                "track": track,
+                "carModel": carModel,
+                "driver": driver,
+            }.items()
+            if v is not None
+        } or "none"
+        logger.info(
+            "GET /best-laps filters=%s -> %d rows (format=%s)",
+            applied,
+            len(rows),
+            format.lower(),
         )
+        if format.lower() == "json":
+            return JSONResponse(
+                {
+                    "table": LAKE_TABLE,
+                    "columns": _CSV_COLUMNS,
+                    "rows": rows,
+                    "row_count": len(rows),
+                    "source": "best-laps-lite",
+                    "as_of_epoch": time.time(),
+                }
+            )
+        return PlainTextResponse(_to_csv(rows), media_type="text/csv")
 
     return api
 

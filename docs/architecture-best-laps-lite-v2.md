@@ -114,15 +114,30 @@ GET /best-laps  ◄─ uvicorn (worker daemon thread) ◄─ snapshot BOARD_RAM/
 
 ### HTTP read modes
 
-- `GET /best-laps` → nested `{boards: {exp: {track:{car:{driver:ms}}}},
-  experiments, as_of_epoch, source}`.
-- `GET /best-laps?experiment=<exp>` → that single board.
-- `GET /best-laps?format=rows` → flat JSON list of `{environment, experiment,
-  track, carModel, driver, iBestTime}`, fastest-first within each
-  track/carModel group — matches `best-laps-cache`'s row contract so the
-  Telemetry Dashboard can point at v2 unchanged.
-- `GET /healthz` → `{status, experiments, boards}`.
-- Empty/not-warm → 200 with an empty board/list, never a 4xx/5xx.
+`GET /best-laps` is a **drop-in replica of `best-laps-cache`'s `/best-laps`
+contract** so the Telemetry Dashboard's `/leaderboard` → GET path works against
+lite v2 unchanged. Same params, same default, same CSV columns/order.
+
+- Query params: `environment` (accepted, **not** a filter — single-env service),
+  `experiment`, `track`, `carModel` (camelCase), `driver` (accepted; filters only
+  if provided), `format` (default **`csv`**).
+- **Default → `text/csv`** (`PlainTextResponse`), columns in EXACT order
+  `environment,experiment,track,carModel,driver,iBestTime` (header row + rows),
+  via the local `_CSV_COLUMNS` / `_to_csv` mirroring the cache. Rows sorted by
+  `(track, carModel, iBestTime)` fastest-first (matching the cache's sort).
+- `?format=json` → the cache's envelope `{table: <LAKE_TABLE>, columns: [...],
+  rows: [...], row_count: N, source: "best-laps-lite", as_of_epoch: <ts>}`.
+- `?format=nested` → the original nested mode (`{boards|board, experiments,
+  as_of_epoch, source: "best-laps-lite-ram"}`), kept available but **not** the
+  default.
+- **Target experiment:** the `experiment` param selects that board; **omitted ⇒
+  ALL experiments** flattened (lite has no single "active experiment" like the
+  cache, so omitted means every board in `BOARD_RAM`).
+- Rows are built from the locked RAM snapshot via `to_rows(boards, envs)` and
+  then filtered by `track` / `carModel` / `driver`.
+- `GET /healthz` → `{status, experiments, boards}` (also snapshots under the lock).
+- Empty/not-warm or unknown experiment → 200 with the CSV **header only** (or an
+  empty `rows`/board in json/nested), never a 4xx/5xx.
 
 ## Threading & shutdown
 
@@ -154,17 +169,20 @@ absent) and the board builds live-only.
 
 | File | Change | Why |
 |------|--------|-----|
-| `best-laps-lite/main.py` | Rewritten | Single-file v2: session/raw/handle branches, RAM mirror, inline FastAPI, two output topics, lazy lake seed. |
+| `best-laps-lite/main.py` | Rewritten | Single-file v2: session/raw/handle branches, lock-guarded RAM mirror, inline FastAPI (`/best-laps` as a drop-in replica of best-laps-cache's CSV+filters contract), two output topics, lazy lake seed. |
 | `best-laps-lite/app.yaml` | Modified | Added `best_time_output` (`ac-best-laps`) + `event_output` (`ac-best-laps-events`) OutputTopics; added `session_output` default; declared byox `Quix__Lakehouse__Query__Url`/`__AuthToken` (not auto-injected on byox); kept `output`/`config_input`/`CONFIG_API_URL`/`LAKE_TABLE`/`LAKE_COL_BEST_TIME`/`HTTP_PORT`/`CONSUMER_GROUP`/`Quix__State__Dir`. |
 | `best-laps-lite/requirements.txt` | Modified | Pinned `quixstreams==3.24.*`; `fastapi`, `uvicorn[standard]`, `httpx` unchanged. |
 | `best-laps-lite/dockerfile` | Unchanged | python:3.13-slim, EXPOSE 80, `python main.py`. |
 
 ## Integration with neighbouring features
 
-- **Telemetry Dashboard** can consume `GET /best-laps?format=rows` — the flat
-  row shape is column-compatible with `best-laps-cache`'s contract
-  (`environment, experiment, track, carModel, driver, iBestTime`), so the
-  dashboard's `/leaderboard` → GET path works against v2 unchanged.
+- **Telemetry Dashboard** consumes `GET /best-laps` as a **drop-in replica of
+  best-laps-cache's endpoint**: default `text/csv` with columns
+  `environment,experiment,track,carModel,driver,iBestTime`, the same
+  `environment`/`experiment`/`track`/`carModel`/`driver`/`format` params, and a
+  `?format=json` envelope — so the dashboard's `/leaderboard` → GET path works
+  against v2 unchanged. (`?format=nested` exposes the RAM-native nested board for
+  other consumers.)
 - **DCM enrichment** uses the same `join_lookup` + `QuixConfigurationService`
   idiom as `ac-telemetry-lake` and v1, keyed by `hostname == target_key`, but
   resolves only `experiment`/`driver`/`environment` (no `type="session"`
