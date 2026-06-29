@@ -839,40 +839,6 @@ deployments:
         value: true
     blobStorage:
       bind: true
-  - name: Dummy Telemetry Source
-    group: Ingestion
-    application: dummy-telemetry-source
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 500
-        memory: 1500
-      replicas: 1
-    desiredStatus: Stopped
-    variables:
-      - name: output
-        inputType: OutputTopic
-        description: Topic to write replayed raw AC telemetry into (ac-telemetry-raw)
-        required: true
-        value: ac-telemetry-raw
-      - name: session_output
-        inputType: OutputTopic
-        description: Topic to write replayed session metadata into (ac-telemetry-session)
-        required: true
-        value: ac-telemetry-session
-      - name: SPEEDUP
-        inputType: FreeText
-        description: Replay speed multiplier relative to captured wall-clock (10 = 10x faster)
-        value: 10
-      - name: DUMMY_HOSTNAME
-        inputType: FreeText
-        description: Message key / DCM target_key for the replayed stream
-        value: QUIX-GAMING
-      - name: LOOP
-        inputType: FreeText
-        description: Replay the corpus forever when true, single pass when false
-        value: true
 
 # This section describes the Topics of the data pipeline
 topics:
