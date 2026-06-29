@@ -1,4 +1,8 @@
-.env
+# Any env file (e.g. .env, .env_byox, .env.quixdev) — keep example templates tracked
+.env*
+!.env.example
+!**/.env.example
+!test-manager-frontend/.env.local.template
 __pycache__/
 *.pyc
 .venv/

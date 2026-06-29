@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-06-17T19:18:34Z",
-  "newest_source_mtime": "2026-06-17T19:15:46Z",
+  "generated_at": "2026-06-29T09:17:39Z",
+  "newest_source_mtime": "2026-06-23T21:49:46Z",
   "services": {
     "ac-postrace-trigger": {
       "entry": "main.py",
@@ -964,7 +964,13 @@
         {
           "file": "partition_filter.py",
           "kind": "function",
-          "line": 20,
+          "line": 23,
+          "name": "_quote"
+        },
+        {
+          "file": "partition_filter.py",
+          "kind": "function",
+          "line": 28,
           "name": "_build_partition_filter"
         },
         {
@@ -1272,91 +1278,115 @@
         {
           "file": "main.py",
           "kind": "function",
-          "line": 45,
+          "line": 53,
           "name": "push_to_clients"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 53,
+          "line": 61,
           "name": "set_consumer_status"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 67,
+          "line": 75,
           "name": "set_current_driver"
         },
         {
           "file": "main.py",
+          "kind": "function",
+          "line": 87,
+          "name": "set_current_experiment"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 104,
+          "name": "set_current_session"
+        },
+        {
+          "file": "main.py",
           "kind": "async_function",
-          "line": 79,
+          "line": 125,
           "name": "_broadcast"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 90,
+          "line": 136,
           "name": "run_kafka"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 146,
-          "name": "_fetch_config_driver"
+          "line": 192,
+          "name": "_fetch_config_content"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 168,
+          "line": 215,
           "name": "_handle_config_event"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 177,
-          "name": "run_config_consumer"
-        },
-        {
-          "file": "main.py",
-          "kind": "async_function",
           "line": 229,
-          "name": "lifespan"
-        },
-        {
-          "file": "main.py",
-          "kind": "async_function",
-          "line": 245,
-          "name": "health"
-        },
-        {
-          "file": "main.py",
-          "kind": "function",
-          "line": 271,
-          "name": "_datalake_verify"
+          "name": "run_config_consumer"
         },
         {
           "file": "main.py",
           "kind": "function",
           "line": 280,
-          "name": "_parse_leaderboard_csv"
-        },
-        {
-          "file": "main.py",
-          "kind": "async_function",
-          "line": 297,
-          "name": "leaderboard"
+          "name": "run_session_consumer"
         },
         {
           "file": "main.py",
           "kind": "async_function",
           "line": 333,
+          "name": "lifespan"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 351,
+          "name": "health"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 372,
+          "name": "_http_verify"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 379,
+          "name": "_parse_cache_csv"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 406,
+          "name": "_fetch_from_cache"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 438,
+          "name": "leaderboard"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 479,
           "name": "root"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 360,
+          "line": 506,
           "name": "ws_endpoint"
         }
       ],
@@ -1364,21 +1394,21 @@
         {
           "file": "main.py",
           "handler": "health",
-          "line": 244,
+          "line": 350,
           "method": "GET",
           "path": "/health"
         },
         {
           "file": "main.py",
           "handler": "leaderboard",
-          "line": 296,
+          "line": 437,
           "method": "GET",
           "path": "/leaderboard"
         },
         {
           "file": "main.py",
           "handler": "root",
-          "line": 332,
+          "line": 478,
           "method": "GET",
           "path": "/{full_path:path}"
         }
@@ -1475,331 +1505,343 @@
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 24,
+          "line": 25,
           "name": "PaginationParams"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 40,
+          "line": 41,
           "name": "PaginatedResponse"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 64,
+          "line": 65,
           "name": "TestStatus"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 70,
+          "line": 71,
           "name": "DeviceReference"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 79,
+          "line": 80,
           "name": "SessionInfo"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 87,
+          "line": 88,
           "name": "TestMode"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 95,
+          "line": 96,
           "name": "Test"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 119,
+          "line": 120,
           "name": "TestCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 131,
+          "line": 132,
           "name": "TestUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 143,
-          "name": "LastRequirements"
+          "line": 144,
+          "name": "LastUsedDefaults"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 149,
+          "line": 156,
           "name": "TestQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 158,
+          "line": 165,
           "name": "TestFullData"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 165,
+          "line": 172,
           "name": "LogbookEntry"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 175,
+          "line": 182,
           "name": "LogbookEntryCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 182,
+          "line": 189,
           "name": "LogbookEntryUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 195,
+          "line": 202,
           "name": "DeviceStatus"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 202,
+          "line": 209,
           "name": "DeviceCategory"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 209,
+          "line": 216,
           "name": "Device"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 220,
+          "line": 227,
           "name": "DeviceCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 228,
+          "line": 235,
           "name": "DeviceUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 236,
+          "line": 243,
           "name": "DeviceQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 249,
+          "line": 256,
           "name": "SampleType"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 256,
+          "line": 263,
           "name": "Location"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 263,
+          "line": 270,
           "name": "ProductCategory"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 270,
+          "line": 277,
           "name": "Product"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 284,
+          "line": 291,
           "name": "IntegrationSettings"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 295,
+          "line": 302,
           "name": "IntegrationSettingsUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 302,
+          "line": 309,
           "name": "Topic"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 309,
+          "line": 316,
           "name": "Workspace"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 316,
+          "line": 323,
           "name": "TopicInfo"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 332,
+          "line": 339,
           "name": "Repository"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 341,
+          "line": 348,
           "name": "WorkspaceDetails"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 353,
+          "line": 360,
           "name": "DeploymentInfo"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 372,
+          "line": 379,
           "name": "Driver"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 387,
+          "line": 394,
           "name": "DriverCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 405,
+          "line": 412,
           "name": "DriverUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 420,
+          "line": 427,
           "name": "DriverQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 432,
+          "line": 439,
           "name": "EnvironmentStatus"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 437,
+          "line": 444,
           "name": "Environment"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 448,
+          "line": 455,
           "name": "EnvironmentCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 456,
+          "line": 463,
           "name": "EnvironmentUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 464,
+          "line": 471,
           "name": "EnvironmentQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 483,
+          "line": 490,
           "name": "Experiment"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 496,
+          "line": 503,
           "name": "ExperimentCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 515,
+          "line": 522,
           "name": "ExperimentQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 522,
+          "line": 529,
           "name": "DeploymentReference"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 537,
+          "line": 544,
           "name": "KpiValue"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 547,
+          "line": 554,
           "name": "RequirementCheck"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 555,
+          "line": 562,
           "name": "Anomaly"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 567,
+          "line": 574,
+          "name": "ActivityEvent"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 592,
+          "name": "AnalysisContext"
+        },
+        {
+          "file": "api/models.py",
+          "kind": "class",
+          "line": 607,
           "name": "Analysis"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 611,
+          "line": 659,
           "name": "AnalysisCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 637,
+          "line": 685,
           "name": "AnalysisListQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 646,
+          "line": 694,
           "name": "SaveAnalysisPayload"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 658,
+          "line": 727,
           "name": "AnalysisRecipient"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 665,
+          "line": 734,
           "name": "EmailSendResult"
         },
         {
@@ -1841,67 +1883,79 @@
         {
           "file": "api/notify.py",
           "kind": "class",
-          "line": 24,
+          "line": 25,
           "name": "EmailNotConfigured"
         },
         {
           "file": "api/notify.py",
           "kind": "class",
-          "line": 28,
+          "line": 29,
           "name": "NoRecipientEmail"
         },
         {
           "file": "api/notify.py",
           "kind": "function",
-          "line": 32,
+          "line": 33,
           "name": "resolve_driver_email"
         },
         {
           "file": "api/notify.py",
           "kind": "function",
-          "line": 51,
+          "line": 52,
           "name": "send_analysis_email"
         },
         {
           "file": "api/notify.py",
           "kind": "function",
-          "line": 80,
+          "line": 89,
           "name": "email_completed_analysis"
         },
         {
           "file": "api/routes/analyses.py",
+          "kind": "function",
+          "line": 53,
+          "name": "_build_analysis_context"
+        },
+        {
+          "file": "api/routes/analyses.py",
           "kind": "async_function",
-          "line": 50,
+          "line": 96,
           "name": "create_analysis"
         },
         {
           "file": "api/routes/analyses.py",
           "kind": "function",
-          "line": 183,
+          "line": 246,
           "name": "get_analysis"
         },
         {
           "file": "api/routes/analyses.py",
           "kind": "function",
-          "line": 196,
+          "line": 259,
           "name": "get_analysis_pdf"
         },
         {
           "file": "api/routes/analyses.py",
           "kind": "function",
-          "line": 227,
+          "line": 296,
+          "name": "get_analysis_telemetry"
+        },
+        {
+          "file": "api/routes/analyses.py",
+          "kind": "function",
+          "line": 333,
           "name": "get_analysis_recipient"
         },
         {
           "file": "api/routes/analyses.py",
           "kind": "function",
-          "line": 245,
+          "line": 351,
           "name": "send_analysis_email_route"
         },
         {
           "file": "api/routes/analyses.py",
           "kind": "function",
-          "line": 278,
+          "line": 384,
           "name": "list_analyses"
         },
         {
@@ -2159,7 +2213,7 @@
         {
           "file": "api/routes/mcp/handlers/write.py",
           "kind": "function",
-          "line": 18,
+          "line": 15,
           "name": "save_analysis"
         },
         {
@@ -2267,116 +2321,116 @@
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 27,
+          "line": 28,
           "name": "build_partition_values"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 52,
+          "line": 53,
           "name": "sync_to_dcm"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 107,
+          "line": 108,
           "name": "generate_test_id"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 119,
+          "line": 120,
           "name": "resolve_test_names"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 130,
+          "line": 131,
           "name": "resolve_tests_names"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 164,
+          "line": 165,
           "name": "auth_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 169,
+          "line": 170,
           "name": "create_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 214,
+          "line": 215,
           "name": "list_tests"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 262,
+          "line": 263,
           "name": "get_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 275,
+          "line": 276,
           "name": "get_test_full"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 293,
+          "line": 294,
           "name": "update_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 347,
+          "line": 348,
           "name": "get_telemetry_params"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 382,
+          "line": 384,
           "name": "add_session"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 412,
+          "line": 414,
           "name": "activate_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 447,
+          "line": 449,
           "name": "delete_test"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 503,
+          "line": 505,
           "name": "get_experiment_ids"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 513,
+          "line": 515,
           "name": "get_environment_ids"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 522,
+          "line": 524,
           "name": "get_drivers"
         },
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 531,
-          "name": "get_last_requirements"
+          "line": 537,
+          "name": "get_last_used_defaults"
         },
         {
           "file": "api/routes/user.py",
@@ -2405,7 +2459,7 @@
         {
           "file": "api/settings.py",
           "kind": "function",
-          "line": 54,
+          "line": 64,
           "name": "get_settings"
         },
         {
@@ -2449,48 +2503,67 @@
           "kind": "function",
           "line": 86,
           "name": "main"
+        },
+        {
+          "file": "scripts/seed_local_viz.py",
+          "kind": "function",
+          "line": 27,
+          "name": "_connect"
+        },
+        {
+          "file": "scripts/seed_local_viz.py",
+          "kind": "function",
+          "line": 35,
+          "name": "main"
         }
       ],
       "routes": [
         {
           "file": "api/routes/analyses.py",
           "handler": "create_analysis",
-          "line": 39,
+          "line": 85,
           "method": "POST",
           "path": "/analyses"
         },
         {
           "file": "api/routes/analyses.py",
           "handler": "get_analysis",
-          "line": 180,
+          "line": 243,
           "method": "GET",
           "path": "/analyses/{analysis_id}"
         },
         {
           "file": "api/routes/analyses.py",
           "handler": "get_analysis_pdf",
-          "line": 195,
+          "line": 258,
           "method": "GET",
           "path": "/analyses/{analysis_id}/pdf"
         },
         {
           "file": "api/routes/analyses.py",
+          "handler": "get_analysis_telemetry",
+          "line": 295,
+          "method": "GET",
+          "path": "/analyses/{analysis_id}/telemetry"
+        },
+        {
+          "file": "api/routes/analyses.py",
           "handler": "get_analysis_recipient",
-          "line": 222,
+          "line": 328,
           "method": "GET",
           "path": "/analyses/{analysis_id}/recipient"
         },
         {
           "file": "api/routes/analyses.py",
           "handler": "send_analysis_email_route",
-          "line": 240,
+          "line": 346,
           "method": "POST",
           "path": "/analyses/{analysis_id}/email"
         },
         {
           "file": "api/routes/analyses.py",
           "handler": "list_analyses",
-          "line": 277,
+          "line": 383,
           "method": "GET",
           "path": "/analyses"
         },
@@ -2749,100 +2822,100 @@
         {
           "file": "api/routes/tests.py",
           "handler": "auth_test",
-          "line": 163,
+          "line": 164,
           "method": "GET",
           "path": "/_internal/auth-test"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "create_test",
-          "line": 168,
+          "line": 169,
           "method": "POST",
           "path": "/tests"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "list_tests",
-          "line": 211,
+          "line": 212,
           "method": "GET",
           "path": "/tests"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_test",
-          "line": 261,
+          "line": 262,
           "method": "GET",
           "path": "/tests/{test_id}"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_test_full",
-          "line": 272,
+          "line": 273,
           "method": "GET",
           "path": "/tests/{test_id}/full"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "update_test",
-          "line": 292,
+          "line": 293,
           "method": "PUT",
           "path": "/tests/{test_id}"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_telemetry_params",
-          "line": 346,
+          "line": 347,
           "method": "GET",
           "path": "/tests/{test_id}/telemetry-params"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "add_session",
-          "line": 379,
+          "line": 381,
           "method": "POST",
           "path": "/tests/{test_id}/sessions"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "activate_test",
-          "line": 409,
+          "line": 411,
           "method": "POST",
           "path": "/tests/{test_id}/activate"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "delete_test",
-          "line": 446,
+          "line": 448,
           "method": "DELETE",
           "path": "/tests/{test_id}"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_experiment_ids",
-          "line": 502,
+          "line": 504,
           "method": "GET",
           "path": "/tests/filters/experiment-ids"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_environment_ids",
-          "line": 512,
+          "line": 514,
           "method": "GET",
           "path": "/tests/filters/environment-ids"
         },
         {
           "file": "api/routes/tests.py",
           "handler": "get_drivers",
-          "line": 521,
+          "line": 523,
           "method": "GET",
           "path": "/tests/filters/drivers"
         },
         {
           "file": "api/routes/tests.py",
-          "handler": "get_last_requirements",
-          "line": 530,
+          "handler": "get_last_used_defaults",
+          "line": 532,
           "method": "GET",
-          "path": "/tests/filters/last-requirements"
+          "path": "/tests/filters/last-used"
         },
         {
           "file": "api/routes/user.py",

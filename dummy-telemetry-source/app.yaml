@@ -1,0 +1,35 @@
+name: Dummy Telemetry Source
+language: python
+variables:
+  - name: Quix__Sdk__Token
+    inputType: Secret
+    description: Quix SDK token (auto-connects QuixStreams to the broker)
+    required: true
+  - name: output
+    inputType: OutputTopic
+    description: Name of the output topic to write replayed telemetry into
+    defaultValue: ac-telemetry-raw
+    required: true
+  - name: session_output
+    inputType: OutputTopic
+    description: Topic to write session metadata into
+    defaultValue: ac-telemetry-session
+    required: true
+  - name: SPEEDUP
+    inputType: FreeText
+    description: Replay speed multiplier relative to captured wall-clock
+    defaultValue: 10
+    required: false
+  - name: DUMMY_HOSTNAME
+    inputType: FreeText
+    description: Message key / target_key used for DCM lookup
+    defaultValue: QUIX-GAMING
+    required: false
+  - name: LOOP
+    inputType: FreeText
+    description: Replay the corpus forever when true, single pass when false
+    defaultValue: true
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
