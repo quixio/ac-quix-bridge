@@ -25,19 +25,11 @@ variables:
     description: Rich per-new-best event topic
     required: false
     defaultValue: ac-best-laps-events
-  # byox does NOT auto-inject the Lakehouse Query URL/token (no blobStorage.bind
-  # on this target), so declare them here for the cold-start lake seed. On dev
-  # they auto-inject; the code accepts either these or the legacy LAKE_API_*
-  # fallbacks. See skill quix-rocksdb-state-api (Deployment notes) + memory
-  # feedback_incluster_dcm_url / BYOX demo endpoints.
-  - name: Quix__Lakehouse__Query__Url
-    inputType: FreeText
-    description: Lakehouse /query base URL for cold-start seed (byox; declare explicitly)
-    required: false
-  - name: Quix__Lakehouse__Query__AuthToken
-    inputType: Secret
-    description: Lakehouse Query bearer token (byox; declare explicitly)
-    required: false
+  # Quix__Lakehouse__Query__Url / Quix__Lakehouse__Query__AuthToken are NOT
+  # declared here. They are auto-injected by Quix Cloud at runtime because the
+  # deployment has `blobStorage: bind: true`. Declaring them here forces a
+  # deploy-time prompt and a wrong manual value silently overrides the
+  # auto-injection (mirror leaderboard-service).
   - name: CONFIG_API_URL
     inputType: FreeText
     description: DCM base URL for experiment enrichment
