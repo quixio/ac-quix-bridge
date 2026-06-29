@@ -913,6 +913,10 @@ deployments:
         inputType: OutputTopic
         description: Rich per-new-best event topic
         value: ac-best-laps-events
+      - name: events_topic
+        inputType: FreeText
+        description: Internal experiment-keyed events topic (raw laps + boot-seed messages funnel here into one stateful store)
+        value: best-laps-events
       - name: CONFIG_API_URL
         inputType: FreeText
         description: DCM base URL for experiment enrichment
@@ -928,7 +932,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-lite-v1.0
+        value: best-laps-lite-v1.1
       - name: Quix__State__Dir
         inputType: FreeText
         description: RocksDB managed-State dir; mount a `state:` volume here for durability
