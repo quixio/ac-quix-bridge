@@ -960,3 +960,4 @@ topics:
   - name: ac-telemetry-raw-debug
   - name: ac-telemetry-session-debug
   - name: ac-best-laps
+  - name: ac-best-laps-events
