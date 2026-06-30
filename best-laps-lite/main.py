@@ -183,12 +183,22 @@ def build_reconcile_sql(lake_table: str, best_col: str) -> str:
     (NO CTE — feedback_quixlake_no_cte; NO per-experiment raw scan — OOM-safe).
     The lakehouse returns at most one row per driver group instead of every 50 Hz
     tick. Identifiers come from validated env vars, so inlining is safe.
+
+    NO WHERE clause: the QuixLake Query API silently returns 0 rows (HTTP 200,
+    empty body) for the ``best_col > 0`` predicate — proven against the live dev
+    ``ac_telemetry_prod`` (249k rows). The same query without WHERE returns all
+    groups; an upper-bound-only ``best_col < INT_MAX`` also works, but combining
+    ``> 0 AND < INT_MAX`` trips the silent-empty behavior, so the seed always got
+    0 rows. INT_MAX/<=0 filtering is instead done in Python: ``reduce_rows`` drops
+    them (``0 < best_ms < INT_MAX``) and ``_fold`` is the final safety net (an
+    INT_MAX MIN can never reach State/RAM as a "best"). A group whose MIN is
+    INT_MAX (no valid lap) is dropped during reduction/fold; groups with a valid
+    MIN are kept — same result, just filtered where QuixLake doesn't silently fail.
     """
     return (
         f"SELECT environment, experiment, track, carModel, driver, "
         f"MIN({best_col}) AS {best_col} "
         f"FROM {lake_table} "
-        f"WHERE {best_col} > 0 AND {best_col} < {INT_MAX} "
         f"GROUP BY environment, experiment, track, carModel, driver"
     )
 
