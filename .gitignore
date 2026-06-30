@@ -1,4 +1,6 @@
 .env
+.env_*
+Backlog.txt
 __pycache__/
 *.pyc
 .venv/
