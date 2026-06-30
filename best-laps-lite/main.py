@@ -12,17 +12,24 @@ experiments in-context):
   session: app.dataframe(session_topic).update(remember_session, metadata=True)
            -> SESSION_BY_HOST[host] = {track, carModel, session_id}
   raw:     app.dataframe(raw_topic).join_lookup(lookup, fields)
-           .apply(shape, metadata=True) .filter(is_valid)
-           .group_by("experiment") .apply(tag_lap) .to_topic(EVENTS_TOPIC)   # {type:"lap", ...}
+           .apply(shape, metadata=True) .filter(is_enriched)
+           .group_by("experiment") .apply(route_event)
+           .filter(type in {"lap","warm"}) .to_topic(EVENTS_TOPIC)
+           # is_enriched = all four partition fields set (NO iBestTime), so a warm
+           # restart re-projects RAM on the FIRST enriched tick; route_event tags
+           # {type:"lap"} (valid iBestTime), {type:"warm"} (cold board, <=1/exp/boot),
+           # or {type:"drop"} (filtered out so pre-lap ticks don't flood at ~50 Hz).
   events:  app.dataframe(EVENTS_TOPIC).apply(handle, stateful=True, metadata=True)
            -> filter(_changed) -> two to_topic: full-board SNAPSHOT to ac-best-laps
               AND a MINIMAL {event:"board_changed", experiment, ts} to
               ac-best-laps-events (no standings — a re-fetch signal; consumers read
               the board from the snapshot topic / HTTP GET).
-  handle:  read board from State -> ALWAYS re-project BOARD_RAM[exp]+EXP_ENV[exp]
-           -> dispatch type: "seed" folds carried rows idempotently (min-update,
-              State+RAM, no emit); "lap" folds the tick, and on a strict
-              improvement sets State + annotates snapshot/event for emit.
+  handle:  read board from State -> dispatch type: "warm" re-projects
+              BOARD_RAM[exp]+EXP_ENV[exp] from the preserved State board (no fold,
+              no State write, no emit — the warm-restart fix); "seed" folds carried
+              rows idempotently (min-update, State+RAM, no emit); "lap" folds the
+              tick, re-projects RAM, and on a strict improvement sets State +
+              annotates snapshot/event for emit.
 
 Cold-start boot seed (worker daemon thread, started before app.run()):
   Authoritative gate = a State-native `seeded` flag (GATE_KEY), read via a
@@ -42,11 +49,13 @@ Cold-start boot seed (worker daemon thread, started before app.run()):
   drops it -> reseed. auto_offset_reset="latest": history from the seed, live laps
   from the tail.
 
-Accepted residual: a seeded-but-never-driven experiment is in State (durable)
-but absent from BOARD_RAM after a WARM restart until a message for it arrives —
-RAM re-warms on traffic. After a COLD seed the seed message itself re-projects
-the board into RAM (no live tick needed). Eliminating it would require replaying
-State into RAM at boot, which State's in-context-only access forbids.
+Accepted residual: a seeded-but-genuinely-idle experiment (no traffic this boot)
+is in State (durable) but absent from BOARD_RAM after a WARM restart until a
+message for it arrives. An ACTIVE experiment now re-warms on the FIRST enriched
+tick via the {type:"warm"} route (no lap wait); only no-traffic experiments
+remain in the residual. After a COLD seed the seed message itself re-projects the
+board into RAM (no live tick needed). Eliminating the idle case would require
+replaying State into RAM at boot, which State's in-context-only access forbids.
 
 Threading mirrors best-laps-cache: app.run() owns the MAIN thread (it installs
 SIGINT/SIGTERM via signal.signal); uvicorn + the boot seeder run on worker daemon
@@ -116,6 +125,13 @@ SESSION_BY_HOST: dict[str, dict] = {}
 BOARD_RAM: dict[str, dict] = {}
 # Environment per experiment (for rows-mode output); mirrored alongside the board.
 EXP_ENV: dict[str, str] = {}
+# Experiments for which a "warm" event has been produced this boot — the
+# producer-side memory that bounds warm emission to <=1 per experiment per boot.
+# `exp not in BOARD_RAM` flips false permanently once `handle` warms RAM (board
+# entries are only ever added); `_warm_requested` covers the in-flight window
+# before that (the warm event is a Kafka round-trip handle consumes a loop later).
+# Written by the SDF main thread under _RAM_LOCK (read alongside BOARD_RAM).
+_warm_requested: set[str] = set()
 # Guards BOARD_RAM/EXP_ENV against the cross-thread race: the SDF main thread
 # mutates the nested board in _fold while the uvicorn daemon thread serializes it
 # for a GET (otherwise an intermittent "dictionary changed size during iteration"
@@ -357,15 +373,26 @@ def shape(value: dict, key, timestamp, headers) -> dict:
     return result
 
 
-def is_valid(value: dict) -> bool:
-    """All of experiment/track/carModel/driver non-empty AND 0 < iBestTime < INT_MAX.
+def _is_valid_lap(value: dict) -> bool:
+    """Lap-validity rule: ``0 < iBestTime < INT_MAX`` (AC writes INT_MAX pre-lap).
 
-    A tick with no session yet (blank track/car) fails here and is dropped.
+    Selects the ``lap`` path in ``route_event`` (a folded, possibly-emitting tick)
+    from the ``warm`` path (enriched but no valid lap yet). Factored out so the rule
+    has one home; ``is_valid`` keeps it for readability/tests.
     """
-    ok = (
-        bool(value["experiment"] and value["track"] and value["carModel"] and value["driver"])
-        and 0 < value[BEST_COL] < INT_MAX
-    )
+    return 0 < value[BEST_COL] < INT_MAX
+
+
+def is_enriched(value: dict) -> bool:
+    """Routing gate: experiment/track/carModel/driver all non-empty (NO iBestTime).
+
+    The minimum needed to form a board key (and to re-project a meaningful board).
+    A tick with no session yet (blank track/car) or unresolved DCM (blank
+    experiment/driver) fails here and is dropped; the ``iBestTime`` test moves into
+    ``route_event``, which selects ``lap`` vs ``warm``. Preserves the throttled DROP
+    diagnostic so a dropped pre-session/pre-DCM tick still logs the missing field.
+    """
+    ok = bool(value["experiment"] and value["track"] and value["carModel"] and value["driver"])
     # Throttled diagnostic: on the first N drops, log which field(s) are missing.
     if not ok:
         global _DROP_LOG_BUDGET
@@ -378,11 +405,20 @@ def is_valid(value: dict) -> bool:
                 bool(value["track"]),
                 bool(value["carModel"]),
                 bool(value["driver"]),
-                0 < value[BEST_COL] < INT_MAX,
+                _is_valid_lap(value),
             )
             if _DROP_LOG_BUDGET == 0:
                 logger.info("drop logging budget exhausted, suppressing further")
     return ok
+
+
+def is_valid(value: dict) -> bool:
+    """All of experiment/track/carModel/driver non-empty AND 0 < iBestTime < INT_MAX.
+
+    Retained for readability/tests; the topology now routes via ``is_enriched`` +
+    ``route_event`` (which use ``_is_valid_lap`` for the validity clause).
+    """
+    return is_enriched(value) and _is_valid_lap(value)
 
 
 def to_rows(boards: dict[str, dict], envs: dict[str, str]) -> list[dict]:
@@ -492,6 +528,10 @@ def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(sta
         proves it is live and positioned). No fold/State-write/emit.
       * ``"mark_seeded"`` — set ``state["seeded"]=True`` (the durable gate write
         after a successful seed). No emit.
+      * ``"warm"`` — re-project ``state["board"]`` into BOARD_RAM/EXP_ENV after a
+        warm restart (cold RAM, intact State). No fold, no State write, no emit
+        (``_changed`` stays False). Bounded to <=1 per experiment per boot by the
+        producer-side ``route_event`` gate.
       * ``"seed"`` — fold the carried lake rows into the board IDEMPOTENTLY via
         ``_fold`` (min-update never clobbers a populated/faster value); set State
         + re-project RAM; does NOT emit (``_changed`` stays False).
@@ -499,9 +539,9 @@ def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(sta
         improvement set State and annotate ``_changed/_board/_previous_ms/
         _timestamp_ms`` for the output branch.
 
-    State is the ground truth; on every fold-carrying message (seed/lap) it
-    re-projects ``state["board"]`` into BOARD_RAM/EXP_ENV (RAM never leads State).
-    The returned value carries ``_changed`` (the output branch filters on it).
+    State is the ground truth; on every fold-carrying message (seed/lap) and on a
+    warm it re-projects ``state["board"]`` into BOARD_RAM/EXP_ENV (RAM never leads
+    State). The returned value carries ``_changed`` (the output branch filters on it).
     """
     value["_changed"] = False
     msg_type = value.get("type")
@@ -523,6 +563,21 @@ def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(sta
 
     exp = value.get("experiment", "")
     board = state.get("board") or {}
+
+    if msg_type == "warm":
+        # Warm restart re-projection: the preserved State board exists but
+        # BOARD_RAM is cold. Re-project it into RAM so the leaderboard appears on
+        # the first enriched tick — no lap wait. No fold, no State write, no emit
+        # (mirrors the seed no-emit shape without the fold loop). _changed stays
+        # False. _project_ram adds exp to BOARD_RAM, which permanently disables the
+        # producer-side warm gate for this experiment.
+        _project_ram(exp, board, value.get("environment", ""))
+        logger.info(
+            "handle: warm exp=%s -> BOARD_RAM re-projected from State (boards=%d)",
+            exp,
+            len(BOARD_RAM),
+        )
+        return value
 
     if msg_type == "seed":
         folded = 0
@@ -575,9 +630,39 @@ def handle(value: dict, key, timestamp, headers, state) -> dict:  # QS apply(sta
     return value
 
 
-def tag_lap(value: dict) -> dict:
-    """Tag a shaped+validated raw tick as a ``"lap"`` event for EVENTS_TOPIC."""
-    value["type"] = "lap"
+def route_event(value: dict) -> dict:
+    """Tag an enriched, experiment-partitioned tick as ``lap``, ``warm``, or ``drop``.
+
+    Runs after ``group_by("experiment")`` so the warm membership check is on the
+    per-experiment stream (``exp = value["experiment"]``). Three outcomes:
+
+      * ``_is_valid_lap`` (0 < iBestTime < INT_MAX)  -> ``type="lap"`` (folds; may
+        emit on a strict improvement — unchanged downstream).
+      * else, experiment not yet warm AND no warm requested this boot -> ``type="warm"``
+        (handle re-projects State->RAM, no fold/emit). Bounded to <=1 per exp/boot.
+      * else -> ``type="drop"`` (a trailing ``filter`` removes it so pre-lap ticks
+        for an already-warm experiment don't flood EVENTS_TOPIC at ~50 Hz).
+
+    The warm decision is an atomic check-and-set under ``_RAM_LOCK`` (consistent with
+    the uvicorn reader; same-thread vs handle but the lock makes the gate atomic).
+    The lock is released BEFORE the value is produced (``to_topic`` is downstream).
+    """
+    if _is_valid_lap(value):
+        value["type"] = "lap"
+        return value
+
+    exp = value["experiment"]
+    with _RAM_LOCK:
+        need_warm = exp not in BOARD_RAM and exp not in _warm_requested
+        if need_warm:
+            _warm_requested.add(exp)
+
+    if need_warm:
+        # Minimal warm payload — handle reads the board from State, not the message.
+        value["type"] = "warm"
+        logger.info("route: warm requested exp=%s (cold BOARD_RAM, first enriched tick)", exp)
+    else:
+        value["type"] = "drop"
     return value
 
 
@@ -800,14 +885,18 @@ fields = {
 # Branch 1 — session: keep latest {track, carModel, session_id} per host.
 app.dataframe(session_topic).update(remember_session, metadata=True)
 
-# Branch 2 — raw -> events: enrich -> shape -> validate -> re-key -> produce a
-# "lap" event to the internal events topic (the to_topic key re-partitions by
-# experiment, so all events for an experiment land on one RocksDB store).
+# Branch 2 — raw -> events: enrich -> shape -> gate on enrichment -> re-key ->
+# route. `is_enriched` (no iBestTime clause) lets pre-lap ticks through so a warm
+# restart re-projects RAM on the FIRST enriched tick; `route_event` (on the
+# experiment-partitioned stream) tags "lap" (valid iBestTime) / "warm" (cold board,
+# <=1 per exp/boot) / "drop", and the trailing filter removes drops before producing
+# (the to_topic key re-partitions by experiment -> one RocksDB store per experiment).
 raw_sdf = app.dataframe(raw_topic).join_lookup(lookup, fields)
 raw_sdf = raw_sdf.apply(shape, metadata=True)
-raw_sdf = raw_sdf.filter(is_valid)
+raw_sdf = raw_sdf.filter(is_enriched)
 raw_sdf = raw_sdf.group_by("experiment")
-raw_sdf = raw_sdf.apply(tag_lap)
+raw_sdf = raw_sdf.apply(route_event)
+raw_sdf = raw_sdf.filter(lambda v: v["type"] in ("lap", "warm"))
 raw_sdf.to_topic(events_topic, key=lambda v: v["experiment"])
 
 # Branch 3 — events -> State: the ONE stateful op. Consumes lap + seed events,
