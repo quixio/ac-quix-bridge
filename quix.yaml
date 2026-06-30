@@ -848,7 +848,7 @@ deployments:
       - name: SPEEDUP
         inputType: FreeText
         description: Replay speed multiplier relative to captured wall-clock
-        value: 2
+        value: 5
       - name: DUMMY_HOSTNAME
         inputType: FreeText
         description: Message key / target_key used for DCM lookup
