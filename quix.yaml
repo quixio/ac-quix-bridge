@@ -826,7 +826,7 @@ deployments:
     blobStorage:
       bind: true
     disabled: true
-  - name: Dummy Telemetry Source
+  - name: Dummy Telemetry Source 2
     application: dummy-telemetry-source
     version: latest
     deploymentType: Service
