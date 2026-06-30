@@ -954,7 +954,7 @@ deployments:
       - name: LOOP
         inputType: FreeText
         description: Replay the corpus forever when true, single pass when false
-        value: true
+        value: false
       - name: BASE_BEST_MS
         inputType: FreeText
         description: Base lap best time in ms (2:45); each lap's random best is this minus 0..MAX_BEST_DELTA_MS
