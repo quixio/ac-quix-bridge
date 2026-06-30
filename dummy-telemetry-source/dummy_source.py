@@ -18,6 +18,7 @@ best-laps cache / leaderboard.
 import gzip
 import json
 import logging
+import math
 import random
 import time
 from datetime import datetime, timezone
@@ -51,6 +52,7 @@ class DummyReplaySource(Source):
         max_messages: int,
         base_best_ms: int,
         max_best_delta_ms: int,
+        max_lap_offset_ms: int,
     ):
         super().__init__(name=name)
         self._session_topic = session_topic
@@ -62,11 +64,18 @@ class DummyReplaySource(Source):
         self._max_messages = max_messages
         self._base_best_ms = base_best_ms
         self._max_best_delta_ms = max_best_delta_ms
+        self._max_lap_offset_ms = max_lap_offset_ms
         self._session_id = None
         # Per-lap best-time override state, reset at the start of every replay
         # loop so each loop re-randomizes (see _reset_lap_state / run).
         self._current_lap = None
         self._current_best = None
+        # Per-lap live slow-down offset state (independent of the best-override
+        # lap-state above so the two never interfere). _offset_amp is the
+        # amplitude A drawn once per lap; _offset_lap is the completedLaps value
+        # it was drawn for. Both reset per loop pass in _reset_lap_state.
+        self._offset_lap = None
+        self._offset_amp = None
 
     def _new_session_id(self) -> str:
         # Mirrors ac_source._new_session_id: UTC ISO-8601 to ms + "Z".
@@ -107,9 +116,15 @@ class DummyReplaySource(Source):
         )
 
     def _reset_lap_state(self) -> None:
-        """Clear per-lap best-time state so the next loop re-randomizes."""
+        """Clear per-lap state so the next loop re-randomizes.
+
+        Covers both the best-time override (``_current_lap``/``_current_best``)
+        and the live slow-down offset (``_offset_lap``/``_offset_amp``).
+        """
         self._current_lap = None
         self._current_best = None
+        self._offset_lap = None
+        self._offset_amp = None
 
     def _apply_best_override(self, out: dict) -> None:
         """Overwrite ``iBestTime``/``iLastTime`` with a per-lap random best.
@@ -135,6 +150,101 @@ class DummyReplaySource(Source):
 
         out["iBestTime"] = self._current_best
         out["iLastTime"] = self._current_best
+
+    @staticmethod
+    def _format_lap_time(ms: int) -> str:
+        """Render a lap-relative duration in ms as the corpus ``currentTime`` format.
+
+        The corpus uses ``"{m}:{s:02d}:{ms:03d}"`` (minutes : zero-padded
+        seconds : zero-padded milliseconds), NOT the ``M:SS.mmm`` form the spec
+        tentatively expected. Confirmed byte-for-byte against all 17272 corpus
+        records (0 mismatches): e.g. 1005 -> "0:01:005", 83210 -> "1:23:210",
+        176187 -> "2:56:187". Negative inputs are not produced for
+        ``iCurrentTime`` (it is lap-relative and non-negative).
+        """
+        m = ms // 60000
+        s = (ms // 1000) % 60
+        millis = ms % 1000
+        return f"{m}:{s:02d}:{millis:03d}"
+
+    def _apply_lap_offset(self, out: dict) -> None:
+        """Add a smooth per-lap slow-down offset to the LIVE lap-time fields.
+
+        Owns EXACTLY these fields and no others:
+          ``iCurrentTime``, ``currentTime``, ``iDeltaLapTime``,
+          ``iEstimatedLapTime``, ``isDeltaPositive``.
+        ``iBestTime``/``iLastTime`` remain owned solely by
+        ``_apply_best_override`` and are never touched here.
+
+        Amplitude ``A`` is drawn once per lap (mirroring ``_apply_best_override``):
+        on the first tick whose ``completedLaps`` differs from the lap we last
+        drew for, ``A = randint(0, max_lap_offset_ms)`` is sampled and held
+        CONSTANT for the rest of that lap. The applied offset is shaped by lap
+        progress::
+
+            pos       = clamp(normalizedCarPosition, 0.0, 1.0)
+            f(pos)    = sin(pi * pos)          # f(0)=f(1)=0, peak 1 @ pos=0.5
+            offset_ms = round(A * f(pos))      # >= 0 (slow-down only)
+
+        Because ``f`` is zero at both ends, the offset ramps in gradually and
+        returns to zero at the start/finish line with NO discontinuity across
+        the lap boundary (the acceptance criterion).
+
+        Guards (pass the record through untouched, mirroring the
+        ``_apply_best_override`` ``_INT_MAX`` guard):
+          - feature disabled (``max_lap_offset_ms <= 0``);
+          - ``normalizedCarPosition`` missing / non-numeric;
+          - resulting amplitude is 0 (offset would be 0 anyway).
+
+        String mirrors (OQ-1, confirmed from the corpus, §6.5/§7.4):
+          - ``currentTime`` DOES track its int: re-derived via
+            ``_format_lap_time`` from the mutated ``iCurrentTime``.
+          - ``deltaLapTime`` is a FROZEN literal (``"-:--:---"`` in 100% of
+            records, independent of ``iDeltaLapTime``) and
+            ``estimatedLapTime`` is a FROZEN literal (``"35791:23:647"`` in
+            100% of records, = INT_MAX rendered). The corpus never re-derives
+            these from their ints, so we leave the strings as-is and mutate
+            only the int fields — reproducing the corpus byte-for-byte.
+
+        ``isDeltaPositive`` is stored as an int (0/1) in the corpus (never a
+        Python bool), so it is recomputed as ``int(new_iDeltaLapTime >= 0)`` to
+        preserve both the value coherence and the original type.
+        """
+        if self._max_lap_offset_ms <= 0:
+            return
+
+        pos = out.get("normalizedCarPosition")
+        if not isinstance(pos, (int, float)):
+            return
+
+        cl = out.get("completedLaps")
+        if cl != self._offset_lap:
+            self._offset_lap = cl
+            self._offset_amp = random.randint(0, self._max_lap_offset_ms)
+
+        amp = self._offset_amp
+        if not amp:
+            return
+
+        pos = min(1.0, max(0.0, float(pos)))
+        offset_ms = round(amp * math.sin(math.pi * pos))
+        if offset_ms <= 0:
+            return
+
+        ict = out.get("iCurrentTime")
+        if isinstance(ict, int) and 0 <= ict < _INT_MAX:
+            out["iCurrentTime"] = ict + offset_ms
+            out["currentTime"] = self._format_lap_time(out["iCurrentTime"])
+
+        idl = out.get("iDeltaLapTime")
+        if isinstance(idl, int) and abs(idl) < _INT_MAX:
+            new_idl = idl + offset_ms
+            out["iDeltaLapTime"] = new_idl
+            out["isDeltaPositive"] = int(new_idl >= 0)
+
+        iel = out.get("iEstimatedLapTime")
+        if isinstance(iel, int) and 0 <= iel < _INT_MAX:
+            out["iEstimatedLapTime"] = iel + offset_ms
 
     def run(self):
         records = self._load_corpus()
@@ -182,6 +292,7 @@ class DummyReplaySource(Source):
                 # the live source (timestamp_ms is ingest time, not lap-relative).
                 out = dict(rec)
                 self._apply_best_override(out)
+                self._apply_lap_offset(out)
                 out["session_id"] = self._session_id
                 out["timestamp_ms"] = int(time.time() * 1000)
 
