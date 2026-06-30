@@ -826,7 +826,46 @@ deployments:
     blobStorage:
       bind: true
     disabled: true
-  - name: best-laps-lite
+  - name: Dummy Telemetry Source
+    application: dummy-telemetry-source
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 1000
+    variables:
+      - name: output
+        inputType: OutputTopic
+        description: Name of the output topic to write replayed telemetry into
+        required: true
+        value: ac-telemetry-raw-debug2
+      - name: session_output
+        inputType: OutputTopic
+        description: Topic to write session metadata into
+        required: true
+        value: ac-telemetry-session-debug2
+      - name: SPEEDUP
+        inputType: FreeText
+        description: Replay speed multiplier relative to captured wall-clock
+        value: 10
+      - name: DUMMY_HOSTNAME
+        inputType: FreeText
+        description: Message key / target_key used for DCM lookup
+        value: QUIX-GAMING
+      - name: LOOP
+        inputType: FreeText
+        description: Replay the corpus forever when true, single pass when false
+        value: false
+      - name: BASE_BEST_MS
+        inputType: FreeText
+        description: Base lap best time in ms (2:45); each lap's random best is this minus 0..MAX_BEST_DELTA_MS
+        value: 165000
+      - name: MAX_BEST_DELTA_MS
+        inputType: FreeText
+        description: Max ms subtracted from BASE_BEST_MS to randomize each lap's best time
+        value: 20000
+  - name: BestLaps Lite
     application: best-laps-lite
     version: latest
     deploymentType: Service
@@ -893,45 +932,6 @@ deployments:
         value: state
     blobStorage:
       bind: true
-  - name: Dummy Telemetry Source
-    application: dummy-telemetry-source
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 500
-        memory: 1000
-    variables:
-      - name: output
-        inputType: OutputTopic
-        description: Name of the output topic to write replayed telemetry into
-        required: true
-        value: ac-telemetry-raw-debug2
-      - name: session_output
-        inputType: OutputTopic
-        description: Topic to write session metadata into
-        required: true
-        value: ac-telemetry-session-debug2
-      - name: SPEEDUP
-        inputType: FreeText
-        description: Replay speed multiplier relative to captured wall-clock
-        value: 10
-      - name: DUMMY_HOSTNAME
-        inputType: FreeText
-        description: Message key / target_key used for DCM lookup
-        value: QUIX-GAMING
-      - name: LOOP
-        inputType: FreeText
-        description: Replay the corpus forever when true, single pass when false
-        value: false
-      - name: BASE_BEST_MS
-        inputType: FreeText
-        description: Base lap best time in ms (2:45); each lap's random best is this minus 0..MAX_BEST_DELTA_MS
-        value: 165000
-      - name: MAX_BEST_DELTA_MS
-        inputType: FreeText
-        description: Max ms subtracted from BASE_BEST_MS to randomize each lap's best time
-        value: 20000
 
 # This section describes the Topics of the data pipeline
 topics:
