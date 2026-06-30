@@ -15,7 +15,10 @@ experiments in-context):
            .apply(shape, metadata=True) .filter(is_valid)
            .group_by("experiment") .apply(tag_lap) .to_topic(EVENTS_TOPIC)   # {type:"lap", ...}
   events:  app.dataframe(EVENTS_TOPIC).apply(handle, stateful=True, metadata=True)
-           -> filter(_changed) -> two to_topic (ac-best-laps snapshot, ac-best-laps-events event)
+           -> filter(_changed) -> two to_topic: full-board SNAPSHOT to ac-best-laps
+              AND a MINIMAL {event:"board_changed", experiment, ts} to
+              ac-best-laps-events (no standings — a re-fetch signal; consumers read
+              the board from the snapshot topic / HTTP GET).
   handle:  read board from State -> ALWAYS re-project BOARD_RAM[exp]+EXP_ENV[exp]
            -> dispatch type: "seed" folds carried rows idempotently (min-update,
               State+RAM, no emit); "lap" folds the tick, and on a strict
@@ -432,22 +435,18 @@ def to_best_time_payload(value: dict) -> dict:
 
 
 def to_event_payload(value: dict) -> dict:
-    """Rich per-new-best event for the event topic (key == experiment)."""
-    prev = value["_previous_ms"]
-    best = value[BEST_COL]
+    """Minimal "board changed" notification for the event topic (key == experiment).
+
+    Carries ONLY a re-fetch signal — an event marker, the experiment id, and a
+    timestamp. No standings: who is first, their lap time, position, deltas and
+    the leaderboard rows all live on the snapshot topic (ac-best-laps), which
+    consumers fetch on this signal. Emission timing is unchanged (fires on every
+    board change via the ``_changed`` filter); only the payload shrinks.
+    """
     return {
-        "type": "new_best",
+        "event": "board_changed",
         "experiment": value["experiment"],
-        "environment": value.get("environment", ""),
-        "track": value["track"],
-        "carModel": value["carModel"],
-        "driver": value["driver"],
-        "best_ms": best,
-        "previous_best_ms": prev,
-        "delta_ms": (best - prev) if prev is not None else None,
-        "first_for_driver": prev is None,
-        "session_id": value.get("session_id", ""),
-        "timestamp_ms": value["_timestamp_ms"],
+        "ts": value["_timestamp_ms"],
     }
 
 
