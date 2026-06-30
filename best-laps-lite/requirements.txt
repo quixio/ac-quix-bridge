@@ -1,0 +1,4 @@
+quixstreams==3.24.*
+fastapi
+uvicorn[standard]
+httpx

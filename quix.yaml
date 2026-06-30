@@ -26,7 +26,7 @@ deployments:
         inputType: InputTopic
         description: Kafka topic to consume telemetry from
         required: true
-        value: ac-telemetry-raw
+        value: ac-telemetry-raw-debug
       - name: config_input
         inputType: InputTopic
         description: Config topic to resolve the current driver from (DCM change events)
@@ -36,15 +36,15 @@ deployments:
         inputType: InputTopic
         description: Session topic to resolve the current track + car from (ac-telemetry-session)
         required: true
-        value: ac-telemetry-session
+        value: ac-telemetry-session-debug
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
         value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
-        description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
-        value: http://best-laps-cache
+        description: Base URL of the leaderboard source (best-laps-lite) serving GET /best-laps. In-cluster service name (hyphens, not underscores) — best-laps-lite must declare network.serviceName=best-laps-lite + port 80. Sole source for the leaderboard standings.
+        value: http://best-laps-lite
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
@@ -825,6 +825,106 @@ deployments:
         value: best-laps-cache-v1.6
     blobStorage:
       bind: true
+  - name: Dummy Telemetry Source
+    application: dummy-telemetry-source
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 1000
+        memory: 1000
+      replicas: 1
+    variables:
+      - name: output
+        inputType: OutputTopic
+        description: Name of the output topic to write replayed telemetry into
+        required: true
+        value: ac-telemetry-raw-debug
+      - name: session_output
+        inputType: OutputTopic
+        description: Topic to write session metadata into
+        required: true
+        value: ac-telemetry-session-debug
+      - name: SPEEDUP
+        inputType: FreeText
+        description: Replay speed multiplier relative to captured wall-clock
+        value: 10
+      - name: DUMMY_HOSTNAME
+        inputType: FreeText
+        description: Message key / target_key used for DCM lookup
+        value: QUIX-GAMING
+      - name: LOOP
+        inputType: FreeText
+        description: Replay the corpus forever when true, single pass when false
+        value: true
+  - name: best-laps-lite
+    application: best-laps-lite
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 1000
+        memory: 2000
+      replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: best-laps-lite-bc9e41b
+    state:
+      enabled: true
+      size: 3
+    network:
+      serviceName: best-laps-lite
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw-debug
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session); source of track/carModel
+        value: ac-telemetry-session-debug
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config); resolves experiment/driver/environment
+        value: ac-telemetry-config
+      - name: best_time_output
+        inputType: OutputTopic
+        description: Full-board snapshot emitted on a new/improved best
+        value: ac-best-laps
+      - name: event_output
+        inputType: OutputTopic
+        description: Rich per-new-best event topic
+        value: ac-best-laps-events
+      - name: events_topic
+        inputType: FreeText
+        description: Internal experiment-keyed events topic (raw laps + boot-seed messages funnel here into one stateful store)
+        value: best-laps-events
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        description: DCM base URL for experiment enrichment
+        value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry_prod
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: 80
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: best-laps-lite-v1.1
+      - name: Quix__State__Dir
+        inputType: FreeText
+        description: RocksDB managed-State dir; mount a `state:` volume here for durability
+        value: state
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -849,3 +949,7 @@ topics:
       retentionInBytes: 524288000
   - name: best-laps-events
   - name: leaderboard-events
+  - name: ac-telemetry-raw-debug
+  - name: ac-telemetry-session-debug
+  - name: ac-best-laps
+  - name: ac-best-laps-events
