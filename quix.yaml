@@ -26,7 +26,7 @@ deployments:
         inputType: InputTopic
         description: Kafka topic to consume telemetry from
         required: true
-        value: ac-telemetry-raw-debug
+        value: ac-telemetry-raw-debug2
       - name: config_input
         inputType: InputTopic
         description: Config topic to resolve the current driver from (DCM change events)
@@ -36,14 +36,14 @@ deployments:
         inputType: InputTopic
         description: Session topic to resolve the current track + car from (ac-telemetry-session)
         required: true
-        value: ac-telemetry-session-debug
+        value: ac-telemetry-session-debug2
       - name: CONFIG_MANAGER_URL
         inputType: FreeText
         description: DCM base URL for fetching config content. Leave blank to use the contentUrl carried in each event.
         value: https://config-api-svc-quixdev-acquixbridge-prod.deployments-dev.quix.io
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
-        description: Base URL of the leaderboard source (best-laps-lite) serving GET /best-laps. In-cluster service name (hyphens, not underscores) — best-laps-lite must declare network.serviceName=best-laps-lite + port 80. Sole source for the leaderboard standings.
+        description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
         value: http://best-laps-lite
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
@@ -992,3 +992,4 @@ topics:
   - name: ac-best-laps
   - name: ac-best-laps-events
   - name: ac-telemetry-raw-debug2
+  - name: ac-telemetry-session-debug2
