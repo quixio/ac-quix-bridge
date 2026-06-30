@@ -826,37 +826,6 @@ deployments:
     blobStorage:
       bind: true
     disabled: true
-  - name: Dummy Telemetry Source 2
-    application: dummy-telemetry-source
-    version: latest
-    deploymentType: Service
-    resources:
-      limits:
-        cpu: 1000
-        memory: 1000
-    variables:
-      - name: output
-        inputType: OutputTopic
-        description: Name of the output topic to write replayed telemetry into
-        required: true
-        value: ac-telemetry-raw-debug
-      - name: session_output
-        inputType: OutputTopic
-        description: Topic to write session metadata into
-        required: true
-        value: ac-telemetry-session-debug
-      - name: SPEEDUP
-        inputType: FreeText
-        description: Replay speed multiplier relative to captured wall-clock
-        value: 10
-      - name: DUMMY_HOSTNAME
-        inputType: FreeText
-        description: Message key / target_key used for DCM lookup
-        value: QUIX-GAMING
-      - name: LOOP
-        inputType: FreeText
-        description: Replay the corpus forever when true, single pass when false
-        value: true
   - name: best-laps-lite
     application: best-laps-lite
     version: latest
@@ -987,8 +956,6 @@ topics:
       retentionInBytes: 524288000
   - name: best-laps-events
   - name: leaderboard-events
-  - name: ac-telemetry-raw-debug
-  - name: ac-telemetry-session-debug
   - name: ac-best-laps
   - name: ac-best-laps-events
   - name: ac-telemetry-raw-debug2

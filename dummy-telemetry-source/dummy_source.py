@@ -18,7 +18,6 @@ best-laps cache / leaderboard.
 import gzip
 import json
 import logging
-import math
 import random
 import time
 from datetime import datetime, timezone
@@ -168,7 +167,7 @@ class DummyReplaySource(Source):
         return f"{m}:{s:02d}:{millis:03d}"
 
     def _apply_lap_offset(self, out: dict) -> None:
-        """Add a smooth per-lap slow-down offset to the LIVE lap-time fields.
+        """Apply a linear per-lap NEGATIVE offset to the LIVE lap-time fields.
 
         Owns EXACTLY these fields and no others:
           ``iCurrentTime``, ``currentTime``, ``iDeltaLapTime``,
@@ -179,22 +178,25 @@ class DummyReplaySource(Source):
         Amplitude ``A`` is drawn once per lap (mirroring ``_apply_best_override``):
         on the first tick whose ``completedLaps`` differs from the lap we last
         drew for, ``A = randint(0, max_lap_offset_ms)`` is sampled and held
-        CONSTANT for the rest of that lap. The applied offset is shaped by lap
-        progress::
+        CONSTANT for the rest of that lap. The applied offset is LINEAR in lap
+        progress and NEGATIVE (subtracts time)::
 
             pos       = clamp(normalizedCarPosition, 0.0, 1.0)
-            f(pos)    = sin(pi * pos)          # f(0)=f(1)=0, peak 1 @ pos=0.5
-            offset_ms = round(A * f(pos))      # >= 0 (slow-down only)
+            offset_ms = round(-A * pos)        # 0 @ pos=0, -A @ pos=1, monotonic
 
-        Because ``f`` is zero at both ends, the offset ramps in gradually and
-        returns to zero at the start/finish line with NO discontinuity across
-        the lap boundary (the acceptance criterion).
+        TRADEOFF — lap-boundary step: because the shape is linear (not the
+        former zero-at-both-ends half-sine), the offset steps from ``-A`` back
+        to ``0`` as ``normalizedCarPosition`` wraps 1→0 at the start/finish
+        line. This discontinuity is INTENDED: it coincides exactly with the
+        natural lap-clock reset (``iCurrentTime`` returns to ~0 for the new
+        lap), so the step is not separately visible — the live clock restarts
+        at the same instant the offset does.
 
         Guards (pass the record through untouched, mirroring the
         ``_apply_best_override`` ``_INT_MAX`` guard):
           - feature disabled (``max_lap_offset_ms <= 0``);
           - ``normalizedCarPosition`` missing / non-numeric;
-          - resulting amplitude is 0 (offset would be 0 anyway).
+          - resulting amplitude is 0, or the offset rounds to 0 (pos=0 no-op).
 
         String mirrors (OQ-1, confirmed from the corpus, §6.5/§7.4):
           - ``currentTime`` DOES track its int: re-derived via
@@ -227,13 +229,13 @@ class DummyReplaySource(Source):
             return
 
         pos = min(1.0, max(0.0, float(pos)))
-        offset_ms = round(amp * math.sin(math.pi * pos))
-        if offset_ms <= 0:
+        offset_ms = round(-amp * pos)
+        if offset_ms == 0:
             return
 
         ict = out.get("iCurrentTime")
         if isinstance(ict, int) and 0 <= ict < _INT_MAX:
-            out["iCurrentTime"] = ict + offset_ms
+            out["iCurrentTime"] = max(0, ict + offset_ms)
             out["currentTime"] = self._format_lap_time(out["iCurrentTime"])
 
         idl = out.get("iDeltaLapTime")
@@ -244,7 +246,7 @@ class DummyReplaySource(Source):
 
         iel = out.get("iEstimatedLapTime")
         if isinstance(iel, int) and 0 <= iel < _INT_MAX:
-            out["iEstimatedLapTime"] = iel + offset_ms
+            out["iEstimatedLapTime"] = max(0, iel + offset_ms)
 
     def run(self):
         records = self._load_corpus()
