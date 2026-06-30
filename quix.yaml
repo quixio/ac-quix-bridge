@@ -857,8 +857,6 @@ deployments:
         inputType: FreeText
         description: Replay the corpus forever when true, single pass when false
         value: true
-    scratchpadInfo:
-      isLocked: false
   - name: best-laps-lite
     application: best-laps-lite
     version: latest
