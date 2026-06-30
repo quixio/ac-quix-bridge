@@ -893,7 +893,7 @@ deployments:
         value: state
     blobStorage:
       bind: true
-  - name: Dummy Telemetry Source 3
+  - name: Dummy Telemetry Source
     application: dummy-telemetry-source
     version: latest
     deploymentType: Service
@@ -960,3 +960,5 @@ topics:
   - name: ac-best-laps-events
   - name: ac-telemetry-raw-debug2
   - name: ac-telemetry-session-debug2
+  - name: ac-telemetry-raw-debug
+  - name: ac-telemetry-session-debug
