@@ -270,11 +270,30 @@ collapses to `{(env,exp,track,car,driver): min_ms}`, `build_seed_messages` group
 by experiment into one `{type:"seed", …}` per experiment, produced via
 `events_topic.serialize` + `app.get_producer()`.
 
-**Retry / fail-soft.** `query_lake_with_retry` retries transport/timeout errors
-up to 3× with ~60 s backoff (`feedback_quixlake_aggregation_slow`), then returns
-`None` — the seeder logs a WARNING and leaves State un-seeded so a later boot
-retries while the volume is still cold. An empty result (0 rows) is logged and
-skipped. The boot thread never crashes startup.
+**Retry / fail-soft (two distinct transients).** `query_lake_with_retry` handles
+two failure shapes with two backoffs:
+
+- **Exception** (transport / timeout / HTTP error, `feedback_quixlake_aggregation_slow`)
+  — `_query_lake_exc_retry` retries up to 3× with the long ~60 s backoff, then
+  returns `None`; the seeder logs a WARNING and leaves State un-seeded so a later
+  boot retries while the volume is still cold.
+- **Empty / 0-row result** — the table reliably has data (the EXACT seed SQL
+  returns ~9 rows in ~2.4 s warm), so a successful-but-empty response is almost
+  always the cold-cache/timeout transient: the FIRST scan over a cold
+  `ac_telemetry_prod` can exceed the lakehouse's ~30 s server-side query timeout
+  and come back empty (HTTP 200, 0 rows), and the cache warms after that first
+  scan. So an empty result is re-queried up to `SEED_EMPTY_RETRIES` (default 5)
+  times on a SHORT `SEED_EMPTY_BACKOFF_S` (default 10 s) backoff — distinct from
+  the 60 s exception backoff, because the next attempt should hit the warmed
+  cache. The first non-empty result wins; after the empty-retries are exhausted
+  the final (still-empty) list is returned and the seeder logs a genuine
+  "nothing to seed". A hard exception inside any attempt short-circuits to `None`
+  (empty-retries are NOT burned on a transport failure).
+
+`SEED_EMPTY_RETRIES` / `SEED_EMPTY_BACKOFF_S` are env-tunable (declared as defaults
+on `query_lake_with_retry`, sourced from the same-named env vars). The boot thread
+never crashes startup, and the whole retry runs on the boot-seed daemon thread, so
+it never blocks `app.run()` / serving.
 
 On **byox**, `Quix__Lakehouse__Query__Url` / `Quix__Lakehouse__Query__AuthToken`
 are **not** auto-injected, so they are declared in `app.yaml`; the code also

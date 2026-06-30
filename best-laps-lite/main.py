@@ -103,6 +103,14 @@ LAKE_TOKEN = os.environ.get("Quix__Lakehouse__Query__AuthToken") or os.environ.g
 )
 LAKE_TABLE = os.environ.get("LAKE_TABLE", "ac_telemetry_prod")
 BEST_COL = os.environ.get("LAKE_COL_BEST_TIME", "iBestTime")
+# Cold-start the first scan over the lake table can exceed the lakehouse's ~30s
+# server-side query timeout and come back EMPTY (HTTP 200, 0 rows) even though the
+# table has data; the cache warms after that first scan (warm runs ~2.4s). So a
+# 0-row result is treated as the cold-cache transient and re-queried on a SHORT
+# backoff (distinct from the 60s transport/timeout backoff). SEED_EMPTY_RETRIES /
+# SEED_EMPTY_BACKOFF_S tune that empty-retry path.
+SEED_EMPTY_RETRIES = int(os.environ.get("SEED_EMPTY_RETRIES", "5"))
+SEED_EMPTY_BACKOFF_S = float(os.environ.get("SEED_EMPTY_BACKOFF_S", "10.0"))
 # Prod-edge DCM base. The byox in-cluster DCM stamps contentUrl=
 # http://dynamic-configuration-manager (an EMPTY DCM), so the native lookup
 # fetches empty content and enrichment returns blank experiment/driver. We
@@ -184,21 +192,21 @@ def build_reconcile_sql(lake_table: str, best_col: str) -> str:
     The lakehouse returns at most one row per driver group instead of every 50 Hz
     tick. Identifiers come from validated env vars, so inlining is safe.
 
-    NO WHERE clause: the QuixLake Query API silently returns 0 rows (HTTP 200,
-    empty body) for the ``best_col > 0`` predicate — proven against the live dev
-    ``ac_telemetry_prod`` (249k rows). The same query without WHERE returns all
-    groups; an upper-bound-only ``best_col < INT_MAX`` also works, but combining
-    ``> 0 AND < INT_MAX`` trips the silent-empty behavior, so the seed always got
-    0 rows. INT_MAX/<=0 filtering is instead done in Python: ``reduce_rows`` drops
-    them (``0 < best_ms < INT_MAX``) and ``_fold`` is the final safety net (an
-    INT_MAX MIN can never reach State/RAM as a "best"). A group whose MIN is
-    INT_MAX (no valid lap) is dropped during reduction/fold; groups with a valid
-    MIN are kept — same result, just filtered where QuixLake doesn't silently fail.
+    WHERE ``best_col > 0 AND best_col < INT_MAX`` keeps the "no valid lap" sentinel
+    rows (AC writes INT_MAX pre-lap, 0 when unset) out of the aggregation. An
+    earlier revision dropped the WHERE on the theory that QuixLake "silently empties
+    on the ``>0`` predicate"; that conclusion was wrong — the empties were
+    cold-cache/timeout flakiness (the EXACT WHERE query returns 9 rows in ~2.4 s
+    warm), not the predicate. The transient is handled in ``query_lake_with_retry``
+    (retry-on-empty), not by weakening the SQL. ``reduce_rows`` (``0 < best_ms <
+    INT_MAX``) and ``_fold`` remain the in-Python safety nets, so a stray sentinel
+    that slips past the predicate still never reaches State/RAM as a "best".
     """
     return (
         f"SELECT environment, experiment, track, carModel, driver, "
         f"MIN({best_col}) AS {best_col} "
         f"FROM {lake_table} "
+        f"WHERE {best_col} > 0 AND {best_col} < {INT_MAX} "
         f"GROUP BY environment, experiment, track, carModel, driver"
     )
 
@@ -225,14 +233,14 @@ def query_lake_once(sql: str) -> list[dict]:
     return list(csv.DictReader(io.StringIO(resp.text)))
 
 
-def query_lake_with_retry(sql: str, retries: int = 3, backoff_s: float = 60.0) -> list[dict] | None:
-    """Run the seed query, retrying transport/timeout errors with a backoff.
+def _query_lake_exc_retry(sql: str, retries: int, backoff_s: float) -> list[dict] | None:
+    """One pass of the query with exception-only retry (transport/timeout/HTTP).
 
-    QuixLake can time out on aggregated tables (feedback_quixlake_aggregation_slow).
-    Retry up to *retries* times with ~*backoff_s* between attempts; after the last
-    failure return ``None`` (fail-soft — the caller leaves State un-seeded and a
-    later boot retries while the volume is still cold). A successful query returns
-    the row list (possibly empty).
+    Retries up to *retries* times with ~*backoff_s* between attempts; after the last
+    failure returns ``None`` (fail-soft). A successful query returns the row list
+    (possibly empty — the empty-retry wrapper decides whether to re-query). Factored
+    out so ``query_lake_with_retry`` can layer the empty-retry loop on top while the
+    only side effects remain ``query_lake_once`` and ``time.sleep`` (both mockable).
     """
     for attempt in range(1, retries + 1):
         try:
@@ -255,6 +263,65 @@ def query_lake_with_retry(sql: str, retries: int = 3, backoff_s: float = 60.0) -
                     exc,
                 )
     return None
+
+
+def query_lake_with_retry(
+    sql: str,
+    retries: int = 3,
+    backoff_s: float = 60.0,
+    empty_retries: int = SEED_EMPTY_RETRIES,
+    empty_backoff_s: float = SEED_EMPTY_BACKOFF_S,
+) -> list[dict] | None:
+    """Run the seed query, retrying BOTH transport/timeout errors AND empty results.
+
+    Two distinct transients are handled with two distinct backoffs:
+
+    * **Exception** (transport / timeout / HTTP error) — ``feedback_quixlake_
+      aggregation_slow``. Retried up to *retries* times with the long *backoff_s*
+      (~60s, default) by ``_query_lake_exc_retry``; exhausting it returns ``None``
+      (fail-soft — the caller leaves State un-seeded and a later boot retries).
+
+    * **Empty / 0-row result** — the table reliably has data, so a successful-but-
+      empty response is almost always the cold-cache/timeout transient (the first
+      scan over a cold ``ac_telemetry_prod`` can exceed the lakehouse's ~30s
+      server-side timeout and come back empty; the next attempt hits the warmed
+      cache at ~2.4s). Retried up to *empty_retries* times with the SHORT
+      *empty_backoff_s* (~10s, default).
+
+    Loop: query → if it raised, ``_query_lake_exc_retry`` exhausted its own retries
+    and returned ``None`` (propagate it, do not burn empty-retries on a hard
+    failure); if it returned rows, return them on the first non-empty result; if it
+    returned empty, sleep *empty_backoff_s* and re-query, up to *empty_retries*
+    times. After the empty-retries are exhausted, return the final (still-empty)
+    list so the caller logs a genuine "nothing to seed".
+
+    Pure-ish helper: the only side effects are ``query_lake_once`` and
+    ``time.sleep`` (both module-level → monkeypatchable in a unit test).
+    """
+    last_empty: list[dict] = []
+    # attempt 0 is the initial query; attempts 1..empty_retries are the empty-retries.
+    for empty_attempt in range(empty_retries + 1):
+        rows = _query_lake_exc_retry(sql, retries, backoff_s)
+        if rows is None:
+            return None  # hard transport/timeout failure already logged & fail-soft
+        if rows:
+            return rows  # first non-empty result wins
+        last_empty = rows
+        if empty_attempt < empty_retries:
+            logger.warning(
+                "boot-seed: lake returned 0 rows, retrying empty (attempt %d/%d) "
+                "in %.0fs — likely cold-cache timeout",
+                empty_attempt + 1,
+                empty_retries,
+                empty_backoff_s,
+            )
+            time.sleep(empty_backoff_s)
+    logger.info(
+        "boot-seed: lake still returned 0 rows after %d empty-retries; treating as "
+        "genuinely empty",
+        empty_retries,
+    )
+    return last_empty
 
 
 def reduce_rows(rows: list[dict]) -> dict[tuple[str, str, str, str, str], int]:
@@ -763,7 +830,12 @@ def run_boot_seed() -> bool:
             return False
 
         sql = build_reconcile_sql(LAKE_TABLE, BEST_COL)
-        logger.info("boot-seed: lake scan SQL: %s", sql)
+        logger.info(
+            "boot-seed: lake scan SQL: %s (empty_retries=%d empty_backoff=%.0fs)",
+            sql,
+            SEED_EMPTY_RETRIES,
+            SEED_EMPTY_BACKOFF_S,
+        )
         rows = query_lake_with_retry(sql)
         if rows is None:
             return False  # retries exhausted; already logged
