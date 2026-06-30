@@ -825,6 +825,7 @@ deployments:
         value: best-laps-cache-v1.6
     blobStorage:
       bind: true
+    disabled: true
   - name: Dummy Telemetry Source
     application: dummy-telemetry-source
     version: latest
@@ -833,7 +834,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 1000
-      replicas: 1
     variables:
       - name: output
         inputType: OutputTopic
@@ -865,7 +865,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: best-laps-lite-bc9e41b
