@@ -932,7 +932,7 @@ deployments:
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-lite-v1.1
+        value: best-laps-lite-v1.2
       - name: Quix__State__Dir
         inputType: FreeText
         description: RocksDB managed-State dir; mount a `state:` volume here for durability
