@@ -772,12 +772,14 @@ deployments:
     variables:
       - name: output
         inputType: OutputTopic
-        description: Name of the output topic to write replayed telemetry into. Intentionally unset — connect when dummy data is wanted.
-        value: ''
+        description: Name of the output topic to write replayed telemetry into
+        required: true
+        value: ac-telemetry-raw
       - name: session_output
         inputType: OutputTopic
-        description: Topic to write session metadata into. Intentionally unset — connect when dummy data is wanted.
-        value: ''
+        description: Topic to write session metadata into
+        required: true
+        value: ac-telemetry-session
       - name: SPEEDUP
         inputType: FreeText
         description: Replay speed multiplier relative to captured wall-clock
