@@ -5,6 +5,19 @@ In Quix Cloud the container is auto-injected with a JSON blob storage config
 blob connection (see `blobStorage: bind: true` in quix.yaml). Locally that
 env var is absent, `get_filesystem()` raises, and video endpoints return 503.
 Telemetry endpoints are unaffected.
+
+Connection is established lazily on the first request, not at import — a cold
+Quix Cloud environment start can bring the pod up before MinIO/blob is
+reachable, so a connect attempt at import would fail permanently and every
+video request would 503 until a manual restart. Instead `get_blob_fs()`
+retries on later requests: a successful connect is cached for the life of the
+process; a failure is retried at most once per `_RETRY_COOLDOWN_S` window
+(within that window the accessor returns None without touching the network,
+so request latency stays bounded when blob is genuinely down). Locally, where
+the env var is absent, this just retries cheaply and keeps returning None
+(video endpoints 503, telemetry unaffected). The accessor is thread-safe:
+endpoints run in the event loop but the sprite slow paths run under
+`asyncio.to_thread`.
 """
 
 from __future__ import annotations
@@ -18,6 +31,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse, Response
@@ -81,7 +96,38 @@ def _get_blob_fs():
         return None
 
 
-blob_fs = _get_blob_fs()
+# Lazy, cached, thread-safe accessor for the blob filesystem. Replaces a
+# one-shot import-time connect so a cold-environment start (blob not yet
+# reachable) is retried on later requests instead of 503-ing forever.
+_RETRY_COOLDOWN_S = 10.0
+_blob_fs = None
+_last_attempt = 0.0
+_blob_fs_lock = threading.Lock()
+
+
+def get_blob_fs():
+    """Return the blob filesystem, connecting lazily with a retry cooldown.
+
+    A successful connect is cached permanently. On failure, at most one
+    reconnect is attempted per `_RETRY_COOLDOWN_S` window; within the window
+    None is returned without any network I/O so request latency stays bounded
+    when blob storage is genuinely down. Thread-safe — the sprite slow paths
+    call this from `asyncio.to_thread`.
+    """
+    global _blob_fs, _last_attempt
+    if _blob_fs is not None:
+        return _blob_fs
+    with _blob_fs_lock:
+        # Re-check inside the lock: another thread may have just connected.
+        if _blob_fs is not None:
+            return _blob_fs
+        if time.monotonic() - _last_attempt < _RETRY_COOLDOWN_S:
+            return None
+        _last_attempt = time.monotonic()
+        # _get_blob_fs() logs its own success (logger.info) / failure
+        # (logger.warning); the cooldown naturally throttles the warning.
+        _blob_fs = _get_blob_fs()
+        return _blob_fs
 
 
 def _safe_session(session_id: str) -> str:
@@ -122,15 +168,16 @@ def _session_blob_variants(session_id: str) -> list[str]:
 def _find_video_paths(session_id: str, lap: int) -> tuple[str, str] | None:
     """Find MP4 + sidecar blob paths for a session+lap, trying format variants.
     Returns (mp4_path, sidecar_path) or None if no video found."""
-    if not blob_fs:
+    fs = get_blob_fs()
+    if not fs:
         return None
     for safe in _session_blob_variants(session_id):
         folder = f"{config.BLOB_VIDEO_PREFIX}/session_id={safe}"
         base = f"{safe}_lap{lap:03d}"
         mp4 = f"{folder}/{base}.mp4"
         try:
-            blob_fs.invalidate_cache(folder)
-            if blob_fs.exists(mp4):
+            fs.invalidate_cache(folder)
+            if fs.exists(mp4):
                 return mp4, f"{folder}/{base}.sync.json"
         except Exception:
             continue
@@ -176,14 +223,15 @@ def _find_sprite_paths(session_id: str, lap: int) -> tuple[str, str, str, str] |
     Returns (mp4_path, sprite_path, sidecar_path, safe_session) or None if
     no MP4 exists for any session_id format variant.
     """
-    if not blob_fs:
+    fs = get_blob_fs()
+    if not fs:
         return None
     for safe in _session_blob_variants(session_id):
         folder, sprite_path, sidecar_path = _sprite_blob_paths(safe, lap)
         mp4 = f"{folder}/{safe}_lap{lap:03d}.mp4"
         try:
-            blob_fs.invalidate_cache(folder)
-            if blob_fs.exists(mp4):
+            fs.invalidate_cache(folder)
+            if fs.exists(mp4):
                 return mp4, sprite_path, sidecar_path, safe
         except Exception:
             continue
@@ -266,10 +314,11 @@ def _run_sprite_ffmpeg(
 def _read_sidecar(sidecar_blob: str) -> dict | None:
     """Read + parse the sidecar JSON from blob storage. Returns None if the
     blob is missing or the body isn't valid JSON."""
-    if not blob_fs:
+    fs = get_blob_fs()
+    if not fs:
         return None
     try:
-        body = blob_fs.cat(sidecar_blob)
+        body = fs.cat(sidecar_blob)
     except FileNotFoundError:
         return None
     except Exception:
@@ -341,9 +390,9 @@ def _speculative_thumbs_cached(safe_session: str, lap: int, mp4_blob_path: str) 
     """Cached synthesis of a `thumbs` block for an old lap missing one.
 
     Strategy:
-      1. Open the MP4 in blob_fs and read just the first ~256 KB. Faststart
-         puts the moov atom at the front, so ffprobe extracts width/height/
-         duration without us ever having to download the full file.
+      1. Open the MP4 in the blob filesystem and read just the first ~256 KB.
+         Faststart puts the moov atom at the front, so ffprobe extracts
+         width/height/duration without us ever downloading the full file.
       2. If head-only ffprobe fails (pre-faststart lap, or unusual mux),
          fall back to a full download. Slower but correct.
       3. Compute tile_h=90, tile_w preserves aspect (rounded to even px to
@@ -354,7 +403,8 @@ def _speculative_thumbs_cached(safe_session: str, lap: int, mp4_blob_path: str) 
     same logical lap won't reuse a stale dim. lru_cache is process-local;
     eviction is automatic at maxsize=100.
     """
-    if not blob_fs:
+    fs = get_blob_fs()
+    if not fs:
         return None
 
     tmp_dir = tempfile.mkdtemp(prefix="thumbs_meta_")
@@ -364,7 +414,7 @@ def _speculative_thumbs_cached(safe_session: str, lap: int, mp4_blob_path: str) 
         # 1. Try head-read first — cheap and usually sufficient with faststart.
         dims = None
         try:
-            with blob_fs.open(mp4_blob_path, "rb") as fh:
+            with fs.open(mp4_blob_path, "rb") as fh:
                 head_bytes = fh.read(_SPECULATIVE_HEAD_BYTES)
             if head_bytes:
                 with open(head_local, "wb") as out:
@@ -381,7 +431,7 @@ def _speculative_thumbs_cached(safe_session: str, lap: int, mp4_blob_path: str) 
                 mp4_blob_path,
             )
             try:
-                full_bytes = blob_fs.cat(mp4_blob_path)
+                full_bytes = fs.cat(mp4_blob_path)
                 with open(full_local, "wb") as out:
                     out.write(full_bytes)
                 del full_bytes
@@ -425,17 +475,18 @@ def _generate_sprite_sync(mp4_blob_path: str, sprite_blob_path: str, sidecar_blo
     """Synchronous slow path: download MP4, ffprobe, ffmpeg, upload sprite,
     merge thumbs block into sidecar JSON. Returns the sprite bytes on success.
     Run inside asyncio.to_thread so the FastAPI event loop stays responsive."""
-    if not blob_fs:
+    fs = get_blob_fs()
+    if not fs:
         return None
     tmp_dir = tempfile.mkdtemp(prefix="thumbs_")
     mp4_local = os.path.join(tmp_dir, "in.mp4")
     sprite_local = os.path.join(tmp_dir, "out.thumbs.jpg")
     try:
-        # 1. Download MP4 to a temp file. blob_fs.cat returns bytes; for a
+        # 1. Download MP4 to a temp file. fs.cat returns bytes; for a
         #    multi-hundred-MB lap that's a transient memory hit but avoids
         #    needing a streaming download API on the blob filesystem.
         try:
-            mp4_bytes = blob_fs.cat(mp4_blob_path)
+            mp4_bytes = fs.cat(mp4_blob_path)
         except Exception:
             logger.exception("Failed to download MP4 for sprite gen: %s", mp4_blob_path)
             return None
@@ -494,7 +545,7 @@ def _generate_sprite_sync(mp4_blob_path: str, sprite_blob_path: str, sidecar_blo
 
         # 5. Upload sprite.
         try:
-            blob_fs.pipe(sprite_blob_path, sprite_bytes)
+            fs.pipe(sprite_blob_path, sprite_bytes)
         except Exception:
             logger.exception("Failed to upload generated sprite: %s", sprite_blob_path)
             # Still return bytes to the caller — at least the current request
@@ -519,7 +570,7 @@ def _generate_sprite_sync(mp4_blob_path: str, sprite_blob_path: str, sidecar_blo
         if existing_sidecar is not None:
             existing_sidecar["thumbs"] = thumbs_block
             try:
-                blob_fs.pipe(sidecar_blob_path, json.dumps(existing_sidecar).encode())
+                fs.pipe(sidecar_blob_path, json.dumps(existing_sidecar).encode())
             except Exception:
                 logger.exception("Failed to update sidecar with thumbs block: %s", sidecar_blob_path)
         return sprite_bytes
@@ -536,6 +587,9 @@ async def _ensure_sprite(
 ) -> bytes | None:
     """Lazy-generate the sprite under a per-lap asyncio.Lock. Re-checks the
     blob inside the lock to absorb concurrent first-request races."""
+    fs = get_blob_fs()
+    if not fs:
+        return None
     key = (session_id, lap)
     lock = _sprite_locks.get(key)
     if lock is None:
@@ -545,9 +599,9 @@ async def _ensure_sprite(
         async with lock:
             # Re-check — another waiter may have just finished generating.
             try:
-                if blob_fs.exists(sprite_blob_path):
+                if fs.exists(sprite_blob_path):
                     try:
-                        return blob_fs.cat(sprite_blob_path)
+                        return fs.cat(sprite_blob_path)
                     except Exception:
                         logger.exception("Failed to read just-generated sprite: %s", sprite_blob_path)
                         return None
@@ -575,7 +629,8 @@ async def get_video_meta(session_id: str, lap: int):
         "mp4_url": str | None,
         "message": str | None
       }"""
-    if not blob_fs:
+    fs = get_blob_fs()
+    if not fs:
         raise HTTPException(503, "Blob storage not connected")
 
     result = _find_video_paths(session_id, lap)
@@ -593,7 +648,7 @@ async def get_video_meta(session_id: str, lap: int):
     mp4_path, sidecar_path = result
     sync = None
     try:
-        sidecar_bytes = blob_fs.cat(sidecar_path)
+        sidecar_bytes = fs.cat(sidecar_path)
         sync = json.loads(sidecar_bytes)
     except FileNotFoundError:
         pass
@@ -641,7 +696,8 @@ async def stream_video(
     unbuffered regions — without it, scrubbing-while-paused doesn't work
     because the browser can only see whatever it has linearly downloaded.
     """
-    if not blob_fs:
+    fs = get_blob_fs()
+    if not fs:
         raise HTTPException(503, "Blob storage not connected")
 
     # Try session_id format variants to find the actual blob path
@@ -652,7 +708,7 @@ async def stream_video(
         base = f"{safe}_lap{lap:03d}"
         candidate = f"{folder}/{base}.mp4"
         try:
-            info = blob_fs.info(candidate)
+            info = fs.info(candidate)
             mp4_path = candidate
             total = int(info.get("size", 0))
             break
@@ -685,7 +741,7 @@ async def stream_video(
 
     if not range:
         try:
-            data = blob_fs.cat(mp4_path)
+            data = fs.cat(mp4_path)
         except FileNotFoundError as e:
             raise HTTPException(404, f"Video not found: session={session_id} lap={lap}") from e
         except Exception as e:
@@ -711,7 +767,7 @@ async def stream_video(
     length = end - start + 1
 
     try:
-        with blob_fs.open(mp4_path, "rb") as fh:
+        with fs.open(mp4_path, "rb") as fh:
             fh.seek(start)
             chunk = fh.read(length)
     except Exception as e:
@@ -737,7 +793,8 @@ async def get_thumbs(session_id: str, lap: int):
     folds the `thumbs` block into the sidecar JSON. See spec
     dev-planning/marker-drag-frame-preview/spec.md §5.2.
     """
-    if not blob_fs:
+    fs = get_blob_fs()
+    if not fs:
         raise HTTPException(503, "Blob storage not connected")
 
     paths = _find_sprite_paths(session_id, lap)
@@ -747,9 +804,9 @@ async def get_thumbs(session_id: str, lap: int):
 
     # Fast path — sprite already exists in blob.
     try:
-        if blob_fs.exists(sprite_path):
+        if fs.exists(sprite_path):
             try:
-                data = blob_fs.cat(sprite_path)
+                data = fs.cat(sprite_path)
                 return Response(
                     content=data,
                     media_type="image/jpeg",
