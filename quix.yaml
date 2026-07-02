@@ -45,7 +45,7 @@ deployments:
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
         description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
-        value: http://best-laps-cache
+        value: http://best-laps-lite
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
@@ -777,6 +777,74 @@ deployments:
         value: true
     blobStorage:
       bind: true
+  - name: BestLaps Lite
+    group: Ingestion
+    application: best-laps-lite
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 1000
+        memory: 2000
+    publicAccess:
+      enabled: true
+      urlPrefix: best-laps-lite-bc9e41b
+    state:
+      enabled: true
+      size: 3
+    network:
+      serviceName: best-laps-lite
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: output
+        inputType: InputTopic
+        description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+        required: true
+        value: ac-telemetry-raw
+      - name: session_output
+        inputType: InputTopic
+        description: Kafka topic for AC session events (ac-telemetry-session); source of track/carModel
+        value: ac-telemetry-session
+      - name: config_input
+        inputType: InputTopic
+        description: DCM config events topic (ac-telemetry-config); resolves experiment/driver/environment
+        value: ac-telemetry-config
+      - name: best_time_output
+        inputType: OutputTopic
+        description: Full-board snapshot emitted on a new/improved best
+        value: ac-best-laps
+      - name: event_output
+        inputType: OutputTopic
+        description: Rich per-new-best event topic
+        value: ac-best-laps-events
+      - name: events_topic
+        inputType: FreeText
+        description: Internal experiment-keyed events topic (raw laps + boot-seed messages funnel here into one stateful store)
+        value: best-laps-events
+      - name: CONFIG_API_URL
+        inputType: FreeText
+        description: DCM base URL for experiment enrichment
+        value: http://dynamic-configuration-manager
+      - name: LAKE_TABLE
+        inputType: FreeText
+        value: ac_telemetry_prod
+      - name: LAKE_COL_BEST_TIME
+        inputType: FreeText
+        value: iBestTime
+      - name: HTTP_PORT
+        inputType: FreeText
+        value: 80
+      - name: CONSUMER_GROUP
+        inputType: FreeText
+        value: best-laps-lite-v1.2
+      - name: Quix__State__Dir
+        inputType: FreeText
+        description: RocksDB managed-State dir; mount a `state:` volume here for durability
+        value: state
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
@@ -800,3 +868,5 @@ topics:
     configuration:
       retentionInBytes: 524288000
   - name: best-laps-events
+  - name: ac-best-laps
+  - name: ac-best-laps-events
