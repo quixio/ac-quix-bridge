@@ -800,6 +800,7 @@ deployments:
         inputType: FreeText
         description: Max ms subtracted from BASE_BEST_MS to randomize each lap's best time
         value: 20000
+    disabled: true
   - name: BestLaps Lite
     group: Ingestion
     application: best-laps-lite
