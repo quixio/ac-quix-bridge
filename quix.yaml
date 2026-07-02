@@ -14,7 +14,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetrydashboard
@@ -61,7 +60,6 @@ deployments:
       limits:
         cpu: 200
         memory: 800
-      replicas: 1
     state:
       enabled: true
       size: 3
@@ -91,7 +89,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -121,7 +118,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -146,7 +142,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
@@ -173,7 +168,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 4000
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -257,7 +251,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager-api
@@ -357,7 +350,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager
@@ -417,7 +409,6 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: acvideobrowser
@@ -441,7 +432,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetryexplorer
@@ -512,7 +502,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: backup-manager
@@ -582,7 +571,6 @@ deployments:
       limits:
         cpu: 500
         memory: 4000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: quixlab
@@ -639,7 +627,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1500
-      replicas: 1
     configuration:
       topic: ac-telemetry-raw
   - name: track-importer
@@ -651,7 +638,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     variables:
       - name: MONGO_USER
         inputType: ProjectVariable
@@ -682,7 +668,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
@@ -705,7 +690,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     configuration:
       sourceWorkspaceId: demo-acquixbridge-dev
       sourceTopic: ac-telemetry-raw
@@ -726,7 +710,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: best-laps-cache-6172bf5
@@ -782,7 +765,6 @@ deployments:
     application: dummy-telemetry-source
     version: latest
     deploymentType: Service
-    disabled: true
     resources:
       limits:
         cpu: 500
@@ -791,11 +773,11 @@ deployments:
       - name: output
         inputType: OutputTopic
         description: Name of the output topic to write replayed telemetry into. Intentionally unset — connect when dummy data is wanted.
-        value: ""
+        value: ''
       - name: session_output
         inputType: OutputTopic
         description: Topic to write session metadata into. Intentionally unset — connect when dummy data is wanted.
-        value: ""
+        value: ''
       - name: SPEEDUP
         inputType: FreeText
         description: Replay speed multiplier relative to captured wall-clock
