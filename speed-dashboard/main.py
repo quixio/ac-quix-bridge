@@ -56,17 +56,21 @@ def build_point(row: dict) -> dict | None:
     """Extract a dashboard point from a telemetry row.
 
     Returns None (and the point is dropped) when speed is absent.
-    accG_x is included as ``None`` when the channel is not present in the row.
+    accG_x, brake, and gas are included as ``None`` when the channel is not present in the row.
     """
     ts = row.get("timestamp_ms") or row.get("Timestamp") or (time.time() * 1000)
     speed = row.get("speedKmh") or row.get("SpeedKmh")
     if speed is None:
         return None
     acc_x = row.get("accG_x")
+    brake = row.get("brake")
+    gas = row.get("gas")
     return {
         "t": float(ts),
         "v": float(speed),
         "a": float(acc_x) if acc_x is not None else None,
+        "b": float(brake) if brake is not None else None,
+        "g": float(gas) if gas is not None else None,
     }
 
 

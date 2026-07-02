@@ -89,6 +89,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_BCC: ${SMTP_BCC:-}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
     volumes:
       - ./test-manager-backend:/app

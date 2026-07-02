@@ -1,0 +1,60 @@
+name: best-laps-lite
+language: python
+variables:
+  - name: output
+    inputType: InputTopic
+    description: Kafka topic for raw AC telemetry (ac-telemetry-raw)
+    required: true
+  - name: session_output
+    inputType: InputTopic
+    description: Kafka topic for AC session events (ac-telemetry-session); source of track/carModel
+    required: false
+    defaultValue: ac-telemetry-session
+  - name: config_input
+    inputType: InputTopic
+    description: DCM config events topic (ac-telemetry-config); resolves experiment/driver/environment
+    required: false
+    defaultValue: ac-telemetry-config
+  - name: best_time_output
+    inputType: OutputTopic
+    description: Full-board snapshot emitted on a new/improved best
+    required: false
+    defaultValue: ac-best-laps
+  - name: event_output
+    inputType: OutputTopic
+    description: Rich per-new-best event topic
+    required: false
+    defaultValue: ac-best-laps-events
+  - name: events_topic
+    inputType: FreeText
+    description: Internal experiment-keyed events topic (raw laps + boot-seed messages funnel here into one stateful store)
+    required: false
+    defaultValue: best-laps-events
+  # Quix__Lakehouse__Query__Url / Quix__Lakehouse__Query__AuthToken are NOT
+  # declared here. They are auto-injected by Quix Cloud at runtime because the
+  # deployment has `blobStorage: bind: true`. Declaring them here forces a
+  # deploy-time prompt and a wrong manual value silently overrides the
+  # auto-injection (mirror leaderboard-service).
+  - name: CONFIG_API_URL
+    inputType: FreeText
+    description: DCM base URL for experiment enrichment
+    defaultValue: http://dynamic-configuration-manager
+  - name: LAKE_TABLE
+    inputType: FreeText
+    defaultValue: ac_telemetry_prod
+  - name: LAKE_COL_BEST_TIME
+    inputType: FreeText
+    defaultValue: iBestTime
+  - name: HTTP_PORT
+    inputType: FreeText
+    defaultValue: "80"
+  - name: CONSUMER_GROUP
+    inputType: FreeText
+    defaultValue: best-laps-lite
+  - name: Quix__State__Dir
+    inputType: FreeText
+    description: RocksDB managed-State dir; mount a `state:` volume here for durability
+    defaultValue: state
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py

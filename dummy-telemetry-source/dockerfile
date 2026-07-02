@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONIOENCODING=UTF-8
+WORKDIR /app
+# COPY --from=git brings the whole project dir, including the data/ corpus +
+# session template that the replay source reads at runtime.
+COPY --from=git /project .
+RUN pip install -r requirements.txt
+ENTRYPOINT ["python", "main.py"]

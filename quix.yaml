@@ -14,7 +14,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetrydashboard
@@ -45,7 +44,7 @@ deployments:
       - name: BEST_LAPS_CACHE_URL
         inputType: FreeText
         description: Base URL of the best-laps-cache service serving GET /best-laps. In-cluster default is http://best-laps-cache. Sole source for the leaderboard standings.
-        value: http://best-laps-cache
+        value: http://best-laps-lite
       - name: LEADERBOARD_TTL_SECONDS
         inputType: FreeText
         description: Server-side cache TTL for the leaderboard query (seconds)
@@ -61,7 +60,6 @@ deployments:
       limits:
         cpu: 200
         memory: 800
-      replicas: 1
     state:
       enabled: true
       size: 3
@@ -91,7 +89,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -121,7 +118,6 @@ deployments:
       limits:
         cpu: 200
         memory: 300
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -146,7 +142,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: config-api-svc
@@ -173,7 +168,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 4000
-      replicas: 1
     variables:
       - name: input
         inputType: InputTopic
@@ -257,7 +251,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager-api
@@ -330,6 +323,10 @@ deployments:
         inputType: ProjectVariable
         description: From address for analysis emails (defaults to SMTP_USER). Set in the Portal to keep it out of the public repo.
         variableKey: SMTP_FROM
+      - name: SMTP_BCC
+        inputType: ProjectVariable
+        description: Optional hidden Bcc copy of every analysis email (comma-separated for multiple). Unset = no bcc. Set per-env in the Portal.
+        variableKey: SMTP_BCC
       - name: SMTP_STARTTLS
         inputType: FreeText
         description: Issue STARTTLS before auth on port 587 (true/false). Ignored when SMTP_SSL=true.
@@ -353,7 +350,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: test-manager
@@ -413,7 +409,6 @@ deployments:
       limits:
         cpu: 500
         memory: 2000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: acvideobrowser
@@ -437,7 +432,6 @@ deployments:
       limits:
         cpu: 1000
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: telemetryexplorer
@@ -508,7 +502,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: backup-manager
@@ -578,7 +571,6 @@ deployments:
       limits:
         cpu: 500
         memory: 4000
-      replicas: 1
     publicAccess:
       enabled: true
       urlPrefix: quixlab
@@ -635,7 +627,6 @@ deployments:
       limits:
         cpu: 500
         memory: 1500
-      replicas: 1
     configuration:
       topic: ac-telemetry-raw
   - name: track-importer
@@ -647,7 +638,6 @@ deployments:
       limits:
         cpu: 200
         memory: 500
-      replicas: 1
     variables:
       - name: MONGO_USER
         inputType: ProjectVariable
@@ -677,8 +667,7 @@ deployments:
     resources:
       limits:
         cpu: 200
-        memory: 300
-      replicas: 1
+        memory: 500
     publicAccess:
       enabled: true
       urlPrefix: speed-dashboard
@@ -701,7 +690,6 @@ deployments:
       limits:
         cpu: 500
         memory: 500
-      replicas: 1
     configuration:
       sourceWorkspaceId: demo-acquixbridge-dev
       sourceTopic: ac-telemetry-raw
@@ -713,24 +701,64 @@ deployments:
       removeGaps: true
       maxGapSizeInMilliseconds: 10000
     disabled: true
-  - name: BestLap cache
+  - name: Dummy Telemetry Source
     group: Ingestion
-    application: best-laps-cache
+    application: dummy-telemetry-source
     version: latest
     deploymentType: Service
     resources:
       limits:
         cpu: 500
         memory: 1000
-      replicas: 1
+    variables:
+      - name: output
+        inputType: OutputTopic
+        description: Name of the output topic to write replayed telemetry into
+        required: true
+        value: ac-telemetry-raw
+      - name: session_output
+        inputType: OutputTopic
+        description: Topic to write session metadata into
+        required: true
+        value: ac-telemetry-session
+      - name: SPEEDUP
+        inputType: FreeText
+        description: Replay speed multiplier relative to captured wall-clock
+        value: 5
+      - name: DUMMY_HOSTNAME
+        inputType: FreeText
+        description: Message key / target_key used for DCM lookup
+        value: QUIX-GAMING
+      - name: LOOP
+        inputType: FreeText
+        description: Replay the corpus forever when true, single pass when false
+        value: false
+      - name: BASE_BEST_MS
+        inputType: FreeText
+        description: Base lap best time in ms (2:45); each lap's random best is this minus 0..MAX_BEST_DELTA_MS
+        value: 165000
+      - name: MAX_BEST_DELTA_MS
+        inputType: FreeText
+        description: Max ms subtracted from BASE_BEST_MS to randomize each lap's best time
+        value: 20000
+    disabled: true
+  - name: BestLaps Lite
+    group: Ingestion
+    application: best-laps-lite
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 1000
+        memory: 2000
     publicAccess:
       enabled: true
-      urlPrefix: best-laps-cache-6172bf5
+      urlPrefix: best-laps-lite-bc9e41b
     state:
       enabled: true
       size: 3
     network:
-      serviceName: best-laps-cache
+      serviceName: best-laps-lite
       ports:
         - port: 80
           targetPort: 80
@@ -742,15 +770,27 @@ deployments:
         value: ac-telemetry-raw
       - name: session_output
         inputType: InputTopic
-        description: Kafka topic for AC session events (ac-telemetry-session)
+        description: Kafka topic for AC session events (ac-telemetry-session); source of track/carModel
         value: ac-telemetry-session
       - name: config_input
         inputType: InputTopic
-        description: DCM config events topic (ac-telemetry-config)
+        description: DCM config events topic (ac-telemetry-config); resolves experiment/driver/environment
         value: ac-telemetry-config
+      - name: best_time_output
+        inputType: OutputTopic
+        description: Full-board snapshot emitted on a new/improved best
+        value: ac-best-laps
+      - name: event_output
+        inputType: OutputTopic
+        description: Rich per-new-best event topic
+        value: ac-best-laps-events
+      - name: events_topic
+        inputType: FreeText
+        description: Internal experiment-keyed events topic (raw laps + boot-seed messages funnel here into one stateful store)
+        value: best-laps-events
       - name: CONFIG_API_URL
         inputType: FreeText
-        description: DCM base URL for session/experiment enrichment
+        description: DCM base URL for experiment enrichment
         value: http://dynamic-configuration-manager
       - name: LAKE_TABLE
         inputType: FreeText
@@ -758,15 +798,16 @@ deployments:
       - name: LAKE_COL_BEST_TIME
         inputType: FreeText
         value: iBestTime
-      - name: RECONCILE_INTERVAL_S
-        inputType: FreeText
-        value: 300
       - name: HTTP_PORT
         inputType: FreeText
         value: 80
       - name: CONSUMER_GROUP
         inputType: FreeText
-        value: best-laps-cache-v1.2
+        value: best-laps-lite-v1.2
+      - name: Quix__State__Dir
+        inputType: FreeText
+        description: RocksDB managed-State dir; mount a `state:` volume here for durability
+        value: state
     blobStorage:
       bind: true
 
@@ -792,3 +833,5 @@ topics:
     configuration:
       retentionInBytes: 524288000
   - name: best-laps-events
+  - name: ac-best-laps
+  - name: ac-best-laps-events

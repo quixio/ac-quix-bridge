@@ -7,9 +7,12 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0d0d0d; color: #e0e0e0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+    body { background: #0d0d0d; color: #e0e0e0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 0.5rem 0; }
     h1 { margin-bottom: 1rem; font-size: 1.4rem; letter-spacing: 0.1em; color: #e8ff00; }
-    #chart-container { width: 90vw; max-width: 1200px; height: 60vh; }
+    #chart-container { width: 90vw; max-width: 1200px; height: 32vh; }
+    #brake-container { width: 90vw; max-width: 1200px; height: 22vh; margin-top: 0.75rem; }
+    #throttle-container { width: 90vw; max-width: 1200px; height: 22vh; margin-top: 0.75rem; }
+    h2.section-label { margin-top: 0.75rem; font-size: 1rem; letter-spacing: 0.08em; color: #ff8800; }
     #status { margin-top: 0.75rem; font-size: 0.8rem; color: #888; }
 
     /* ── Warning light ─────────────────────────────────────────────────────── */
@@ -51,6 +54,46 @@
       from { box-shadow: 0 0 8px 2px rgba(255, 30, 30, 0.45); }
       to   { box-shadow: 0 0 18px 6px rgba(255, 30, 30, 0.75); }
     }
+
+    /* ── Safe-speed light ───────────────────────────────────────────────────── */
+    #safe-light {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      border: 2px solid #333;
+      background: #1a1a1a;
+      color: #555;
+      transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+      user-select: none;
+    }
+    #safe-light .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    #safe-light.active {
+      background: rgba(20, 220, 20, 0.15);
+      border-color: #22ff22;
+      color: #44ff44;
+      box-shadow: 0 0 12px 3px rgba(30, 255, 30, 0.55);
+      animation: pulse-glow-green 0.8s ease-in-out infinite alternate;
+    }
+    #safe-light.active .dot {
+      background: #22ff22;
+      box-shadow: 0 0 8px 3px rgba(30, 255, 30, 0.8);
+    }
+    @keyframes pulse-glow-green {
+      from { box-shadow: 0 0 8px 2px rgba(30, 255, 30, 0.45); }
+      to   { box-shadow: 0 0 18px 6px rgba(30, 255, 30, 0.75); }
+    }
   </style>
 </head>
 <body>
@@ -59,8 +102,20 @@
     <span class="dot"></span>
     <span class="label">200+ km/h</span>
   </div>
+  <div id="safe-light" title="Speed below 100 km/h">
+    <span class="dot"></span>
+    <span class="label">UNDER 100 km/h</span>
+  </div>
   <div id="chart-container">
     <canvas id="chart"></canvas>
+  </div>
+  <h2 class="section-label">Brake Pedal</h2>
+  <div id="brake-container">
+    <canvas id="brake-chart"></canvas>
+  </div>
+  <h2 class="section-label" style="color:#00e676;">Throttle</h2>
+  <div id="throttle-container">
+    <canvas id="throttle-chart"></canvas>
   </div>
   <div id="status">Connecting…</div>
 
@@ -69,6 +124,8 @@
     const labels = [];
     const speedValues = [];
     const accGxValues = [];
+    const brakeValues = [];
+    const gasValues = [];
 
     const ctx = document.getElementById("chart").getContext("2d");
     const chart = new Chart(ctx, {
@@ -79,8 +136,8 @@
           {
             label: "Speed (km/h)",
             data: speedValues,
-            borderColor: "#e8ff00",
-            backgroundColor: "rgba(232,255,0,0.08)",
+            borderColor: "#ff2222",
+            backgroundColor: "rgba(255,34,34,0.08)",
             borderWidth: 2,
             pointRadius: 0,
             tension: 0.2,
@@ -115,8 +172,8 @@
             position: "left",
             min: 0,
             max: 320,
-            title: { display: true, text: "km/h", color: "#e8ff00" },
-            ticks: { color: "#e8ff00" },
+            title: { display: true, text: "km/h", color: "#ff2222" },
+            ticks: { color: "#ff2222" },
             grid: { color: "#222" }
           },
           yAcc: {
@@ -132,6 +189,90 @@
       }
     });
 
+    const brakeCtx = document.getElementById("brake-chart").getContext("2d");
+    const brakeChart = new Chart(brakeCtx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Brake Pedal (0–1)",
+            data: brakeValues,
+            borderColor: "#ff8800",
+            backgroundColor: "rgba(255,136,0,0.08)",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: true,
+            yAxisID: "yBrake",
+          }
+        ]
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#e0e0e0" } } },
+        scales: {
+          x: {
+            ticks: { color: "#888", maxTicksLimit: 10, maxRotation: 0 },
+            grid: { color: "#222" }
+          },
+          yBrake: {
+            type: "linear",
+            position: "left",
+            min: 0,
+            max: 1,
+            title: { display: true, text: "Brake Pedal", color: "#ff8800" },
+            ticks: { color: "#ff8800" },
+            grid: { color: "#222" }
+          }
+        }
+      }
+    });
+
+    const throttleCtx = document.getElementById("throttle-chart").getContext("2d");
+    const throttleChart = new Chart(throttleCtx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Throttle (%)",
+            data: gasValues,
+            borderColor: "#00e676",
+            backgroundColor: "rgba(0,230,118,0.08)",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: true,
+            yAxisID: "yGas",
+          }
+        ]
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#e0e0e0" } } },
+        scales: {
+          x: {
+            ticks: { color: "#888", maxTicksLimit: 10, maxRotation: 0 },
+            grid: { color: "#222" }
+          },
+          yGas: {
+            type: "linear",
+            position: "left",
+            min: 0,
+            max: 100,
+            title: { display: true, text: "Throttle (%)", color: "#00e676" },
+            ticks: { color: "#00e676" },
+            grid: { color: "#222" }
+          }
+        }
+      }
+    });
+
     function fmt(ts) {
       const d = new Date(ts);
       const hh = String(d.getHours()).padStart(2, "0");
@@ -142,7 +283,9 @@
     }
 
     const warningLight = document.getElementById("warning-light");
+    const safeLight = document.getElementById("safe-light");
     const SPEED_THRESHOLD = 200;
+    const SAFE_THRESHOLD = 100;
 
     function updateWarningLight(speed) {
       if (speed > SPEED_THRESHOLD) {
@@ -150,19 +293,30 @@
       } else {
         warningLight.classList.remove("active");
       }
+      if (speed < SAFE_THRESHOLD) {
+        safeLight.classList.add("active");
+      } else {
+        safeLight.classList.remove("active");
+      }
     }
 
-    function addPoint(t, v, a) {
+    function addPoint(t, v, a, b, g) {
       labels.push(fmt(t));
       speedValues.push(v);
       accGxValues.push(a !== undefined ? a : null);
+      brakeValues.push(b !== undefined ? b : null);
+      gasValues.push(g !== undefined && g !== null ? g * 100 : null);
       if (labels.length > MAX_POINTS) {
         labels.shift();
         speedValues.shift();
         accGxValues.shift();
+        brakeValues.shift();
+        gasValues.shift();
       }
       updateWarningLight(v);
       chart.update("none");
+      brakeChart.update("none");
+      throttleChart.update("none");
     }
 
     function connect() {
@@ -180,9 +334,11 @@
           labels.length = 0;
           speedValues.length = 0;
           accGxValues.length = 0;
-          msg.data.forEach(p => addPoint(p.t, p.v, p.a));
+          brakeValues.length = 0;
+          gasValues.length = 0;
+          msg.data.forEach(p => addPoint(p.t, p.v, p.a, p.b, p.g));
         } else if (msg.type === "point") {
-          addPoint(msg.data.t, msg.data.v, msg.data.a);
+          addPoint(msg.data.t, msg.data.v, msg.data.a, msg.data.b, msg.data.g);
         }
       };
 
