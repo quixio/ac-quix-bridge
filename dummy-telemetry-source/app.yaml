@@ -1,0 +1,41 @@
+name: Dummy Telemetry Source
+language: python
+variables:
+  - name: output
+    inputType: OutputTopic
+    description: Name of the output topic to write replayed telemetry into
+    defaultValue: ac-telemetry-raw
+    required: true
+  - name: session_output
+    inputType: OutputTopic
+    description: Topic to write session metadata into
+    defaultValue: ac-telemetry-session
+    required: true
+  - name: SPEEDUP
+    inputType: FreeText
+    description: Replay speed multiplier relative to captured wall-clock
+    defaultValue: 10
+    required: false
+  - name: DUMMY_HOSTNAME
+    inputType: FreeText
+    description: Message key / target_key used for DCM lookup
+    defaultValue: QUIX-GAMING
+    required: false
+  - name: LOOP
+    inputType: FreeText
+    description: Replay the corpus forever when true, single pass when false
+    defaultValue: true
+    required: false
+  - name: BASE_BEST_MS
+    inputType: FreeText
+    description: Base lap best time in ms (2:45); each lap's random best is this minus 0..MAX_BEST_DELTA_MS
+    defaultValue: 165000
+    required: false
+  - name: MAX_BEST_DELTA_MS
+    inputType: FreeText
+    description: Max ms subtracted from BASE_BEST_MS to randomize each lap's best time
+    defaultValue: 20000
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
