@@ -835,6 +835,34 @@ deployments:
         value: best-laps-cache-v1.0
     blobStorage:
       bind: true
+  - name: Lake Zip Loader
+    group: Ingestion
+    application: lake-zip-loader
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 1500
+    replicas: 1
+    publicAccess:
+      enabled: true
+      urlPrefix: lake-zip-loader
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: TABLE_NAME
+        inputType: FreeText
+        description: Lakehouse table to write parquet files into and register in the Iceberg REST catalog
+        value: ac_telemetry_prod_test
+      - name: UPLOAD_API_KEY
+        inputType: FreeText
+        description: Shared secret required in the X-Api-Key header on PUT /files uploads
+        value: stuttgart-expo-load-2026
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:

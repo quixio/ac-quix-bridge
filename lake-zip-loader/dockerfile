@@ -1,0 +1,27 @@
+FROM python:3.13-slim-bookworm
+
+# Set environment variables to non-interactive and unbuffered output
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=UTF-8
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Install git so pip can resolve git+ dependencies in requirements.txt
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+# Copy only the requirements file(s) to leverage Docker cache
+COPY ./requirements.txt ./
+
+# Install dependencies
+# Adding `--no-cache-dir` to avoid storing unnecessary files and reduce image size
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application
+COPY . .
+
+EXPOSE 80
+
+# HTTP batch loader (no Kafka): FastAPI served by uvicorn on port 80.
+ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]
