@@ -202,7 +202,14 @@ def _store_file(relpath: str, body: bytes) -> dict:
     partition_values, clean_relpath = _validate_relpath(relpath)
     storage_key = f"{TIMESERIES_PREFIX}/{TABLE_NAME}/{clean_relpath}"
 
-    if state.blob_client.exists(storage_key):
+    try:
+        already_present = state.blob_client.exists(storage_key)
+    except Exception as exc:  # noqa: BLE001 - e.g. SignatureDoesNotMatch on non-ASCII keys
+        logger.warning(
+            "exists check failed for %s (%s) — assuming absent", storage_key, exc
+        )
+        already_present = False
+    if already_present:
         logger.info("Skip existing object: %s", storage_key)
         return {"status": "exists", "key": clean_relpath}
 
@@ -216,7 +223,12 @@ def _store_file(relpath: str, body: bytes) -> dict:
             status_code=400, detail=f"not a readable parquet file: {exc}"
         ) from exc
 
-    state.blob_client.put_object(storage_key, body)
+    try:
+        state.blob_client.put_object(storage_key, body)
+    except Exception as exc:  # noqa: BLE001 - surface the real storage error as 502
+        raise HTTPException(
+            status_code=502, detail=f"blob write failed: {exc}"
+        ) from exc
 
     if state.catalog is not None:
         try:
