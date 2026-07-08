@@ -49,6 +49,7 @@ INDEX_PATH = REPO_ROOT / ".claude" / "repo-index.json"
 PYTHON_SERVICES: dict[str, str] = {
     "ac-telemetry-source": "quixstreams-source",
     "ac-telemetry-lake": "quixstreams-sink",
+    "lake-zip-loader": "fastapi",
     "telemetry-dashboard": "fastapi",
     "telemetry-comparison": "fastapi",
     "session-config-bridge": "quixstreams-app",

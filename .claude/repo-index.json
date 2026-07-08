@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-06-17T19:18:34Z",
-  "newest_source_mtime": "2026-06-17T19:15:46Z",
+  "generated_at": "2026-07-08T13:55:02Z",
+  "newest_source_mtime": "2026-07-08T13:53:26Z",
   "services": {
     "ac-postrace-trigger": {
       "entry": "main.py",
@@ -202,6 +202,108 @@
       "kind": "quixstreams-source",
       "python_symbols": [],
       "routes": []
+    },
+    "lake-zip-loader": {
+      "entry": "main.py",
+      "kind": "fastapi",
+      "python_symbols": [
+        {
+          "file": "catalog.py",
+          "kind": "class",
+          "line": 29,
+          "name": "CatalogManager"
+        },
+        {
+          "file": "main.py",
+          "kind": "class",
+          "line": 68,
+          "name": "_State"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 81,
+          "name": "_init_backends"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 136,
+          "name": "lifespan"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 149,
+          "name": "_check_api_key"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 156,
+          "name": "_validate_relpath"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 191,
+          "name": "_store_file"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 243,
+          "name": "put_file"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 255,
+          "name": "status"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 272,
+          "name": "verify"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 303,
+          "name": "healthz"
+        }
+      ],
+      "routes": [
+        {
+          "file": "main.py",
+          "handler": "put_file",
+          "line": 242,
+          "method": "PUT",
+          "path": "/files/{relpath:path}"
+        },
+        {
+          "file": "main.py",
+          "handler": "status",
+          "line": 254,
+          "method": "GET",
+          "path": "/status"
+        },
+        {
+          "file": "main.py",
+          "handler": "verify",
+          "line": 271,
+          "method": "GET",
+          "path": "/verify"
+        },
+        {
+          "file": "main.py",
+          "handler": "healthz",
+          "line": 302,
+          "method": "GET",
+          "path": "/healthz"
+        }
+      ]
     },
     "session-config-bridge": {
       "entry": "main.py",
@@ -1272,91 +1374,115 @@
         {
           "file": "main.py",
           "kind": "function",
-          "line": 45,
+          "line": 53,
           "name": "push_to_clients"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 53,
+          "line": 61,
           "name": "set_consumer_status"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 67,
+          "line": 75,
           "name": "set_current_driver"
         },
         {
           "file": "main.py",
+          "kind": "function",
+          "line": 87,
+          "name": "set_current_experiment"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 104,
+          "name": "set_current_session"
+        },
+        {
+          "file": "main.py",
           "kind": "async_function",
-          "line": 79,
+          "line": 125,
           "name": "_broadcast"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 90,
+          "line": 136,
           "name": "run_kafka"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 146,
-          "name": "_fetch_config_driver"
+          "line": 192,
+          "name": "_fetch_config_content"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 168,
+          "line": 215,
           "name": "_handle_config_event"
         },
         {
           "file": "main.py",
           "kind": "function",
-          "line": 177,
-          "name": "run_config_consumer"
-        },
-        {
-          "file": "main.py",
-          "kind": "async_function",
           "line": 229,
-          "name": "lifespan"
-        },
-        {
-          "file": "main.py",
-          "kind": "async_function",
-          "line": 245,
-          "name": "health"
-        },
-        {
-          "file": "main.py",
-          "kind": "function",
-          "line": 271,
-          "name": "_datalake_verify"
+          "name": "run_config_consumer"
         },
         {
           "file": "main.py",
           "kind": "function",
           "line": 280,
-          "name": "_parse_leaderboard_csv"
-        },
-        {
-          "file": "main.py",
-          "kind": "async_function",
-          "line": 297,
-          "name": "leaderboard"
+          "name": "run_session_consumer"
         },
         {
           "file": "main.py",
           "kind": "async_function",
           "line": 333,
+          "name": "lifespan"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 351,
+          "name": "health"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 372,
+          "name": "_http_verify"
+        },
+        {
+          "file": "main.py",
+          "kind": "function",
+          "line": 379,
+          "name": "_parse_cache_csv"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 406,
+          "name": "_fetch_from_cache"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 438,
+          "name": "leaderboard"
+        },
+        {
+          "file": "main.py",
+          "kind": "async_function",
+          "line": 479,
           "name": "root"
         },
         {
           "file": "main.py",
           "kind": "async_function",
-          "line": 360,
+          "line": 506,
           "name": "ws_endpoint"
         }
       ],
@@ -1364,21 +1490,21 @@
         {
           "file": "main.py",
           "handler": "health",
-          "line": 244,
+          "line": 350,
           "method": "GET",
           "path": "/health"
         },
         {
           "file": "main.py",
           "handler": "leaderboard",
-          "line": 296,
+          "line": 437,
           "method": "GET",
           "path": "/leaderboard"
         },
         {
           "file": "main.py",
           "handler": "root",
-          "line": 332,
+          "line": 478,
           "method": "GET",
           "path": "/{full_path:path}"
         }
@@ -1530,276 +1656,276 @@
           "file": "api/models.py",
           "kind": "class",
           "line": 143,
-          "name": "LastRequirements"
+          "name": "LastUsedDefaults"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 149,
+          "line": 155,
           "name": "TestQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 158,
+          "line": 164,
           "name": "TestFullData"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 165,
+          "line": 171,
           "name": "LogbookEntry"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 175,
+          "line": 181,
           "name": "LogbookEntryCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 182,
+          "line": 188,
           "name": "LogbookEntryUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 195,
+          "line": 201,
           "name": "DeviceStatus"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 202,
+          "line": 208,
           "name": "DeviceCategory"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 209,
+          "line": 215,
           "name": "Device"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 220,
+          "line": 226,
           "name": "DeviceCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 228,
+          "line": 234,
           "name": "DeviceUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 236,
+          "line": 242,
           "name": "DeviceQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 249,
+          "line": 255,
           "name": "SampleType"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 256,
+          "line": 262,
           "name": "Location"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 263,
+          "line": 269,
           "name": "ProductCategory"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 270,
+          "line": 276,
           "name": "Product"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 284,
+          "line": 290,
           "name": "IntegrationSettings"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 295,
+          "line": 301,
           "name": "IntegrationSettingsUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 302,
+          "line": 308,
           "name": "Topic"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 309,
+          "line": 315,
           "name": "Workspace"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 316,
+          "line": 322,
           "name": "TopicInfo"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 332,
+          "line": 338,
           "name": "Repository"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 341,
+          "line": 347,
           "name": "WorkspaceDetails"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 353,
+          "line": 359,
           "name": "DeploymentInfo"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 372,
+          "line": 378,
           "name": "Driver"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 387,
+          "line": 393,
           "name": "DriverCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 405,
+          "line": 411,
           "name": "DriverUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 420,
+          "line": 426,
           "name": "DriverQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 432,
+          "line": 438,
           "name": "EnvironmentStatus"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 437,
+          "line": 443,
           "name": "Environment"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 448,
+          "line": 454,
           "name": "EnvironmentCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 456,
+          "line": 462,
           "name": "EnvironmentUpdate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 464,
+          "line": 470,
           "name": "EnvironmentQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 483,
+          "line": 489,
           "name": "Experiment"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 496,
+          "line": 502,
           "name": "ExperimentCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 515,
+          "line": 521,
           "name": "ExperimentQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 522,
+          "line": 528,
           "name": "DeploymentReference"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 537,
+          "line": 543,
           "name": "KpiValue"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 547,
+          "line": 553,
           "name": "RequirementCheck"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 555,
+          "line": 561,
           "name": "Anomaly"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 567,
+          "line": 573,
           "name": "Analysis"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 611,
+          "line": 617,
           "name": "AnalysisCreate"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 637,
+          "line": 643,
           "name": "AnalysisListQuery"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 646,
+          "line": 652,
           "name": "SaveAnalysisPayload"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 658,
+          "line": 664,
           "name": "AnalysisRecipient"
         },
         {
           "file": "api/models.py",
           "kind": "class",
-          "line": 665,
+          "line": 671,
           "name": "EmailSendResult"
         },
         {
@@ -2375,8 +2501,8 @@
         {
           "file": "api/routes/tests.py",
           "kind": "function",
-          "line": 531,
-          "name": "get_last_requirements"
+          "line": 535,
+          "name": "get_last_used_defaults"
         },
         {
           "file": "api/routes/user.py",
@@ -2839,10 +2965,10 @@
         },
         {
           "file": "api/routes/tests.py",
-          "handler": "get_last_requirements",
+          "handler": "get_last_used_defaults",
           "line": 530,
           "method": "GET",
-          "path": "/tests/filters/last-requirements"
+          "path": "/tests/filters/last-used"
         },
         {
           "file": "api/routes/user.py",
