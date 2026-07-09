@@ -20,6 +20,7 @@ import logging
 import os
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
 
 from session_tracker import SessionTracker
@@ -80,6 +81,19 @@ def _get_blob_fs():
 class ACVideoSource:
     """Captures AC gameplay and records per-lap MP4s."""
 
+    # --- Start-line movement gate tunables (see _evaluate_start_gate) ---
+    # normPos below this counts as "at/just past" the start/finish line.
+    _START_LINE_BAND = 0.05
+    # prev normPos above this (with curr below the band) means the car wrapped
+    # across the start/finish line from the far side.
+    _CROSS_FROM = 0.9
+    # A single-tick absolute normPos jump larger than this is a teleport
+    # (reset-to-pits or lap wrap), not driving, so it is not counted as movement.
+    _TELEPORT_CAP = 0.01
+    # Cumulative capped movement (normPos units) that confirms the car has
+    # actually driven off its spawn rather than sitting still in the AC menu.
+    _START_MOVEMENT_THRESHOLD = 1e-4
+
     def __init__(self, name: str):
         self.name = name
         # Lifecycle flag — formerly inherited from QuixStreams Source, now
@@ -102,6 +116,13 @@ class ACVideoSource:
         self._mock_mode = os.environ.get("AC_MOCK_MODE", "false").lower() == "true"
         self._blob_fs = _get_blob_fs() if self._recording_enabled else None
         self._session_tracker: SessionTracker | None = None
+        # Pre-roll buffer: while waiting for the start line we stash resized
+        # frames here (resized_frame, wall_ms, norm_pos) so recording can begin
+        # at exactly the crossing frame. maxlen bounds RAM to
+        # VIDEO_PREROLL_SECONDS of capture at the recorder's target size.
+        self._preroll_seconds = float(os.environ.get("VIDEO_PREROLL_SECONDS", "2.0"))
+        self._preroll_maxlen = max(1, int(round(self._preroll_seconds * self._fps)))
+        self._preroll: deque = deque(maxlen=self._preroll_maxlen)
 
     def stop(self):
         self.running = False
@@ -158,40 +179,101 @@ class ACVideoSource:
             })
         return outputs
 
+    @staticmethod
+    def _primary_output(outputs: list[dict]) -> dict | None:
+        """Return the primary output, else the first enumerated output, else
+        None when nothing was enumerated. This is the fallback target used
+        whenever the requested VIDEO_DISPLAY_INDEX can't be honored."""
+        for o in outputs:
+            if o["primary"]:
+                return o
+        return outputs[0] if outputs else None
+
     def _resolve_display(self, outputs: list[dict]) -> tuple[int | None, int | None]:
         """Map VIDEO_DISPLAY_INDEX to (device_idx, output_idx). Accepts:
           - "" or "auto"   → primary display
           - integer        → output_idx on device 0 (legacy behavior)
           - "WxH"          → first output whose resolution matches
-        Returns (None, None) when no match."""
+
+        When the requested display can't be honored (resolution absent, index
+        not present, or selector unrecognized) this WARNS and falls back to the
+        primary/first enumerated output rather than giving up — and to
+        (0, 0) when enumeration itself failed — so dxcam.create()'s
+        initial-frame grab is the final arbiter. It therefore effectively never
+        returns (None, None)."""
         sel = self._display_selector.lower()
+        fallback = self._primary_output(outputs)
+
+        # "" / "auto" → primary display
         if not sel or sel == "auto":
-            for o in outputs:
-                if o["primary"]:
-                    logger.info("Display selector 'auto' → primary %s", o)
-                    return o["device"], o["output"]
-            if outputs:
-                logger.info("No primary flag found; using first output %s", outputs[0])
-                return outputs[0]["device"], outputs[0]["output"]
-            return None, None
-        if "x" in sel and sel.replace("x", "").isdigit():
-            try:
-                w, h = (int(p) for p in sel.split("x", 1))
+            if fallback is not None:
+                logger.info("Display selector 'auto' → %s", fallback)
+                return fallback["device"], fallback["output"]
+            logger.warning(
+                "Display selector 'auto' but no outputs enumerated — "
+                "falling back to device=0 output=0"
+            )
+            return 0, 0
+
+        # "WxH" → first output whose resolution matches, else fall back
+        if "x" in sel:
+            parts = sel.split("x", 1)
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                w, h = int(parts[0]), int(parts[1])
                 for o in outputs:
                     if o["resolution"] == (w, h):
                         logger.info("Display selector '%s' matched %s", sel, o)
                         return o["device"], o["output"]
-                logger.error("No display matches resolution %dx%d", w, h)
-                return None, None
-            except ValueError:
-                pass
-        try:
+                available = ", ".join(
+                    f"{o['resolution'][0]}x{o['resolution'][1]}" for o in outputs
+                ) or "(none enumerated)"
+                if fallback is not None:
+                    logger.warning(
+                        "No display matches requested resolution %dx%d "
+                        "(available: %s) — falling back to %s",
+                        w, h, available, fallback,
+                    )
+                    return fallback["device"], fallback["output"]
+                logger.warning(
+                    "No display matches requested resolution %dx%d and no "
+                    "outputs enumerated (available: %s) — falling back to "
+                    "device=0 output=0",
+                    w, h, available,
+                )
+                return 0, 0
+
+        # integer → output_idx on device 0 (legacy behavior)
+        if sel.isdigit():
             idx = int(sel)
-            logger.info("Display selector legacy index → device=0 output=%d", idx)
-            return 0, idx
-        except ValueError:
-            logger.error("Unrecognized VIDEO_DISPLAY_INDEX value: %r", self._display_selector)
-            return None, None
+            # Honor the literal index when plausible: enumeration failed (trust
+            # the user) or an enumerated output actually has device=0/output=idx.
+            if not outputs or any(
+                o["device"] == 0 and o["output"] == idx for o in outputs
+            ):
+                logger.info("Display selector legacy index → device=0 output=%d", idx)
+                return 0, idx
+            if fallback is not None:
+                logger.warning(
+                    "No enumerated output has device=0 output=%d — "
+                    "falling back to %s",
+                    idx, fallback,
+                )
+                return fallback["device"], fallback["output"]
+            return 0, 0
+
+        # Unrecognized selector string
+        if fallback is not None:
+            logger.warning(
+                "Unrecognized VIDEO_DISPLAY_INDEX value %r — falling back to %s",
+                self._display_selector, fallback,
+            )
+            return fallback["device"], fallback["output"]
+        logger.warning(
+            "Unrecognized VIDEO_DISPLAY_INDEX value %r and no outputs "
+            "enumerated — falling back to device=0 output=0",
+            self._display_selector,
+        )
+        return 0, 0
 
     def _init_camera(self):
         """Initialize dxcam screen capture. Returns (camera, (width, height)) or (None, None)."""
@@ -256,6 +338,82 @@ class ACVideoSource:
             return prev_current_time is not None and current_time < prev_current_time
         return True
 
+    @classmethod
+    def _evaluate_start_gate(
+        cls,
+        accumulated_movement: float,
+        prev_norm: float | None,
+        curr_norm: float | None,
+    ) -> tuple[float, bool]:
+        """Per-tick start-line gate used while waiting_for_start_line is True.
+
+        Accumulates this tick's capped absolute normPos delta (a jump larger
+        than _TELEPORT_CAP is treated as a teleport / lap wrap and ignored),
+        then decides whether to begin recording. Returns
+        (updated_accumulated_movement, should_start).
+
+        should_start is True only when the car is at/just past the line
+        (curr_norm < _START_LINE_BAND) AND either it just wrapped across the
+        line from the far side (prev_norm > _CROSS_FROM) OR it has demonstrably
+        driven off its spawn (accumulated movement >= _START_MOVEMENT_THRESHOLD).
+        A car parked at its spawn while the AC session menu overlay is still up
+        holds a constant normPos, accumulates nothing, and never starts."""
+        if prev_norm is not None and curr_norm is not None:
+            delta = abs(curr_norm - prev_norm)
+            if delta <= cls._TELEPORT_CAP:
+                accumulated_movement += delta
+        if curr_norm is None or curr_norm >= cls._START_LINE_BAND:
+            return accumulated_movement, False
+        crossed = prev_norm is not None and prev_norm > cls._CROSS_FROM
+        moved_enough = accumulated_movement >= cls._START_MOVEMENT_THRESHOLD
+        return accumulated_movement, (crossed or moved_enough)
+
+    @classmethod
+    def _preroll_flush_index(
+        cls, samples: list[tuple[int, float | None]], crossed: bool
+    ) -> int:
+        """Pick the index in `samples` (each a (wall_ms, norm_pos) tuple) at
+        which to begin flushing the pre-roll buffer so the MP4 opens exactly at
+        the start line.
+
+        crossed=True  → the first frame with norm_pos < _START_LINE_BAND that
+                        immediately follows a frame with norm_pos > _CROSS_FROM
+                        (that IS the crossing frame). Falls back to the first
+                        frame below the band, else 0.
+        crossed=False → movement trigger (car spawned past the line already
+                        rolling): the earliest frame below the band, else 0.
+
+        Pure (no frames touched) so it is unit-testable on positions alone."""
+        if crossed:
+            prev = None
+            for i, (_wall, norm) in enumerate(samples):
+                if (
+                    norm is not None
+                    and norm < cls._START_LINE_BAND
+                    and prev is not None
+                    and prev > cls._CROSS_FROM
+                ):
+                    return i
+                prev = norm
+        for i, (_wall, norm) in enumerate(samples):
+            if norm is not None and norm < cls._START_LINE_BAND:
+                return i
+        return 0
+
+    def _flush_preroll(self, recorder: VideoRecorder, from_index: int) -> int:
+        """Write buffered pre-roll frames from `from_index` onward into the
+        freshly started recording via the normal write_frame/log_frame path (so
+        the sidecar/remux/upload flow is untouched), carrying each frame's
+        original capture wall_ms/normPos. Clears the buffer. Returns the number
+        of frames flushed."""
+        flushed = 0
+        for buffered_frame, wall_ms, norm in list(self._preroll)[from_index:]:
+            recorder.write_frame(buffered_frame)
+            recorder.log_frame(wall_ms, norm)
+            flushed += 1
+        self._preroll.clear()
+        return flushed
+
     def _upload_to_blob(self, local_path: str, session_id: str):
         """Upload a finalized MP4 + its sidecar JSON to blob storage, then
         delete the local files. Sidecar is best-effort: a missing sidecar
@@ -305,6 +463,9 @@ class ACVideoSource:
             logger.exception("Failed to upload %s to blob storage (local file kept)", filename)
 
     def _finalize_recording(self, recorder: VideoRecorder | None, reason: str, session_id: str = ""):
+        # Drop any un-flushed pre-roll — it belongs to the recording we are
+        # ending, not the next one.
+        self._preroll.clear()
         if recorder and recorder.is_recording:
             path = recorder.finish_lap()
             logger.info("Recording finalized (%s): %s", reason, path)
@@ -421,6 +582,7 @@ class ACVideoSource:
         session_detect_ms = 0         # wall-clock ms when new session was detected
         prev_norm_pos = None          # for start-line crossing detection
         waiting_for_start_line = False
+        waiting_movement = 0.0        # cumulative capped normPos delta while waiting
 
         interval = 1.0 / self._fps
         next_tick = None
@@ -525,10 +687,13 @@ class ACVideoSource:
                     "" if session_id_confirmed else " [pending telemetry id]",
                 )
                 prev_completed_laps = completed_laps
-                # Don't record yet — wait for the car to cross the
-                # start/finish line so the MP4 has no pitstop footage.
+                # Don't record yet — wait until the car has actually driven off
+                # its spawn / crossed the start-finish line so no session-menu
+                # or pit footage lands in the MP4.
                 waiting_for_start_line = True
                 prev_norm_pos = None
+                waiting_movement = 0.0
+                self._preroll.clear()
 
             elif prev_status == "pause":
                 # Resume from pause
@@ -560,49 +725,94 @@ class ACVideoSource:
                     threading.Thread(target=_bg_upload, daemon=True).start()
                 prev_completed_laps = completed_laps
 
-            # Detect start/finish line crossing to begin recording.
-            # This skips the out-lap (pit → start line) so no pitstop
-            # footage ends up in the MP4.
+            # ---- Capture this tick's frame + its fresh position ----
+            # Grabbed BEFORE the start-line gate so the current (crossing)
+            # frame is available to the pre-roll buffer/flush. camera.grab()
+            # runs every live tick regardless of recording state.
+            frame = camera.grab()
+            frame_consumed = False  # True once this tick's frame is buffered/flushed
+            frame_norm = None
+            timestamp_ms = 0
+            if frame is not None:
+                timestamp_ms = int(time.time() * 1000)
+                # Re-read normPos now — the gfx from the top of the loop is
+                # stale (the car moved between that read and this grab).
+                old_norm = gfx.get("normalizedCarPosition")
+                try:
+                    frame_norm = reader.read_graphics().get("normalizedCarPosition")
+                    # Guard: if normPos wrapped backward (finish line crossed
+                    # between reads) keep the old value so the crossing isn't
+                    # mislabeled on this frame.
+                    if (
+                        old_norm is not None and old_norm > 0.8
+                        and frame_norm is not None and frame_norm < 0.2
+                    ):
+                        frame_norm = old_norm
+                except Exception:
+                    frame_norm = old_norm
+
+            # ---- Pre-roll buffering + start/finish-line gate ----
+            # While waiting we buffer resized frames instead of recording, so on
+            # trigger we can flush from EXACTLY the crossing frame: the MP4 opens
+            # at the start line with nothing before it and nothing lost. A car
+            # parked at its spawn while the AC session-menu overlay is still up
+            # holds a constant normPos, so nothing accumulates and recording
+            # never starts — no menu/pit/approach footage lands in the MP4.
             if waiting_for_start_line and recorder and not recorder.is_recording:
+                if frame is not None:
+                    # Pre-resize to the recorder target so RAM stays bounded by
+                    # the deque maxlen and write_frame passes flushed frames
+                    # through untouched.
+                    self._preroll.append(
+                        (recorder.resize_to_recording(frame), timestamp_ms, frame_norm)
+                    )
+                    frame_consumed = True
                 curr_norm = gfx.get("normalizedCarPosition")
-                if curr_norm is not None and curr_norm < 0.05:
-                    crossed = (prev_norm_pos is not None and prev_norm_pos > 0.9)
-                    already_there = (prev_norm_pos is not None and prev_norm_pos < 0.1)
-                    first_read = (prev_norm_pos is None)
-                    if crossed or already_there or first_read:
-                        # Gate recording on confirmed telemetry session_id.
-                        # The outlap from pits to start-line is several
-                        # seconds — the Kafka session message has had plenty
-                        # of time to arrive. Refusing to start with a
-                        # fallback id prevents the ms drift from being
-                        # committed to blob.
-                        if not session_id_confirmed and self._session_tracker is not None:
-                            resolved = self._session_tracker.session_id_for_new_session(
-                                session_detect_ms, timeout_s=5.0
+                waiting_movement, should_start = self._evaluate_start_gate(
+                    waiting_movement, prev_norm_pos, curr_norm
+                )
+                if should_start:
+                    # Gate recording on confirmed telemetry session_id.
+                    # The outlap from pits to start-line is several
+                    # seconds — the Kafka session message has had plenty
+                    # of time to arrive. Refusing to start with a
+                    # fallback id prevents the ms drift from being
+                    # committed to blob.
+                    if not session_id_confirmed and self._session_tracker is not None:
+                        resolved = self._session_tracker.session_id_for_new_session(
+                            session_detect_ms, timeout_s=5.0
+                        )
+                        if resolved and resolved != session_id:
+                            logger.info(
+                                "Adopting telemetry session_id at start-line: "
+                                "%s (was temp %s)",
+                                resolved, session_id,
                             )
-                            if resolved and resolved != session_id:
-                                logger.info(
-                                    "Adopting telemetry session_id at start-line: "
-                                    "%s (was temp %s)",
-                                    resolved, session_id,
-                                )
-                                session_id = resolved
-                                session_id_confirmed = True
-                            elif not resolved:
-                                logger.warning(
-                                    "Start-line crossed but no telemetry session_id "
-                                    "within 5s — recording with temp id %s; lap may "
-                                    "not be syncable in Explorer",
-                                    session_id,
-                                )
-                        recorder.start_lap(
-                            session_id, completed_laps + 1, *display_size
-                        )
-                        waiting_for_start_line = False
-                        logger.info(
-                            "Start line crossed — recording begins (normPos %.3f)",
-                            curr_norm,
-                        )
+                            session_id = resolved
+                            session_id_confirmed = True
+                        elif not resolved:
+                            logger.warning(
+                                "Start-line crossed but no telemetry session_id "
+                                "within 5s — recording with temp id %s; lap may "
+                                "not be syncable in Explorer",
+                                session_id,
+                            )
+                    recorder.start_lap(session_id, completed_laps + 1, *display_size)
+                    # Flush the pre-roll from exactly the crossing frame so the
+                    # first written frame IS the start line.
+                    crossed = (
+                        prev_norm_pos is not None and prev_norm_pos > self._CROSS_FROM
+                    )
+                    samples = [(w, n) for (_f, w, n) in self._preroll]
+                    flush_from = self._preroll_flush_index(samples, crossed)
+                    flushed = self._flush_preroll(recorder, flush_from)
+                    waiting_for_start_line = False
+                    logger.info(
+                        "Start line reached (%s) — recording begins at pre-roll "
+                        "frame %d/%d (normPos %.3f, moved %.5f, %d flushed)",
+                        "crossed" if crossed else "movement",
+                        flush_from, len(samples), curr_norm, waiting_movement, flushed,
+                    )
 
             # Continuous reconciliation — every tick, check whether the
             # SessionTracker holds a session_id different from the one we're
@@ -638,27 +848,19 @@ class ACVideoSource:
                     )
                     session_id_confirmed = True  # stop warning
 
-            # Capture frame
-            frame = camera.grab()
-            if frame is not None:
-                timestamp_ms = int(time.time() * 1000)
-
-                # Record to MP4 (fast — just writes raw bytes to ffmpeg pipe)
-                if recorder and recorder.is_recording:
-                    recorder.write_frame(frame)
-                    # Re-read normPos now — the gfx from the top of the loop
-                    # is stale (car moved between the read and frame capture).
-                    old_norm = gfx.get("normalizedCarPosition")
-                    try:
-                        norm_pos = reader.read_graphics().get("normalizedCarPosition")
-                        # Guard: if normPos wrapped backward (car crossed the
-                        # finish line between reads), keep the old value so
-                        # the crossing doesn't land in this lap's sidecar.
-                        if old_norm is not None and old_norm > 0.8 and norm_pos is not None and norm_pos < 0.2:
-                            norm_pos = old_norm
-                    except Exception:
-                        norm_pos = old_norm
-                    recorder.log_frame(timestamp_ms, norm_pos)
+            # ---- Record this tick's frame (steady-state, already recording) ----
+            # On the trigger tick the frame was already emitted through the
+            # pre-roll flush (frame_consumed); only write here on the recording
+            # ticks that follow, via the normal write_frame/log_frame path so
+            # the sidecar/remux/upload flow is unchanged.
+            if (
+                frame is not None
+                and not frame_consumed
+                and recorder
+                and recorder.is_recording
+            ):
+                recorder.write_frame(frame)
+                recorder.log_frame(timestamp_ms, frame_norm)
 
             prev_status = status
             prev_current_time = current_time

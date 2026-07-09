@@ -186,6 +186,21 @@ class VideoRecorder:
             logger.error("ffmpeg pipe broken, stopping recording")
             self._cleanup_process()
 
+    def resize_to_recording(self, frame: np.ndarray) -> np.ndarray:
+        """Resize a captured frame to the recording target size using the exact
+        same computation write_frame() applies, so the two can't drift.
+
+        Idempotent: a frame already at the target size is returned unchanged
+        (write_frame likewise skips its own resize when the size already
+        matches). The source uses this to pre-resize frames destined for its
+        pre-roll buffer, keeping buffered frames small and letting write_frame
+        pass them straight through on flush."""
+        h, w = frame.shape[:2]
+        tw, th = self._calc_recording_size(w, h)
+        if (w, h) != (tw, th):
+            frame = cv2.resize(frame, (tw, th))
+        return frame
+
     def log_frame(self, wall_ms: int, norm_pos: float | None):
         """Record sidecar metadata for the most recently written frame.
 

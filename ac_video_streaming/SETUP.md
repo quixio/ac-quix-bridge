@@ -62,7 +62,9 @@ Quix__Sdk__Token=<your Quix Cloud SDK token>
 
 # Video settings (all optional, defaults shown)
 output=ac-video-frames
+# Accepts an index, "auto", or a "WxH" resolution; if the requested display isn't attached it warns and falls back to the primary (or first) display.
 VIDEO_DISPLAY_INDEX=0
+# VIDEO_PREROLL_SECONDS: seconds of frames buffered in RAM while waiting so recording opens exactly at the start-line crossing, not before it (default 2.0).
 VIDEO_FPS=30
 STREAM_FPS=15
 VIDEO_OUTPUT_DIR=./recordings
