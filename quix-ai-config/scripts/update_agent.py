@@ -65,6 +65,19 @@ AGENTS: dict[str, dict] = {
             },
         ],
         "preserve_existing_kb_rules": False,
+        # Native-tool filter (MCP tools bypass it — gated per-server instead).
+        # Blocks Quix.AI's built-in lakehouse twins that clash with our MCP tools.
+        # Names absent from a build are silently ignored, so safe pre-merge.
+        "tool_filter": {
+            "mode": "blacklist",
+            "toolNames": [
+                "lakehouse_list_tables",
+                "lakehouse_get_schema",
+                "lakehouse_list_partitions",
+                "lakehouse_list_partition_combinations",
+                "lakehouse_run_query",
+            ],
+        },
     },
 }
 
@@ -158,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
         else:  # fresh agent, no KBs yet
             body["kbAccessRules"] = []
         body["isEnabled"] = True  # PUT honors this; create POST ignores it (enabled explicitly below)
+        if config.get("tool_filter"):
+            body["toolFilter"] = config["tool_filter"]
 
         if args.dry_run:
             print(f"[dry-run] would {'PUT' if match else 'POST'} body:")
@@ -184,12 +199,6 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-# TODO: tighten with real toolFilter once both MCP server GUIDs are known.
-# Quix.AI's `mcp__<slug>__<tool>` slug = the MCP server's GUID (verified via
-# OrgMcpController.cs:79), not the displayName. After register_mcp.py runs we
-# know TESTMANAGER_MCP_SERVER_ID. Quix.AI's QuixLake MCP server GUID is fixed
-# per workspace (currently "1e237216cb7b444fbef92ec7142453d4" in quixdev).
-#
-# Add `body["toolFilter"] = {"mode": "Whitelist", "toolNames": [...]}`
-# once GUIDs are known. Apply only to post-race; ac-telemetry-agent preserves
-# whatever is set in the Portal UI.
+# toolFilter applies to NATIVE tools only (Quix.AI ToolExecutor.GetAvailableTools);
+# MCP tools bypass it entirely — gate those via mcp_access.py (per-server allowlist).
+# No API path to clear a filter once set; swap to blacklist ["_none_"] to neutralize.

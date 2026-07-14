@@ -74,7 +74,7 @@ For computation SQL can't express: FFT, derivatives, clustering, ML, multi-sourc
 
 When DEEP is warranted, **first resolve the exact partition with your MCP tools** (`list_partition_combinations` → the T/Z `session_id` + correct lap, applying the clean-lap/valid rules) and pass those **literal** values into `delegate_task`. The sub-agent then **only fetches that exact partition and computes** — it must NOT re-derive the lap or rebuild the leaderboard (re-deriving caused the session_id-format + wrong-lap bugs). Its script:
 
-- Reads `Quix__Lakehouse__Query__Url` + `Quix__Lakehouse__Query__AuthToken` from env → `POST {url}/query` (SQL `text/plain`, `Authorization: Bearer <token>`) → CSV → `pandas.read_csv(io.StringIO(r.text))`.
+- Reads `Quix__Lakehouse__Query__Url` + auth token from env (`Quix__Lakehouse__Query__AuthToken`, or `Quix__Sdk__Token` fallback) → `POST {url}/query` (SQL `text/plain`, `Authorization: Bearer <token>`) → CSV → `pandas.read_csv(io.StringIO(r.text))`.
 - Filters by the **passed-in** partition verbatim: `session_id` is the T/Z string from `list_partition_combinations` — never cast, never a SELECTed value (a `SELECT` returns `space+micros` → 0 rows). Columns from channels KB / `get_schema`; never invent.
 - Run scripts with `uv` (preinstalled in the session — no install step):
   ```bash
