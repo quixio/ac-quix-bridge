@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any
 import re
@@ -21,6 +22,8 @@ from ..models import (
     LastUsedDefaults,
     PaginatedResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -406,6 +409,28 @@ def add_session(
     updated = mongo.tests.find_one({"_id": test_id})
     assert updated is not None  # we just found it at the top and only appended to it
     return resolve_test_names(Test(**updated), mongo)
+
+
+@router.delete("/tests/{test_id}/sessions/{session_id}", status_code=204)
+def delete_session(
+    test_id: str,
+    session_id: str,
+    mongo: Database[dict[str, Any]] = Depends(get_mongo),
+    _: None = Depends(update_permission),
+) -> None:
+    """Unlink a session from a test. Lake data, videos, and analyses are untouched."""
+    result = mongo.tests.update_one(
+        {"_id": test_id, "sessions.session_id": session_id},
+        {"$pull": {"sessions": {"session_id": session_id}}},
+    )
+    if result.matched_count == 0:
+        if not mongo.tests.find_one({"_id": test_id}):
+            raise HTTPException(status_code=404, detail="Test not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"session_id '{session_id}' not found on test {test_id}",
+        )
+    logger.info("[tests] unlinked session %s from test %s", session_id, test_id)
 
 
 @router.post(

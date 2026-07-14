@@ -739,6 +739,36 @@ def test_add_session_deduplicate(create_test: TestFactory, client: TestClient) -
     assert len(response.json()["sessions"]) == 1
 
 
+def test_delete_session(create_test: TestFactory, client: TestClient) -> None:
+    """Deleting a session unlinks it; others and the test itself survive."""
+    _, created = create_test()
+    test_id = created["test_id"]
+
+    for sid in ("2026-04-16T10:30:00", "2026-04-16T11:30:00"):
+        client.post(
+            f"/api/v1/tests/{test_id}/sessions",
+            json={"session_id": sid, "track": "ks_nurburgring", "car_model": "bmw_1m"},
+        )
+
+    response = client.delete(f"/api/v1/tests/{test_id}/sessions/2026-04-16T10:30:00")
+    assert response.status_code == 204
+
+    data = client.get(f"/api/v1/tests/{test_id}").json()
+    assert [s["session_id"] for s in data["sessions"]] == ["2026-04-16T11:30:00"]
+
+
+def test_delete_session_not_found(create_test: TestFactory, client: TestClient) -> None:
+    """404 on unknown session or unknown test."""
+    _, created = create_test()
+    test_id = created["test_id"]
+
+    response = client.delete(f"/api/v1/tests/{test_id}/sessions/2026-01-01T00:00:00")
+    assert response.status_code == 404
+
+    response = client.delete("/api/v1/tests/TST-9999/sessions/2026-01-01T00:00:00")
+    assert response.status_code == 404
+
+
 def test_add_multiple_sessions(create_test: TestFactory, client: TestClient) -> None:
     """Distinct sessions append in order; telemetry-params keys off sessions[0]."""
     _, created = create_test()
