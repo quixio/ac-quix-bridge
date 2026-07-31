@@ -810,6 +810,60 @@ deployments:
         value: state
     blobStorage:
       bind: true
+  - name: cell-1-app
+    application: quixlab
+    version: latest
+    deploymentType: Service
+    resources:
+      limits:
+        cpu: 500
+        memory: 4000
+    publicAccess:
+      enabled: true
+      urlPrefix: cell-1-app
+    state:
+      enabled: true
+      size: 1
+    network:
+      ports:
+        - port: 80
+          targetPort: 80
+    variables:
+      - name: QUIXLAB_MCP_KEY
+        inputType: ProjectVariable
+        description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent.
+        required: true
+        secret: true
+        variableKey: QUIXLAB_MCP_KEY
+      - name: QUIXLAB_AGENT_ID
+        inputType: ProjectVariable
+        description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent.
+        required: true
+        variableKey: QUIXLAB_AGENT_ID
+      - name: QUIXLAB_MODE
+        inputType: FreeText
+        value: app
+      - name: QUIXLAB_NODE
+        inputType: FreeText
+        value: cell_1
+      - name: QUIXLAB_NOTEBOOK
+        inputType: FreeText
+        value: main.py
+    plugin:
+      embeddedView:
+        enabled: true
+        hideHeader: true
+        default: true
+      sidebarItem:
+        show: true
+        label: cell_1
+        icon: grid_view
+        order: 1
+      globalItem:
+        show: true
+        label: cell_1
+        icon: find_in_page
+        order: 1
 
 # This section describes the Topics of the data pipeline
 topics:
