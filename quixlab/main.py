@@ -68,7 +68,7 @@ def ac_telemetry_prod_2():
     ORDER BY timestamp_ms""")
 
 
-@canvas.cell(position=(537, -1030), size=(1141, 692), code_height=200, viz={'type': 'line', 'x': 'timestamp_ms', 'y': 'rpms'})
+@canvas.cell(position=(537, -1030), size=(1141, 692), code_height=200, viz={'appDeployment': {'id': '5a652cf6-6fab-4257-828b-794087e29ac3', 'kind': 'app', 'name': 'cell-1-app', 'portalUrl': 'https://portal.dev.quix.io/pipeline/deployments/5a652cf6-6fab-4257-828b-794087e29ac3?workspace=quixdev-acquixbridge-prod', 'publicUrl': ''}, 'appStatus': 'QueuedForBuild', 'type': 'line', 'x': 'timestamp_ms', 'y': 'rpms'})
 def cell_1(ac_telemetry_prod_2):
     return ac_telemetry_prod_2
 
