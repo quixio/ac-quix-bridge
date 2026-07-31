@@ -101,7 +101,27 @@ def quixdev_acquixbridge_prod():
 
 @canvas.ai(position=(1911, -896), size=(560, 420), code_height=200)
 def ai_1(cell_1):
-    """Dow"""
+    """Downsample this data to 1Hz using aggregation mean."""
+    # ql-ai: generated from prompt 1ecc772fd952986a
+    df = cell_1.copy()
+
+    # Convert timestamp (ms) to a datetime index for resampling
+    df['timestamp'] = pd.to_datetime(df['timestamp_ms'], unit='ms')
+    df = df.set_index('timestamp').sort_index()
+
+    # Downsample to 1Hz using mean aggregation
+    downsampled = df.resample('1S').mean(numeric_only=True).dropna(how='all').reset_index()
+
+    # Recreate timestamp_ms as integer milliseconds for consistency with source schema
+    downsampled['timestamp_ms'] = downsampled['timestamp'].astype('int64') // 10**6
+    downsampled = downsampled.drop(columns=['timestamp'])
+
+    # Keep lap as nearest integer (mean of lap numbers rounded) since it's a categorical id
+    downsampled['lap'] = downsampled['lap'].round().astype('int64')
+
+    downsampled = downsampled[['lap', 'timestamp_ms', 'rpms', 'speedKmh']]
+
+    downsampled
 
 
 if __name__ == "__main__":
