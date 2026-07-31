@@ -1,1 +1,1 @@
-FROM ghcr.io/quixio/quixlab:pr-23-f09f184
+FROM ghcr.io/quixio/quixlab:task-ai-node-pr38-merge
