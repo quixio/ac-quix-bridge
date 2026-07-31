@@ -829,26 +829,14 @@ deployments:
         - port: 80
           targetPort: 80
     variables:
-      - name: QUIXLAB_MCP_KEY
-        inputType: ProjectVariable
-        description: Shared secret used by Quix AI MCP server registration. Must match the X-API-Key value configured for the org-level MCP entry that scopes the QuixLab Assistant agent.
-        required: true
-        secret: true
-        variableKey: QUIXLAB_MCP_KEY
-      - name: QUIXLAB_AGENT_ID
-        inputType: ProjectVariable
-        description: UUID of the Quix AI cloud agent bound to this QuixLab deployment (per-deployment QuixLab Assistant). Injected into the iframe-config response so per-cell newMessage postMessages preselect the right agent.
-        required: true
-        variableKey: QUIXLAB_AGENT_ID
-      - name: QUIXLAB_MODE
-        inputType: FreeText
-        value: app
-      - name: QUIXLAB_NODE
-        inputType: FreeText
-        value: cell_1
       - name: QUIXLAB_NOTEBOOK
         inputType: FreeText
+        description: Notebook file to open on startup (leave empty for the file picker)
         value: main.py
+      - name: QUIXLAB_MODE
+        inputType: FreeText
+        description: "Run mode: 'app' (view only) or 'edit' (full editor)"
+        value: app
     plugin:
       embeddedView:
         enabled: true
@@ -864,6 +852,8 @@ deployments:
         label: cell_1
         icon: find_in_page
         order: 1
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
