@@ -99,29 +99,21 @@ def quixdev_acquixbridge_prod():
     ql.StorageFolder("quixdev-acquixbridge-prod")
 
 
-@canvas.ai(position=(1911, -896), size=(560, 420), code_height=200)
+@canvas.ai(position=(1911, -896), size=(991, 670), code_height=200, viz={'type': 'line', 'x': 'timestamp', 'y': ['rpms']})
 def ai_1(cell_1):
     """Downsample this data to 1Hz using aggregation mean."""
     # ql-ai: generated from prompt 1ecc772fd952986a
-    df = cell_1.copy()
+    import pandas as pd
 
-    # Convert timestamp (ms) to a datetime index for resampling
+    df = cell_1.copy()
     df['timestamp'] = pd.to_datetime(df['timestamp_ms'], unit='ms')
     df = df.set_index('timestamp').sort_index()
 
-    # Downsample to 1Hz using mean aggregation
-    downsampled = df.resample('1S').mean(numeric_only=True).dropna(how='all').reset_index()
-
-    # Recreate timestamp_ms as integer milliseconds for consistency with source schema
+    downsampled = df.resample('1s').mean(numeric_only=True).dropna(how='all').reset_index()
     downsampled['timestamp_ms'] = downsampled['timestamp'].astype('int64') // 10**6
-    downsampled = downsampled.drop(columns=['timestamp'])
+    downsampled['lap'] = downsampled['lap'].round().astype('Int64')
 
-    # Keep lap as nearest integer (mean of lap numbers rounded) since it's a categorical id
-    downsampled['lap'] = downsampled['lap'].round().astype('int64')
-
-    downsampled = downsampled[['lap', 'timestamp_ms', 'rpms', 'speedKmh']]
-
-    downsampled
+    downsampled[['timestamp', 'lap', 'timestamp_ms', 'rpms', 'speedKmh']]
 
 
 if __name__ == "__main__":
