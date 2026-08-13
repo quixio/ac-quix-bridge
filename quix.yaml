@@ -743,7 +743,7 @@ deployments:
         value: 20000
     disabled: true
   - name: BestLaps Lite
-    group: Ingestion
+    group: Processing
     application: best-laps-lite
     version: latest
     deploymentType: Service
