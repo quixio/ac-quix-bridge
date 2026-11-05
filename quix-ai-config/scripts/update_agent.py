@@ -65,19 +65,6 @@ AGENTS: dict[str, dict] = {
             },
         ],
         "preserve_existing_kb_rules": False,
-        # Native-tool filter (MCP tools bypass it — gated per-server instead).
-        # Blocks Quix.AI's built-in lakehouse twins that clash with our MCP tools.
-        # Names absent from a build are silently ignored, so safe pre-merge.
-        "tool_filter": {
-            "mode": "blacklist",
-            "toolNames": [
-                "lakehouse_list_tables",
-                "lakehouse_get_schema",
-                "lakehouse_list_partitions",
-                "lakehouse_list_partition_combinations",
-                "lakehouse_run_query",
-            ],
-        },
     },
 }
 

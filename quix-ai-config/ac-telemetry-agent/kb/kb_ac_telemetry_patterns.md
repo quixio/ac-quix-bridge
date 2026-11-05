@@ -4,7 +4,7 @@ Reference for the AC telemetry table in Quix Lakehouse — default `ac_telemetry
 
 ## Table summary
 
-- **Table name**: `ac_telemetry_prod` by default (the production sink). Non-prod environments use a sibling `ac_telemetry*` table (`ac_telemetry`, `ac_telemetry_dev`, …); if a query returns 0 rows, `list_tables()` and switch to the `ac_telemetry*` table that holds the data. Unrelated lake tables (`carcolours_*`, `temperature`, `todata`) are never relevant to AC queries.
+- **Table name**: `ac_telemetry_prod` by default (the production sink). Non-prod environments use a sibling `ac_telemetry*` table (`ac_telemetry`, `ac_telemetry_dev`, …); if a query returns 0 rows, `lakehouse_list_tables()` and switch to the `ac_telemetry*` table that holds the data. Unrelated lake tables (`carcolours_*`, `temperature`, `todata`) are never relevant to AC queries.
 - **Source**: Assetto Corsa shared memory. Sample rate is configurable per pipeline.
 - **Expected query latency**: narrow partition-filtered SELECT ~500 ms; `SELECT *` for a single session takes 15-22 s due to CSV serialisation — always project only the columns you need.
 
@@ -18,16 +18,16 @@ environment, test_rig, experiment, driver, track, carModel, session_id, lap
 
 Include as many as you know in the `WHERE` clause — each one prunes the file scan. Minimum filter: `WHERE environment = '...'`.
 
-When the user doesn't specify an environment, pick one from `list_partition_combinations` (or ask if several apply) rather than scanning all of them.
+When the user doesn't specify an environment, pick one from `lakehouse_list_partition_combinations` (or ask if several apply) rather than scanning all of them.
 
-### `session_id` — get it from `list_partition_combinations`, NOT from a `SELECT`
+### `session_id` — get it from `lakehouse_list_partition_combinations`, NOT from a `SELECT`
 
 `session_id` is a TIMESTAMP-typed partition column, so its two representations differ:
 
-- **Partition-path form** (what a `WHERE` filter must match): `2026-06-05T16:32:20.885Z` — `T` separator, millisecond precision, trailing `Z`. This is exactly what `list_partition_combinations` returns.
+- **Partition-path form** (what a `WHERE` filter must match): `2026-06-05T16:32:20.885Z` — `T` separator, millisecond precision, trailing `Z`. This is exactly what `lakehouse_list_partition_combinations` returns.
 - **SELECT/display form**: a `SELECT session_id ...` returns `2026-06-05 16:32:20.885000` — *space* separator, *microsecond* precision, no `Z`.
 
-**Filtering by a SELECTed `session_id` returns 0 rows** — the formats don't match. So always source `session_id` from `list_partition_combinations` and use that string verbatim; never round-trip it through a `SELECT`. If you only have the display form, convert: replace the space with `T`, trim the fractional part to 3 digits, append `Z`.
+**Filtering by a SELECTed `session_id` returns 0 rows** — the formats don't match. So always source `session_id` from `lakehouse_list_partition_combinations` and use that string verbatim; never round-trip it through a `SELECT`. If you only have the display form, convert: replace the space with `T`, trim the fractional part to 3 digits, append `Z`.
 
 ## Column naming conventions
 
@@ -35,7 +35,7 @@ When the user doesn't specify an environment, pick one from `list_partition_comb
 - **Per-axis columns** use suffixes `_x`, `_y`, `_z`. Example: `velocity_x`, `accG_y`.
 - **`normalizedCarPosition`** ranges 0 → 1 over one lap. Use as the x-axis for per-lap overlays across drivers or sessions.
 
-For the full column list with labels and units, consult `kb_ac_channels.md` or call the `get_schema` tool.
+For the full column list with labels and units, consult `kb_ac_channels.md` or call the `lakehouse_get_schema` tool.
 
 ## Time columns — pick the right one for the question
 

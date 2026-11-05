@@ -9,7 +9,7 @@ Columns available in the `ac_telemetry` table in Quix Lakehouse, grouped by cate
 > (`mfdTyrePressureLF`, `currentTyreSet`, `strategyTyreSet`), brake compounds
 > (`frontBrakeCompound`, `rearBrakeCompound`), ERS/DRS (`ersPowerLevel`,
 > `drsAvailable`), and gaps (`gapAhead`, `gapBehind`). If a column you need
-> isn't listed below, call `get_schema` to confirm it exists.
+> isn't listed below, call `lakehouse_get_schema` to confirm it exists.
 
 Column naming conventions:
 
