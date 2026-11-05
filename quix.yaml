@@ -420,7 +420,7 @@ deployments:
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage path prefix where MP4 recordings are stored
-        value: ac_video
+        value: testrigorg-acquixbridge-prod/ac_video
     blobStorage:
       bind: true
   - name: Telemetry Explorer
