@@ -391,12 +391,12 @@ deployments:
         enabled: true
         hideHeader: true
         default: true
-      sidebarItem:
+      environmentItem:
         show: true
         label: Test Manager
         icon: data_thresholding
         order: 1
-      globalItem:
+      organisationItem:
         show: true
         label: Test Manager
         order: 0
@@ -420,7 +420,7 @@ deployments:
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage path prefix where MP4 recordings are stored
-        value: ac_video
+        value: testrigorg-acquixbridge-prod/ac_video
     blobStorage:
       bind: true
   - name: Telemetry Explorer
@@ -448,7 +448,7 @@ deployments:
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
-        value: ac_video
+        value: testrigorg-acquixbridge-prod/ac_video
       - name: AC_TELEMETRY_AGENT_ID
         inputType: ProjectVariable
         description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Per-environment project variable — each portal (dev/byox) holds its own agent GUID. Required — if unset, config.py silently falls back to the dev GUID and AI chat hits a non-existent agent on byox/prod.
@@ -486,7 +486,7 @@ deployments:
         enabled: true
         hideHeader: true
         default: true
-      globalItem:
+      organisationItem:
         show: true
         label: Telemetry Explorer
         icon: data_usage
@@ -555,7 +555,7 @@ deployments:
         enabled: true
         hideHeader: true
         default: true
-      sidebarItem:
+      environmentItem:
         show: true
         label: Backup Manager
         icon: save
@@ -606,12 +606,12 @@ deployments:
         enabled: true
         hideHeader: true
         default: true
-      sidebarItem:
+      environmentItem:
         show: true
         label: QuixLab
         icon: grid_view
         order: 1
-      globalItem:
+      organisationItem:
         show: true
         label: QuixLab
         icon: find_in_page
