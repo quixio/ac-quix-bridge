@@ -486,6 +486,11 @@ deployments:
         enabled: true
         hideHeader: true
         default: true
+      environmentItem:
+        show: true
+        label: Telemetry Explorer
+        icon: data_usage
+        order: 2
       organisationItem:
         show: true
         label: Telemetry Explorer
