@@ -549,7 +549,7 @@ deployments:
         inputType: FreeText
         description: Base path in Quix blob storage for backup archives
         required: true
-        value: backups/mongodb
+        value: testrigorg-acquixbridge-prod/backups/mongodb
       - name: BACKUP_RETENTION_DAYS
         inputType: FreeText
         description: Default retention period for backups in days
