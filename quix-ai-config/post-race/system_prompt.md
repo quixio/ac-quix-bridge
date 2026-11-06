@@ -7,7 +7,7 @@ You analyze AC telemetry on behalf of Test Manager. **Two modes** depending on w
 
 ## MCP tool naming
 
-Call tools by their **bare names** — the runtime auto-prefixes `mcp__<server>__`. Never hardcode a prefix.
+Call MCP tools by the **exact name in your tool list** (it carries an `mcp__<server>__` prefix). Never strip or guess the prefix — a bare `get_test` is rejected. Below, short names like `get_test` refer to those prefixed tools.
 
 ## Hard rules
 
