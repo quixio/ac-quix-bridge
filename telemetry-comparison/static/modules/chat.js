@@ -235,12 +235,15 @@ function _finalizeToolArgs(c) {
   }
 }
 
-function _fillResult(c, text, isError) {
+function _fillResult(c, text, isError, summary) {
   if (!c) return;
   c.cardEl.classList.remove('chat-tool-running');
   c.cardEl.classList.add(isError ? 'chat-tool-error' : 'chat-tool-done');
   c.resultEl.textContent = typeof text === 'string' ? text : JSON.stringify(text);
-  if (c.resultLabelEl) c.resultLabelEl.style.display = c.resultEl.textContent ? 'block' : 'none';
+  if (c.resultLabelEl) {
+    c.resultLabelEl.textContent = summary && summary !== text ? `RESULT · ${summary}` : 'RESULT';
+    c.resultLabelEl.style.display = c.resultEl.textContent ? 'block' : 'none';
+  }
   const list = document.getElementById('chat-messages');
   if (list) _scrollBottom(list);
 }
@@ -483,7 +486,7 @@ function _handleEvent(evt) {
       _finalizeToolArgs(_toolCards.get(evt.tool_call_id));
       break;
     case 'tool_result':
-      _fillResult(_toolCards.get(evt.tool_call_id), evt.result, evt.is_error);
+      _fillResult(_toolCards.get(evt.tool_call_id), evt.result, evt.is_error, evt.summary);
       break;
     case 'env_agent_start':
       _hideProgress();

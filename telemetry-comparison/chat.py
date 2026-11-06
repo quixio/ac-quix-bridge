@@ -14,7 +14,7 @@ We forward all of it to the browser as ndjson with these event shapes:
     {event: "tool_start",   session_id: str, tool_call_id: str, tool_name: str, display_name?: str}
     {event: "tool_args",    session_id: str, tool_call_id: str, delta: str}
     {event: "tool_end",     session_id: str, tool_call_id: str}
-    {event: "tool_result",  session_id: str, tool_call_id: str, result: str, is_error: bool}
+    {event: "tool_result",  session_id: str, tool_call_id: str, result: str, summary?: str, is_error: bool}
     {event: "clarify",      session_id: str, question: str, options: list[str]}
     {event: "plot",         session_id: str, plan: dict}
     {event: "error",        session_id?: str, detail: str, status: int}
@@ -244,7 +244,8 @@ async def _chat_events(req: ChatRequest, token: str) -> AsyncIterator[bytes]:
                         "event": "tool_result",
                         "session_id": session_id,
                         "tool_call_id": evt.get("toolCallId"),
-                        "result": evt.get("userSummary") or evt.get("result"),
+                        "result": evt.get("result") or evt.get("userSummary"),
+                        "summary": evt.get("userSummary"),
                         "is_error": evt.get("isError", False),
                     }
                 )

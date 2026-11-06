@@ -264,6 +264,35 @@ def test_tool_events_forwarded_to_browser() -> None:
 
 
 @respx.mock
+def test_tool_result_keeps_raw_output_when_summary_present() -> None:
+    """Native lakehouse tools send userSummary ("Returned 10 rows") next to the
+    raw result; the card must show the raw output and carry the summary aside."""
+    respx.post("https://portal.test/ai/api/sessions").respond(200, json={"id": "s1"})
+    body = _sse_named(
+        [
+            ("tool_call_start", {"toolCallId": "t1", "toolName": "lakehouse_run_query"}),
+            ("tool_call_end", {"toolCallId": "t1"}),
+            (
+                "tool_result",
+                {
+                    "toolCallId": "t1",
+                    "result": "a,b\n1,2",
+                    "userSummary": "Returned 1 rows",
+                    "isError": False,
+                },
+            ),
+        ]
+    )
+    respx.post("https://portal.test/ai/api/sessions/s1/messages").respond(200, content=body)
+    with TestClient(app) as client:
+        events = _read_jsonl(client.post("/api/chat", json={"message": "go"}).content)
+
+    res = next(e for e in events if e["event"] == "tool_result")
+    assert res["result"] == "a,b\n1,2"
+    assert res["summary"] == "Returned 1 rows"
+
+
+@respx.mock
 def test_environment_agent_events_forwarded() -> None:
     """DEEP mode — environment_agent_{start,activity,end} stream through as
     env_agent_{start,activity,end} so the UI can render the agent block."""

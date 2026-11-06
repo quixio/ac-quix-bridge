@@ -1908,7 +1908,7 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://pkgs.dev.azure.com/quix-analytics/53f7fe95-59fe-4307-b479-2473b96de6d1/_packaging/de1de9de-da85-47ac-abf5-f98ed5a9760a/pypi/download/quixportal/2.0.1/quixportal-2.0.1-py3-none-any.whl", hash = "sha256:1e0e0b604a77ba110e7d4a1f733dddfdccc035518dc0a227299117abbed86d79" },
+    { url = "https://pkgs.dev.azure.com/quix-analytics/53f7fe95-59fe-4307-b479-2473b96de6d1/_packaging/de1de9de-da85-47ac-abf5-f98ed5a9760a/pypi/download/quixportal/2.0.1/quixportal-2.0.1-py3-none-any.whl", hash = "sha256:1e0e0b604a77ba110e7d4a1f733dddfdccc035518dc0a227299117abbed86d79", size = 20634, upload-time = "2025-12-03T11:19:59Z" },
 ]
 
 [package.optional-dependencies]
@@ -2269,7 +2269,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", extras = ["standard"] },
-    { name = "mcp", specifier = ">=1.26" },
+    { name = "mcp", specifier = ">=1.26,<2" },
     { name = "pydantic", specifier = ">=2.13.2" },
     { name = "pymongo" },
     { name = "python-dotenv" },
