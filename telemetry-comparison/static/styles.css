@@ -14,7 +14,16 @@
  * runtime-built markup doesn't have to pull utilities from Tailwind's JIT.
  */
 
-:root {
+/* ---------- Design tokens ----------
+ * Two themes, selected via <html data-theme="dark|light"> (set before first
+ * paint by theme-core.js). The dark block is also the :root default so the
+ * page stays dark if the attribute is ever missing. Every colour used by CSS,
+ * Tailwind (see tailwind.config in index.html) and chart code
+ * (theme-core.js chartTheme) resolves to one of these. */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
   /* Palette aligned with Test Manager + Quix Cloud (neutral charcoal,
    * Quix-blue accent) so the iframe boundary on the TM /analysis tab is
    * visually seamless. */
@@ -23,11 +32,132 @@
   --border: #3e3e46;
   --text: #eaedf0;
   --text-muted: #a8b1c0;
+  --fg: #e2e8f0; /* body copy */
+  --text-strong: #ffffff; /* headings / input text */
   --accent: #0064ff;
+  --accent-hover: #0050cc;
+  --accent-hover-soft: #3a7ae4;
+  --on-accent: #ffffff;
+  --accent-tint: rgba(0, 100, 255, 0.15);
+  --accent-tint-strong: rgba(0, 100, 255, 0.2);
   --green: #059669;
+  --green-hover: #047857;
   --orange: #f59e0b;
   --red: #ff3f41;
+  --red-hover: #cc3234;
+  --warn-text: #f59e0b;
   --row-control-h: 32px;
+
+  --scrim-video: rgba(0, 0, 0, 0.6);
+  --scrollbar-thumb-hover: #3e4263;
+  --shadow-topbar: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 10px 32px rgba(0, 0, 0, 0.55);
+  --shadow-toast: 0 6px 18px rgba(0, 0, 0, 0.4);
+  --shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-fab: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23a8b1c0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l5 5 5-5'/></svg>");
+
+  --toast-bg: #1f2330;
+  --toast-error-bg: #2a1a1d;
+  --toast-warn-bg: #2a2316;
+  --toast-success-bg: #162620;
+  --toast-warn: #f59e0b;
+  --toast-success: #10b981;
+  --on-warn: #1a1a1a;
+
+  /* Chat panel tokens — mirror native Quix AI (variables.scss) 1:1 so the
+   * embedded chat reads as the same product, without restyling the rest of
+   * the Explorer. Every chat rule consumes these via var(--color-*). */
+  --color-bg: #1a1a1b; /* assistant turn body / card details bg */
+  --color-surface: #222229; /* assistant bubble surface */
+  --color-head-bg: #2b2b34; /* card/header/footer fill (bg-input) */
+  --color-terminal: #0d1117; /* command/result terminal bg */
+  --color-brd: rgba(255, 255, 255, 0.08);
+  --color-brd-light: rgba(255, 255, 255, 0.12);
+  --color-text: #ffffff; /* primary text inside the chat */
+  --color-txt2: rgba(255, 255, 255, 0.7); /* secondary text */
+  --color-muted: rgba(255, 255, 255, 0.5);
+  --color-accent: #0064ff;
+  --color-accent-light: #008eff; /* running spinner / env-running border */
+  --color-green: #00dd81;
+  --color-red: #ff4040;
+  --color-orange: #ff7828;
+  --color-pending: color-mix(in srgb, #0064ff 70%, #00dd81 30%);
+  --color-hover: rgba(255, 255, 255, 0.06);
+  --color-hover-faint: rgba(255, 255, 255, 0.04);
+  --color-code-bg: rgba(255, 255, 255, 0.06);
+  --color-pre-bg: rgba(0, 0, 0, 0.35);
+  --color-user-bubble: rgba(0, 100, 255, 0.12);
+  --color-err-bg: rgba(255, 63, 65, 0.12);
+  --color-err-brd: rgba(255, 63, 65, 0.4);
+  --color-err-text: #fecaca;
+  --color-fab-fg: #0b0f15;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --border: #c5ccd6;
+  --text: #1a1d23;
+  --text-muted: #4b5565;
+  --fg: #1f2933;
+  --text-strong: #0f172a;
+  --accent: #0057d9;
+  --accent-hover: #0047b3;
+  --accent-hover-soft: #0047b3;
+  --on-accent: #ffffff;
+  --accent-tint: rgba(0, 87, 217, 0.1);
+  --accent-tint-strong: rgba(0, 87, 217, 0.14);
+  --green: #047857;
+  --green-hover: #065f46;
+  --orange: #b45309;
+  --red: #d12a2c;
+  --red-hover: #b01f21;
+  --warn-text: #b45309;
+
+  --scrim-video: rgba(255, 255, 255, 0.78);
+  --scrollbar-thumb-hover: #9aa4b2;
+  --shadow-topbar: 0 4px 12px rgba(15, 23, 42, 0.1);
+  --shadow-float: 0 10px 32px rgba(15, 23, 42, 0.22);
+  --shadow-toast: 0 6px 18px rgba(15, 23, 42, 0.18);
+  --shadow-panel: 0 12px 32px rgba(15, 23, 42, 0.18);
+  --shadow-fab: 0 8px 24px rgba(15, 23, 42, 0.25);
+  --chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%234b5565' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l5 5 5-5'/></svg>");
+
+  --toast-bg: #ffffff;
+  --toast-error-bg: #fdecec;
+  --toast-warn-bg: #fdf3e0;
+  --toast-success-bg: #e3f4ec;
+  --toast-warn: #b45309;
+  --toast-success: #047857;
+  --on-warn: #ffffff;
+
+  --color-bg: #f3f5f8;
+  --color-surface: #ffffff;
+  --color-head-bg: #eaeef3;
+  --color-terminal: #f1f4f8;
+  --color-brd: rgba(15, 23, 42, 0.14);
+  --color-brd-light: rgba(15, 23, 42, 0.22);
+  --color-text: #0f172a;
+  --color-txt2: rgba(15, 23, 42, 0.78);
+  --color-muted: rgba(15, 23, 42, 0.64);
+  --color-accent: #0057d9;
+  --color-accent-light: #0b6bff;
+  --color-green: #047857;
+  --color-red: #c62828;
+  --color-orange: #b45309;
+  --color-pending: color-mix(in srgb, #0057d9 70%, #047857 30%);
+  --color-hover: rgba(15, 23, 42, 0.06);
+  --color-hover-faint: rgba(15, 23, 42, 0.04);
+  --color-code-bg: rgba(15, 23, 42, 0.07);
+  --color-pre-bg: rgba(15, 23, 42, 0.06);
+  --color-user-bubble: rgba(0, 87, 217, 0.1);
+  --color-err-bg: rgba(209, 42, 44, 0.08);
+  --color-err-brd: rgba(209, 42, 44, 0.4);
+  --color-err-text: #991b1b;
+  --color-fab-fg: #ffffff;
 }
 
 * {
@@ -97,7 +227,7 @@ body {
  * exactly the same y-extent regardless of text metrics. */
 .part-select {
   background-color: var(--bg);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23a8b1c0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M1 1l5 5 5-5'/></svg>");
+  background-image: var(--chevron);
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 12px 8px;
@@ -155,7 +285,7 @@ body {
   border-color: var(--accent);
 }
 .lap-cb.checked {
-  background: rgba(0, 100, 255, 0.15);
+  background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -174,14 +304,14 @@ body {
   border: none;
   border-radius: 6px;
   padding: 0.4rem 1rem;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
 }
 .btn:hover {
-  background: #0050cc;
+  background: var(--accent-hover);
 }
 .btn:disabled {
   background: var(--border);
@@ -231,13 +361,13 @@ body {
   background: var(--red);
 }
 .btn-danger:hover {
-  background: #cc3234;
+  background: var(--red-hover);
 }
 .btn-add {
   background: var(--green);
 }
 .btn-add:hover {
-  background: #047857;
+  background: var(--green-hover);
 }
 
 /* Signal-filter input — class-targeted to beat Tailwind preflight resets.
@@ -292,7 +422,7 @@ body {
   user-select: none;
 }
 .chip.active {
-  background: rgba(0, 100, 255, 0.2);
+  background: var(--accent-tint-strong);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -446,7 +576,7 @@ body[data-video-mode="docked"]
   color: var(--red);
 }
 .video-status.warn {
-  color: #f59e0b;
+  color: var(--warn-text);
 }
 
 .status-bar.error {
@@ -600,7 +730,7 @@ body[data-video-mode="floating"] #combined-panel {
   border: 1px solid var(--accent);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-float);
 }
 /* Floating: the combined-panel-head becomes visible (host of tab switcher +
  * Dock button + relocated video controls). Docked: hidden. */
@@ -645,7 +775,7 @@ body[data-video-mode="floating"] #combined-panel[data-active-tab="map"] #video-p
  * the stable data-active-tab attribute on the combined-panel. */
 #combined-panel[data-active-tab="video"] .combined-tab[data-tab="video"],
 #combined-panel[data-active-tab="map"] .combined-tab[data-tab="map"] {
-  background: rgba(0, 100, 255, 0.15);
+  background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -736,30 +866,30 @@ body.overlay-dragging #video-float-slot * {
   gap: 0.6rem;
   max-width: min(620px, calc(100vw - 2rem));
   padding: 0.6rem 0.8rem 0.6rem 0.7rem;
-  background: #1f2330;
+  background: var(--toast-bg);
   border: 1px solid var(--border);
   border-left-width: 4px;
   border-radius: 8px;
   color: var(--text);
   font-size: 0.85rem;
   line-height: 1.35;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-toast);
   animation: toast-in 0.18s ease-out;
 }
 .toast--error {
   border-left-color: var(--red);
-  background: #2a1a1d;
+  background: var(--toast-error-bg);
 }
 .toast--warn {
-  border-left-color: #f59e0b;
-  background: #2a2316;
+  border-left-color: var(--toast-warn);
+  background: var(--toast-warn-bg);
 }
 .toast--info {
   border-left-color: var(--accent);
 }
 .toast--success {
-  border-left-color: #10b981;
-  background: #162620;
+  border-left-color: var(--toast-success);
+  background: var(--toast-success-bg);
 }
 .toast__icon {
   flex-shrink: 0;
@@ -775,19 +905,19 @@ body.overlay-dragging #video-float-slot * {
 }
 .toast--error .toast__icon {
   background: var(--red);
-  color: #fff;
+  color: var(--on-accent);
 }
 .toast--warn .toast__icon {
-  background: #f59e0b;
-  color: #1a1a1a;
+  background: var(--toast-warn);
+  color: var(--on-warn);
 }
 .toast--info .toast__icon {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .toast--success .toast__icon {
-  background: #10b981;
-  color: #fff;
+  background: var(--toast-success);
+  color: var(--on-accent);
 }
 .toast__body {
   flex: 1;
@@ -877,7 +1007,7 @@ body.overlay-dragging #video-float-slot * {
   border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3e4263;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* ---------- Plotly touch-action override (spec §6.3 round 3) ----------
@@ -945,25 +1075,8 @@ body.chat-gesturing * {
 }
 
 #chat-panel {
-  /* Chat-scoped design tokens — mirror native Quix AI (variables.scss) 1:1 so
-   * the embedded chat reads as the same product, without restyling the rest of
-   * the Explorer. Every chat rule consumes these via var(--color-*, fallback). */
-  --color-bg: #1a1a1b; /* assistant turn body / card details bg */
-  --color-surface: #222229; /* assistant bubble surface */
-  --color-head-bg: #2b2b34; /* card/header/footer fill (bg-input) */
-  --color-terminal: #0d1117; /* command/result terminal bg */
-  --color-brd: rgba(255, 255, 255, 0.08);
-  --color-brd-light: rgba(255, 255, 255, 0.12);
-  --color-txt2: rgba(255, 255, 255, 0.7); /* secondary text */
-  --color-muted: rgba(255, 255, 255, 0.5);
-  --color-accent: #0064ff;
-  --color-accent-light: #008eff; /* running spinner / env-running border */
-  --color-green: #00dd81;
-  --color-red: #ff4040;
-  --color-orange: #ff7828;
-  --color-pending: color-mix(in srgb, #0064ff 70%, #00dd81 30%);
   --mono: "IBM Plex Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #fff;
+  color: var(--color-text);
   font-family:
     "Inter",
     -apple-system,
@@ -977,7 +1090,7 @@ body.chat-gesturing * {
   background: var(--color-surface, #222229);
   border: 1px solid var(--color-brd, #3e3e46);
   border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-panel);
   overflow: hidden;
   transform: translateY(0) scale(1);
   opacity: 1;
@@ -1058,8 +1171,8 @@ body.chat-gesturing * {
   border-radius: 4px;
 }
 #chat-panel-head .chat-close:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 #chat-messages {
@@ -1093,7 +1206,7 @@ body.chat-gesturing * {
   max-width: 85%;
   padding: 12px 16px;
   border-radius: 12px 4px 12px 12px;
-  background: rgba(0, 100, 255, 0.12);
+  background: var(--color-user-bubble);
 }
 
 /* Assistant TURN: one surface box per reply, holding all prose segments +
@@ -1167,7 +1280,7 @@ body.chat-gesturing * {
   width: 30px;
   height: 30px;
   background: var(--color-accent, #0064ff);
-  color: #fff;
+  color: var(--on-accent);
   border: none;
   border-radius: 6px;
   display: inline-flex;
@@ -1202,10 +1315,10 @@ body.chat-gesturing * {
   height: 52px;
   border-radius: 50%;
   background: var(--color-accent, #0064ff);
-  color: #0b0f15;
+  color: var(--color-fab-fg);
   border: none;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-fab);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1269,8 +1382,8 @@ body.chat-gesturing * {
    * resize the panel by writing --chat-dock-w on :root. Defaults to 400 px
    * and is clamped (320-50% viewport) by the resize logic in chat-overlay.js. */
   width: var(--chat-dock-w, 400px);
-  border-left: 1px solid var(--color-brd, #3e3e46);
-  background: var(--color-surface, #222229);
+  border-left: 1px solid var(--border);
+  background: var(--surface);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1402,13 +1515,13 @@ body[data-chat-mode="docked"] #chat-float-slot {
   padding: 0;
 }
 .chat-msg-assistant code {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-code-bg);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 0.85em;
 }
 .chat-msg-assistant pre {
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--color-pre-bg);
   padding: 8px 10px;
   border-radius: 6px;
   overflow-x: auto;
@@ -1483,7 +1596,7 @@ body[data-chat-mode="docked"] #chat-float-slot {
   user-select: none;
 }
 .chat-tool-head:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-hover-faint);
 }
 .chat-tool-indicator {
   flex: none;
@@ -1514,7 +1627,7 @@ body[data-chat-mode="docked"] #chat-float-slot {
 .chat-tool-name {
   flex: 0 1 auto;
   font-family: var(--mono);
-  color: #fff;
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1616,9 +1729,9 @@ body[data-chat-mode="docked"] #chat-float-slot {
 
 /* Error bubble — red, pinned-left, no markdown rendering. */
 .chat-msg-error {
-  background: rgba(255, 63, 65, 0.12);
-  border: 1px solid rgba(255, 63, 65, 0.4);
-  color: #fecaca;
+  background: var(--color-err-bg);
+  border: 1px solid var(--color-err-brd);
+  color: var(--color-err-text);
   align-self: flex-start;
   padding: 8px 10px;
   border-radius: 8px;
@@ -1660,7 +1773,7 @@ body[data-chat-mode="docked"] #chat-float-slot {
   user-select: none;
 }
 .chat-env-agent-head:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-hover-faint);
 }
 .chat-env-agent-indicator {
   flex: none;
@@ -1691,7 +1804,7 @@ body[data-chat-mode="docked"] #chat-float-slot {
 .chat-env-agent-name {
   flex: 1 1 auto;
   font-family: var(--mono);
-  color: #fff;
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1787,9 +1900,9 @@ body[data-chat-mode="docked"] #chat-float-slot {
 }
 .chat-env-error {
   margin: 0 16px;
-  background: rgba(255, 64, 64, 0.12);
-  border: 1px solid rgba(255, 64, 64, 0.4);
-  color: #fecaca;
+  background: var(--color-err-bg);
+  border: 1px solid var(--color-err-brd);
+  color: var(--color-err-text);
   padding: 6px 8px;
   border-radius: 4px;
   font-size: 0.75rem;
@@ -1801,4 +1914,64 @@ body[data-chat-mode="docked"] #chat-float-slot {
   background: var(--color-head-bg);
   color: var(--color-txt2);
   font-size: 0.75rem;
+}
+
+/* =============================================================================
+ * Theming glue — rules that exist only so both themes read correctly.
+ * Tokens live in the :root[data-theme] blocks at the top of this file. */
+
+#topbar {
+  box-shadow: var(--shadow-topbar);
+}
+#video-loading-overlay {
+  background: var(--scrim-video);
+}
+#chat-input::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
+}
+
+/* The light Quix glyph is white — invert it where it sits on a light surface
+ * (chat header, expanded chat toggle). */
+:root[data-theme="light"] .quix-icon-light {
+  filter: invert(1);
+}
+
+/* Theme toggle: shows the icon of the theme a click switches TO. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+.theme-toggle .icon-moon {
+  display: none;
+}
+:root[data-theme="light"] .theme-toggle .icon-sun {
+  display: none;
+}
+:root[data-theme="light"] .theme-toggle .icon-moon {
+  display: inline-block;
 }

@@ -9,7 +9,7 @@
  * creating a charts→video import cycle.
  */
 
-import { appState, PLOTLY_LAYOUT, videoState } from './state.js';
+import { appState, getPlotlyLayout, videoState } from './state.js';
 import { downsample, fetchTelemetry } from './data.js';
 import { updateMarker, flushPendingSeek } from './sync.js';
 import { getSelections, getActiveSignals, chartTitle } from './selections.js';
@@ -31,11 +31,11 @@ export function setStatus(msg, isError = false) {
 // them when it rewrites the annotations array on each marker move.
 // ---------------------------------------------------------------------------
 
-function buildCornerShapes() {
+export function buildCornerShapes() {
   const trackData = window.trackData;
   const trackConfig = window.trackConfig;
   if (!trackData?.corners || !trackConfig) return [];
-  const colors = trackConfig.colors;
+  const colors = window.TETheme.trackColors(trackConfig.colors);
   return trackData.corners.map((c) => ({
     type: 'rect',
     xref: 'x',
@@ -51,9 +51,10 @@ function buildCornerShapes() {
   }));
 }
 
-function buildCornerAnnotations() {
+export function buildCornerAnnotations() {
   const trackData = window.trackData;
   if (!trackData?.corners) return [];
+  const ct = window.TETheme.chartTheme();
   return trackData.corners.map((c) => ({
     xref: 'x',
     yref: 'paper',
@@ -62,8 +63,8 @@ function buildCornerAnnotations() {
     yanchor: 'top',
     text: c.label,
     showarrow: false,
-    font: { size: 10, color: '#eaedf0' },
-    bgcolor: 'rgba(26,26,26,0.6)',
+    font: { size: 10, color: ct.text },
+    bgcolor: ct.cornerLabelBg,
     borderpad: 2,
   }));
 }
@@ -331,24 +332,25 @@ export async function plot() {
         x1: appState.markerPosition,
         y0: 0,
         y1: 1,
-        line: { color: '#ffffff', width: 1.5, dash: 'solid' },
+        line: { color: window.TETheme.chartTheme().markerLine, width: 1.5, dash: 'solid' },
       };
 
+      const baseLayout = getPlotlyLayout();
       Plotly.newPlot(
         plotDiv,
         traces,
         {
-          ...PLOTLY_LAYOUT,
+          ...baseLayout,
           title: null,
           dragmode: false,
           shapes: [markerShape],
           xaxis: {
-            ...PLOTLY_LAYOUT.xaxis,
+            ...baseLayout.xaxis,
             title: 'Track Position [-]',
             range: [0, 1],
             fixedrange: false,
           },
-          yaxis: { ...PLOTLY_LAYOUT.yaxis, title: chartTitle(signal) },
+          yaxis: { ...baseLayout.yaxis, title: chartTitle(signal) },
         },
         { responsive: true, scrollZoom: false, doubleClick: false, displayModeBar: false },
       );

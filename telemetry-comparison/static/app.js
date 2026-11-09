@@ -23,6 +23,7 @@ import './modules/video.js';
 import { initChatOverlay } from './modules/chat-overlay.js';
 import { initChat } from './modules/chat.js';
 import { initAuth, installFetchOverride } from './modules/auth.js';
+import { initThemeToggle } from './modules/theme.js';
 
 // Replace window.fetch BEFORE any module-level call fires so /api/* requests
 // from data.js, chat.js, video.js, etc. all transparently carry the Bearer.
@@ -150,6 +151,8 @@ window.onPartChange = function (rowIdx, changedCol) {
 // Init — runs once the module is evaluated (type="module" defers until DOM
 // is parsed, so document.getElementById is safe).
 // ---------------------------------------------------------------------------
+
+initThemeToggle();
 
 (async () => {
   setStatus('<span class="loading-spinner"></span> Loading...');

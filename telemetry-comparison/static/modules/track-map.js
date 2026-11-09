@@ -25,7 +25,8 @@ function renderTrackMap() {
   const pts = trackData.points;
   if (!pts.length) return;
 
-  const colors = trackConfig.colors;
+  const ct = window.TETheme.chartTheme();
+  const colors = window.TETheme.trackColors(trackConfig.colors);
   const sevLabels = {
     hairpin: `Hairpin (R<${trackConfig.corner_thresholds.hairpin_max}m)`,
     tight: `Tight (${trackConfig.corner_thresholds.hairpin_max}-${trackConfig.corner_thresholds.tight_max}m)`,
@@ -42,7 +43,7 @@ function renderTrackMap() {
     y: pts.map((p) => -p.z),
     mode: 'lines',
     type: 'scatter',
-    line: { color: '#3e3e46', width: 5, shape: 'spline', smoothing: 0.7 },
+    line: { color: ct.trackBase, width: 5, shape: 'spline', smoothing: 0.7 },
     hoverinfo: 'skip',
     showlegend: false,
   });
@@ -96,7 +97,7 @@ function renderTrackMap() {
       y: [-c.mid_z],
       mode: 'markers+text',
       type: 'scatter',
-      marker: { color: colors[c.severity], size: 16, line: { color: '#1a1a1a', width: 1.5 } },
+      marker: { color: colors[c.severity], size: 16, line: { color: ct.badgeOutline, width: 1.5 } },
       text: [c.label],
       textfont: { color: '#fff', size: 9, family: 'monospace' },
       hoverinfo: 'text',
@@ -133,7 +134,7 @@ function renderTrackMap() {
     marker: {
       color: colors.track_dot || colors.marker,
       size: 13,
-      line: { color: '#fff', width: 2 },
+      line: { color: ct.dotOutline, width: 2 },
     },
     hoverinfo: 'text',
     hovertext: 'Position',
@@ -163,9 +164,10 @@ function renderTrackMap() {
 
   // Layout: legend on top, no grid, no axis titles
   const layout = {
-    paper_bgcolor: '#222229',
-    plot_bgcolor: '#222229',
-    font: { color: '#eaedf0', size: 9 },
+    paper_bgcolor: ct.paper,
+    plot_bgcolor: ct.plot,
+    font: { color: ct.text, size: 9 },
+    ...(ct.hoverlabel ? { hoverlabel: ct.hoverlabel } : {}),
     margin: { t: 40, r: 4, b: 4, l: 4 },
     showlegend: true,
     legend: {

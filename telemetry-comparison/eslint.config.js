@@ -41,6 +41,7 @@ export default [
     files: [
       'static/app.js',
       'static/modules/state.js',
+      'static/modules/theme.js',
       'static/modules/data.js',
       'static/modules/selections.js',
       'static/modules/sync.js',
@@ -70,7 +71,7 @@ export default [
     },
   },
   {
-    files: ['static/modules/*.test.js'],
+    files: ['static/modules/*.test.js', 'static/*.test.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

@@ -15,8 +15,7 @@ import {
   appState,
   PART_COLS,
   PART_LABELS,
-  ROW_COLORS,
-  TRACE_COLORS,
+  getTraceColors,
   DEFAULT_ACTIVE,
   CAT_ORDER,
   MAX_VISIBLE,
@@ -41,10 +40,6 @@ export function getPreviousRowFilters() {
 
 export function addRow(defaults) {
   const idx = appState.rowCount++;
-  // Row accent colour — rotates independently of trace colouring so a row's
-  // visual identity survives across re-plots.
-  const color = ROW_COLORS[idx % ROW_COLORS.length];
-  void color; // assigned for parity with original; currently unused in template
   const prev = defaults || getPreviousRowFilters();
 
   const row = document.createElement('div');
@@ -186,6 +181,7 @@ export function toggleAllLaps(idx) {
 export function getSelections() {
   const result = [];
   let colorIdx = 0;
+  const palette = getTraceColors();
 
   // Collect all row session_ids first to detect multi-session
   const rows = document.querySelectorAll('.selection-row');
@@ -208,7 +204,7 @@ export function getSelections() {
       result.push({
         key: { ...filters },
         lap,
-        color: TRACE_COLORS[colorIdx++ % TRACE_COLORS.length],
+        color: palette[colorIdx++ % palette.length],
         label,
       });
     });

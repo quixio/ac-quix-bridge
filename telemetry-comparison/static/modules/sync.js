@@ -110,6 +110,7 @@ export function updateMarker(nd, forceTrack, source) {
 
     const traces = appState.plotTraces[i] || [];
     const cornerAnn = div._cornerAnnotations || [];
+    const ct = window.TETheme.chartTheme();
     const valueAnn = [];
     const shown = Math.min(MAX_TRACE_ANNOTATIONS, traces.length);
 
@@ -136,7 +137,7 @@ export function updateMarker(nd, forceTrack, source) {
         xshift: 6,
         yshift: -(k * ROW_H) - 2,
         font: { color: t.color, size: 11, family: 'monospace' },
-        bgcolor: 'rgba(15,17,23,0.9)',
+        bgcolor: ct.annotationBg,
         bordercolor: t.color,
         borderwidth: isHL ? 2 : 1,
         borderpad: 2,
@@ -162,8 +163,8 @@ export function updateMarker(nd, forceTrack, source) {
         yanchor: 'top',
         xshift: 6,
         yshift: -(shown * ROW_H) - 2,
-        font: { color: '#a8b1c0', size: 9, style: 'italic' },
-        bgcolor: 'rgba(15,17,23,0.7)',
+        font: { color: ct.muted, size: 9, style: 'italic' },
+        bgcolor: ct.annotationMutedBg,
         borderpad: 1,
       });
     }

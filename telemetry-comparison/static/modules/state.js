@@ -14,26 +14,12 @@
  * directly is equivalent.
  */
 
-export const TRACE_COLORS = [
-  '#4f8ef7',
-  '#f59e0b',
-  '#059669',
-  '#ff3f41',
-  '#a78bfa',
-  '#ec4899',
-  '#06b6d4',
-  '#84cc16',
-  '#f97316',
-  '#8b5cf6',
-  '#14b8a6',
-  '#e879f9',
-  '#fb923c',
-  '#38bdf8',
-  '#a3e635',
-  '#fbbf24',
-];
-
-export const ROW_COLORS = TRACE_COLORS;
+// Trace palette + Plotly layout colours are theme-dependent; the source of
+// truth is window.TETheme (static/theme-core.js, loaded in <head>). Call these
+// at plot time — never cache the result across a theme switch.
+export function getTraceColors() {
+  return window.TETheme.traceColors();
+}
 
 export const PART_COLS = [
   'environment',
@@ -55,17 +41,16 @@ export const PART_LABELS = {
   session_id: 'Session',
 };
 
-// Mirrors the dark palette in styles.css :root + tailwind.config.
-export const PLOTLY_LAYOUT = {
-  paper_bgcolor: '#222229',
-  plot_bgcolor: '#222229',
-  font: { color: '#eaedf0', size: 11 },
-  legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 8 } },
-  margin: { t: 10, r: 60, b: 40, l: 55 },
-  height: 240,
-  xaxis: { color: '#a8b1c0', gridcolor: '#3e3e46', zerolinecolor: '#3e3e46' },
-  yaxis: { color: '#a8b1c0', gridcolor: '#3e3e46', zerolinecolor: '#3e3e46', autorange: true },
-};
+// Base Plotly layout for the active theme (colours from theme-core.js; keep in
+// sync with the CSS tokens in styles.css).
+export function getPlotlyLayout() {
+  return {
+    ...window.TETheme.plotlyLayout(),
+    legend: { orientation: 'v', x: 1.02, y: 1, font: { size: 8 } },
+    margin: { t: 10, r: 60, b: 40, l: 55 },
+    height: 240,
+  };
+}
 
 export const DEFAULT_ACTIVE = new Set(['speedKmh', 'gas', 'brake', 'rpms']);
 
