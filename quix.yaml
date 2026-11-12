@@ -261,15 +261,14 @@ deployments:
           targetPort: 8080
     variables:
       - name: MONGO_USER
-        inputType: ProjectVariable
+        inputType: FreeText
         required: true
-        secret: true
-        variableKey: MONGO_USER
+        value: admin
       - name: MONGO_PASSWORD
         inputType: ProjectVariable
         required: true
         secret: true
-        variableKey: MONGO_ROOT_PASSWORD
+        variableKey: MONGO_PASSWORD
       - name: MONGO_HOST
         inputType: FreeText
         required: true
@@ -420,7 +419,7 @@ deployments:
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage path prefix where MP4 recordings are stored
-        value: testrigorg-acquixbridge-prod/ac_video
+        value: quixdemo-acquixbridge-prod/ac_video
     blobStorage:
       bind: true
   - name: Telemetry Explorer
@@ -448,7 +447,7 @@ deployments:
       - name: BLOB_VIDEO_PREFIX
         inputType: FreeText
         description: Blob storage prefix where MP4 recordings + sidecar JSONs are stored
-        value: testrigorg-acquixbridge-prod/ac_video
+        value: quixdemo-acquixbridge-prod/ac_video
       - name: AC_TELEMETRY_AGENT_ID
         inputType: ProjectVariable
         description: Agent configuration ID of the AC Telemetry Agent (system prompt + KBs + MCP tools). Per-environment project variable — each portal (dev/byox) holds its own agent GUID. Required — if unset, config.py silently falls back to the dev GUID and AI chat hits a non-existent agent on byox/prod.
@@ -461,15 +460,14 @@ deployments:
         secret: true
         variableKey: TELEMETRY_COMPARISON_MCP_API_KEY
       - name: MONGO_USER
-        inputType: ProjectVariable
+        inputType: FreeText
         required: true
-        secret: true
-        variableKey: MONGO_USER
+        value: admin
       - name: MONGO_PASSWORD
         inputType: ProjectVariable
         required: true
         secret: true
-        variableKey: MONGO_ROOT_PASSWORD
+        variableKey: MONGO_PASSWORD
       - name: MONGO_HOST
         inputType: FreeText
         required: true
@@ -549,7 +547,7 @@ deployments:
         inputType: FreeText
         description: Base path in Quix blob storage for backup archives
         required: true
-        value: testrigorg-acquixbridge-prod/backups/mongodb
+        value: quixdemo-acquixbridge-prod/backups/mongodb
       - name: BACKUP_RETENTION_DAYS
         inputType: FreeText
         description: Default retention period for backups in days
@@ -634,15 +632,14 @@ deployments:
         memory: 500
     variables:
       - name: MONGO_USER
-        inputType: ProjectVariable
+        inputType: FreeText
         required: true
-        secret: true
-        variableKey: MONGO_USER
+        value: admin
       - name: MONGO_PASSWORD
         inputType: ProjectVariable
         required: true
         secret: true
-        variableKey: MONGO_ROOT_PASSWORD
+        variableKey: MONGO_PASSWORD
       - name: MONGO_HOST
         inputType: FreeText
         required: true
